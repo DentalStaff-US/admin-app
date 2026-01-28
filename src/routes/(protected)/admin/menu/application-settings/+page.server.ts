@@ -29,6 +29,11 @@ export const load: PageServerLoad = async (event) => {
 
 	const [adminSettings] = await db.select().from(adminConfigTable).limit(1);
 
+	if (!adminSettings) {
+		// Handle the case where no admin settings are found
+		// Create admin settings
+	}
+
 	const paymentFeeForm = await superValidate(event, PaymentFeeSchema);
 
 	// Set the data exactly like your working example

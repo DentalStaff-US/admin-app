@@ -1,19 +1,20 @@
 // Comment out the next two lines to seed db
 
 import { dev } from '$app/environment';
-export const BASE_URL = dev ? 'http://localhost:3000' : 'https://business-portal.dentalstaff.us';
+export const BASE_URL = dev ? 'http://localhost:3000' : 'https://internal.dtstaffingsolutions.com';
+export const BRAND_BASE = '#2a93d1';
 
-export const APP_NAME = 'DentalStaff.US';
-export const CONTACT_EMAIL = 'support@dentalstaff.us';
-export const DOMAIN = 'https://business-portal.dentalstaff.us';
+export const APP_NAME = 'Dental Temp Staffing Solutions';
+export const CONTACT_EMAIL = 'dtss@dtstaffingsolutions.com';
+export const DOMAIN = 'https://internal.dtstaffingsolutions.com';
 /* WARNING!!! TERMS AND CONDITIONS AND PRIVACY POLICY
 WERE CREATED BY CHATGPT AS AN EXAMPLE ONLY.
 CONSULT A LAWYER AND DEVELOP YOUR OWN TERMS AND PRIVACY POLICY!!! */
-export const TERMS_PRIVACY_CONTACT_EMAIL = 'support@dentalstaff.us';
-export const TERMS_PRIVACY_WEBSITE = 'https://business-portal.dentalstaff.us';
-export const TERMS_PRIVACY_COMPANY = 'Dental Staff US';
+export const TERMS_PRIVACY_CONTACT_EMAIL = 'dtss@dtstaffingsolutions.com';
+export const TERMS_PRIVACY_WEBSITE = 'https://www.dtstaffingsolutions.com';
+export const TERMS_PRIVACY_COMPANY = 'Dental Temp Staffing Solutions';
 export const TERMS_PRIVACY_EFFECTIVE_DATE = 'January 1, 2023';
-export const TERMS_PRIVACY_APP_NAME = 'Dental Staff US';
+export const TERMS_PRIVACY_APP_NAME = 'Dental Temp Staffing Solutions';
 export const TERMS_PRIVACY_APP_PRICING_AND_SUBSCRIPTIONS =
 	'[Details about the pricing, subscription model, refund policy]';
 export const TERMS_PRIVACY_COUNTRY = 'United States';
@@ -154,115 +155,134 @@ export const skillsByCategory = {
 
 export const notificationEntityIds: { id: string; entity: string; action: string }[] = [];
 
-interface Timezone {
-	label: string;
-	name: string;
-	offsetString: string;
-	timezones: string[];
-	offsetNum: number;
-}
-
-export const TIMEZONES: Timezone[] = [
+// interface Timezone {
+// 	label: string;
+// 	name: string;
+// 	offsetString: string;
+// 	timezones: string[];
+// 	offsetNum: number;
+// }
+//
+export const TIMEZONES = [
 	{
-		label: 'Hawaii',
-		name: 'Hawaiian Standard Time',
-		offsetString: '-10:00',
-		timezones: ['America/Adak', 'Pacific/Honolulu'],
-		offsetNum: -10
+		label: 'Eastern Standard (EST)',
+		name: 'America/New_York'
 	},
 	{
-		label: 'Alaska',
-		name: 'Alaskan Standard Time',
-		offsetString: '-09:00',
-		timezones: [
-			'America/Anchorage',
-			'America/Juneau',
-			'America/Sitka',
-			'America/Metlakatla',
-			'America/Nome',
-			'America/Adak'
-		],
-		offsetNum: -9
+		label: 'Central Standard (CST)',
+		name: 'America/Chicago'
 	},
 	{
-		label: 'Pacific',
-		name: 'Pacific Standard Time',
-		offsetString: '-08:00',
-		timezones: ['America/Los_Angeles'],
-		offsetNum: -8
+		label: 'Mountain Standard (MST)',
+		name: 'America/Denver'
 	},
 	{
-		label: 'Mountain',
-		name: 'Mountain Standard Time',
-		offsetString: '-07:00',
-		timezones: ['America/Denver', 'America/Boise', 'America/Phoenix', 'America/Shiprock'],
-		offsetNum: -7
-	},
-	{
-		label: 'Central',
-		name: 'Central Standard Time',
-		offsetString: '-06:00',
-		timezones: [
-			'America/Chicago',
-			'America/Indiana/Tell_City',
-			'America/Indiana/Knox',
-			'America/Menominee',
-			'America/North_Dakota/Center',
-			'America/North_Dakota/New_Salem',
-			'America/North_Dakota/Beulah'
-		],
-		offsetNum: -6
-	},
-	{
-		label: 'Eastern',
-		name: 'Eastern Standard Time',
-		offsetString: '-05:00',
-		timezones: [
-			'America/New_York',
-			'America/Detroit',
-			'America/Kentucky/Louisville',
-			'America/Kentucky/Monticello',
-			'America/Indiana/Indianapolis',
-			'America/Indiana/Vincennes',
-			'America/Indiana/Winamac',
-			'America/Indiana/Marengo',
-			'America/Indiana/Petersburg',
-			'America/Indiana/Vevay'
-		],
-		offsetNum: -5
-	},
-	{
-		label: 'Atlantic',
-		name: 'Atlantic Standard Time',
-		offsetString: '-04:00',
-		timezones: [
-			'America/Halifax',
-			'America/Barbados',
-			'America/Blanc-Sablon',
-			'America/Glace_Bay',
-			'America/Goose_Bay',
-			'America/Moncton',
-			'America/Puerto_Rico',
-			'America/Santo_Domingo',
-			'America/Thule',
-			'America/Anguilla',
-			'America/Antigua',
-			'America/Aruba',
-			'America/Curacao',
-			'America/Dominica',
-			'America/Grenada',
-			'America/Guadeloupe',
-			'America/Martinique',
-			'America/Montserrat',
-			'America/St_Kitts',
-			'America/St_Lucia',
-			'America/St_Thomas',
-			'America/St_Vincent',
-			'America/Tortola'
-		],
-		offsetNum: -4
+		label: 'Pacific Standard (PST)',
+		name: 'America/Los_Angeles'
 	}
 ];
+
+// export const TIMEZONES: Timezone[] = [
+// 	{
+// 		label: 'Hawaii',
+// 		name: 'Hawaiian Standard Time',
+// 		offsetString: '-10:00',
+// 		timezones: ['America/Adak', 'Pacific/Honolulu'],
+// 		offsetNum: -10
+// 	},
+// 	{
+// 		label: 'Alaska',
+// 		name: 'Alaskan Standard Time',
+// 		offsetString: '-09:00',
+// 		timezones: [
+// 			'America/Anchorage',
+// 			'America/Juneau',
+// 			'America/Sitka',
+// 			'America/Metlakatla',
+// 			'America/Nome',
+// 			'America/Adak'
+// 		],
+// 		offsetNum: -9
+// 	},
+// 	{
+// 		label: 'Pacific',
+// 		name: 'Pacific Standard Time',
+// 		offsetString: '-08:00',
+// 		timezones: ['America/Los_Angeles'],
+// 		offsetNum: -8
+// 	},
+// 	{
+// 		label: 'Mountain',
+// 		name: 'Mountain Standard Time',
+// 		offsetString: '-07:00',
+// 		timezones: ['America/Denver', 'America/Boise', 'America/Phoenix', 'America/Shiprock'],
+// 		offsetNum: -7
+// 	},
+// 	{
+// 		label: 'Central',
+// 		name: 'Central Standard Time',
+// 		offsetString: '-06:00',
+// 		timezones: [
+// 			'America/Chicago',
+// 			'America/Indiana/Tell_City',
+// 			'America/Indiana/Knox',
+// 			'America/Menominee',
+// 			'America/North_Dakota/Center',
+// 			'America/North_Dakota/New_Salem',
+// 			'America/North_Dakota/Beulah'
+// 		],
+// 		offsetNum: -6
+// 	},
+// 	{
+// 		label: 'Eastern',
+// 		name: 'Eastern Standard Time',
+// 		offsetString: '-05:00',
+// 		timezones: [
+// 			'America/New_York',
+// 			'America/Detroit',
+// 			'America/Kentucky/Louisville',
+// 			'America/Kentucky/Monticello',
+// 			'America/Indiana/Indianapolis',
+// 			'America/Indiana/Vincennes',
+// 			'America/Indiana/Winamac',
+// 			'America/Indiana/Marengo',
+// 			'America/Indiana/Petersburg',
+// 			'America/Indiana/Vevay'
+// 		],
+// 		offsetNum: -5
+// 	},
+// 	{
+// 		label: 'Atlantic',
+// 		name: 'Atlantic Standard Time',
+// 		offsetString: '-04:00',
+// 		timezones: [
+// 			'America/Halifax',
+// 			'America/Barbados',
+// 			'America/Blanc-Sablon',
+// 			'America/Glace_Bay',
+// 			'America/Goose_Bay',
+// 			'America/Moncton',
+// 			'America/Puerto_Rico',
+// 			'America/Santo_Domingo',
+// 			'America/Thule',
+// 			'America/Anguilla',
+// 			'America/Antigua',
+// 			'America/Aruba',
+// 			'America/Curacao',
+// 			'America/Dominica',
+// 			'America/Grenada',
+// 			'America/Guadeloupe',
+// 			'America/Martinique',
+// 			'America/Montserrat',
+// 			'America/St_Kitts',
+// 			'America/St_Lucia',
+// 			'America/St_Thomas',
+// 			'America/St_Vincent',
+// 			'America/Tortola'
+// 		],
+// 		offsetNum: -4
+// 	}
+// ];
 
 export const SETTINGS_MENU_OPTIONS = {
 	ADMIN: {

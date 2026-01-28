@@ -12,6 +12,7 @@ import {
 } from '$lib/server/database/queries/requisitions';
 import { USER_ROLES } from '$lib/config/constants';
 import { getClientProfileByIdAdmin } from '$lib/server/database/queries/admin';
+import { getQualifiedProfessionalsForRequisition } from '$lib/server/database/queries/candidates';
 
 export async function load({ locals, params }: RequestEvent) {
 	const user = locals.user;
@@ -28,6 +29,11 @@ export async function load({ locals, params }: RequestEvent) {
 		const company = await getClientCompanyByClientId(client.id);
 		const recurrenceDay = await getRecurrenceDayDetails(recurrenceDayId, company.id);
 		const workday = await getWorkdayDetails(recurrenceDayId, company.id);
+
+		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
+			requisition.id,
+			recurrenceDay.recurrenceDay.id
+		);
 
 		return {
 			user,

@@ -13,7 +13,8 @@ export default defineConfig({
 	out: './src/lib/server/database/migrations',
 	dialect: 'postgresql',
 	dbCredentials: {
-		url: DATABASE_URL
+		url: DATABASE_URL,
+		ssl: process.env.NODE_ENV === 'production' ? 'require' : undefined
 	},
 	extensionsFilters: ['postgis']
 });

@@ -109,7 +109,7 @@
 </script>
 
 <svelte:head>
-	<title>Invoice #{invoiceData.invoice.invoiceNumber} | DentalStaff.US</title>
+	<title>Invoice #{invoiceData.invoice.invoiceNumber} | DTSS</title>
 </svelte:head>
 
 <section class="container mx-auto p-6 space-y-6">

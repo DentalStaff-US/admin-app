@@ -80,11 +80,11 @@ export async function getAllCandidateProfiles(searchTerm?: string) {
 		})
 		.from(candidateProfileTable)
 		.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
-		.innerJoin(
+		.leftJoin(
 			candidateDisciplineExperienceTable,
 			eq(candidateDisciplineExperienceTable.candidateId, candidateProfileTable.id)
 		)
-		.innerJoin(
+		.leftJoin(
 			disciplineTable,
 			eq(candidateDisciplineExperienceTable.disciplineId, disciplineTable.id)
 		)
@@ -222,6 +222,17 @@ export async function getCandidateByEmail(email: string) {
 	return result;
 }
 
+export const createCandidateProfile = async (data: CandidateProfile, tx?: any) => {
+	try {
+		const query = tx || db;
+		const [result] = await query.insert(candidateProfileTable).values(data).returning();
+		return result;
+	} catch (err) {
+		console.error(err);
+		throw new Error(err instanceof Error ? err.message : 'Error updating candidate profile');
+	}
+};
+
 export async function updateCandidateProfile(candidateId: string, data: UpdateCandidateProfile) {
 	const [result] = await db
 		.update(candidateProfileTable)
@@ -284,4 +295,22 @@ export async function getCandidateDocuments(candidateId: string) {
 		.limit(DEFAULT_MAX_RECORD_LIMIT);
 
 	return documents || [];
+}
+
+export async function getQualifiedProfessionalsForRequisition(
+	requisitionId: number,
+	recurrenceDayId: string
+) {
+	const [requisition] = await db
+		.select()
+		.from(requisitionTable)
+		.where(eq(requisitionTable.id, requisitionId));
+
+	const [recurrenceDay] = await db
+		.select()
+		.from(recurrenceDayTable)
+		.where(eq(recurrenceDayTable.id, recurrenceDayId));
+
+	// get discipline and experience from requisition
+	// find candidates that match those (as well as location)
 }

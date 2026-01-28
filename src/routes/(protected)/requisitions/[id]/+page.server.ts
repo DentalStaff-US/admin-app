@@ -238,6 +238,8 @@ export const actions = {
 			// Convert the day to UTC format
 			const utcDay = convertRecurrenceDayToUTC(day, requisition.requisition.referenceTimezone);
 
+			console.log('utc day data', utcDay);
+
 			const values = {
 				id: crypto.randomUUID(),
 				createdAt: new Date(),
@@ -250,6 +252,8 @@ export const actions = {
 				lunchEnd: utcDay.lunchEnd,
 				archived: false
 			};
+
+			console.log('values gping into db', values);
 
 			return createNewRecurrenceDay(values, user!.id);
 		}

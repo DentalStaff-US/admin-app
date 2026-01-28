@@ -154,9 +154,13 @@ export async function updateAdminUserProfile(id: string, values: UpdateUser) {
 		})
 		.where(and(eq(userTable.id, id), eq(userTable.role, USER_ROLES.SUPERADMIN)))
 		.returning();
+
+	return result;
 }
 
-export async function deleteAdminUser(id: string) {}
+export async function deleteAdminUser(id: string) {
+	return await db.delete(userTable).where(eq(userTable.id, id));
+}
 
 export async function getCalendarEventsForAdmin(userId: string) {
 	const adminUser = await db

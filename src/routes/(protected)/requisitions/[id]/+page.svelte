@@ -19,7 +19,10 @@
     import type {SuperValidated} from 'sveltekit-superforms';
     import type {
         NewRecurrenceDaySchema,
-        ChangeStatusSchema
+        ChangeStatusSchema,
+
+		DeleteRecurrenceDaySchema
+
     } from '$lib/config/zod-schemas';
     import {format, parse} from 'date-fns';
     import {cn} from '$lib/utils';
@@ -78,7 +81,7 @@ $: console.log(location)
 
     export let changeStatusForm: SuperValidated<ChangeStatusSchema>;
     export let recurrenceDayForm: SuperValidated<NewRecurrenceDaySchema>;
-    // export let deleteRecurrenceDayForm: SuperValidated<DeleteRecurrenceDaySchema>;
+    export let deleteRecurrenceDayForm: SuperValidated<DeleteRecurrenceDaySchema>;
 
     // Filter recurrence days by status
     $: filteredRecurrenceDays = recurrenceDaysTableData.filter(
@@ -265,7 +268,7 @@ $: console.log(location)
     const recurrenceDaysTable = createSvelteTable(recurrenceDaysOptions);
     const timesheetTable = createSvelteTable(timesheetOptions);
 
-    // const { enhance } = superForm(deleteRecurrenceDayForm);
+    const { enhance: deleteEnhance } = superForm(deleteRecurrenceDayForm);
     const {enhance: statusEnhance, submitting: statusSubmitting} = superForm(changeStatusForm);
 </script>
 

@@ -146,9 +146,9 @@
                 })
         },
         {
-            header: 'Title',
-            id: 'title',
-            accessorKey: 'title'
+            header: 'Discipline',
+            id: 'discipline',
+            accessorKey: 'discipline'
         },
         {
             header: 'Status',
@@ -165,11 +165,6 @@
                         original.getValue() === 'CANCELED' && 'bg-red-500 hover:bg-red-600'
                     )
                 })
-        },
-        {
-            header: 'Discipline',
-            id: 'discipline',
-            accessorKey: 'discipline'
         },
         {
             header: 'Experience Level',

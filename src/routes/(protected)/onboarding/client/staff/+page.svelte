@@ -34,7 +34,11 @@
 	let submitting = false;
 	export let data;
 
-	const { form, errors, enhance: inviteEnhance } = superForm(data.form, {
+	const {
+		form,
+		errors,
+		enhance: inviteEnhance
+	} = superForm(data.form, {
 		resetForm: false,
 		onSubmit: ({ formData }) => {
 			// Log what's being sent
@@ -103,10 +107,10 @@
 		}
 	};
 
- function handleSkip() {
-        const skipForm = document.getElementById('skipForm');
-        skipForm?.requestSubmit();
-    }
+	function handleSkip() {
+		const skipForm = document.getElementById('skipForm');
+		skipForm?.requestSubmit();
+	}
 </script>
 
 <section class="flex flex-col items-center justify-center min-h-screen">
@@ -188,6 +192,12 @@
 				</Card.Footer>
 			</Card.Root>
 		</form>
-		<form id="skipForm" method="POST" action="?/skipInviting" use:enhance style="display: none;"></form>
+		<form
+			id="skipForm"
+			method="POST"
+			action="?/skipInviting"
+			use:enhance
+			style="display: none;"
+		></form>
 	</div>
 </section>

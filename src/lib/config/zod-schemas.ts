@@ -372,3 +372,12 @@ export const updateCandidateDisciplinesSchema = z.object({
 		)
 		.min(1, 'Please select at least one discipline')
 });
+
+export const adminNewProfessionalUserSchema = z.object({
+	firstName: z.string(),
+	lastName: z.string(),
+	email: z.string().email(),
+	password: z.string().min(8)
+});
+
+export type AdminNewProfessionalUserSchema = typeof adminNewProfessionalUserSchema;

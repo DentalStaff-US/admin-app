@@ -256,7 +256,7 @@
 </script>
 
 <svelte:head>
-	<title>Timesheets | DentalStaff.US</title>
+	<title>Timesheets | DTSS</title>
 </svelte:head>
 
 <section class="grow h-screen overflow-y-auto p-6 flex flex-col gap-6">

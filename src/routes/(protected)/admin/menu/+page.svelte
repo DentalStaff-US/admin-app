@@ -3,7 +3,8 @@
 		'User Management': [
 			{ name: 'Admins', link: '/admin/menu/admins' },
 			{ name: 'Professional Members', link: '/professionals' },
-			{ name: 'Business Members', link: '/clients' }
+			{ name: 'Business Members', link: '/clients' },
+			{name: "User Management", link: "/admin/menu/user-management"}
 		],
 		'Requisition Management': [
 			{ name: 'Requisitions', link: '/requisitions' },

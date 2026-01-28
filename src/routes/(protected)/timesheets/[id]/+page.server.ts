@@ -35,6 +35,10 @@ import { actionHistoryTable } from '$lib/server/database/schemas/admin';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
 import { userTable } from '$lib/server/database/schemas/auth';
 import { getUserById } from '$lib/server/database/queries/users';
+import { timeSheetTable } from '$lib/server/database/schemas/requisition';
+import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
+import type { RawTimesheetHours } from '$lib/server/database/schemas/requisition';
+import { writeActionHistory } from '$lib/server/database/queries/admin';
 
 export const load = async (event: RequestEvent) => {
 	const user = event.locals.user;
@@ -62,13 +66,7 @@ export const load = async (event: RequestEvent) => {
 				return { ...history, user: user?.user || null };
 			})
 		);
-		console.log('Timesheet Load:', {
-			user,
-			timesheet: JSON.stringify(timesheet, null, 2),
-			recurrenceDays,
-			requisition,
-			invoice
-		});
+
 		return {
 			user,
 			timesheet,
@@ -93,14 +91,6 @@ export const load = async (event: RequestEvent) => {
 		const workdays = await getWorkdaysForTimesheet(timesheet);
 		const invoice = await getInvoiceByTimesheetId(id);
 
-		console.log('Timesheet Load:', {
-			user,
-			timesheet,
-			recurrenceDays,
-			requisition,
-			invoice
-		});
-
 		return {
 			user,
 			timesheet,
@@ -110,6 +100,7 @@ export const load = async (event: RequestEvent) => {
 			invoice
 		};
 	}
+
 	if (user.role === USER_ROLES.CLIENT_STAFF) {
 		const client = await getClientProfileByStaffUserId(user.id);
 		await redirectIfNotValidCustomer(client?.id, user.role);
@@ -119,14 +110,6 @@ export const load = async (event: RequestEvent) => {
 		const recurrenceDays = await getRecurrenceDaysForTimesheet(timesheet);
 		const workdays = await getWorkdaysForTimesheet(timesheet);
 		const invoice = await getInvoiceByTimesheetId(id);
-
-		console.log('Timesheet Load:', {
-			user,
-			timesheet,
-			recurrenceDays,
-			requisition,
-			invoice
-		});
 
 		return {
 			user,
@@ -142,6 +125,185 @@ export const load = async (event: RequestEvent) => {
 };
 
 export const actions = {
+	// ✅ NEW: Admin submit timesheet (DRAFT → PENDING) with proper timezone conversion
+	adminSubmitTimesheet: async (event: RequestEvent) => {
+		const { id } = event.params;
+		const { user } = event.locals;
+
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			throw error(401, 'Unauthorized');
+		}
+
+		const formData = await event.request.formData();
+		const entries = JSON.parse(formData.get('entries') as string);
+		const totalHours = parseFloat(formData.get('totalHours') as string);
+
+		try {
+			// Fetch timesheet
+			const [timesheet] = await db
+				.select()
+				.from(timeSheetTable)
+				.where(eq(timeSheetTable.id, id))
+				.limit(1);
+
+			if (!timesheet) {
+				throw error(404, 'Timesheet not found');
+			}
+
+			// Get requisition for timezone
+			const requisition = await getRequisitionById(timesheet.requisitionId);
+
+			if (!requisition || !requisition.referenceTimezone) {
+				throw error(400, 'Requisition timezone not found');
+			}
+
+			// Convert entries to array format
+			const entriesArray = Object.entries(entries)
+				.filter(([_, value]: [string, any]) => value.hours > 0)
+				.map(([date, value]: [string, any]) => ({
+					date,
+					startTime: value.startTime,
+					endTime: value.endTime,
+					lunchStartTime: value.lunchStartTime,
+					lunchEndTime: value.lunchEndTime,
+					hours: value.hours
+				}));
+
+			// Format entries with UTC conversion using requisition timezone
+			const formattedEntries: RawTimesheetHours[] = entriesArray.map((entry) => ({
+				...entry,
+				startTime: createUTCDateTime(entry.date, entry.startTime, requisition.referenceTimezone),
+				endTime: createUTCDateTime(entry.date, entry.endTime, requisition.referenceTimezone),
+				lunchStartTime: entry.lunchStartTime
+					? createUTCDateTime(entry.date, entry.lunchStartTime, requisition.referenceTimezone)
+					: null,
+				lunchEndTime: entry.lunchEndTime
+					? createUTCDateTime(entry.date, entry.lunchEndTime, requisition.referenceTimezone)
+					: null
+			}));
+
+			// Update timesheet
+			const [result] = await db
+				.update(timeSheetTable)
+				.set({
+					totalHoursWorked: totalHours.toString(),
+					hoursRaw: formattedEntries,
+					status: 'PENDING',
+					updatedAt: new Date()
+				})
+				.where(eq(timeSheetTable.id, id))
+				.returning();
+
+			await writeActionHistory({
+				action: 'UPDATE',
+				userId: user.id,
+				entityId: result.id,
+				table: 'TIMESHEETS',
+				beforeState: timesheet,
+				afterState: result
+			});
+
+			setFlash({ type: 'success', message: 'Timesheet submitted successfully!' }, event);
+			return { success: true };
+		} catch (err) {
+			console.error('Error submitting timesheet:', err);
+			setFlash({ type: 'error', message: 'Failed to submit timesheet' }, event);
+			return fail(500, { error: 'Failed to submit timesheet' });
+		}
+	},
+
+	// ✅ NEW: Admin resubmit timesheet (DISCREPANCY → PENDING) with proper timezone conversion
+	adminResubmitTimesheet: async (event: RequestEvent) => {
+		const { id } = event.params;
+		const { user } = event.locals;
+
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			throw error(401, 'Unauthorized');
+		}
+
+		const formData = await event.request.formData();
+		const entries = JSON.parse(formData.get('entries') as string);
+		const totalHours = parseFloat(formData.get('totalHours') as string);
+
+		try {
+			// Fetch timesheet
+			const [timesheet] = await db
+				.select()
+				.from(timeSheetTable)
+				.where(eq(timeSheetTable.id, id))
+				.limit(1);
+
+			if (!timesheet) {
+				throw error(404, 'Timesheet not found');
+			}
+
+			// Get requisition for timezone
+			const requisition = await getRequisitionById(timesheet.requisitionId);
+
+			if (!requisition || !requisition.referenceTimezone) {
+				throw error(400, 'Requisition timezone not found');
+			}
+
+			// Convert entries to array format
+			const entriesArray = Object.entries(entries)
+				.filter(([_, value]: [string, any]) => value.hours > 0)
+				.map(([date, value]: [string, any]) => ({
+					date,
+					startTime: value.startTime,
+					endTime: value.endTime,
+					lunchStartTime: value.lunchStartTime,
+					lunchEndTime: value.lunchEndTime,
+					hours: value.hours
+				}));
+
+			// Format entries with UTC conversion using requisition timezone
+			const formattedEntries: RawTimesheetHours[] = entriesArray.map((entry) => ({
+				...entry,
+				startTime: createUTCDateTime(entry.date, entry.startTime, requisition.referenceTimezone),
+				endTime: createUTCDateTime(entry.date, entry.endTime, requisition.referenceTimezone),
+				lunchStartTime: entry.lunchStartTime
+					? createUTCDateTime(entry.date, entry.lunchStartTime, requisition.referenceTimezone)
+					: null,
+				lunchEndTime: entry.lunchEndTime
+					? createUTCDateTime(entry.date, entry.lunchEndTime, requisition.referenceTimezone)
+					: null
+			}));
+
+			// Update timesheet and clear discrepancy note
+			const [result] = await db
+				.update(timeSheetTable)
+				.set({
+					totalHoursWorked: totalHours.toString(),
+					hoursRaw: formattedEntries,
+					status: 'PENDING',
+					discrepancyNote: null,
+					updatedAt: new Date()
+				})
+				.where(eq(timeSheetTable.id, id))
+				.returning();
+
+			await writeActionHistory({
+				action: 'UPDATE',
+				userId: user.id,
+				entityId: result.id,
+				table: 'TIMESHEETS',
+				beforeState: timesheet,
+				afterState: result
+			});
+
+			setFlash(
+				{ type: 'success', message: 'Timesheet corrected and resubmitted successfully!' },
+				event
+			);
+			return { success: true };
+		} catch (err) {
+			console.error('Error resubmitting timesheet:', err);
+			setFlash({ type: 'error', message: 'Failed to resubmit timesheet' }, event);
+			return fail(500, { error: 'Failed to resubmit timesheet' });
+		}
+	},
+
+	// ✅ EXISTING: Reject timesheet
 	rejectTimesheet: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user) {
@@ -152,14 +314,12 @@ export const actions = {
 		const formData = await event.request.formData();
 		const discrepancyNote = formData.get('discrepancyNote') as string;
 
-		// ✅ Validate that a note was provided
 		if (!discrepancyNote || !discrepancyNote.trim()) {
 			setFlash({ type: 'error', message: 'Please provide a reason for rejection' }, event);
 			return fail(400, { error: 'Discrepancy note is required' });
 		}
 
 		try {
-			// ✅ Pass the discrepancy note to the rejection function
 			await rejectTimesheet(id, user.id, discrepancyNote.trim());
 			setFlash({ type: 'success', message: 'Timesheet rejected' }, event);
 			return { success: true };
@@ -170,6 +330,8 @@ export const actions = {
 			return fail(500, { error: 'Failed to reject timesheet' });
 		}
 	},
+
+	// ✅ EXISTING: Approve timesheet
 	approveTimesheet: async (event: RequestEvent) => {
 		const { id } = event.params;
 		const { user } = event.locals;
@@ -211,7 +373,7 @@ export const actions = {
 				stripeCustomerId,
 				[{ amountInCents: finalAmt, description: `Invoice for timesheet ${id}` }],
 				{ userId: user.id, timesheetId: timesheet.id },
-				`DentalStaff.US invoice: Hours worked for ${user.firstName} ${user.lastName} for timesheet ${id}`
+				`Dental Temp Staffing Solutions invoice: Hours worked for ${user.firstName} ${user.lastName} for timesheet ${id}`
 			);
 
 			await createInvoiceRecord(
@@ -233,13 +395,8 @@ export const actions = {
 			return { success: false };
 		}
 	},
-	editTimesheet: async (event: RequestEvent) => {
-		if (event.locals.user?.role !== USER_ROLES.SUPERADMIN) {
-			throw error(403, 'Forbidden');
-		}
 
-		// const { id } = event.params;
-	},
+	// ✅ EXISTING: Void timesheet
 	voidTimesheet: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user) {
@@ -256,6 +413,8 @@ export const actions = {
 			setFlash({ type: 'error', message: 'Error voiding timesheet' }, event);
 		}
 	},
+
+	// ✅ EXISTING: Admin override timesheet
 	adminOverrideTimesheet: async (event: RequestEvent) => {
 		if (event.locals.user === null) {
 			redirect(302, '/auth/sign-in');
@@ -310,7 +469,7 @@ export const actions = {
 				stripeCustomerId,
 				[{ amountInCents: finalAmt, description: `Invoice for timesheet ${id}` }],
 				{ userId: user.id, timesheetId: overridden.id },
-				`DentalStaff.US invoice: Hours worked for ${user.firstName} ${user.lastName} for timesheet ${id}`
+				`Dental Temp Staffing Solutions invoice: Hours worked for ${user.firstName} ${user.lastName} for timesheet ${id}`
 			);
 
 			await createInvoiceRecord(
@@ -328,39 +487,6 @@ export const actions = {
 		} catch (error) {
 			console.error('Error overriding timesheet:', error);
 			setFlash({ type: 'error', message: 'Error overriding timesheet' }, event);
-			return { success: false };
-		}
-	},
-	adminEditTimesheet: async (event: RequestEvent) => {
-		const user = event.locals.user;
-		if (!user) {
-			redirect(302, '/auth/sign-in');
-		}
-
-		if (user.role !== USER_ROLES.SUPERADMIN) {
-			throw error(403, 'Forbidden');
-		}
-
-		const { id } = event.params;
-		const formData = await event.request.formData();
-
-		try {
-			// Parse the updated hours data from form
-			const hoursRaw = JSON.parse(formData.get('hoursRaw') as string);
-			const totalHoursWorked = formData.get('totalHoursWorked') as string;
-
-			// Update timesheet with new hours
-			const updatedTimesheet = await updateTimesheetHours(id, {
-				hoursRaw,
-				totalHoursWorked,
-				userId: user.id
-			});
-
-			setFlash({ type: 'success', message: 'Timesheet hours updated successfully' }, event);
-			return { success: true, timesheet: updatedTimesheet };
-		} catch (error) {
-			console.error('Error updating timesheet:', error);
-			setFlash({ type: 'error', message: 'Error updating timesheet hours' }, event);
 			return { success: false };
 		}
 	}

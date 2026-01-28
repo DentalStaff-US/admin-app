@@ -7,7 +7,7 @@
 
     let editing = false;
     export let data: PageData;
-    // $: user = data.user;
+    $: user = data.user;
     $: profile = data.profile
 
     const {form, submitting, enhance} = superForm(data.updateAdminForm, {
@@ -35,13 +35,22 @@
             <h1 class="text-3xl font-bold tracking-tight">Admin Profile</h1>
             <p class="text-muted-foreground">Manage profile details</p>
         </div>
-        <Button on:click={() => handleToggleEdit()} class="bg-blue-800 hover:bg-blue-900">
-            {#if editing}
-                Cancel
-            {:else}
-                Edit Profile
+        <div class="flex gap-4 items-center">
+            {#if user.id !== profile.id}
+                <form action="?/deleteAdminUser" method="POST">
+                    <Button type="submit" variant="destructive">
+                        Delete User
+                    </Button>
+            </form>
             {/if}
-        </Button>
+            <Button on:click={() => handleToggleEdit()} class="bg-blue-800 hover:bg-blue-900">
+                {#if editing}
+                    Cancel
+                {:else}
+                    Edit Profile
+                {/if}
+            </Button>
+        </div>
     </div>
     {#if (editing)}
         <form use:enhance method="POST" action="?/updateAdminProfile">

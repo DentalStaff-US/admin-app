@@ -1,6 +1,10 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { USER_ROLES } from '$lib/config/constants';
-import { getAdminUserById, updateAdminUserProfile } from '$lib/server/database/queries/admin';
+import {
+	deleteAdminUser,
+	getAdminUserById,
+	updateAdminUserProfile
+} from '$lib/server/database/queries/admin';
 import { z } from 'zod';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
@@ -40,6 +44,28 @@ export const load = async (event) => {
 };
 
 export const actions = {
+	deleteAdminUser: async (event) => {
+		const user = event.locals.user;
+		if (user?.role !== USER_ROLES.SUPERADMIN) {
+			redirect(301, '/dashboard');
+		}
+
+		const { id } = event.params;
+
+		if (id === user.id) {
+			return fail(400, { message: 'You cannot delete your own account.' });
+		}
+
+		try {
+			deleteAdminUser(id);
+			setFlash({ type: 'success', message: 'User deleted successfully.' }, event);
+		} catch (err) {
+			console.error('Error deleting user:', err);
+			setFlash({ type: 'error', message: 'There was a problem deleting user.' }, event);
+			return fail(500);
+		}
+		redirect(301, '/admin/menu/admins');
+	},
 	updateAdminProfile: async (event) => {
 		const user = event.locals.user;
 		if (user?.role !== USER_ROLES.SUPERADMIN) {

@@ -21,7 +21,10 @@
 		Users,
 		ChevronLeft,
 		ChevronRight,
-		Filter
+		Filter,
+
+		Plus
+
 	} from 'lucide-svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -30,8 +33,43 @@
 	import { writable } from 'svelte/store';
 	import { onMount } from 'svelte';
 	import ViewLink from '$lib/components/tables/ViewLink.svelte';
+	import * as Dialog from "$lib/components/ui/dialog";
+	import Label from '$lib/components/ui/label/label.svelte';
+	import AddressSearchAutocomplete from '$lib/components/AddressSearchAutocomplete.svelte';
+	import type { AddressResult } from '$lib/types';
+	import { superForm } from 'sveltekit-superforms/client';
+	import type {AdminNewProfessionalUserSchema} from '$lib/config/zod-schemas';
 
 	export let data: PageData;
+	$: newProfileForm = data.newProfileForm
+	let addDialogOpen = false
+    let selectedAddress: AddressResult | null = null;
+
+    const { form, errors, submitting, enhance } = superForm<AdminNewProfessionalUserSchema>(newProfileForm, {
+        onResult: ({ result }) => {
+            console.log('Form result:', result);
+            if (result.type === 'success') {
+                addDialogOpen = false;
+                // // Optionally reload the page or refresh data
+                // window.location.reload();
+            }
+        }
+    });
+
+    function handleAddressSelect(event: CustomEvent<AddressResult>) {
+        const address = event.detail;
+        console.log("Selected address:", address);
+        selectedAddress = address;
+
+        // $formData.streetOne = address.
+        // Now you have both formatted address and coordinates
+        // Save to your database, update form state, etc.
+    }
+
+    function handleClear() {
+        console.log("Address cleared");
+        selectedAddress = null;
+    }
 
 	type CandidateData = {
 		profile: {
@@ -232,6 +270,7 @@
 		</div>
 	</div>
 
+	<div class="flex justify-between flex-wrap items-center">
 	<!-- Search -->
 	<form on:submit|preventDefault={() => handleSearch(searchTerm)} class="flex items-center gap-2">
 		<Input
@@ -245,6 +284,9 @@
 			on:click={() => handleSearch(searchTerm)}>Search</Button
 		>
 	</form>
+	<Button class="bg-blue-800 hover:bg-blue-900 gap-2" on:click={() => addDialogOpen = true}><Plus />Add Professional</Button>
+
+	</div>
 
 	<!-- Tabs with Tables -->
 	<Tabs.Root bind:value={activeTab} class="">
@@ -369,13 +411,13 @@
 									<Users class="w-8 h-8 text-gray-400" />
 								</div>
 								<h3 class="text-lg font-medium text-gray-900 mb-2">
-									No {activeTab} candidates found
+									No {activeTab} professionals found
 								</h3>
 								<p class="text-sm text-gray-500">
 									{#if searchTerm}
 										Try adjusting your search terms
 									{:else}
-										No {activeTab} candidates available
+									Add some new professionals to assign shifts
 									{/if}
 								</p>
 							</div>
@@ -386,3 +428,53 @@
 		{/each}
 	</Tabs.Root>
 </section>
+
+<Dialog.Root bind:open={addDialogOpen}>
+        <Dialog.Content class="space-y-4">
+    <form use:enhance method="POST" action="?/adminCreateProfessional" class="space-y-4">
+            <Dialog.Header>
+                <Dialog.Title>Add New Professional</Dialog.Title>
+                <Dialog.Description>
+                    Will generate user account so email must be unique and not currently in use.
+                    Add additional profile information on the next step.
+                </Dialog.Description>
+            </Dialog.Header>
+            <div class="grid grid-cols-2 gap-4 relative">
+                <div class="col-span-2 md:col-span-1 space-y-2">
+                    <Label for="firstName">First Name</Label>
+                    <Input bind:value={$form.firstName} name="firstName" type="text"/>
+                    {#if $errors.firstName}
+                        <p class="text-red-500 text-xs">{$errors.firstName}</p>
+                    {/if}
+                </div>
+                <div class="col-span-2 md:col-span-1 space-y-2">
+                    <Label for="lastName">Last Name</Label>
+                    <Input bind:value={$form.lastName} name="lastName" type="text"/>
+                    {#if $errors.lastName}
+                        <p class="text-red-500 text-xs">{$errors.lastName}</p>
+                    {/if}
+                </div>
+                <div class="col-span-2 space-y-2">
+                    <Label for="email">Email</Label>
+                    <Input bind:value={$form.email} name="email" type="email"/>
+                    {#if $errors.email}
+                        <p class="text-red-500 text-xs">{$errors.email}</p>
+                    {/if}
+                </div>
+                <div class="col-span-2 space-y-2">
+                    <Label for="password">Password</Label>
+                    <Input bind:value={$form.password} name="password" type="text"/>
+                    {#if $errors.password}
+                        <p class="text-red-500 text-xs">{$errors.password}</p>
+                    {/if}
+                </div>
+            </div>
+            <Dialog.Footer>
+                <Button type="button" variant="destructive" on:click={() => addDialogOpen = false}>Cancel</Button>
+                <Button type="submit" class="bg-green-500 hover:bg-green-600" disabled={$submitting}>
+                    {$submitting ? 'Creating...' : 'Submit'}
+                </Button>
+            </Dialog.Footer>
+    </form>
+        </Dialog.Content>
+</Dialog.Root>

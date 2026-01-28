@@ -16,7 +16,7 @@
 		DialogFooter,
 		DialogHeader,
 		DialogTitle,
-		// DialogTrigger
+		DialogTrigger
 	} from '$lib/components/ui/dialog';
 	import {
 		AlertDialog,
@@ -26,7 +26,7 @@
 		AlertDialogDescription,
 		AlertDialogFooter,
 		AlertDialogHeader,
-		AlertDialogTitle,
+		AlertDialogTitle
 		// AlertDialogTrigger
 	} from '$lib/components/ui/alert-dialog';
 	import { Avatar, AvatarFallback, AvatarImage } from '$lib/components/ui/avatar';
@@ -41,6 +41,8 @@
 	} from '$lib/components/ui/dropdown-menu';
 	import type { PageData } from './$types';
 	import { format } from 'date-fns';
+	import { Plus, User } from 'lucide-svelte';
+	import { BRAND_BASE } from '$lib/config/constants';
 
 	export let data: PageData;
 	$: recurrenceDay = data.recurrenceDay;
@@ -208,8 +210,20 @@
 		{:else}
 			<!-- Placeholder for unclaimed days -->
 			<Card>
-				<CardHeader>
+				<CardHeader class="flex flex-row justify-between items-center">
 					<CardTitle>Professional Details</CardTitle>
+					{#if !candidate}
+						<Dialog>
+							<DialogTrigger
+								><Button class={`gap-2 bg-[${BRAND_BASE}] hover:bg-blue-500`}
+									><User class="h-5" />Assign</Button
+								></DialogTrigger
+							>
+							<DialogContent>
+								<DialogTitle>Assign Professional to Workday</DialogTitle>
+							</DialogContent>
+						</Dialog>
+					{/if}
 				</CardHeader>
 				<CardContent>
 					<div class="flex flex-col items-center justify-center h-40 text-center">
@@ -272,13 +286,13 @@
 					<div class="bg-muted p-3 rounded-md">
 						<h3 class="font-semibold mb-2">Lunch Break</h3>
 						{#if recurrenceDay?.recurrenceDay?.lunchStart && recurrenceDay?.recurrenceDay?.lunchEnd}
-                            <p>
-                                {format(recurrenceDay.recurrenceDay.lunchStart, 'h:mm a')} -{' '}
-                                {format(recurrenceDay.recurrenceDay.lunchEnd, 'h:mm a')}
-                            </p>
-                        {:else}
-                            <p>No lunch break scheduled</p>
-                        {/if}
+							<p>
+								{format(recurrenceDay.recurrenceDay.lunchStart, 'h:mm a')} -{' '}
+								{format(recurrenceDay.recurrenceDay.lunchEnd, 'h:mm a')}
+							</p>
+						{:else}
+							<p>No lunch break scheduled</p>
+						{/if}
 					</div>
 
 					<div class="flex items-center justify-between mt-4">
@@ -450,7 +464,7 @@
 			</DialogFooter>
 		</DialogContent>
 	</Dialog> -->
-<!--
+	<!--
 	<AlertDialog bind:open={blacklistDialogOpen}>
 		<AlertDialogContent>
 			<AlertDialogHeader>

@@ -21,7 +21,7 @@
 	<div class="w-full md:w-1/2 flex items-center justify-center flex-col">
 	   <div>
 				<div>
-				<p class="text-3xl font-medium mb-2">DentalStaff.US</p>
+				<p class="text-3xl font-medium mb-2">Dental Temp Staffing Solutions</p>
 
 				</div>
 				<Form.Root let:submitting let:errors method="POST" {form} schema={signInSchema} let:config>
