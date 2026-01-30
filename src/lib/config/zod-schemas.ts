@@ -381,3 +381,19 @@ export const adminNewProfessionalUserSchema = z.object({
 });
 
 export type AdminNewProfessionalUserSchema = typeof adminNewProfessionalUserSchema;
+
+export const documentUrlSchema = z.object({
+	type: z.enum(['RESUME', 'LICENSE', 'CERTIFICATE', 'OTHER']).optional(),
+	filename: z.string().optional(),
+	url: z.string().optional(),
+	urls: z.array(z.string()).optional(),
+	createdAt: z.date().optional(),
+	filesData: zJsonString.optional()
+});
+
+export const documentResultSchema = z.array(
+	z.object({
+		filename: z.string(),
+		url: z.string()
+	})
+);

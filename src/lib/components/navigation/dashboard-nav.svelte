@@ -16,7 +16,7 @@
 		FileClock
 	} from 'lucide-svelte';
 	import { cn } from '$lib/utils';
-	import { BRAND_BASE, USER_ROLES } from '$lib/config/constants';
+	import { USER_ROLES } from '$lib/config/constants';
 	import Logo from '../logo/logo.svelte';
 	import UserAvatarMenu from './user-avatar-menu.svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip/';
@@ -27,7 +27,7 @@
 
 {#if browser}
 	<header
-		class={`z-20 fixed left-0 top-0 bottom-0 w-20 h-full min-h-screen bg-[${BRAND_BASE}] flex flex-col`}
+		class="z-20 fixed left-0 top-0 bottom-0 w-20 h-full min-h-screen bg-[#2a93d1] flex flex-col"
 	>
 		<!-- Fixed header section with logo -->
 		<div class="flex-shrink-0 p-3 pt-6 flex justify-center">

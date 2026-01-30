@@ -4,7 +4,8 @@ import {
 	getCandidateDocuments,
 	getCandidateProfileById,
 	getCandidateUserById,
-	updateCandidateProfile
+	updateCandidateProfile,
+	uploadCandidateDocuments
 } from '$lib/server/database/queries/candidates';
 import { fail, redirect } from '@sveltejs/kit';
 import { USER_ROLES } from '$lib/config/constants';
@@ -16,7 +17,8 @@ import { setFlash } from 'sveltekit-flash-message/server';
 import {
 	CandidateStatusSchema,
 	updateCandidateProfileSchema,
-	updateCandidateDisciplinesSchema
+	updateCandidateDisciplinesSchema,
+	documentUrlSchema
 } from '$lib/config/zod-schemas';
 import { getUserById, updateUser } from '$lib/server/database/queries/users';
 import db from '$lib/server/database/drizzle';
@@ -46,6 +48,7 @@ export const load: PageServerLoad = async (event) => {
 		},
 		updateCandidateDisciplinesSchema
 	);
+	const documentsForm = await superValidate(event, documentUrlSchema);
 
 	const supportTickets = await getSupportTicketsForUser(candidateResult.candidate.user.id);
 	const workHistory = await getAllCandidateWorkHistory(id);
@@ -124,7 +127,10 @@ export const actions = {
 			const profileData = {
 				updatedAt: new Date(),
 				birthday: birthday ?? null,
-				cellPhone: cellPhone || null
+				cellPhone: cellPhone || null,
+				completeAddress: form.data.completeAddress || null,
+				lat: form.data.lat || null,
+				lon: form.data.lon || null
 			};
 			await updateUser(candidateResult.candidate.user.id, userData);
 			await updateCandidateProfile(id, profileData);
@@ -243,6 +249,47 @@ export const actions = {
 				event
 			);
 			return setError(form, 'Something went wrong');
+		}
+	},
+	documentsUpload: async (event) => {
+		const { locals, request } = event;
+		const { user } = locals;
+
+		if (!user) {
+			return redirect(302, '/sign-in');
+		}
+
+		const candidateId = event.params.id;
+
+		const form = await superValidate(request, documentUrlSchema);
+
+		if (!form.valid) {
+			return fail(400, { form });
+		}
+
+		const fileData = form.data.filesData;
+
+		console.log({ fileData });
+
+		try {
+			await uploadCandidateDocuments(fileData, candidateId);
+
+			setFlash({ type: 'success', message: 'Documents uploaded successfully' }, event);
+			return message(
+				{
+					...form,
+					data: {
+						urls: undefined,
+						filesData: undefined,
+						url: undefined
+					}
+				},
+				'Documents uploaded successfully'
+			);
+		} catch (err) {
+			console.error(err);
+			setFlash({ type: 'error', message: 'Failed to upload documents' }, event);
+			return setError(form, 'Failed to upload documents');
 		}
 	}
 };

@@ -42,7 +42,6 @@
 	import type { PageData } from './$types';
 	import { format } from 'date-fns';
 	import { Plus, User } from 'lucide-svelte';
-	import { BRAND_BASE } from '$lib/config/constants';
 
 	export let data: PageData;
 	$: recurrenceDay = data.recurrenceDay;
@@ -215,7 +214,7 @@
 					{#if !candidate}
 						<Dialog>
 							<DialogTrigger
-								><Button class={`gap-2 bg-[${BRAND_BASE}] hover:bg-blue-500`}
+								><Button class={`gap-2 bg-[#2a93d1] hover:bg-blue-500`}
 									><User class="h-5" />Assign</Button
 								></DialogTrigger
 							>

@@ -1,4 +1,16 @@
-import { desc, eq, count, sql, or, ilike, and, ne, lt, isNotNull } from 'drizzle-orm';
+import {
+	desc,
+	eq,
+	count,
+	sql,
+	or,
+	ilike,
+	and,
+	ne,
+	lt,
+	isNotNull,
+	type SQLWrapper
+} from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import { userTable, type User } from '../schemas/auth';
 import {
@@ -18,6 +30,7 @@ import {
 	workdayTable
 } from '../schemas/requisition';
 import { clientCompanyTable, companyOfficeLocationTable } from '../schemas/client';
+import { candidateDocumentUploadSchema, documentResultSchema } from '$lib/config/zod-schemas';
 
 export type CandidateWithProfile = {
 	user: User;
@@ -313,4 +326,40 @@ export async function getQualifiedProfessionalsForRequisition(
 
 	// get discipline and experience from requisition
 	// find candidates that match those (as well as location)
+}
+
+export async function uploadCandidateDocuments(data: unknown, candidateId: string | SQLWrapper) {
+	try {
+		const [candidateProfile] = await db
+			.select()
+			.from(candidateProfileTable)
+			.where(eq(candidateProfileTable.id, candidateId));
+
+		if (!candidateProfile) {
+			throw new Error('Candidate profile not found');
+		}
+
+		const parsedData = documentResultSchema.safeParse(data);
+
+		if (!parsedData.success) {
+			throw new Error('Invalid data');
+		}
+		const fileData = parsedData.data;
+
+		if (fileData) {
+			const candidateDocuments = fileData.map((file: { url: string; filename: string }) => ({
+				candidateId: candidateProfile.id,
+				type: 'OTHER' as const,
+				uploadUrl: file.url,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+				id: crypto.randomUUID(),
+				filename: file.filename
+			}));
+			return await db.insert(candidateDocumentUploadsTable).values(candidateDocuments);
+		}
+	} catch (error) {
+		console.log(error);
+		throw new Error(error instanceof Error ? error.message : 'Error uploading documents');
+	}
 }
