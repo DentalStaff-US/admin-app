@@ -26,7 +26,7 @@ export function convertRecurrenceDayToEvent(
 	const { dayStart, dayEnd, status } = recurrenceDay;
 
 	// Get reference timezone from the requisition
-	const timezone = getUserTimezone() || 'America/New_York'; // Default to EST if no timezone is set
+	const timezone = requisition.referenceTimezone || 'America/New_York'; // Default to EST if no timezone is set
 
 	// Convert UTC timestamps to local timezone display times
 	// We need to create proper Date objects from the timestamps
