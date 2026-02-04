@@ -277,7 +277,7 @@
 	<title>Invoices | DTSS</title>
 </svelte:head>
 
-<section class="grow h-screen overflow-y-auto p-6 flex flex-col gap-6">
+<section class="grow h-screen overflow-y-auto container mx-auto px-4 py-6 flex flex-col gap-6">
 	<!-- Header -->
 	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
 		<div>

@@ -373,14 +373,15 @@ export const updateCandidateDisciplinesSchema = z.object({
 		.min(1, 'Please select at least one discipline')
 });
 
-export const adminNewProfessionalUserSchema = z.object({
+export const adminNewUserSchema = z.object({
 	firstName: z.string(),
 	lastName: z.string(),
 	email: z.string().email(),
-	password: z.string().min(8)
+	password: z.string().min(8),
+	companyName: z.string().optional()
 });
 
-export type AdminNewProfessionalUserSchema = typeof adminNewProfessionalUserSchema;
+export type AdminNewUserSchema = typeof adminNewUserSchema;
 
 export const documentUrlSchema = z.object({
 	type: z.enum(['RESUME', 'LICENSE', 'CERTIFICATE', 'OTHER']).optional(),
@@ -397,3 +398,23 @@ export const documentResultSchema = z.array(
 		url: z.string()
 	})
 );
+
+export const updateClientSchema = z
+	.object({
+		firstName: z.string().min(1, 'First name is required').optional(),
+		lastName: z.string().min(1, 'Last name is required').optional(),
+		email: z.string().email('Invalid email address').optional(),
+		companyName: z.string().min(1, 'Company name is required').optional(),
+		baseLocation: z.string().optional().nullable()
+	})
+	.refine(
+		(data) => {
+			// At least one field must be present for update
+			return Object.values(data).some(
+				(value) => value !== undefined && value !== null && value !== ''
+			);
+		},
+		{ message: 'At least one field must be provided for update' }
+	);
+
+export type UpdateClientSchema = typeof updateClientSchema;

@@ -216,30 +216,33 @@ export async function handleCustomerSetupCompleted(session: Stripe.Checkout.Sess
 			return;
 		}
 
-		// Get the setup_intent from the session
-		const setupIntent = await stripe.setupIntents.retrieve(session.setup_intent as string);
-		const customerId = setupIntent.customer as string;
-		const paymentMethodId = setupIntent.payment_method as string;
+		// Customer was already created before the session, just verify it exists
+		const customerId = session.customer as string;
 
 		if (!customerId) {
-			console.log('No customer ID found in setup intent');
+			console.error('No customer ID in completed session - this should not happen');
 			return;
 		}
 
-		console.log('Setup completed - Customer:', customerId, 'PaymentMethod:', paymentMethodId);
+		console.log('Setup completed for customer:', customerId);
 
-		// Update the clientSubscription record
+		// Get the setup intent to confirm payment method was attached
+		const setupIntent = await stripe.setupIntents.retrieve(session.setup_intent as string);
+		const paymentMethodId = setupIntent.payment_method as string;
+
+		console.log('Payment method attached:', paymentMethodId);
+
+		// Update the clientSubscription record to mark setup complete
 		await db
 			.update(clientSubscriptionTable)
 			.set({
-				stripeCustomerId: customerId,
 				stripeCustomerSetupPending: false,
-				status: 'inactive', // No subscription, just payment method on file
+				status: 'inactive', // Keep as inactive (no subscription)
 				updatedAt: new Date()
 			})
 			.where(eq(clientSubscriptionTable.clientId, clientId));
 
-		// Also update the user table
+		// Also update user table with customer ID (if not already set)
 		const [clientProfile] = await db
 			.select({ userId: clientProfileTable.userId })
 			.from(clientProfileTable)

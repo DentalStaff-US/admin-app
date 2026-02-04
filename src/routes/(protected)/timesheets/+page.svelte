@@ -44,32 +44,35 @@
 	$: isAdmin = user?.role === USER_ROLES.SUPERADMIN;
 
 	$: {
-		console.log('Timesheets data:', timesheets.map(ts => ({
-			id: ts.timesheet.id,
-			status: ts.timesheet.status,
-			hasDiscrepanciesResult: hasDiscrepancies(ts)
-		})));
+		console.log(
+			'Timesheets data:',
+			timesheets.map((ts) => ({
+				id: ts.timesheet.id,
+				status: ts.timesheet.status,
+				hasDiscrepanciesResult: hasDiscrepancies(ts)
+			}))
+		);
 	}
 
 	// Helper function to validate timesheet and check for discrepancies
 	function hasDiscrepancies(timesheet: any): boolean {
-			// First check the status
-			if (timesheet.timesheet.status === 'DISCREPANCY') {
-				return true;
-			}
-			return false;
+		// First check the status
+		if (timesheet.timesheet.status === 'DISCREPANCY') {
+			return true;
 		}
+		return false;
+	}
 
-		// ✅ Filter timesheets by discrepancy status
-		const filterByDiscrepancy = (timesheets: any[], hasDiscrepancy: boolean) => {
-			if (hasDiscrepancy) {
-				// Show only timesheets with discrepancies
-				return timesheets.filter((ts) => hasDiscrepancies(ts));
-			} else {
-				// Show only timesheets without discrepancies and not in DISCREPANCY status
-				return timesheets.filter((ts) => !hasDiscrepancies(ts));
-			}
-		};
+	// ✅ Filter timesheets by discrepancy status
+	const filterByDiscrepancy = (timesheets: any[], hasDiscrepancy: boolean) => {
+		if (hasDiscrepancy) {
+			// Show only timesheets with discrepancies
+			return timesheets.filter((ts) => hasDiscrepancies(ts));
+		} else {
+			// Show only timesheets without discrepancies and not in DISCREPANCY status
+			return timesheets.filter((ts) => !hasDiscrepancies(ts));
+		}
+	};
 
 	// Column definitions
 	const columns: ColumnDef<TimesheetWithRelations>[] = [
@@ -259,7 +262,7 @@
 	<title>Timesheets | DTSS</title>
 </svelte:head>
 
-<section class="grow h-screen overflow-y-auto p-6 flex flex-col gap-6">
+<section class="grow h-screen overflow-y-auto container mx-auto px-4 py-6 flex flex-col gap-6">
 	<!-- Header -->
 	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
 		<div>
@@ -305,10 +308,7 @@
 				<Tabs.Trigger value="all" class="relative">
 					All Timesheets
 					{#if tabCounts.all > 0}
-						<Badge
-							variant="secondary"
-							class="ml-2 h-5 min-w-5 text-xs"
-							value={tabCounts.all}
+						<Badge variant="secondary" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.all}
 						></Badge>
 					{/if}
 				</Tabs.Trigger>

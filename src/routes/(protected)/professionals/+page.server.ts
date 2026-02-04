@@ -11,7 +11,7 @@ import type { User } from '$lib/server/database/schemas/auth';
 import { createUser } from '$lib/server/database/queries/users';
 import db from '$lib/server/database/drizzle';
 import type { CandidateProfile } from '$lib/server/database/schemas/candidate';
-import { adminNewProfessionalUserSchema } from '$lib/config/zod-schemas';
+import { adminNewUserSchema } from '$lib/config/zod-schemas';
 import { setFlash } from 'sveltekit-flash-message/server';
 
 export const load: PageServerLoad = async (event) => {
@@ -32,7 +32,7 @@ export const load: PageServerLoad = async (event) => {
 	}
 
 	const results = await getAllCandidateProfiles(searchTerm);
-	const newProfileForm = await superValidate(event, adminNewProfessionalUserSchema);
+	const newProfileForm = await superValidate(event, adminNewUserSchema);
 
 	return {
 		candidates: results?.candidates || [],
@@ -54,7 +54,7 @@ export const actions = {
 			return fail(403, { message: 'Unauthorized' });
 		}
 
-		const formData = await superValidate(event, adminNewProfessionalUserSchema);
+		const formData = await superValidate(event, adminNewUserSchema);
 
 		if (!formData.valid) {
 			console.log('failure', formData);

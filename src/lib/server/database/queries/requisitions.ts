@@ -1478,7 +1478,8 @@ export const getRecurrenceDayDetails = async (
 					experienceLevelName: experienceLevelTable.value,
 					hourlyRate: requisitionTable.hourlyRate,
 					status: requisitionTable.status,
-					permanentPosition: requisitionTable.permanentPosition
+					permanentPosition: requisitionTable.permanentPosition,
+					referenceTimezone: requisitionTable.referenceTimezone
 				}
 			})
 			.from(recurrenceDayTable)

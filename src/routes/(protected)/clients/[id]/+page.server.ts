@@ -1,9 +1,12 @@
 import type { PageServerLoad, RequestEvent } from './$types';
 import {
+	createCompanyLocation,
 	getAllClientLocationsByCompanyId,
 	getAllClientStaffProfiles,
 	getCalendarEventsForClient,
+	getClientCompanyByClientId,
 	getClientProfileById,
+	getClientProfilebyUserId,
 	getClientSubscription,
 	getPrimaryLocationForStaff
 } from '$lib/server/database/queries/clients';
@@ -13,12 +16,25 @@ import {
 	getSupportTicketsForClient,
 	getSupportTicketsForUser
 } from '$lib/server/database/queries/support';
-import { createInvoiceRecord, getClientInvoices } from '$lib/server/database/queries/requisitions';
+import {
+	createInvoiceRecord,
+	getClientInvoices,
+	getRequisitionsForClient
+} from '$lib/server/database/queries/requisitions';
 import { createStripeInvoice } from '$lib/server/stripe';
 import { z } from 'zod';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
-import { getClientBillingInfo } from '$lib/server/database/queries/billing';
+import {
+	adminRequisitionSchema,
+	newClientCompanyLocationSchema,
+	updateClientSchema
+} from '$lib/config/zod-schemas';
+import db from '$lib/server/database/drizzle';
+import { userTable } from '$lib/server/database/schemas/auth';
+import { clientCompanyTable } from '$lib/server/database/schemas/client';
+import { eq } from 'drizzle-orm';
+// import { getClientBillingInfo } from '$lib/server/database/queries/billing';
 
 const LineItemSchema = z.array(
 	z.object({
@@ -68,11 +84,24 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
 	const result = await getClientProfileById(id);
 	const locations = result.company ? await getAllClientLocationsByCompanyId(result.company.id) : [];
-	const requisitions = await getCalendarEventsForClient(id);
+	const requisitions = await getRequisitionsForClient(result.company.id);
+	const recurrenceDays = await getCalendarEventsForClient(id);
 	const supportTickets = await getSupportTicketsForClient(result.profile.id);
 	const staff = await getAllClientStaffProfiles(result.company.id);
 	const invoices = await getClientInvoices(id, { includeStripeData: true });
 	const invoiceForm = await superValidate(NewInvoiceSchema);
+	const requisitionForm = await superValidate(adminRequisitionSchema);
+	const locationForm = await superValidate(newClientCompanyLocationSchema);
+	const updateClientForm = await superValidate(
+		{
+			firstName: result.user.firstName,
+			lastName: result.user.lastName,
+			email: result.user.email,
+			companyName: result.company.companyName || undefined,
+			baseLocation: result.company.baseLocation || ''
+		},
+		updateClientSchema
+	);
 
 	const staffWithPrimaryLocation = await Promise.all(
 		staff.map(async (member) => {
@@ -83,8 +112,6 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 			};
 		})
 	);
-
-	console.log(result);
 
 	return result
 		? {
@@ -97,19 +124,25 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 					subscription: result.subscription
 				},
 				requisitions,
+				recurrenceDays,
 				supportTickets,
 				staff: staffWithPrimaryLocation,
 				invoices,
-				invoiceForm
+				invoiceForm,
+				requisitionForm,
+				locationForm,
+				updateClientForm
 			}
 		: {
 				user,
 				client: null,
 				requisitions: [],
+				recurrenceDays: [],
 				supportTickets: [],
 				invoices: [],
 				staff: [],
-				invoiceForm
+				invoiceForm,
+				updateClientForm
 			};
 };
 
@@ -159,6 +192,159 @@ export const actions = {
 			setFlash({ type: 'error', message: 'Failed to create invoice' }, request);
 			console.error('Error creating invoice:', error);
 			return setError(form, 'Failed to create invoice');
+		}
+	},
+	createLocation: async (event) => {
+		const { id } = event.params;
+		const form = await superValidate(event, newClientCompanyLocationSchema);
+
+		if (!form.valid) {
+			return { form };
+		}
+
+		const user = event.locals.user;
+
+		if (!user) {
+			return redirect(301, '/auth/sign-in');
+		}
+
+		if (user.role === USER_ROLES.SUPERADMIN) {
+			const clientCompany = await getClientCompanyByClientId(id);
+
+			if (!clientCompany) {
+				return { form };
+			}
+
+			const result = await createCompanyLocation({
+				id: crypto.randomUUID(),
+				createdAt: new Date(),
+				updatedAt: new Date(),
+				name: form.data.name,
+				companyPhone: form.data.companyPhone,
+				email: form.data.email || null,
+				companyId: form.data.companyId,
+				streetOne: form.data.streetOne || null,
+				streetTwo: form.data.streetTwo || null,
+				city: form.data.city || null,
+				state: form.data.state || null,
+				zipcode: form.data.zipcode || null,
+				timezone: form.data.timezone,
+				lat: form.data.lat.toString(),
+				lon: form.data.lon.toString(),
+				completeAddress: form.data.completeAddress,
+				operatingHours: {
+					0: {
+						openTime: '00:00',
+						closeTime: '00:00',
+						isClosed: false,
+						timezone: form.data.timezone || 'America/New_York'
+					},
+					1: {
+						openTime: '00:00',
+						closeTime: '00:00',
+						isClosed: false,
+						timezone: form.data.timezone || 'America/New_York'
+					},
+					2: {
+						openTime: '00:00',
+						closeTime: '00:00',
+						isClosed: false,
+						timezone: form.data.timezone || 'America/New_York'
+					},
+					3: {
+						openTime: '00:00',
+						closeTime: '00:00',
+						isClosed: false,
+						timezone: form.data.timezone || 'America/New_York'
+					},
+					4: {
+						openTime: '00:00',
+						closeTime: '00:00',
+						isClosed: false,
+						timezone: form.data.timezone || 'America/New_York'
+					},
+					5: {
+						openTime: '00:00',
+						closeTime: '00:00',
+						isClosed: false,
+						timezone: form.data.timezone || 'America/New_York'
+					},
+					6: {
+						openTime: '00:00',
+						closeTime: '00:00',
+						isClosed: false,
+						timezone: form.data.timezone || 'America/New_York'
+					}
+				}
+			});
+
+			if (result) {
+				setFlash(
+					{
+						type: 'success',
+						message: 'Location created successfully'
+					},
+					event
+				);
+				return { form, success: true, message: 'Location created successfully' };
+			} else {
+				setFlash(
+					{
+						type: 'error',
+						message: 'Failed to create location'
+					},
+					event
+				);
+				return { form, error: 'Failed to create location' };
+			}
+		}
+	},
+	updateClient: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id: clientId } = event.params;
+
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			redirect(302, '/dashboard');
+		}
+
+		const form = await superValidate(event, updateClientSchema);
+
+		if (!form.valid) {
+			console.log('Invalid form data:', form.data);
+			setFlash({ type: 'error', message: 'Invalid form data' }, event);
+			return { form };
+		}
+
+		try {
+			const client = await getClientProfileById(clientId);
+
+			const userUpdate: any = { updatedAt: new Date() };
+			const companyUpdate: any = { updatedAt: new Date() };
+
+			if (form.data.firstName !== undefined) userUpdate.firstName = form.data.firstName;
+			if (form.data.lastName !== undefined) userUpdate.lastName = form.data.lastName;
+			if (form.data.email !== undefined) userUpdate.email = form.data.email;
+			if (form.data.companyName !== undefined) companyUpdate.companyName = form.data.companyName;
+			if (form.data.baseLocation !== undefined)
+				companyUpdate.baseLocation = form.data.baseLocation || null;
+
+			if (Object.keys(userUpdate).length > 1) {
+				await db.update(userTable).set(userUpdate).where(eq(userTable.id, client.user.id));
+			}
+
+			if (Object.keys(companyUpdate).length > 1) {
+				await db
+					.update(clientCompanyTable)
+					.set(companyUpdate)
+					.where(eq(clientCompanyTable.id, client.company.id));
+			}
+
+			setFlash({ type: 'success', message: 'Client updated successfully' }, event);
+			return message(form, 'Client updated successfully');
+		} catch (error) {
+			console.error('Error updating client:', error);
+			setFlash({ type: 'error', message: 'Failed to update client' }, event);
+			return setError(form, 'Failed to update client');
 		}
 	}
 };

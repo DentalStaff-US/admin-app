@@ -56,7 +56,8 @@
 		Users,
 		CalendarDays,
 		UserMinus,
-		Trash2
+		Trash2,
+		LayoutGrid
 	} from 'lucide-svelte';
 
 	// Table library
@@ -83,8 +84,14 @@
 	} from '$lib/server/database/schemas/requisition';
 	import { superForm } from 'sveltekit-superforms/client';
 	import { env } from '$env/dynamic/public';
+	import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
+	import AddLocationDrawer from '$lib/components/drawers/addLocationDrawer.svelte';
 
 	export let data: PageData;
+	$: adminForm = data.requisitionForm;
+	$: newLocationForm = data.locationForm;
+
+	let requisitionView: 'table' | 'calendar' = 'table';
 	let initials: string = '';
 	let locationTableData: ClientCompanyLocation[] = [];
 	let showInvoiceDialog = false;
@@ -97,6 +104,9 @@
 	let setupCustomerLoading = false;
 	let showSetupLinkDialog = false;
 	let setupLink = '';
+	let drawerExpanded = false;
+	let locationDrawerExpanded = false;
+	let editingSection: 'header' | 'personal' | 'billing' | null = null;
 
 	const {
 		form: invoiceForm,
@@ -118,6 +128,36 @@
 			}
 		}
 	});
+
+	const {
+		form: updateForm,
+		enhance: updateEnhance,
+		submitting: updateSubmitting,
+		errors: updateErrors
+	} = superForm(data.updateClientForm, {
+		resetForm: false,
+		onResult: ({ result }) => {
+			if (result.type === 'success') {
+				editingSection = null;
+				// Optionally reload to get fresh data
+				// window.location.reload();
+			}
+		}
+	});
+
+	function cancelEdit() {
+		// Reset form to original values
+		if (client) {
+			$updateForm = {
+				firstName: client.user.firstName,
+				lastName: client.user.lastName,
+				email: client.user.email,
+				companyName: client.company.companyName || '',
+				baseLocation: client.company.baseLocation || ''
+			};
+		}
+		editingSection = null;
+	}
 
 	type StaffProfileData = {
 		profile: {
@@ -168,6 +208,7 @@
 	$: client = data.client;
 	$: locations = data.client?.locations || [];
 	$: requisitions = data.requisitions || [];
+	$: recurrenceDays = data.recurrenceDays || [];
 	$: supportTickets = data.supportTickets || [];
 	$: staff = data.staff || [];
 	$: invoices = data.invoices || [];
@@ -350,6 +391,7 @@
 		invoiceTableData = invoices || [];
 		invoiceOptions.update((o) => ({ ...o, data: invoiceTableData }));
 		supportOptions.update((o) => ({ ...o, data: supportTickets }));
+		requisitionOptions.update((o) => ({ ...o, data: requisitions }));
 	}
 
 	onMount(() => {
@@ -362,12 +404,50 @@
 		invoiceTableData = invoices || [];
 		invoiceOptions.update((o) => ({ ...o, data: invoiceTableData }));
 		supportOptions.update((o) => ({ ...o, data: supportTickets }));
+		requisitionOptions.update((o) => ({ ...o, data: requisitions })); // ADD THIS
+	});
+
+	const requisitionColumns: ColumnDef<any>[] = [
+		{
+			header: 'Position',
+			accessorFn: (original) => original.disciplineName,
+			cell: ({ row }) => {
+				const requisition = row.original;
+				return {
+					disciplineName: requisition.disciplineName,
+					id: requisition.id,
+					locationName: requisition.location?.name || 'No location'
+				};
+			}
+		},
+		{
+			header: 'Status',
+			accessorFn: (original) => original.status
+		},
+		{
+			header: 'Rate',
+			accessorFn: (original) => original.hourlyRate
+		}
+	];
+
+	const requisitionOptions = writable<TableOptions<any>>({
+		data: requisitions,
+		columns: requisitionColumns,
+		getCoreRowModel: getCoreRowModel(),
+		getSortedRowModel: getSortedRowModel(),
+		getPaginationRowModel: getPaginationRowModel(),
+		initialState: {
+			pagination: {
+				pageSize: 10
+			}
+		}
 	});
 
 	const locationTable = createSvelteTable(locationOptions);
 	const staffTable = createSvelteTable(staffOptions);
 	const invoiceTable = createSvelteTable(invoiceOptions);
 	const supportTable = createSvelteTable(supportOptions);
+	const requisitionTable = createSvelteTable(requisitionOptions);
 
 	function addInvoiceItem() {
 		items = [...items, { description: '', quantity: 1, rate: 0, amount: 0 }];
@@ -468,65 +548,138 @@
 					</div>
 
 					<div class="flex-1">
-						<div class="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-6">
-							<div>
-								<h1 class="text-3xl md:text-4xl font-bold">
-									{client.user.firstName}
-									{client.user.lastName}
-								</h1>
-								<div class="mt-2 text-xl font-medium text-gray-700">
-									{client.company.companyName}
+						{#if editingSection === 'header'}
+							<!-- Edit Mode -->
+							<form method="POST" action="?/updateClient" use:updateEnhance>
+								<div class="space-y-4">
+									<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+										<div>
+											<Label for="firstName">First Name</Label>
+											<Input
+												id="firstName"
+												name="firstName"
+												bind:value={$updateForm.firstName}
+												class={$updateErrors.firstName ? 'border-red-500' : ''}
+											/>
+											{#if $updateErrors.firstName}
+												<p class="text-sm text-red-500 mt-1">{$updateErrors.firstName}</p>
+											{/if}
+										</div>
+										<div>
+											<Label for="lastName">Last Name</Label>
+											<Input
+												id="lastName"
+												name="lastName"
+												bind:value={$updateForm.lastName}
+												class={$updateErrors.lastName ? 'border-red-500' : ''}
+											/>
+											{#if $updateErrors.lastName}
+												<p class="text-sm text-red-500 mt-1">{$updateErrors.lastName}</p>
+											{/if}
+										</div>
+									</div>
+									<div>
+										<Label for="companyName">Company Name</Label>
+										<Input
+											id="companyName"
+											name="companyName"
+											bind:value={$updateForm.companyName}
+											class={$updateErrors.companyName ? 'border-red-500' : ''}
+										/>
+										{#if $updateErrors.companyName}
+											<p class="text-sm text-red-500 mt-1">{$updateErrors.companyName}</p>
+										{/if}
+									</div>
+									<div class="flex gap-2">
+										<Button type="submit" size="sm" disabled={$updateSubmitting}>
+											{$updateSubmitting ? 'Saving...' : 'Save'}
+										</Button>
+										<Button
+											type="button"
+											size="sm"
+											variant="outline"
+											on:click={cancelEdit}
+											disabled={$updateSubmitting}
+										>
+											Cancel
+										</Button>
+									</div>
+								</div>
+							</form>
+						{:else}
+							<!-- View Mode -->
+							<div class="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-6">
+								<div>
+									<div class="flex items-center gap-2">
+										<h1 class="text-3xl md:text-4xl font-bold">
+											{client.user.firstName}
+											{client.user.lastName}
+										</h1>
+										{#if isAdmin}
+											<Button
+												variant="ghost"
+												size="icon"
+												class="h-8 w-8"
+												on:click={() => (editingSection = 'header')}
+											>
+												<Edit class="h-4 w-4" />
+											</Button>
+										{/if}
+									</div>
+									<div class="mt-2 text-xl font-medium text-gray-700">
+										{client.company.companyName}
+									</div>
+								</div>
+
+								<div class="flex gap-2 mt-3 md:mt-0">
+									{#if needsCustomerSetup}
+										<Button
+											variant="outline"
+											size="sm"
+											class="gap-1"
+											on:click={handleSetupCustomer}
+											disabled={setupCustomerLoading}
+										>
+											<CreditCard class="h-4 w-4" />
+											<span>
+												{#if setupCustomerLoading}
+													Creating Link...
+												{:else if data.client?.subscription?.stripeCustomerSetupPending}
+													Resend Setup Link
+												{:else}
+													Setup Customer
+												{/if}
+											</span>
+										</Button>
+									{:else}
+										<Button
+											variant="outline"
+											size="sm"
+											class="gap-1"
+											on:click={() => (showInvoiceDialog = true)}
+										>
+											<CreditCard class="h-4 w-4" />
+											<span>Create Invoice</span>
+										</Button>
+									{/if}
 								</div>
 							</div>
 
-							<div class="flex gap-2 mt-3 md:mt-0">
+							<div class="mt-4 flex flex-col sm:flex-row gap-4 text-sm">
+								<div class="flex items-center gap-2">
+									<Mail class="h-4 w-4 text-gray-500" />
+									<a href={`mailto:${client.user.email}`} class="text-blue-600 hover:underline">
+										{client.user.email}
+									</a>
+								</div>
 								{#if needsCustomerSetup}
-									<Button
-										variant="outline"
-										size="sm"
-										class="gap-1"
-										on:click={handleSetupCustomer}
-										disabled={setupCustomerLoading}
-									>
-										<CreditCard class="h-4 w-4" />
-										<span>
-											{#if setupCustomerLoading}
-												Creating Link...
-											{:else if data.client?.subscription?.stripeCustomerSetupPending}
-												Resend Setup Link
-											{:else}
-												Setup Customer
-											{/if}
-										</span>
-									</Button>
-								{:else}
-									<Button
-										variant="outline"
-										size="sm"
-										class="gap-1"
-										on:click={() => (showInvoiceDialog = true)}
-									>
-										<CreditCard class="h-4 w-4" />
-										<span>Create Invoice</span>
-									</Button>
+									<div class="flex items-center gap-2">
+										<AlertCircle class="h-4 w-4 text-orange-500" />
+										<span class="text-orange-600 font-medium">Payment method setup pending</span>
+									</div>
 								{/if}
 							</div>
-						</div>
-
-						<div class="mt-4 flex flex-col sm:flex-row gap-4 text-sm">
-							<div class="flex items-center gap-2">
-								<Mail class="h-4 w-4 text-gray-500" />
-								<a href={`mailto:${client.user.email}`} class="text-blue-600 hover:underline">
-									{client.user.email}
-								</a>
-							</div>
-							{#if needsCustomerSetup}
-								<div class="flex items-center gap-2">
-									<AlertCircle class="h-4 w-4 text-orange-500" />
-									<span class="text-orange-600 font-medium">Payment method setup pending</span>
-								</div>
-							{/if}
-						</div>
+						{/if}
 					</div>
 				</div>
 			</div>
@@ -698,22 +851,84 @@
 					<div class="grid md:grid-cols-4 gap-6">
 						<!-- Personal Details -->
 						<Card class="w-full max-w-none col-span-4 md:col-span-2">
-							<CardHeader>
+							<CardHeader class="flex flex-row items-center justify-between">
 								<CardTitle class="flex items-center gap-2">
 									<User class="h-5 w-5 text-blue-600" />
 									<span>Personal Details</span>
 								</CardTitle>
+								{#if isAdmin && editingSection !== 'personal'}
+									<Button
+										variant="ghost"
+										size="icon"
+										class="h-8 w-8"
+										on:click={() => (editingSection = 'personal')}
+									>
+										<Edit class="h-4 w-4" />
+									</Button>
+								{/if}
 							</CardHeader>
 							<CardContent class="space-y-4">
-								<div>
-									<h3 class="text-sm font-medium">Email:</h3>
-									<p>{client.user.email}</p>
-								</div>
+								{#if editingSection === 'personal'}
+									<!-- Edit Mode -->
+									<form method="POST" action="?/updateClient" use:updateEnhance>
+										<div class="space-y-4">
+											<div>
+												<Label for="personal-email">Email</Label>
+												<Input
+													id="personal-email"
+													name="email"
+													type="email"
+													bind:value={$updateForm.email}
+													class={$updateErrors.email ? 'border-red-500' : ''}
+												/>
+												{#if $updateErrors.email}
+													<p class="text-sm text-red-500 mt-1">{$updateErrors.email}</p>
+												{/if}
+											</div>
+											<div>
+												<Label for="base-location">Base Location</Label>
+												<Input
+													id="base-location"
+													name="baseLocation"
+													bind:value={$updateForm.baseLocation}
+												/>
+											</div>
 
-								{#if client.company?.baseLocation}
+											<!-- Hidden fields to preserve other data -->
+											<input type="hidden" name="firstName" bind:value={$updateForm.firstName} />
+											<input type="hidden" name="lastName" bind:value={$updateForm.lastName} />
+											<input
+												type="hidden"
+												name="companyName"
+												bind:value={$updateForm.companyName}
+											/>
+
+											<div class="flex gap-2">
+												<Button type="submit" size="sm" disabled={$updateSubmitting}>
+													{$updateSubmitting ? 'Saving...' : 'Save'}
+												</Button>
+												<Button
+													type="button"
+													size="sm"
+													variant="outline"
+													on:click={cancelEdit}
+													disabled={$updateSubmitting}
+												>
+													Cancel
+												</Button>
+											</div>
+										</div>
+									</form>
+								{:else}
+									<!-- View Mode -->
+									<div>
+										<h3 class="text-sm font-medium">Email:</h3>
+										<p>{client.user.email}</p>
+									</div>
+
 									<div>
 										<h3 class="text-sm font-medium">Base Location:</h3>
-										<p>{client.company?.baseLocation}</p>
+										<p>{client.company?.baseLocation || 'None Specified'}</p>
 									</div>
 								{/if}
 							</CardContent>
@@ -721,21 +936,106 @@
 
 						<!-- Billing Information -->
 						<Card class="w-full max-w-none col-span-4 md:col-span-2">
-							<CardHeader>
+							<CardHeader class="flex flex-row items-center justify-between">
 								<CardTitle class="flex items-center gap-2">
 									<CreditCard class="h-5 w-5 text-blue-600" />
 									<span>Billing Information</span>
 								</CardTitle>
+								{#if isAdmin && editingSection !== 'billing'}
+									<Button
+										variant="ghost"
+										size="icon"
+										class="h-8 w-8"
+										on:click={() => (editingSection = 'billing')}
+									>
+										<Edit class="h-4 w-4" />
+									</Button>
+								{/if}
 							</CardHeader>
 							<CardContent class="space-y-4">
-								<div>
-									<h3 class="text-sm font-medium">Billing Contact:</h3>
-									<p>{client.user.firstName} {client.user.lastName}</p>
-								</div>
-								<div>
-									<h3 class="text-sm font-medium">Billing Email:</h3>
-									<p>{client.user.email}</p>
-								</div>
+								{#if editingSection === 'billing'}
+									<!-- Edit Mode -->
+									<form method="POST" action="?/updateClient" use:updateEnhance>
+										<div class="space-y-4">
+											<div class="grid grid-cols-2 gap-4">
+												<div>
+													<Label for="billing-firstName">First Name</Label>
+													<Input
+														id="billing-firstName"
+														name="firstName"
+														bind:value={$updateForm.firstName}
+														class={$updateErrors.firstName ? 'border-red-500' : ''}
+													/>
+													{#if $updateErrors.firstName}
+														<p class="text-sm text-red-500 mt-1">{$updateErrors.firstName}</p>
+													{/if}
+												</div>
+												<div>
+													<Label for="billing-lastName">Last Name</Label>
+													<Input
+														id="billing-lastName"
+														name="lastName"
+														bind:value={$updateForm.lastName}
+														class={$updateErrors.lastName ? 'border-red-500' : ''}
+													/>
+													{#if $updateErrors.lastName}
+														<p class="text-sm text-red-500 mt-1">{$updateErrors.lastName}</p>
+													{/if}
+												</div>
+											</div>
+											<div>
+												<Label for="billing-email">Billing Email</Label>
+												<Input
+													id="billing-email"
+													name="email"
+													type="email"
+													bind:value={$updateForm.email}
+													class={$updateErrors.email ? 'border-red-500' : ''}
+												/>
+												{#if $updateErrors.email}
+													<p class="text-sm text-red-500 mt-1">{$updateErrors.email}</p>
+												{/if}
+											</div>
+
+											<!-- Hidden fields -->
+											<input
+												type="hidden"
+												name="companyName"
+												bind:value={$updateForm.companyName}
+											/>
+											<input
+												type="hidden"
+												name="baseLocation"
+												bind:value={$updateForm.baseLocation}
+											/>
+
+											<div class="flex gap-2">
+												<Button type="submit" size="sm" disabled={$updateSubmitting}>
+													{$updateSubmitting ? 'Saving...' : 'Save'}
+												</Button>
+												<Button
+													type="button"
+													size="sm"
+													variant="outline"
+													on:click={cancelEdit}
+													disabled={$updateSubmitting}
+												>
+													Cancel
+												</Button>
+											</div>
+										</div>
+									</form>
+								{:else}
+									<!-- View Mode -->
+									<div>
+										<h3 class="text-sm font-medium">Billing Contact:</h3>
+										<p>{client.user.firstName} {client.user.lastName}</p>
+									</div>
+									<div>
+										<h3 class="text-sm font-medium">Billing Email:</h3>
+										<p>{client.user.email}</p>
+									</div>
+								{/if}
 							</CardContent>
 						</Card>
 
@@ -967,10 +1267,11 @@
 						<CardHeader class="flex flex-row items-center justify-between">
 							<CardTitle>Client Locations</CardTitle>
 							{#if isAdmin}
-								<Button size="sm" class="gap-1">
-									<Plus class="h-4 w-4" />
-									<span>Add Location</span>
-								</Button>
+								<AddLocationDrawer
+									{newLocationForm}
+									company={data.client?.company}
+									bind:open={locationDrawerExpanded}
+								/>
 							{/if}
 						</CardHeader>
 						<CardContent>
@@ -981,12 +1282,6 @@
 									<p class="text-sm text-gray-500 mb-4">
 										This client doesn't have any locations yet.
 									</p>
-									{#if isAdmin}
-										<Button variant="outline" size="sm" class="gap-1">
-											<Plus class="h-4 w-4" />
-											<span>Add First Location</span>
-										</Button>
-									{/if}
 								</div>
 							{:else}
 								<div class="rounded-md border">
@@ -1077,16 +1372,188 @@
 				<TabsContent value="requisitions" class="mt-6">
 					<Card class="w-full max-w-none">
 						<CardHeader class="flex flex-row items-center justify-between">
-							<CardTitle>Requisition Calendar</CardTitle>
-							{#if isAdmin}
-								<Button size="sm" class="gap-1">
-									<Plus class="h-4 w-4" />
-									<span>New Requisition</span>
-								</Button>
-							{/if}
+							<CardTitle>Requisitions</CardTitle>
+							<div class="flex items-center gap-2">
+								<!-- View Toggle -->
+								<div class="inline-flex rounded-lg border border-gray-200 p-1">
+									<button
+										class={cn(
+											'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
+											requisitionView === 'table'
+												? 'bg-blue-500 text-white'
+												: 'text-gray-600 hover:text-gray-900'
+										)}
+										on:click={() => (requisitionView = 'table')}
+									>
+										<LayoutGrid class="h-4 w-4" />
+									</button>
+									<button
+										class={cn(
+											'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
+											requisitionView === 'calendar'
+												? 'bg-blue-500 text-white'
+												: 'text-gray-600 hover:text-gray-900'
+										)}
+										on:click={() => (requisitionView = 'calendar')}
+									>
+										<CalendarIcon class="h-4 w-4" />
+									</button>
+								</div>
+
+								{#if isAdmin}
+									<Button
+										on:click={() => (drawerExpanded = true)}
+										size="sm"
+										class="gap-1 bg-blue-500 hover:bg-blue-600"
+									>
+										<Plus class="h-4 w-4" />
+										<span>New Requisition</span>
+									</Button>
+								{/if}
+							</div>
 						</CardHeader>
 						<CardContent>
-							<Calendar events={requisitions} {selectEvent} />
+							{#if requisitionView === 'table'}
+								<!-- Table View -->
+								{#if requisitions && requisitions.length > 0}
+									<div class="rounded-md border">
+										<Table>
+											<TableHeader>
+												{#each $requisitionTable.getHeaderGroups() as headerGroup}
+													<TableRow>
+														{#each headerGroup.headers as header}
+															<TableHead>
+																<svelte:component
+																	this={flexRender(
+																		header.column.columnDef.header,
+																		header.getContext()
+																	)}
+																/>
+															</TableHead>
+														{/each}
+														<TableHead class="text-right">Actions</TableHead>
+													</TableRow>
+												{/each}
+											</TableHeader>
+											<TableBody>
+												{#each $requisitionTable.getRowModel().rows as row}
+													<TableRow
+														class="cursor-pointer hover:bg-gray-50"
+														on:click={() => goto(`/requisitions/${row.original.id}`)}
+													>
+														{#each row.getVisibleCells() as cell, cellIndex}
+															<TableCell>
+																{#if cellIndex === 0}
+																	<!-- Position column with custom HTML -->
+																	<div class="flex flex-col">
+																		<span class="font-medium truncate max-w-[250px]">
+																			{row.original.disciplineName}
+																			<span class="text-xs text-muted-foreground"
+																				>- Req# {row.original.id}</span
+																			>
+																		</span>
+																		<span class="text-xs text-gray-500"
+																			>{row.original.location?.name || 'No location'}</span
+																		>
+																	</div>
+																{:else if cellIndex === 1}
+																	<!-- Status badge -->
+																	<Badge
+																		value={row.original.status}
+																		class={cn(
+																			row.original.status === 'PENDING' &&
+																				'bg-yellow-300 hover:bg-yellow-400 text-white',
+																			row.original.status === 'OPEN' &&
+																				'bg-blue-500 hover:bg-blue-600 text-white',
+																			row.original.status === 'FILLED' &&
+																				'bg-green-400 hover:bg-green-500 text-white',
+																			row.original.status === 'UNFULFILLED' &&
+																				'bg-orange-400 hover:bg-orange-500 text-white',
+																			row.original.status === 'CANCELED' &&
+																				'bg-red-500 hover:bg-red-600 text-white'
+																		)}
+																	/>
+																{:else if cellIndex === 2}
+																	<!-- Rate -->
+																	${row.original.hourlyRate?.toFixed(2) || '0.00'}
+																{/if}
+															</TableCell>
+														{/each}
+														<TableCell class="text-right">
+															<div class="flex justify-end gap-2">
+																<Button
+																	href={`/requisitions/${row.original.id}`}
+																	variant="ghost"
+																	size="icon"
+																	class="h-8 w-8"
+																	on:click={(e) => e.stopPropagation()}
+																>
+																	<Eye class="h-4 w-4" />
+																</Button>
+															</div>
+														</TableCell>
+													</TableRow>
+												{/each}
+											</TableBody>
+										</Table>
+									</div>
+
+									<!-- Pagination Controls -->
+									<div class="flex items-center justify-between space-x-2 py-4">
+										<div class="flex-1 text-sm text-muted-foreground">
+											Showing {$requisitionTable.getState().pagination.pageIndex *
+												$requisitionTable.getState().pagination.pageSize +
+												1} to {Math.min(
+												($requisitionTable.getState().pagination.pageIndex + 1) *
+													$requisitionTable.getState().pagination.pageSize,
+												$requisitionTable.getFilteredRowModel().rows.length
+											)} of {$requisitionTable.getFilteredRowModel().rows.length} requisitions
+										</div>
+										<div class="flex items-center space-x-2">
+											<Button
+												variant="outline"
+												size="sm"
+												on:click={() => $requisitionTable.previousPage()}
+												disabled={!$requisitionTable.getCanPreviousPage()}
+											>
+												<ChevronLeft class="h-4 w-4" />
+												Previous
+											</Button>
+											<Button
+												variant="outline"
+												size="sm"
+												on:click={() => $requisitionTable.nextPage()}
+												disabled={!$requisitionTable.getCanNextPage()}
+											>
+												Next
+												<ChevronRight class="h-4 w-4" />
+											</Button>
+										</div>
+									</div>
+								{:else}
+									<div class="flex flex-col items-center justify-center py-8 text-center">
+										<ClipboardList class="h-12 w-12 text-gray-300 mb-2" />
+										<h3 class="text-lg font-medium">No Requisitions</h3>
+										<p class="text-sm text-gray-500 mb-4">
+											This client doesn't have any requisitions yet.
+										</p>
+										{#if isAdmin}
+											<Button
+												variant="outline"
+												size="sm"
+												class="gap-1"
+												on:click={() => (drawerExpanded = true)}
+											>
+												<Plus class="h-4 w-4" />
+												<span>Create First Requisition</span>
+											</Button>
+										{/if}
+									</div>
+								{/if}
+							{:else}
+								<!-- Calendar View -->
+								<Calendar events={recurrenceDays} {selectEvent} />
+							{/if}
 						</CardContent>
 					</Card>
 				</TabsContent>
@@ -1354,3 +1821,9 @@
 		</div>
 	</section>
 {/if}
+<AddRequisitionDrawer
+	currentCompanyID={data.client?.company.id}
+	{user}
+	bind:drawerExpanded
+	{adminForm}
+/>

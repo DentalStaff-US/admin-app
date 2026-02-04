@@ -10,6 +10,7 @@
 
 	export let form: SuperValidated<AdminRequisitionSchema>;
 	export let drawerExpanded: boolean;
+	export let currentCompanyID: string | null = null;
 
 	let clients: any[] = [];
 	let locations: any[] = [];
@@ -43,9 +44,14 @@
 		resetForm: true
 	});
 
+	$: if (currentCompanyID) {
+		$formObj.clientId = currentCompanyID;
+		handleGetLocations(currentCompanyID);
+	}
+
 	const handleFetchClients = async () => {
 		if (!clients.length) {
-			const req = await fetch('api/admin/fetchAllClients', { method: 'GET' });
+			const req = await fetch('/api/admin/fetchAllClients', { method: 'GET' });
 			const clientsRes = await req.json();
 			clients = clientsRes;
 		}
@@ -83,6 +89,11 @@
 		await handleFetchClients();
 		await handleFetchDisciplines();
 		await handleFetchExperienceLevels();
+		if (currentCompanyID) {
+			$formObj.clientId = currentCompanyID;
+			await handleGetLocations(currentCompanyID);
+		}
+
 		window.addEventListener('beforeunload', handleBeforeUnload);
 	});
 
@@ -118,13 +129,15 @@
 			$formObj.timezone = selectedLocation.timezone;
 		}
 	}
+
+	$: console.log({ formData: $formObj });
 </script>
 
 <form
-		use:enhance
-		method="POST"
-		action="/requisitions?/admin"
-		class="grow flex flex-col h-full max-h-[calc(100vh_-_70px)]"
+	use:enhance
+	method="POST"
+	action="/requisitions?/admin"
+	class="grow flex flex-col h-full max-h-[calc(100vh_-_70px)]"
 >
 	<input type="hidden" bind:value={$formObj.timezone} name="timezone" />
 
@@ -132,13 +145,13 @@
 		<div class="mb-4">
 			<Label for="clientId">Associated Client</Label>
 			<select
-					id="clientId"
-					name="clientId"
-					bind:value={$formObj.clientId}
-					on:change={(e) => handleGetLocations(e.currentTarget.value)}
-					class="w-full p-2 border rounded"
-					tabindex={drawerExpanded ? 0 : -1}
-					required
+				id="clientId"
+				name="clientId"
+				bind:value={$formObj.clientId}
+				on:change={(e) => handleGetLocations(e.currentTarget.value)}
+				class="w-full p-2 border rounded"
+				tabindex={drawerExpanded ? 0 : -1}
+				required
 			>
 				<option value="">Select Client</option>
 				{#each clients as client}
@@ -152,13 +165,13 @@
 		<div class="mb-4">
 			<Label for="locationId">Location</Label>
 			<select
-					id="locationId"
-					name="locationId"
-					bind:value={$formObj.locationId}
-					class="w-full p-2 border rounded"
-					tabindex={drawerExpanded ? 0 : -1}
-					required
-					disabled={!locations.length}
+				id="locationId"
+				name="locationId"
+				bind:value={$formObj.locationId}
+				class="w-full p-2 border rounded"
+				tabindex={drawerExpanded ? 0 : -1}
+				required
+				disabled={!locations.length}
 			>
 				<option value="">Select Location</option>
 				{#each locations as location}
@@ -170,12 +183,12 @@
 		<div class="mb-4">
 			<Label for="disciplineId">Discipline</Label>
 			<select
-					id="disciplineId"
-					name="disciplineId"
-					bind:value={$formObj.disciplineId}
-					class="w-full p-2 border rounded"
-					tabindex={drawerExpanded ? 0 : -1}
-					required
+				id="disciplineId"
+				name="disciplineId"
+				bind:value={$formObj.disciplineId}
+				class="w-full p-2 border rounded"
+				tabindex={drawerExpanded ? 0 : -1}
+				required
 			>
 				<option value="">Select Discipline</option>
 				{#each disciplines as discipline}
@@ -187,12 +200,12 @@
 		<div class="mb-4">
 			<Label for="experienceLevelId">Experience Level</Label>
 			<select
-					id="experienceLevelId"
-					name="experienceLevelId"
-					bind:value={$formObj.experienceLevelId}
-					class="w-full p-2 border rounded"
-					tabindex={drawerExpanded ? 0 : -1}
-					required
+				id="experienceLevelId"
+				name="experienceLevelId"
+				bind:value={$formObj.experienceLevelId}
+				class="w-full p-2 border rounded"
+				tabindex={drawerExpanded ? 0 : -1}
+				required
 			>
 				<option value="">Select Experience</option>
 				{#each sortedExperienceLevels as level}
@@ -204,12 +217,12 @@
 		<div class="mb-4">
 			<Label for="permanentPosition">Requisition Type</Label>
 			<select
-					id="permanentPosition"
-					name="permanentPosition"
-					bind:value={$formObj.permanentPosition}
-					class="w-full p-2 border rounded"
-					tabindex={drawerExpanded ? 0 : -1}
-					required
+				id="permanentPosition"
+				name="permanentPosition"
+				bind:value={$formObj.permanentPosition}
+				class="w-full p-2 border rounded"
+				tabindex={drawerExpanded ? 0 : -1}
+				required
 			>
 				<option value={false}>Temporary</option>
 				<option value={true}>Permanent</option>
@@ -219,55 +232,55 @@
 		<div class="mb-4">
 			<Label for="hourlyRate">Hourly Rate</Label>
 			<Input
-					type="number"
-					id="hourlyRate"
-					name="hourlyRate"
-					bind:value={$formObj.hourlyRate}
-					tabindex={drawerExpanded ? 0 : -1}
-					required
+				type="number"
+				id="hourlyRate"
+				name="hourlyRate"
+				bind:value={$formObj.hourlyRate}
+				tabindex={drawerExpanded ? 0 : -1}
+				required
 			/>
 		</div>
 
 		<div class="mb-4">
 			<Label for="jobDescription">Job Description</Label>
 			<textarea
-					id="jobDescription"
-					name="jobDescription"
-					bind:value={$formObj.jobDescription}
-					class="w-full p-2 border rounded"
-					rows="4"
-					tabindex={drawerExpanded ? 0 : -1}
-					required
+				id="jobDescription"
+				name="jobDescription"
+				bind:value={$formObj.jobDescription}
+				class="w-full p-2 border rounded"
+				rows="4"
+				tabindex={drawerExpanded ? 0 : -1}
+				required
 			></textarea>
 		</div>
 
 		<div class="mb-4">
 			<Label for="specialInstructions">Special Instructions</Label>
 			<textarea
-					id="specialInstructions"
-					name="specialInstructions"
-					bind:value={$formObj.specialInstructions}
-					class="w-full p-2 border rounded"
-					rows="4"
-					tabindex={drawerExpanded ? 0 : -1}
+				id="specialInstructions"
+				name="specialInstructions"
+				bind:value={$formObj.specialInstructions}
+				class="w-full p-2 border rounded"
+				rows="4"
+				tabindex={drawerExpanded ? 0 : -1}
 			></textarea>
 		</div>
 	</div>
 
 	<div class="flex justify-end gap-4 p-4 border-t border-t-gray-200">
 		<Button
-				tabindex={drawerExpanded ? 0 : -1}
-				type="button"
-				on:click={handleDrawerClose}
-				class="bg-white hover:bg-red-500 hover:text-white border border-red-500 text-red-500 rounded-md"
+			tabindex={drawerExpanded ? 0 : -1}
+			type="button"
+			on:click={handleDrawerClose}
+			class="bg-white hover:bg-red-500 hover:text-white border border-red-500 text-red-500 rounded-md"
 		>
 			Cancel
 		</Button>
 		<Button
-				tabindex={drawerExpanded ? 0 : -1}
-				type="submit"
-				disabled={$submitting}
-				class="px-4 py-2 border border-green-400 bg-green-400 hover:bg-green-400 text-white rounded-md"
+			tabindex={drawerExpanded ? 0 : -1}
+			type="submit"
+			disabled={$submitting}
+			class="px-4 py-2 border border-green-400 bg-green-400 hover:bg-green-400 text-white rounded-md"
 		>
 			{#if $submitting}
 				<Loader2 class="mr-2 h-4 w-4 animate-spin" />

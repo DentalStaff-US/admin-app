@@ -97,12 +97,10 @@
 			});
 		}
 
-		baseColumns.push(
-			{
-				header: 'Office',
-				accessorKey: 'locationName'
-			},
-		);
+		baseColumns.push({
+			header: 'Office',
+			accessorKey: 'locationName'
+		});
 
 		if (!isAdmin) {
 			baseColumns.push({
@@ -152,10 +150,7 @@
 	const canceledTable = createSvelteTable(canceledOptions);
 
 	// Get current active table
-	$: currentTable =
-		activeTab === 'open'
-			? openTable
-			: canceledTable;
+	$: currentTable = activeTab === 'open' ? openTable : canceledTable;
 
 	// Update table data when requisitions change
 	$: {
@@ -203,7 +198,7 @@
 	}
 </script>
 
-<section class="flex flex-col h-full p-6 space-y-6">
+<section class="container mx-auto px-4 py-6 flex flex-col h-full p-6 space-y-6">
 	<!-- Header -->
 	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
 		<div>
@@ -265,7 +260,7 @@
 		</Tabs.List>
 
 		<!-- Tab Contents -->
-		{#each ['open',  'canceled'] as tabValue}
+		{#each ['open', 'canceled'] as tabValue}
 			<Tabs.Content value={tabValue} class="">
 				{#if activeTab === tabValue}
 					<div class="bg-white rounded-lg shadow-sm">

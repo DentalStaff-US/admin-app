@@ -41,7 +41,8 @@
 	} from '$lib/components/ui/dropdown-menu';
 	import type { PageData } from './$types';
 	import { format } from 'date-fns';
-	import { Plus, User } from 'lucide-svelte';
+	import { Plus, UserPlus } from 'lucide-svelte';
+	import { formatInTimeZone } from 'date-fns-tz';
 
 	export let data: PageData;
 	$: recurrenceDay = data.recurrenceDay;
@@ -211,11 +212,11 @@
 			<Card>
 				<CardHeader class="flex flex-row justify-between items-center">
 					<CardTitle>Professional Details</CardTitle>
-					{#if !candidate}
+					{#if !candidate && recurrenceDay?.recurrenceDay?.status === 'OPEN'}
 						<Dialog>
 							<DialogTrigger
 								><Button class={`gap-2 bg-[#2a93d1] hover:bg-blue-500`}
-									><User class="h-5" />Assign</Button
+									><UserPlus class="h-5" />Assign</Button
 								></DialogTrigger
 							>
 							<DialogContent>
@@ -266,28 +267,50 @@
 			</CardHeader>
 			<CardContent>
 				<div class="space-y-4">
-					<div class="bg-muted p-3 rounded-md">
-						<h3 class="font-semibold mb-2">Date</h3>
-						<p>{format(recurrenceDay?.recurrenceDay?.date, 'PP')}</p>
-					</div>
+					{#if recurrenceDay}
+						<div class="bg-muted p-3 rounded-md">
+							<h3 class="font-semibold mb-2">Date</h3>
+							<p>{format(recurrenceDay?.recurrenceDay?.date, 'PP')}</p>
+						</div>
 
-					<div class="grid grid-cols-2 gap-4">
-						<div class="bg-muted p-3 rounded-md">
-							<h3 class="font-semibold mb-2">Start Time</h3>
-							<p>{format(recurrenceDay?.recurrenceDay?.dayStart, 'h:mm a')}</p>
+						<div class="grid grid-cols-2 gap-4">
+							<div class="bg-muted p-3 rounded-md">
+								<h3 class="font-semibold mb-2">Start Time</h3>
+								<p>
+									{formatInTimeZone(
+										recurrenceDay?.recurrenceDay?.dayStart,
+										recurrenceDay?.requisition.referenceTimezone,
+										'h:mm a'
+									)}
+								</p>
+							</div>
+							<div class="bg-muted p-3 rounded-md">
+								<h3 class="font-semibold mb-2">End Time</h3>
+								<p>
+									{formatInTimeZone(
+										recurrenceDay?.recurrenceDay?.dayEnd,
+										recurrenceDay?.requisition.referenceTimezone,
+										'h:mm a'
+									)}
+								</p>
+							</div>
 						</div>
-						<div class="bg-muted p-3 rounded-md">
-							<h3 class="font-semibold mb-2">End Time</h3>
-							<p>{format(recurrenceDay?.recurrenceDay?.dayEnd, 'h:mm a')}</p>
-						</div>
-					</div>
+					{/if}
 
 					<div class="bg-muted p-3 rounded-md">
 						<h3 class="font-semibold mb-2">Lunch Break</h3>
 						{#if recurrenceDay?.recurrenceDay?.lunchStart && recurrenceDay?.recurrenceDay?.lunchEnd}
 							<p>
-								{format(recurrenceDay.recurrenceDay.lunchStart, 'h:mm a')} -{' '}
-								{format(recurrenceDay.recurrenceDay.lunchEnd, 'h:mm a')}
+								{formatInTimeZone(
+									recurrenceDay.recurrenceDay.lunchStart,
+									recurrenceDay?.requisition.referenceTimezone,
+									'h:mm a'
+								)} -{' '}
+								{formatInTimeZone(
+									recurrenceDay.recurrenceDay.lunchEnd,
+									recurrenceDay?.requisition.referenceTimezone,
+									'h:mm a'
+								)}
 							</p>
 						{:else}
 							<p>No lunch break scheduled</p>

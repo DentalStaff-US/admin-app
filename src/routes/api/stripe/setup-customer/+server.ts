@@ -1,11 +1,13 @@
 // /routes/api/stripe/setup-customer/+server.ts
 
-import db from '$lib/server/database/drizzle';
-import { getClientProfileById } from '$lib/server/database/queries/clients';
-import { clientSubscriptionTable } from '$lib/server/database/schemas/client';
-import { type RequestHandler, error, json } from '@sveltejs/kit';
-import { eq } from 'drizzle-orm';
+import { json, error } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 import { stripe } from '$lib/server/stripe';
+import { getClientProfileById } from '$lib/server/database/queries/clients';
+import db from '$lib/server/database/drizzle';
+import { clientSubscriptionTable } from '$lib/server/database/schemas/client';
+import { eq } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const user = locals.user;
@@ -27,13 +29,40 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			throw error(404, 'Client not found');
 		}
 
-		// Create Stripe Checkout Session in SETUP MODE
+		// Check if customer already exists in our DB
+		const [existingSubscription] = await db
+			.select()
+			.from(clientSubscriptionTable)
+			.where(eq(clientSubscriptionTable.clientId, clientId))
+			.limit(1);
+
+		let customerId = existingSubscription?.stripeCustomerId;
+
+		// If no customer exists, create one in Stripe FIRST
+		if (!customerId) {
+			console.log('Creating new Stripe customer for:', clientData.user.email);
+
+			const customer = await stripe.customers.create({
+				email: clientData.user.email,
+				name: `${clientData.user.firstName} ${clientData.user.lastName}`,
+				metadata: {
+					clientId: clientId,
+					userId: clientData.user.id
+				}
+			});
+
+			customerId = customer.id;
+			console.log('Created Stripe customer:', customerId);
+		} else {
+			console.log('Using existing Stripe customer:', customerId);
+		}
+
+		// Create Stripe Checkout Session in SETUP MODE with the customer
 		const session = await stripe.checkout.sessions.create({
 			mode: 'setup',
-			currency: 'usd', // Required for setup mode with dynamic payment methods
-			customer_email: clientData.user.email,
+			currency: 'usd',
+			customer: customerId, // Use customer ID, not customer_email
 			payment_method_types: ['card'],
-			// Minimal redirect URLs (most users won't see these)
 			success_url: `${request.headers.get('origin')}/setup-complete`,
 			cancel_url: `${request.headers.get('origin')}/setup-complete`,
 			metadata: {
@@ -42,25 +71,23 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			}
 		});
 
-		// Create or update clientSubscription with pending status
-		const existingSubscription = await db
-			.select()
-			.from(clientSubscriptionTable)
-			.where(eq(clientSubscriptionTable.clientId, clientId))
-			.limit(1);
+		console.log('Created checkout session:', session.id);
 
-		if (existingSubscription.length > 0) {
+		// Create or update clientSubscription record with pending status
+		if (existingSubscription) {
 			await db
 				.update(clientSubscriptionTable)
 				.set({
+					stripeCustomerId: customerId,
 					stripeCustomerSetupPending: true,
 					updatedAt: new Date()
 				})
 				.where(eq(clientSubscriptionTable.clientId, clientId));
 		} else {
 			await db.insert(clientSubscriptionTable).values({
-				id: crypto.randomUUID(),
+				id: nanoid(),
 				clientId: clientId,
+				stripeCustomerId: customerId,
 				status: 'inactive',
 				stripeCustomerSetupPending: true,
 				createdAt: new Date(),

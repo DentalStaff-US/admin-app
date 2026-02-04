@@ -16,6 +16,7 @@
 	export let user;
 	export let drawerExpanded: boolean;
 	export let location: ClientCompanyLocationSelect | null | undefined = null;
+	export let currentCompanyID: string | null = null;
 </script>
 
 <!-- TODO: Need to ensure that if drawer is not open, then anything in the drawer is not able to have positive tabIndex -->
@@ -30,7 +31,7 @@
 	</div>
 	{#if drawerExpanded}
 		{#if user?.role === USER_ROLES.SUPERADMIN && adminForm}
-			<AdminRequisitionForm form={adminForm} bind:drawerExpanded />
+			<AdminRequisitionForm form={adminForm} bind:drawerExpanded {currentCompanyID} />
 		{/if}
 		{#if (user?.role === USER_ROLES.CLIENT && clientForm) || (user?.role === USER_ROLES.CLIENT_STAFF && clientForm)}
 			<CompanyRequisitionForm {location} form={clientForm} bind:drawerExpanded />

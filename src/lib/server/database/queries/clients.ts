@@ -112,17 +112,19 @@ export type StaffLocation = {
 	lon: string | null;
 };
 
-export async function createClientProfile(values: ClientProfile) {
-	const result = await db
-		.insert(clientProfileTable)
-		.values(values)
-		.onConflictDoNothing()
-		.returning();
+export async function createClientProfile(values: ClientProfile, tx?: any) {
+	const query = tx || db;
+	try {
+		const [result] = await query
+			.insert(clientProfileTable)
+			.values(values)
+			.onConflictDoNothing()
+			.returning();
 
-	if (result.length === 0) {
-		return null;
-	} else {
-		return result[0];
+		return result;
+	} catch (error) {
+		console.error('Error creating client profile:', error);
+		throw error;
 	}
 }
 
@@ -714,9 +716,10 @@ export async function getLocationsForStaffUser(staffId: string): Promise<StaffLo
 	}
 }
 
-export async function createClientCompany(values: ClientCompany) {
+export async function createClientCompany(values: ClientCompany, tx?: any) {
+	const query = tx || db;
 	try {
-		const [result] = await db
+		const [result] = await query
 			.insert(clientCompanyTable)
 			.values(values)
 			.onConflictDoNothing()

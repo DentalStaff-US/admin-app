@@ -4,7 +4,7 @@
 			{ name: 'Admins', link: '/admin/menu/admins' },
 			{ name: 'Professional Members', link: '/professionals' },
 			{ name: 'Business Members', link: '/clients' },
-			{name: "User Management", link: "/admin/menu/user-management"}
+			{ name: 'User Management', link: '/admin/menu/user-management' }
 		],
 		'Requisition Management': [
 			{ name: 'Requisitions', link: '/requisitions' },
@@ -24,7 +24,7 @@
 	};
 </script>
 
-<section class="grow h-screen overflow-y-auto">
+<section class="grow h-screen overflow-y-auto container mx-auto px-4 py-6">
 	<div class="p-6 flex flex-col gap-6">
 		<h1 class="text-3xl font-extrabold leading-tight tracking-tighter md:text-4xl">Admin Menu</h1>
 	</div>
