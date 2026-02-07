@@ -44,14 +44,7 @@
 	$: isAdmin = user?.role === USER_ROLES.SUPERADMIN;
 
 	$: {
-		console.log(
-			'Timesheets data:',
-			timesheets.map((ts) => ({
-				id: ts.timesheet.id,
-				status: ts.timesheet.status,
-				hasDiscrepanciesResult: hasDiscrepancies(ts)
-			}))
-		);
+		console.log('Timesheets data:', timesheets);
 	}
 
 	// Helper function to validate timesheet and check for discrepancies
@@ -89,11 +82,11 @@
 		{
 			header: 'Requisition',
 			id: 'requisition',
-			accessorFn: (row) => row.requisition?.title || 'N/A',
+			accessorFn: (row) => row.requisition?.disciplineName || 'N/A',
 			enableSorting: true,
 			sortingFn: (rowA, rowB) => {
-				const titleA = rowA.original.requisition?.title?.toLowerCase() || '';
-				const titleB = rowB.original.requisition?.title?.toLowerCase() || '';
+				const titleA = rowA.original.requisition?.disciplineName?.toLowerCase() || '';
+				const titleB = rowB.original.requisition?.disciplineName?.toLowerCase() || '';
 				return titleA.localeCompare(titleB);
 			}
 		},

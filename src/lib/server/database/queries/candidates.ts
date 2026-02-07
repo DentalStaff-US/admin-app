@@ -310,24 +310,6 @@ export async function getCandidateDocuments(candidateId: string) {
 	return documents || [];
 }
 
-export async function getQualifiedProfessionalsForRequisition(
-	requisitionId: number,
-	recurrenceDayId: string
-) {
-	const [requisition] = await db
-		.select()
-		.from(requisitionTable)
-		.where(eq(requisitionTable.id, requisitionId));
-
-	const [recurrenceDay] = await db
-		.select()
-		.from(recurrenceDayTable)
-		.where(eq(recurrenceDayTable.id, recurrenceDayId));
-
-	// get discipline and experience from requisition
-	// find candidates that match those (as well as location)
-}
-
 export async function uploadCandidateDocuments(data: unknown, candidateId: string | SQLWrapper) {
 	try {
 		const [candidateProfile] = await db
@@ -361,5 +343,104 @@ export async function uploadCandidateDocuments(data: unknown, candidateId: strin
 	} catch (error) {
 		console.log(error);
 		throw new Error(error instanceof Error ? error.message : 'Error uploading documents');
+	}
+}
+
+export async function getQualifiedProfessionalsForRequisition(requisition: any, location: any) {
+	try {
+		// Get location coordinates
+		const locationLat = location.lat;
+		const locationLon = location.lon;
+
+		if (!locationLat || !locationLon) {
+			console.warn('Location has no coordinates, cannot find nearby candidates');
+			return [];
+		}
+
+		// Required discipline ID from requisition
+		const requiredDisciplineId = requisition.disciplineId;
+		const radiusMiles = 50;
+		const radiusMeters = radiusMiles * 1609.34; // Convert miles to meters for PostGIS
+
+		// Query candidates using PostGIS ST_DWithin and ST_Distance
+		const candidates = await db
+			.select({
+				// Candidate info
+				candidateId: candidateProfileTable.id,
+				userId: candidateProfileTable.userId,
+				firstName: userTable.firstName,
+				lastName: userTable.lastName,
+				email: userTable.email,
+				avatarUrl: userTable.avatarUrl,
+				phoneNumber: candidateProfileTable.cellPhone,
+
+				// Profile info
+				address: candidateProfileTable.completeAddress,
+				city: candidateProfileTable.city,
+				state: candidateProfileTable.state,
+				lat: candidateProfileTable.lat,
+				lon: candidateProfileTable.lon,
+				hourlyRateMin: candidateProfileTable.hourlyRateMin,
+				hourlyRateMax: candidateProfileTable.hourlyRateMax,
+				avgRating: candidateProfileTable.avgRating,
+				approved: candidateProfileTable.approved,
+				status: candidateProfileTable.status,
+
+				// Discipline/Experience
+				disciplineId: candidateDisciplineExperienceTable.disciplineId,
+				disciplineName: disciplineTable.name,
+				disciplineAbbr: disciplineTable.abbreviation,
+
+				// Calculate distance in miles using PostGIS
+				// ST_Distance returns meters, convert to miles
+				distance: sql<number>`
+					ST_Distance(
+						${candidateProfileTable.geom}::geography,
+						ST_SetSRID(ST_MakePoint(${locationLon}, ${locationLat}), 4326)::geography
+					) * 0.000621371
+				`.as('distance')
+			})
+			.from(candidateProfileTable)
+			.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+			.innerJoin(
+				candidateDisciplineExperienceTable,
+				eq(candidateDisciplineExperienceTable.candidateId, candidateProfileTable.id)
+			)
+			.innerJoin(
+				disciplineTable,
+				eq(disciplineTable.id, candidateDisciplineExperienceTable.disciplineId)
+			)
+			// .leftJoin(
+			// 	experienceLevelTable,
+			// 	eq(experienceLevelTable.id, candidateDisciplineExperienceTable.experienceLevelId)
+			// )
+			.where(
+				and(
+					// Must have the required discipline
+					eq(candidateDisciplineExperienceTable.disciplineId, requiredDisciplineId),
+					// Must be approved and active
+					eq(candidateProfileTable.approved, true),
+					eq(candidateProfileTable.status, 'ACTIVE'),
+					// Must have geometry point
+					isNotNull(candidateProfileTable.geom),
+					// Within 50 miles using PostGIS ST_DWithin (uses spatial index!)
+					sql`ST_DWithin(
+						${candidateProfileTable.geom}::geography,
+						ST_SetSRID(ST_MakePoint(${locationLon}, ${locationLat}), 4326)::geography,
+						${radiusMeters}
+					)`
+				)
+			)
+			.orderBy(sql`distance ASC`); // Closest first
+
+		console.log(`Found ${candidates.length} qualified candidates within ${radiusMiles} miles`);
+
+		return candidates.map((c) => ({
+			...c,
+			distance: Number(c.distance).toFixed(1) // Format distance to 1 decimal
+		}));
+	} catch (error) {
+		console.error('Error finding qualified professionals:', error);
+		return [];
 	}
 }

@@ -1008,7 +1008,7 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 					...timeSheetTable,
 					hourlyRate: requisitionTable.hourlyRate // ✅ Add this
 				},
-				requisition: { ...requisitionTable },
+				requisition: { ...requisitionTable, disciplineName: disciplineTable.name },
 				clientCompany: { ...clientCompanyTable },
 				candidate: {
 					...candidateProfileTable,
@@ -1018,6 +1018,7 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 			})
 			.from(timeSheetTable)
 			.leftJoin(requisitionTable, eq(requisitionTable.id, timeSheetTable.requisitionId))
+			.leftJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
 			.innerJoin(clientCompanyTable, eq(clientCompanyTable.id, requisitionTable.companyId))
 			.innerJoin(
 				candidateProfileTable,
@@ -1376,15 +1377,17 @@ export async function getTimesheetDetails(timesheetId: string, clientId: string 
 }
 
 export async function getWorkdaysForTimesheet(timesheet: any) {
-	return await db
-		.select()
+	const workdays = await db
+		.select({
+			workday: workdayTable,
+			recurrenceDay: recurrenceDayTable
+		})
 		.from(workdayTable)
-		.where(
-			and(
-				eq(workdayTable.requisitionId, timesheet.requisitionId),
-				eq(workdayTable.candidateId, timesheet.candidate.id)
-			)
-		);
+		.innerJoin(recurrenceDayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
+		.where(eq(workdayTable.requisitionId, timesheet.requisitionId))
+		.orderBy(recurrenceDayTable.date);
+
+	return workdays;
 }
 
 export const getWorkdayDetails = async (

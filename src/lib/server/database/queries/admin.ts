@@ -11,12 +11,24 @@ import {
 	workdayTable,
 	type InvoiceWithRelations
 } from '$lib/server/database/schemas/requisition';
-import { clientCompanyTable, clientProfileTable } from '$lib/server/database/schemas/client';
+import {
+	clientCompanyTable,
+	clientProfileTable,
+	companyOfficeLocationTable,
+	type ClientCompany,
+	type ClientCompanyLocation,
+	type ClientProfile
+} from '$lib/server/database/schemas/client';
 import { convertRecurrenceDayToEvent } from '$lib/components/calendar/utils';
 import type { PgTable, PgTableWithColumns } from 'drizzle-orm/pg-core';
 import { actionHistoryTable, supportTicketTable } from '$lib/server/database/schemas/admin';
 import type { PaginateOptions } from '$lib/types';
-import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
+import {
+	candidateDisciplineExperienceTable,
+	candidateProfileTable,
+	type CandidateDisciplineExperience,
+	type CandidateProfile
+} from '$lib/server/database/schemas/candidate';
 import {
 	getRecurrenceDaysForTimesheet,
 	getWorkdaysForTimesheet,
@@ -534,4 +546,309 @@ export async function getClientProfileByIdAdmin(clientId: string) {
 		.where(eq(clientProfileTable.id, clientId));
 
 	return result || null;
+}
+
+import { inArray } from 'drizzle-orm';
+import { Argon2id } from 'oslo/password';
+
+interface ImportUser {
+	firstName: string;
+	lastName: string;
+	email: string;
+	companyName?: string;
+	companyLogo?: string;
+	baseLocation?: string;
+	address?: string;
+	discipline?: string;
+}
+
+export async function bulkCreateSuperadmins(tx: any, users: ImportUser[]) {
+	const hashedPassword = await new Argon2id().hash('dtssadminuser');
+
+	const userRecords: User[] = users.map((user) => ({
+		id: crypto.randomUUID(),
+		createdAt: new Date(),
+		updatedAt: new Date(),
+		firstName: user.firstName,
+		lastName: user.lastName,
+		email: user.email,
+		role: 'SUPERADMIN' as const,
+		completedOnboarding: true,
+		verified: true,
+		receiveEmail: true,
+		provider: '',
+		providerId: '',
+		avatarUrl: null,
+		onboardingStep: null,
+		blacklisted: false,
+		stripeCustomerId: null,
+		timezone: null,
+		token: crypto.randomUUID(),
+		password: hashedPassword
+	}));
+
+	// Insert all at once
+	await tx.insert(userTable).values(userRecords);
+}
+
+export interface BulkCreateResult {
+	userIds: string[];
+	locationIds: string[];
+	locationJobData: Array<{
+		locationId: string;
+		address: string;
+		email: string;
+		type: 'location';
+	}>;
+	candidateJobData?: Array<{
+		candidateId: string;
+		address: string;
+		email: string;
+		type: 'candidate';
+	}>;
+}
+
+export async function bulkCreateClients(tx: any, users: ImportUser[]): Promise<BulkCreateResult> {
+	const hashedPassword = await new Argon2id().hash('dtssclientuser');
+
+	const userRecords: User[] = [];
+	const profileRecords: ClientProfile[] = [];
+	const companyRecords: ClientCompany[] = [];
+	const locationRecords: ClientCompanyLocation[] = [];
+	const locationJobData: Array<{
+		locationId: string;
+		address: string;
+		email: string;
+		type: 'location';
+	}> = [];
+
+	for (const user of users) {
+		const userId = crypto.randomUUID();
+		const profileId = crypto.randomUUID();
+		const companyId = crypto.randomUUID();
+		const locationId = crypto.randomUUID();
+
+		userRecords.push({
+			id: userId,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			firstName: user.firstName,
+			lastName: user.lastName,
+			email: user.email,
+			role: 'CLIENT' as const,
+			completedOnboarding: true,
+			verified: true,
+			receiveEmail: true,
+			provider: '',
+			providerId: '',
+			avatarUrl: null,
+			onboardingStep: null,
+			blacklisted: false,
+			stripeCustomerId: null,
+			timezone: null, // Will be updated by geocoding job
+			token: crypto.randomUUID(),
+			password: hashedPassword
+		});
+
+		profileRecords.push({
+			id: profileId,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			userId: userId
+		});
+
+		companyRecords.push({
+			id: companyId,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			clientId: profileId,
+			companyName: user.companyName || `${user.firstName} ${user.lastName} Company`,
+			companyLogo: user.companyLogo || null,
+			baseLocation: user.baseLocation || null
+		});
+
+		if (user.address) {
+			locationRecords.push({
+				id: locationId,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+				email: user.email,
+				streetOne: user.address || null,
+				streetTwo: null,
+				city: null,
+				state: null,
+				zipcode: null,
+				companyPhone: null,
+				cellPhone: null,
+				companyId: companyId,
+				name: `${user.companyName || user.firstName} - Main Location`,
+				timezone: 'America/New_York', // Default, will be updated
+				lat: null, // Will be updated by geocoding job
+				lon: null, // Will be updated by geocoding job
+				completeAddress: user.address || null,
+				operatingHours: null
+			});
+
+			// Store job data for background geocoding
+			locationJobData.push({
+				locationId,
+				address: user.address,
+				email: user.email,
+				type: 'location' as const
+			});
+		}
+	}
+
+	// Bulk insert in order (respecting foreign keys)
+	await tx.insert(userTable).values(userRecords);
+	await tx.insert(clientProfileTable).values(profileRecords);
+	await tx.insert(clientCompanyTable).values(companyRecords);
+	if (locationRecords.length > 0) {
+		await tx.insert(companyOfficeLocationTable).values(locationRecords);
+	}
+
+	return {
+		userIds: userRecords.map((u) => u.id),
+		locationIds: locationRecords.map((l) => l.id),
+		locationJobData
+	};
+}
+
+export async function bulkCreateCandidates(
+	tx: any,
+	users: ImportUser[]
+): Promise<BulkCreateResult> {
+	const hashedPassword = await new Argon2id().hash('dtssprofessionaluser');
+	const userRecords: User[] = [];
+	const candidateRecords: CandidateProfile[] = [];
+	const candidateExperienceRecords: CandidateDisciplineExperience[] = [];
+	const candidateJobData: Array<{
+		candidateId: string;
+		address: string;
+		email: string;
+		type: 'candidate';
+	}> = [];
+
+	console.log(`Bulk creating ${users.length} candidates...`);
+
+	for (const user of users) {
+		const userId = crypto.randomUUID();
+		const candidateId = crypto.randomUUID();
+
+		// Create user record
+		const newUser = {
+			id: userId,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			firstName: user.firstName,
+			lastName: user.lastName,
+			email: user.email,
+			role: 'CANDIDATE' as const,
+			completedOnboarding: true,
+			verified: true,
+			receiveEmail: true,
+			provider: '',
+			providerId: '',
+			avatarUrl: null,
+			onboardingStep: null,
+			blacklisted: false,
+			stripeCustomerId: null,
+			timezone: null, // Will be updated by geocoding
+			token: crypto.randomUUID(),
+			password: hashedPassword
+		};
+
+		userRecords.push(newUser);
+
+		// Create candidate profile record
+		const newCandidate = {
+			id: candidateId,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			userId,
+			address: user.address || null,
+			completeAddress: user.address || null,
+			lat: null, // Will be updated by geocoding
+			lon: null, // Will be updated by geocoding
+			candidateStatus: 'PENDING' as const,
+			approved: false,
+			featureMe: false,
+			avgRating: 0,
+			citizenship: null,
+			employeeNumber: null,
+			regionId: null,
+			geom: null
+		};
+
+		candidateRecords.push(newCandidate);
+
+		// Queue for geocoding if address exists
+		if (user.address && user.address.trim()) {
+			candidateJobData.push({
+				candidateId,
+				address: user.address,
+				email: user.email,
+				type: 'candidate' as const
+			});
+		}
+
+		// Handle disciplines if provided
+		if (user.discipline) {
+			const disciplineData = user.discipline
+				.split(',')
+				.map((d) => d.trim())
+				.filter((d) => d.length > 0);
+
+			if (disciplineData.length > 0) {
+				// Get discipline IDs from abbreviations
+				const disciplines = await db
+					.select({
+						id: disciplineTable.id,
+						abbr: disciplineTable.abbreviation
+					})
+					.from(disciplineTable)
+					.where(inArray(disciplineTable.abbreviation, disciplineData));
+
+				// Create experience records for each discipline
+				for (const discipline of disciplines) {
+					candidateExperienceRecords.push({
+						candidateId: candidateId,
+						experienceLevelId: 'a7b0660b-a3a2-4ae3-96f5-0ec42237530e', // default 4-5 years
+						createdAt: new Date(),
+						updatedAt: new Date(),
+						disciplineId: discipline.id
+					});
+				}
+
+				// Log if some disciplines weren't found
+				if (disciplines.length !== disciplineData.length) {
+					const foundAbbrs = disciplines.map((d) => d.abbr);
+					const notFound = disciplineData.filter((abbr) => !foundAbbrs.includes(abbr));
+					if (notFound.length > 0) {
+						console.warn(`Disciplines not found for ${user.email}:`, notFound);
+					}
+				}
+			}
+		}
+	}
+
+	console.log(`Inserting ${userRecords.length} users...`);
+	await tx.insert(userTable).values(userRecords);
+
+	console.log(`Inserting ${candidateRecords.length} candidate profiles...`);
+	await tx.insert(candidateProfileTable).values(candidateRecords);
+
+	if (candidateExperienceRecords.length > 0) {
+		console.log(`Inserting ${candidateExperienceRecords.length} discipline experience records...`);
+		await tx.insert(candidateDisciplineExperienceTable).values(candidateExperienceRecords);
+	}
+
+	console.log(`Bulk create complete. ${candidateJobData.length} candidates queued for geocoding.`);
+
+	return {
+		userIds: userRecords.map((u) => u.id),
+		locationIds: [],
+		locationJobData: [],
+		candidateJobData
+	};
 }

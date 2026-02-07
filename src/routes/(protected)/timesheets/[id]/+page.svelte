@@ -74,13 +74,15 @@
 
 	// ✅ Track when data is ready
 	$: {
-		if (data?.requisition?.requisition?.referenceTimezone && data.workdays) {
+		if (data?.requisition?.referenceTimezone && data.workdays) {
 			dataLoaded = true;
 		}
 	}
 
 	// ✅ Get the timezone for this requisition
-	$: reqTimezone = data?.requisition?.requisition?.referenceTimezone || 'America/New_York';
+	$: reqTimezone = data?.requisition?.referenceTimezone || 'America/New_York';
+
+	$: console.log('Requisition timezone:', data?.requisition);
 	$: reqTimezoneName = reqTimezone.split('/')[1]?.replace(/_/g, ' ') || reqTimezone;
 
 	// ✅ Time entries object (professional app style)
@@ -101,7 +103,7 @@
 	const formattedWeekRange = `${format(weekBeginDate, 'MMM d')} - ${format(weekEndDate, 'MMM d, yyyy')}`;
 
 	// ✅ Get scheduled workdays
-	$: workdayDates = data.workdays ? data.workdays.map((wd: any) => wd.recurrenceDay.date) : [];
+	$: workdayDates = data.workdays ? data.workdays.map((wd: any) => wd.recurrenceDay?.date) : [];
 
 	$: scheduledWorkDays = workdayDates
 		.map((dateStr: string) => {
@@ -379,13 +381,8 @@
 			<div>
 				<div class="flex items-center gap-3">
 					<h1 class="text-2xl font-bold">Timesheet Details</h1>
-					<Badge
-						class={cn(statusBadge.class, 'gap-1')}
-						variant="default"
-						value={statusBadge.text}
-					>
-
-					</Badge>
+					<Badge class={cn(statusBadge.class, 'gap-1')} variant="default" value={statusBadge.text}
+					></Badge>
 				</div>
 				<p class="text-gray-600 flex items-center mt-1">
 					<Calendar class="h-4 w-4 mr-1" />
@@ -434,7 +431,9 @@
 						<div class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center">
 							<div class="p-3 bg-gray-50 rounded-lg">
 								<p class="text-sm text-gray-600">Total Hours</p>
-								<p class="text-xl font-bold">{canEdit ? totalHours.toFixed(2) : data?.timesheet?.totalHoursWorked}</p>
+								<p class="text-xl font-bold">
+									{canEdit ? totalHours.toFixed(2) : data?.timesheet?.totalHoursWorked}
+								</p>
 							</div>
 							<div class="p-3 bg-gray-50 rounded-lg">
 								<p class="text-sm text-gray-600">Hourly Rate</p>
@@ -445,7 +444,9 @@
 								<p class="text-xl font-bold">
 									${(
 										Number(data?.timesheet?.hourlyRate) *
-										parseFloat(canEdit ? totalHours.toFixed(2) : data?.timesheet?.totalHoursWorked || '0')
+										parseFloat(
+											canEdit ? totalHours.toFixed(2) : data?.timesheet?.totalHoursWorked || '0'
+										)
 									).toFixed(2)}
 								</p>
 							</div>
@@ -524,7 +525,9 @@
 										<div class="space-y-4">
 											{#each scheduledWorkDays as { dateKey, dayString }}
 												{#if timeEntries[dateKey]}
-													{@const recurrenceDay = data.recurrenceDays.find((day) => day.date === dateKey)}
+													{@const recurrenceDay = data.recurrenceDays.find(
+														(day) => day.date === dateKey
+													)}
 													<div class="p-3 bg-gray-50 rounded-lg space-y-3">
 														<!-- Date Header -->
 														<div class="flex items-center justify-between">
@@ -1115,9 +1118,8 @@
 						<div class="flex flex-wrap items-center justify-between gap-2">
 							<div>
 								<CardTitle
-									>{data?.requisition.discipline.name} <span
-										class="text-muted-foreground text-xs"
-										>Req#: {data?.requisition.id}</span
+									>{data?.requisition.discipline.name}
+									<span class="text-muted-foreground text-xs">Req#: {data?.requisition.id}</span
 									></CardTitle
 								>
 								<CardDescription
@@ -1178,7 +1180,7 @@
 				<Tabs bind:value={activeTab} class="w-full">
 					<TabsList class="grid grid-cols-2 w-full">
 						<TabsTrigger value="hours">Hours Detail</TabsTrigger>
-						<TabsTrigger value="discrepancies" class="relative"> Discrepancies </TabsTrigger>
+						<TabsTrigger value="discrepancies" class="relative">Discrepancies</TabsTrigger>
 					</TabsList>
 
 					<TabsContent value="hours" class="space-y-4 pt-4">
@@ -1240,9 +1242,7 @@
 						<Card>
 							<CardHeader>
 								<CardTitle>Timesheet Discrepancies</CardTitle>
-								<CardDescription
-									>Issues that need to be resolved before approval</CardDescription
-								>
+								<CardDescription>Issues that need to be resolved before approval</CardDescription>
 							</CardHeader>
 
 							<CardContent>

@@ -24,7 +24,8 @@
 		Settings,
 		AlertCircle,
 		Save,
-		X
+		X,
+		Loader2
 	} from 'lucide-svelte';
 	import { superForm } from 'sveltekit-superforms/client';
 	import { formatTimeForDisplay, formatTimeString } from '$lib/_helpers/UTCTimezoneUtils';
@@ -32,6 +33,7 @@
 	import { STATES, TIMEZONES } from '$lib/config/constants';
 	import AddressSearchAutocomplete from '$lib/components/AddressSearchAutocomplete.svelte';
 	import type { AddressResult } from '$lib/types.js';
+	import { enhance } from '$app/forms';
 
 	export let data;
 
@@ -93,8 +95,15 @@
 	let editingContact = false;
 	let editingHours = false;
 	let editingLocation = false;
+	let geocodingLocation = false;
+
 	$: selectedState = location?.state || '';
 	$: selectedTimezone = location?.timezone || '';
+
+	// Check if location needs geocoding
+	$: needsGeocoding =
+		!location?.lat || !location?.lon || location.lat === '0' || location.lon === '0';
+	$: hasAddress = location?.completeAddress && location.completeAddress.trim().length > 0;
 
 	function cancelEdit(section) {
 		switch (section) {
@@ -245,11 +254,98 @@
 									<MapPin class="h-5 w-5 text-blue-600" />
 									Address Information
 								</CardTitle>
-								{#if !editingAddress}
-									<Button variant="ghost" size="sm" on:click={() => (editingAddress = true)}>
-										<Edit class="h-4 w-4" />
-									</Button>
-								{/if}
+								<div class="flex items-center gap-2">
+									{#if needsGeocoding && hasAddress && !editingAddress}
+										<form
+											method="POST"
+											action="?/geocodeLocation"
+											use:enhance={() => {
+												geocodingLocation = true;
+												return async ({ update }) => {
+													geocodingLocation = false;
+													await update();
+												};
+											}}
+										>
+											<Button
+												type="submit"
+												variant="outline"
+												size="sm"
+												class="gap-2 border-orange-500 text-orange-600 hover:bg-orange-50"
+												disabled={geocodingLocation}
+											>
+												{#if geocodingLocation}
+													<Loader2 class="h-4 w-4 animate-spin" />
+													Geocoding...
+												{:else}
+													<MapPin class="h-4 w-4" />
+													Get Coordinates
+												{/if}
+											</Button>
+										</form>
+									{/if}
+									{#if !editingAddress}
+										<Button variant="ghost" size="sm" on:click={() => (editingAddress = true)}>
+											<Edit class="h-4 w-4" />
+										</Button>
+									{:else}
+										<div class="space-y-4">
+											<!-- Address Display -->
+											<div>
+												<h3 class="text-sm font-medium text-muted-foreground">Physical Address</h3>
+												<address class="mt-1 not-italic">
+													{#if location.completeAddress}
+														{location.completeAddress}<br />
+													{:else}
+														<p class="text-muted-foreground">No location provided</p>
+													{/if}
+												</address>
+											</div>
+
+											<!-- Coordinates Status -->
+											{#if location.completeAddress}
+												<div class="pt-3 border-t">
+													<h3 class="text-sm font-medium text-muted-foreground mb-2">
+														Coordinates
+													</h3>
+													{#if needsGeocoding}
+														<div
+															class="flex items-start gap-2 p-3 bg-orange-50 border border-orange-200 rounded-md"
+														>
+															<AlertCircle class="h-5 w-5 text-orange-600 flex-shrink-0 mt-0.5" />
+															<div class="flex-1">
+																<p class="text-sm font-medium text-orange-900">
+																	Coordinates Missing
+																</p>
+																<p class="text-xs text-orange-700 mt-1">
+																	This location hasn't been geocoded yet. Click "Get Coordinates" to
+																	fetch latitude and longitude.
+																</p>
+															</div>
+														</div>
+													{:else}
+														<div class="grid grid-cols-2 gap-3">
+															<div class="p-2 bg-gray-50 rounded border">
+																<p class="text-xs text-muted-foreground">Latitude</p>
+																<p class="font-mono text-sm font-medium">{location.lat}</p>
+															</div>
+															<div class="p-2 bg-gray-50 rounded border">
+																<p class="text-xs text-muted-foreground">Longitude</p>
+																<p class="font-mono text-sm font-medium">{location.lon}</p>
+															</div>
+														</div>
+														{#if location.timezone}
+															<div class="mt-2 p-2 bg-blue-50 rounded border border-blue-200">
+																<p class="text-xs text-muted-foreground">Timezone</p>
+																<p class="text-sm font-medium text-blue-900">{location.timezone}</p>
+															</div>
+														{/if}
+													{/if}
+												</div>
+											{/if}
+										</div>
+									{/if}
+								</div>
 							</div>
 						</CardHeader>
 						<CardContent>

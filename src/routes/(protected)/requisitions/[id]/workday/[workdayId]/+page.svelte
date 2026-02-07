@@ -41,8 +41,9 @@
 	} from '$lib/components/ui/dropdown-menu';
 	import type { PageData } from './$types';
 	import { format } from 'date-fns';
-	import { Plus, UserPlus } from 'lucide-svelte';
+	import { MapPin, Plus, UserPlus } from 'lucide-svelte';
 	import { formatInTimeZone } from 'date-fns-tz';
+	import { enhance } from '$app/forms';
 
 	export let data: PageData;
 	$: recurrenceDay = data.recurrenceDay;
@@ -50,7 +51,10 @@
 	$: candidate = workday?.candidate;
 	$: timesheet = workday?.timesheet;
 	$: hasWorkday = !!workday?.workday;
+	$: location = data.location;
+	$: qualifiedProfessionals = data.qualifiedProfessionals || [];
 
+	let assigningCandidateId: string | null = null;
 	let inviteDialogOpen = false;
 	let blacklistDialogOpen = false;
 
@@ -214,13 +218,101 @@
 					<CardTitle>Professional Details</CardTitle>
 					{#if !candidate && recurrenceDay?.recurrenceDay?.status === 'OPEN'}
 						<Dialog>
-							<DialogTrigger
-								><Button class={`gap-2 bg-[#2a93d1] hover:bg-blue-500`}
-									><UserPlus class="h-5" />Assign</Button
-								></DialogTrigger
-							>
-							<DialogContent>
-								<DialogTitle>Assign Professional to Workday</DialogTitle>
+							<DialogTrigger>
+								<Button class="gap-2 bg-[#2a93d1] hover:bg-blue-500">
+									<UserPlus class="h-5" />Assign ({qualifiedProfessionals.length})
+								</Button>
+							</DialogTrigger>
+							<DialogContent class="max-w-2xl max-h-[80vh] overflow-y-auto">
+								<DialogHeader>
+									<DialogTitle>Assign Professional to Workday</DialogTitle>
+									<DialogDescription>
+										{qualifiedProfessionals.length} qualified professionals within 50 miles
+									</DialogDescription>
+								</DialogHeader>
+
+								<div class="space-y-4 mt-4">
+									{#each qualifiedProfessionals as professional}
+										<div class="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
+											<div class="flex items-start justify-between">
+												<div class="flex gap-4">
+													<Avatar class="h-12 w-12">
+														<AvatarImage
+															src={professional.avatarUrl}
+															alt={professional.firstName}
+														/>
+														<AvatarFallback>
+															{professional.firstName?.[0]}{professional.lastName?.[0]}
+														</AvatarFallback>
+													</Avatar>
+
+													<div class="flex-1">
+														<h3 class="font-semibold text-lg">
+															{professional.firstName}
+															{professional.lastName}
+														</h3>
+														<p class="text-sm text-muted-foreground">{professional.email}</p>
+
+														<div class="flex gap-4 mt-2 text-sm">
+															<span class="flex items-center gap-1">
+																<MapPin class="h-3 w-3" />
+																{professional.distance} mi away
+															</span>
+														</div>
+
+														<div class="flex gap-2 mt-2">
+															<Badge variant="outline" value={professional.disciplineAbbr}></Badge>
+														</div>
+													</div>
+												</div>
+
+												<form
+													method="POST"
+													action="?/assignCandidate"
+													use:enhance={() => {
+														assigningCandidateId = professional.candidateId;
+														return async ({ result, update }) => {
+															assigningCandidateId = null;
+															if (result.type === 'success') {
+																// Reload the page to show updated workday
+																await update();
+															} else {
+																await update();
+															}
+														};
+													}}
+												>
+													<input
+														type="hidden"
+														name="candidateId"
+														value={professional.candidateId}
+													/>
+													<input
+														type="hidden"
+														name="recurrenceDayId"
+														value={recurrenceDay.recurrenceDay.id}
+													/>
+													<Button
+														class="bg-blue-500 hover:bg-blue-600"
+														type="submit"
+														size="sm"
+														disabled={assigningCandidateId === professional.candidateId}
+													>
+														{#if assigningCandidateId === professional.candidateId}
+															Assigning...
+														{:else}
+															Assign
+														{/if}
+													</Button>
+												</form>
+											</div>
+										</div>
+									{:else}
+										<div class="text-center py-8 text-muted-foreground">
+											No qualified professionals found within 50 miles
+										</div>
+									{/each}
+								</div>
 							</DialogContent>
 						</Dialog>
 					{/if}

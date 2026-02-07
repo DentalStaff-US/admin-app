@@ -67,6 +67,22 @@ export const load = async (event: RequestEvent) => {
 			})
 		);
 
+		console.log(
+			JSON.stringify(
+				{
+					timesheet,
+					requisition,
+					recurrenceDays,
+					workdays,
+					invoice,
+					auditHistory: auditHistory
+						.filter((h) => h.status === 'fulfilled')
+						.map((h) => ({ ...h.value, user: h.value.user }))
+				},
+				null,
+				2
+			)
+		);
 		return {
 			user,
 			timesheet,

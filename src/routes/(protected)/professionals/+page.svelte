@@ -1,10 +1,12 @@
 <script lang="ts">
-AdminNewUserSchemae ColumnDef,
+	import {
+		type ColumnDef,
 		getSortedRowModel,
 		getPaginationRowModel,
 		type TableOptions,
 		createSvelteTable,
-		flexRender
+		flexRender,
+		getCoreRowModel
 	} from '@tanstack/svelte-table';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import * as Table from '$lib/components/ui/table';
@@ -37,19 +39,16 @@ AdminNewUserSchemae ColumnDef,
 	$: newProfileForm = data.newProfileForm;
 	let addDialogOpen = false;
 
-	const { form, errors, submitting, enhance } = superForm<AdminNewUserSchema>(
-		newProfileForm,
-		{
-			onResult: ({ result }) => {
-				console.log('Form result:', result);
-				if (result.type === 'success') {
-					addDialogOpen = false;
-					// // Optionally reload the page or refresh data
-					// window.location.reload();
-				}
+	const { form, errors, submitting, enhance } = superForm<AdminNewUserSchema>(newProfileForm, {
+		onResult: ({ result }) => {
+			console.log('Form result:', result);
+			if (result.type === 'success') {
+				addDialogOpen = false;
+				// // Optionally reload the page or refresh data
+				// window.location.reload();
 			}
 		}
-	);
+	});
 
 	type CandidateData = {
 		profile: {
@@ -57,7 +56,7 @@ AdminNewUserSchemae ColumnDef,
 			userId: string;
 			status: string;
 			city: string;
-			state: string;AdminNewUserSchema
+			state: string;
 			zipcode: string;
 			completeAddress: string;
 			createdAt: Date;
@@ -119,8 +118,8 @@ AdminNewUserSchemae ColumnDef,
 			accessorKey: 'discipline.name',
 			enableSorting: true,
 			sortingFn: (rowA, rowB) => {
-				const disciplineA = rowA.original.discipline.name?.toLowerCase() || '';
-				const disciplineB = rowB.original.discipline.name?.toLowerCase() || '';
+				const disciplineA = rowA.original.discipline?.name?.toLowerCase() || '';
+				const disciplineB = rowB.original.discipline?.name?.toLowerCase() || '';
 				return disciplineA.localeCompare(disciplineB);
 			}
 		},

@@ -28,12 +28,12 @@
 	export let form; // From parent
 
 	const { enhance, submitting } = superForm(form, {
-   	    onResult({result}) {
-          console.log('Form submission result received');
-          if(result.type === "success"){
-            isOpen = false;
-          }
-        },
+		onResult({ result }) {
+			console.log('Form submission result received');
+			if (result.type === 'success') {
+				isOpen = false;
+			}
+		},
 		onSubmit(input) {
 			console.log('Submitting form with:', input);
 		},
@@ -52,12 +52,10 @@
 	let useSameTimeForAllDates = false;
 	let selectedRawDate: DateValue | undefined;
 	let selectedRawDateRange: DateRange | undefined;
-	let userTimezone = getUserTimezone();
-	let userTimezoneDisplay = formatTimezoneName(userTimezone);
+	// let userTimezone = getUserTimezone();
+	let locationTimezone = location.timezone || 'UTC';
+	let localTimezoneDisplay = formatTimezoneName(locationTimezone);
 	let isOpen = false; // ✅ Track sheet state
-
-	// Recurrence day NEEDS to be based on location timezone not user timezone
-	let locationTimezone = location?.timezone || 'UTC';
 
 	// Times in local timezone
 	let sharedTimes = {
@@ -87,7 +85,6 @@
 	// Derived values
 	$: operatingHours = location?.operatingHours || {};
 
-	// ✅ Let's see what formattedDateRange is producing
 	$: formattedDateRange = (() => {
 		if (multipleDays && selectedRawDateRange?.start && selectedRawDateRange?.end) {
 			const start = new Date(df.format(selectedRawDateRange.start.toDate(getLocalTimeZone())));
@@ -157,13 +154,13 @@
 		const lunchEndTime = localTimes.lunchEndTime || '';
 
 		try {
-			const utcStartTime = localTimeToUTC(dayStartTime, utcDateString, userTimezone);
-			const utcEndTime = localTimeToUTC(dayEndTime, utcDateString, userTimezone);
+			const utcStartTime = localTimeToUTC(dayStartTime, utcDateString, locationTimezone);
+			const utcEndTime = localTimeToUTC(dayEndTime, utcDateString, locationTimezone);
 			const utcLunchStart = lunchStartTime
-				? localTimeToUTC(lunchStartTime, utcDateString, userTimezone)
+				? localTimeToUTC(lunchStartTime, utcDateString, locationTimezone)
 				: '';
 			const utcLunchEnd = lunchEndTime
-				? localTimeToUTC(lunchEndTime, utcDateString, userTimezone)
+				? localTimeToUTC(lunchEndTime, utcDateString, locationTimezone)
 				: '';
 
 			return {
@@ -197,14 +194,15 @@
 	// ✅ Form submission validation
 	$: isFormValid = (() => {
 		if (!finalDateValue) {
-  		  console.log('Form invalid: finalDateValue is null');
-          return false;
-		};
+			console.log('Form invalid: finalDateValue is null');
+			return false;
+		}
 
 		// Check if we have at least one valid entry
 		if (Array.isArray(finalDateValue)) {
-			return finalDateValue.length > 0 && finalDateValue.every(entry =>
-				entry && entry.dayStartTime && entry.dayEndTime
+			return (
+				finalDateValue.length > 0 &&
+				finalDateValue.every((entry) => entry && entry.dayStartTime && entry.dayEndTime)
 			);
 		} else {
 			return finalDateValue.dayStartTime && finalDateValue.dayEndTime;
@@ -226,22 +224,22 @@
 	}
 
 	$: {
-			console.log('=== DATE SELECTION DEBUG ===');
-			console.log('1. multipleDays:', multipleDays);
-			console.log('2. selectedRawDate:', selectedRawDate);
-			console.log('3. selectedRawDate toString:', selectedRawDate?.toString());
+		console.log('=== DATE SELECTION DEBUG ===');
+		console.log('1. multipleDays:', multipleDays);
+		console.log('2. selectedRawDate:', selectedRawDate);
+		console.log('3. selectedRawDate toString:', selectedRawDate?.toString());
 
-			if (selectedRawDate) {
-				const localDate = selectedRawDate.toDate(getLocalTimeZone());
-				console.log('4. selectedRawDate.toDate():', localDate);
-				console.log('5. df.format():', df.format(localDate));
-			}
-
-			console.log('6. formattedDateRange:', formattedDateRange);
-			console.log('7. filteredDates:', filteredDates);
-			console.log('8. selectedDateTimes:', selectedDateTimes);
-			console.log('========================');
+		if (selectedRawDate) {
+			const localDate = selectedRawDate.toDate(getLocalTimeZone());
+			console.log('4. selectedRawDate.toDate():', localDate);
+			console.log('5. df.format():', df.format(localDate));
 		}
+
+		console.log('6. formattedDateRange:', formattedDateRange);
+		console.log('7. filteredDates:', filteredDates);
+		console.log('8. selectedDateTimes:', selectedDateTimes);
+		console.log('========================');
+	}
 
 	// Helper functions
 	function getDatesInRange(start: Date, end: Date): Date[] {
@@ -279,7 +277,7 @@
 				Add dates and times for workdays. Dates will respect your hours of operation and closed
 				dates will be excluded.
 				<small class="block mt-1 text-gray-500">
-					All times will be shown in your local timezone ({userTimezoneDisplay}) but stored in UTC.
+					All times will be shown in local timezone ({localTimezoneDisplay}) but stored in UTC.
 				</small>
 			</Sheet.Description>
 		</Sheet.Header>
@@ -291,7 +289,7 @@
 			</div>
 
 			{#if multipleDays}
-				<RangeCalendar bind:value={selectedRawDateRange} class="rounded-md border w-fit"/>
+				<RangeCalendar bind:value={selectedRawDateRange} class="rounded-md border w-fit" />
 				{#if filteredDates.length}
 					<div class="mt-4 flex items-center gap-2">
 						<Checkbox bind:checked={useSameTimeForAllDates} id="useSameTime" />
@@ -392,12 +390,7 @@
 						</div>
 						<div class="space-y-2">
 							<Label for="single-day-end">Day End *</Label>
-							<Input
-								id="single-day-end"
-								type="time"
-								bind:value={sharedTimes.dayEndTime}
-								required
-							/>
+							<Input id="single-day-end" type="time" bind:value={sharedTimes.dayEndTime} required />
 						</div>
 						<div class="space-y-2">
 							<Label for="single-lunch-start">Lunch Start</Label>
@@ -429,12 +422,7 @@
 
 				<Sheet.Footer class="mt-4">
 					<Sheet.Close asChild let:builder>
-						<Button
-							builders={[builder]}
-							variant="outline"
-							type="button"
-							on:click={resetForm}
-						>
+						<Button builders={[builder]} variant="outline" type="button" on:click={resetForm}>
 							Cancel
 						</Button>
 					</Sheet.Close>

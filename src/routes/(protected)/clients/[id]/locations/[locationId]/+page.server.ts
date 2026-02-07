@@ -13,6 +13,10 @@ import {
 	NewAddressSchema,
 	OperatingHoursSchema
 } from '$lib/config/zod-schemas';
+import { geocodingQueue } from '$lib/server/geocode-queue';
+import { companyOfficeLocationTable } from '$lib/server/database/schemas/client';
+import db from '$lib/server/database/drizzle';
+import { eq } from 'drizzle-orm';
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
@@ -229,6 +233,83 @@ export const actions = {
 				event
 			);
 			return { form };
+		}
+	},
+	geocodeLocation: async (event) => {
+		const user = event.locals.user;
+		if (!user || user.role !== 'SUPERADMIN') {
+			redirect(302, '/auth/sign-in');
+		}
+
+		const { locationId } = event.params;
+
+		try {
+			// Get the location
+			const location = await db
+				.select({
+					id: companyOfficeLocationTable.id,
+					completeAddress: companyOfficeLocationTable.completeAddress,
+					email: companyOfficeLocationTable.email,
+					lat: companyOfficeLocationTable.lat,
+					lon: companyOfficeLocationTable.lon
+				})
+				.from(companyOfficeLocationTable)
+				.where(eq(companyOfficeLocationTable.id, locationId))
+				.limit(1);
+
+			if (!location[0]) {
+				setFlash(
+					{
+						type: 'error',
+						message: 'Location not found'
+					},
+					event
+				);
+				return fail(404, { error: 'Location not found' });
+			}
+
+			const loc = location[0];
+
+			// Check if address exists
+			if (!loc.completeAddress || !loc.completeAddress.trim()) {
+				setFlash(
+					{
+						type: 'error',
+						message: 'No address to geocode. Please add an address first.'
+					},
+					event
+				);
+				return fail(400, { error: 'No address available' });
+			}
+
+			// Queue the geocoding job
+			geocodingQueue.addJobs([
+				{
+					locationId: loc.id,
+					address: loc.completeAddress,
+					email: loc.email || ''
+				}
+			]);
+
+			setFlash(
+				{
+					type: 'success',
+					message: 'Location queued for geocoding. Coordinates will be updated shortly.'
+				},
+				event
+			);
+
+			return { success: true, queued: 1 };
+		} catch (error) {
+			console.error('Error queueing geocoding:', error);
+			setFlash(
+				{
+					type: 'error',
+					message: 'Failed to queue geocoding. Please try again.'
+				},
+				event
+			);
+			return fail(500, { error: 'Failed to queue geocoding' });
 		}
 	}
 };
