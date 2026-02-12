@@ -7,30 +7,38 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Input } from '$lib/components/ui/input';
 	import { onMount, onDestroy } from 'svelte';
+	import { Check, ChevronsUpDown } from 'lucide-svelte';
+	import * as Command from '$lib/components/ui/command';
+	import * as Popover from '$lib/components/ui/popover';
+	import { cn } from '$lib/utils';
+	import { tick } from 'svelte';
 
 	export let form: SuperValidated<AdminRequisitionSchema>;
 	export let drawerExpanded: boolean;
 	export let currentCompanyID: string | null = null;
+
+	let openClient = false;
+	let openLocation = false;
+	let openDiscipline = false;
+	let openExperience = false;
 
 	let clients: any[] = [];
 	let locations: any[] = [];
 	let disciplines: any[] = [];
 	let experienceLevels: any[] = [];
 	let selectedLocation = null;
+	let selectedCompany = null;
+	let selectedDiscipline = null;
+	let selectedExperience = null;
 
 	$: sortedExperienceLevels = [...experienceLevels].sort((a, b) => {
-		const priorityMap = {
-			'0-2 Years': 1,
-			'2-5 Years': 2,
-			'5-7 Years': 3,
-			'7-10 Years': 4,
-			'10+ years': 5
+		// Extract the number from the start of each value
+		const getNumber = (str: string) => {
+			const match = str.match(/^(\d+)/);
+			return match ? parseInt(match[1]) : 999;
 		};
 
-		const priorityA = priorityMap[a.value] || 999;
-		const priorityB = priorityMap[b.value] || 999;
-
-		return priorityA - priorityB;
+		return getNumber(a.value) - getNumber(b.value);
 	});
 
 	const {
@@ -44,8 +52,19 @@
 		resetForm: true
 	});
 
-	$: if (currentCompanyID) {
+	$: if (currentCompanyID && clients.length) {
 		$formObj.clientId = currentCompanyID;
+
+		// Find and set the selected company for display
+		const client = clients.find((c) => c.company.id === currentCompanyID);
+		if (client) {
+			selectedCompany = {
+				value: client.company.id,
+				label: client.company.companyName,
+				sublabel: `${client.user.lastName}, ${client.user.firstName}`
+			};
+		}
+
 		handleGetLocations(currentCompanyID);
 	}
 
@@ -53,7 +72,9 @@
 		if (!clients.length) {
 			const req = await fetch('/api/admin/fetchAllClients', { method: 'GET' });
 			const clientsRes = await req.json();
-			clients = clientsRes;
+			clients = clientsRes.sort((a, b) =>
+				a.company.companyName.localeCompare(b.company.companyName)
+			);
 		}
 	};
 
@@ -105,6 +126,9 @@
 		reset();
 		locations = [];
 		selectedLocation = null;
+		selectedCompany = null;
+		selectedDiscipline = null;
+		selectedExperience = null;
 	}
 
 	function handleDrawerClose() {
@@ -119,6 +143,12 @@
 		}
 	}
 
+	function closeAndFocusTrigger(triggerId: string) {
+		tick().then(() => {
+			document.getElementById(triggerId)?.focus();
+		});
+	}
+
 	$: if (!drawerExpanded) {
 		handleReset();
 	}
@@ -129,8 +159,6 @@
 			$formObj.timezone = selectedLocation.timezone;
 		}
 	}
-
-	$: console.log({ formData: $formObj });
 </script>
 
 <form
@@ -140,80 +168,213 @@
 	class="grow flex flex-col h-full max-h-[calc(100vh_-_70px)]"
 >
 	<input type="hidden" bind:value={$formObj.timezone} name="timezone" />
+	<input type="hidden" bind:value={$formObj.clientId} name="clientId" />
+	<input type="hidden" bind:value={$formObj.locationId} name="locationId" />
+	<input type="hidden" bind:value={$formObj.disciplineId} name="disciplineId" />
+	<input type="hidden" bind:value={$formObj.experienceLevelId} name="experienceLevelId" />
 
 	<div class="grow p-4 overflow-y-auto">
+		<!-- Associated Client Combobox -->
 		<div class="mb-4">
 			<Label for="clientId">Associated Client</Label>
-			<select
-				id="clientId"
-				name="clientId"
-				bind:value={$formObj.clientId}
-				on:change={(e) => handleGetLocations(e.currentTarget.value)}
-				class="w-full p-2 border rounded"
-				tabindex={drawerExpanded ? 0 : -1}
-				required
-			>
-				<option value="">Select Client</option>
-				{#each clients as client}
-					<option value={client.company.id}>
-						{client.user.lastName}, {client.user.firstName} - {client.company.companyName}
-					</option>
-				{/each}
-			</select>
+			<Popover.Root bind:open={openClient} let:ids>
+				<Popover.Trigger asChild let:builder>
+					<Button
+						builders={[builder]}
+						variant="outline"
+						role="combobox"
+						aria-expanded={openClient}
+						class="w-full justify-between"
+						tabindex={drawerExpanded ? 0 : -1}
+					>
+						{selectedCompany?.label ?? 'Select Client'}
+						<ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
+					</Button>
+				</Popover.Trigger>
+				<Popover.Content class="p-0 max-h-[300px] overflow-auto" align="start" sameWidth>
+					<Command.Root>
+						<Command.Input placeholder="Search client..." />
+						<Command.Empty>No Client Found.</Command.Empty>
+						<Command.Group>
+							{#each clients as client}
+								<Command.Item
+									value={`${client.company.companyName} ${client.user.lastName} ${client.user.firstName}`}
+									onSelect={() => {
+										$formObj.clientId = client.company.id;
+										handleGetLocations(client.company.id);
+										selectedCompany = {
+											value: client.company.id,
+											label: client.company.companyName,
+											sublabel: `${client.user.lastName}, ${client.user.firstName}`
+										};
+										openClient = false;
+										closeAndFocusTrigger(ids.trigger);
+									}}
+								>
+									<Check
+										class={cn(
+											'mr-2 h-4 w-4',
+											$formObj.clientId !== client.company.id && 'text-transparent'
+										)}
+									/>
+									<div class="flex flex-col">
+										<span>{client.company.companyName}</span>
+										<span class="text-sm text-muted-foreground">
+											{client.user.lastName}, {client.user.firstName}
+										</span>
+									</div>
+								</Command.Item>
+							{/each}
+						</Command.Group>
+					</Command.Root>
+				</Popover.Content>
+			</Popover.Root>
 		</div>
 
+		<!-- Location Combobox -->
 		<div class="mb-4">
 			<Label for="locationId">Location</Label>
-			<select
-				id="locationId"
-				name="locationId"
-				bind:value={$formObj.locationId}
-				class="w-full p-2 border rounded"
-				tabindex={drawerExpanded ? 0 : -1}
-				required
-				disabled={!locations.length}
-			>
-				<option value="">Select Location</option>
-				{#each locations as location}
-					<option value={location.id}>{location.name}</option>
-				{/each}
-			</select>
+			<Popover.Root bind:open={openLocation} let:ids>
+				<Popover.Trigger asChild let:builder>
+					<Button
+						builders={[builder]}
+						variant="outline"
+						role="combobox"
+						aria-expanded={openLocation}
+						class="w-full justify-between"
+						tabindex={drawerExpanded ? 0 : -1}
+						disabled={!locations.length}
+					>
+						{selectedLocation?.name ?? 'Select Location'}
+						<ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
+					</Button>
+				</Popover.Trigger>
+				<Popover.Content class="p-0  max-h-[300px] overflow-auto" align="start" sameWidth>
+					<Command.Root>
+						<Command.Input placeholder="Search location..." />
+						<Command.Empty>No Location Found.</Command.Empty>
+						<Command.Group>
+							{#each locations as location}
+								<Command.Item
+									value={location.name}
+									onSelect={() => {
+										$formObj.locationId = location.id;
+										selectedLocation = location;
+										$formObj.timezone = location.timezone;
+										openLocation = false;
+										closeAndFocusTrigger(ids.trigger);
+									}}
+								>
+									<Check
+										class={cn(
+											'mr-2 h-4 w-4',
+											$formObj.locationId !== location.id && 'text-transparent'
+										)}
+									/>
+									{location.name}
+								</Command.Item>
+							{/each}
+						</Command.Group>
+					</Command.Root>
+				</Popover.Content>
+			</Popover.Root>
 		</div>
 
+		<!-- Discipline Combobox -->
 		<div class="mb-4">
 			<Label for="disciplineId">Discipline</Label>
-			<select
-				id="disciplineId"
-				name="disciplineId"
-				bind:value={$formObj.disciplineId}
-				class="w-full p-2 border rounded"
-				tabindex={drawerExpanded ? 0 : -1}
-				required
-			>
-				<option value="">Select Discipline</option>
-				{#each disciplines as discipline}
-					<option value={discipline.id}>{discipline.name}</option>
-				{/each}
-			</select>
+			<Popover.Root bind:open={openDiscipline} let:ids>
+				<Popover.Trigger asChild let:builder>
+					<Button
+						builders={[builder]}
+						variant="outline"
+						role="combobox"
+						aria-expanded={openDiscipline}
+						class="w-full justify-between"
+						tabindex={drawerExpanded ? 0 : -1}
+					>
+						{selectedDiscipline?.name ?? 'Select Discipline'}
+						<ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
+					</Button>
+				</Popover.Trigger>
+				<Popover.Content class="p-0 max-h-[300px] overflow-auto" align="start" sameWidth>
+					<Command.Root>
+						<Command.Input placeholder="Search discipline..." />
+						<Command.Empty>No Discipline Found.</Command.Empty>
+						<Command.Group>
+							{#each disciplines as discipline}
+								<Command.Item
+									value={discipline.name}
+									onSelect={() => {
+										$formObj.disciplineId = discipline.id;
+										selectedDiscipline = discipline;
+										openDiscipline = false;
+										closeAndFocusTrigger(ids.trigger);
+									}}
+								>
+									<Check
+										class={cn(
+											'mr-2 h-4 w-4',
+											$formObj.disciplineId !== discipline.id && 'text-transparent'
+										)}
+									/>
+									{discipline.name}
+								</Command.Item>
+							{/each}
+						</Command.Group>
+					</Command.Root>
+				</Popover.Content>
+			</Popover.Root>
 		</div>
 
+		<!-- Experience Level Combobox -->
 		<div class="mb-4">
 			<Label for="experienceLevelId">Experience Level</Label>
-			<select
-				id="experienceLevelId"
-				name="experienceLevelId"
-				bind:value={$formObj.experienceLevelId}
-				class="w-full p-2 border rounded"
-				tabindex={drawerExpanded ? 0 : -1}
-				required
-			>
-				<option value="">Select Experience</option>
-				{#each sortedExperienceLevels as level}
-					<option value={level.id}>{level.value}</option>
-				{/each}
-			</select>
+			<Popover.Root bind:open={openExperience} let:ids>
+				<Popover.Trigger asChild let:builder>
+					<Button
+						builders={[builder]}
+						variant="outline"
+						role="combobox"
+						aria-expanded={openExperience}
+						class="w-full justify-between"
+						tabindex={drawerExpanded ? 0 : -1}
+					>
+						{selectedExperience?.value ?? 'Select Experience'}
+						<ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
+					</Button>
+				</Popover.Trigger>
+				<Popover.Content class="p-0 max-h-[300px] overflow-auto" align="start" sameWidth>
+					<Command.Root>
+						<Command.Input placeholder="Search experience..." />
+						<Command.Empty>No Experience Level Found.</Command.Empty>
+						<Command.Group>
+							{#each sortedExperienceLevels as level}
+								<Command.Item
+									value={level.value}
+									onSelect={() => {
+										$formObj.experienceLevelId = level.id;
+										selectedExperience = level;
+										openExperience = false;
+										closeAndFocusTrigger(ids.trigger);
+									}}
+								>
+									<Check
+										class={cn(
+											'mr-2 h-4 w-4',
+											$formObj.experienceLevelId !== level.id && 'text-transparent'
+										)}
+									/>
+									{level.value}
+								</Command.Item>
+							{/each}
+						</Command.Group>
+					</Command.Root>
+				</Popover.Content>
+			</Popover.Root>
 		</div>
 
+		<!-- Requisition Type - kept as native select -->
 		<div class="mb-4">
 			<Label for="permanentPosition">Requisition Type</Label>
 			<select

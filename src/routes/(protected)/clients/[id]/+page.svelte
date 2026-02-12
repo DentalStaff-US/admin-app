@@ -208,6 +208,8 @@
 	$: client = data.client;
 	$: locations = data.client?.locations || [];
 	$: requisitions = data.requisitions || [];
+
+	$: console.log('requisitions', requisitions);
 	$: recurrenceDays = data.recurrenceDays || [];
 	$: supportTickets = data.supportTickets || [];
 	$: staff = data.staff || [];
@@ -416,7 +418,7 @@
 				return {
 					disciplineName: requisition.disciplineName,
 					id: requisition.id,
-					locationName: requisition.location?.name || 'No location'
+					locationName: requisition.locationName || 'No location'
 				};
 			}
 		},
@@ -1453,7 +1455,7 @@
 																			>
 																		</span>
 																		<span class="text-xs text-gray-500"
-																			>{row.original.location?.name || 'No location'}</span
+																			>{row.original.locationName || 'No location'}</span
 																		>
 																	</div>
 																{:else if cellIndex === 1}
