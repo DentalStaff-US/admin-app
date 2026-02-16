@@ -9,6 +9,7 @@ import { z } from 'zod';
 import db from '$lib/server/database/drizzle';
 import { userInviteTable } from '$lib/server/database/schemas/auth';
 import { EmailService } from '$lib/server/email/emailService';
+import { getUserByEmail } from '$lib/server/database/queries/users';
 
 const adminUserSchema = userSchema.pick({
 	email: true
@@ -77,6 +78,17 @@ export const actions = {
 				expiresAt: expiresAt
 			};
 
+			const existingUser = await getUserByEmail(email);
+			if (existingUser) {
+				setFlash(
+					{
+						type: 'error',
+						message: `A user with the email ${email} already exists. Please use a different email address.`
+					},
+					event
+				);
+				return fail(400, { form });
+			}
 			// Send invite
 			const token = crypto.randomUUID().toString();
 			await db.transaction(async (tx) => {
