@@ -8,6 +8,7 @@ import { USER_ROLES } from '$lib/config/constants';
 import { z } from 'zod';
 import db from '$lib/server/database/drizzle';
 import { userInviteTable } from '$lib/server/database/schemas/auth';
+import { EmailService } from '$lib/server/email/emailService';
 
 const adminUserSchema = userSchema.pick({
 	email: true
@@ -63,6 +64,7 @@ export const actions = {
 			const INVITE_EXPIRATION_DAYS = 7;
 			const expiresAt = new Date();
 			expiresAt.setDate(expiresAt.getDate() + INVITE_EXPIRATION_DAYS);
+			const emailService = new EmailService();
 
 			// Format invites for our invite function
 			const invite = {
@@ -76,7 +78,21 @@ export const actions = {
 			};
 
 			// Send invite
-			await db.insert(userInviteTable).values(invite);
+			const token = crypto.randomUUID().toString();
+			await db.transaction(async (tx) => {
+				// Insert invite into database
+				await tx.insert(userInviteTable).values(invite);
+
+				// Send the invite email
+				try {
+					await emailService.sendAdminUserInviteEmail(email, token);
+				} catch (emailError) {
+					console.error('Error sending invite email:', emailError);
+					// Optionally, you could throw here to rollback the transaction
+					// or just log the error and continue
+					throw new Error('Failed to send invitation email');
+				}
+			});
 			setFlash(
 				{
 					type: 'success',
