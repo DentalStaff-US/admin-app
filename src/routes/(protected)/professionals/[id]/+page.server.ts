@@ -112,7 +112,7 @@ export const actions = {
 			console.log('Form validation failed:', form.errors);
 			return fail(400, { form });
 		}
-
+		console.log('Form data:', form.data);
 		const { email, lastName, firstName, birthday, cellPhone } = form.data;
 
 		try {
@@ -128,9 +128,18 @@ export const actions = {
 				updatedAt: new Date(),
 				birthday: birthday ?? null,
 				cellPhone: cellPhone || null,
-				completeAddress: form.data.completeAddress || null,
-				lat: form.data.lat || null,
-				lon: form.data.lon || null
+				completeAddress:
+					form.data.completeAddress && form.data.completeAddress !== 'undefined'
+						? form.data.completeAddress
+						: null,
+				lat:
+					form.data.lat && form.data.lat !== 'undefined'
+						? parseFloat(form.data.lat).toString()
+						: null,
+				lon:
+					form.data.lon && form.data.lon !== 'undefined'
+						? parseFloat(form.data.lon).toString()
+						: null
 			};
 			await updateUser(candidateResult.candidate.user.id, userData);
 			await updateCandidateProfile(id, profileData);

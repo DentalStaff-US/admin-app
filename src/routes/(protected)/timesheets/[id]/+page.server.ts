@@ -382,6 +382,19 @@ export const actions = {
 
 			finalAmt = Math.round(finalAmt);
 
+			if (finalAmt <= 0) {
+				setFlash(
+					{
+						type: 'error',
+						message:
+							'Cannot approve timesheet: Invoice amount is $0.00. Please verify hours worked and hourly rate.'
+					},
+					event
+				);
+				await revertTimesheetToPending(id, user.id);
+				return fail(400, { error: 'Invoice amount must be greater than $0.00' });
+			}
+
 			const stripeCustomerId =
 				(await getClientSubscription(timesheet.associatedClientId)) || user.stripeCustomerId;
 
@@ -474,6 +487,18 @@ export const actions = {
 			}
 
 			finalAmt = Math.round(finalAmt);
+			if (finalAmt <= 0) {
+				setFlash(
+					{
+						type: 'error',
+						message:
+							'Cannot approve timesheet: Invoice amount is $0.00. Please verify hours worked and hourly rate.'
+					},
+					event
+				);
+				await revertTimesheetToPending(id, user.id);
+				return fail(400, { error: 'Invoice amount must be greater than $0.00' });
+			}
 
 			const stripeCustomerId = await getClientSubscription(overridden.associatedClientId);
 

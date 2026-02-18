@@ -368,6 +368,17 @@
 	function handleClear() {
 		selectedAddress = null;
 	}
+	$: if (candidate && !selectedAddress) {
+		if (candidate.profile.completeAddress && candidate.profile.lat && candidate.profile.lon) {
+			selectedAddress = {
+				formatted_address: candidate.profile.completeAddress,
+				coordinates: {
+					lat: candidate.profile.lat,
+					lng: candidate.profile.lon
+				}
+			} as unknown as AddressResult;
+		}
+	}
 </script>
 
 {#if candidate}
@@ -551,10 +562,18 @@
 												<input
 													type="hidden"
 													name="completeAddress"
-													value={selectedAddress?.formatted_address}
+													value={selectedAddress?.formatted_address || ''}
 												/>
-												<input type="hidden" name="lat" value={selectedAddress?.coordinates.lat} />
-												<input type="hidden" name="lon" value={selectedAddress?.coordinates.lng} />
+												<input
+													type="hidden"
+													name="lat"
+													value={selectedAddress?.coordinates.lat || ''}
+												/>
+												<input
+													type="hidden"
+													name="lon"
+													value={selectedAddress?.coordinates.lng || ''}
+												/>
 											</div>
 											<Label for="birthday">Date of Birth</Label>
 											<Input
