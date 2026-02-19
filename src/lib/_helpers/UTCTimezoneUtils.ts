@@ -2,7 +2,7 @@
  * UTCTimezoneUtils.ts - Corrected utility functions using date-fns-tz
  * Using the actual function names from the date-fns-tz documentation
  */
-import { format, parse, isValid } from 'date-fns';
+import { format, parse, isValid, parseISO } from 'date-fns';
 import { toZonedTime, fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 
 /**
@@ -353,6 +353,7 @@ export function convertRecurrenceDayToUTC(day: Record<string, any>, userTimezone
  * @param timezone The local timezone (e.g., 'America/Denver')
  * @returns JavaScript Date object in UTC
  */
+
 export function createUTCDateTime(
 	localDateStr: string,
 	localTimeStr: string,
@@ -363,31 +364,30 @@ export function createUTCDateTime(
 	}
 
 	try {
-		// Parse local date and time string
-		const localDateTime = parse(`${localDateStr} ${localTimeStr}`, 'yyyy-MM-dd HH:mm', new Date());
+		// Create an ISO string (timezone-naive)
+		const isoString = `${localDateStr}T${localTimeStr}:00`;
 
-		if (!isValid(localDateTime)) {
+		// Parse as a naive date (no timezone assumed)
+		const naiveDate = parseISO(isoString);
+
+		if (!isValid(naiveDate)) {
 			throw new Error(`Invalid date/time values: ${localDateStr} ${localTimeStr}`);
 		}
 
-		// Convert from zoned time to UTC
-		// fromZonedTime interprets the date as being in the specified timezone
-		// and returns the equivalent UTC time
-		const utcDate = fromZonedTime(localDateTime, timezone);
+		// Interpret this naive date as being in the target timezone
+		// and convert to UTC
+		const utcDate = fromZonedTime(naiveDate, timezone);
 
 		console.log('createUTCDateTime conversion:', {
 			input: { localDateStr, localTimeStr, timezone },
-			localDateTime: localDateTime.toISOString(),
-			utcDate: utcDate.toISOString()
+			isoString,
+			naiveISO: naiveDate.toISOString(),
+			utcResult: utcDate.toISOString()
 		});
 
 		return utcDate;
 	} catch (error) {
-		console.error('Error creating UTC DateTime:', error, {
-			localDateStr,
-			localTimeStr,
-			timezone
-		});
+		console.error('Error creating UTC DateTime:', error);
 		throw error;
 	}
 }

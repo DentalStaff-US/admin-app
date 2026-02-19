@@ -139,42 +139,21 @@
 
 	// Convert local times to UTC
 	function convertToUTCTimes(entry) {
-		const utcDateString = entry.date;
 		const localTimes = !multipleDays && selectedRawDate ? sharedTimes : entry.times;
 
-		// ✅ Validate that we have times before converting
 		if (!localTimes.dayStartTime || !localTimes.dayEndTime) {
-			console.warn('Missing required times for date:', entry.date);
 			return null;
 		}
 
-		const dayStartTime = localTimes.dayStartTime || '';
-		const dayEndTime = localTimes.dayEndTime || '';
-		const lunchStartTime = localTimes.lunchStartTime || '';
-		const lunchEndTime = localTimes.lunchEndTime || '';
-
-		try {
-			const utcStartTime = localTimeToUTC(dayStartTime, utcDateString, locationTimezone);
-			const utcEndTime = localTimeToUTC(dayEndTime, utcDateString, locationTimezone);
-			const utcLunchStart = lunchStartTime
-				? localTimeToUTC(lunchStartTime, utcDateString, locationTimezone)
-				: '';
-			const utcLunchEnd = lunchEndTime
-				? localTimeToUTC(lunchEndTime, utcDateString, locationTimezone)
-				: '';
-
-			return {
-				date: utcDateString,
-				dayStartTime: utcStartTime,
-				dayEndTime: utcEndTime,
-				lunchStartTime: utcLunchStart,
-				lunchEndTime: utcLunchEnd,
-				requisitionId: requisition.id
-			};
-		} catch (err) {
-			console.error('Error converting times to UTC:', err);
-			return null;
-		}
+		// Just send the raw times - let the backend handle conversion!
+		return {
+			date: entry.date,
+			dayStartTime: localTimes.dayStartTime, // Keep as-is (e.g., "09:00")
+			dayEndTime: localTimes.dayEndTime, // Keep as-is (e.g., "17:00")
+			lunchStartTime: localTimes.lunchStartTime || '',
+			lunchEndTime: localTimes.lunchEndTime || '',
+			requisitionId: requisition.id
+		};
 	}
 
 	// ✅ Improved final value calculation

@@ -74,21 +74,6 @@
 
 	$: console.log({ recurrenceDays, requisition });
 
-	//     {
-	//     "id": "144f21b5-7dfe-4b99-a82b-526ee9fea7e4",
-	//     "createdAt": "2026-02-01T13:27:31.746Z",
-	//     "updatedAt": "2026-02-01T13:27:31.746Z",
-	//     "status": "OPEN",
-	//     "date": "2026-02-09",
-	//     "dayStart": "2026-02-09T15:00:00.000Z",
-	//     "dayEnd": "2026-02-10T00:00:00.000Z",
-	//     "lunchStart": null,
-	//     "lunchEnd": null,
-	//     "requisitionId": 3,
-	//     "archived": false,
-	//     "archivedDate": null
-	// }
-
 	let applicationTableData: ApplicationResults[] = [];
 	let recurrenceDaysTableData: RecurrenceDaySelect[] = [];
 	let timesheetTableData: TimeSheetResults[] = [];
@@ -451,7 +436,10 @@
 						</div>
 						<div>
 							<p class="text-gray-500 font-medium">Location</p>
-							<p>{requisition.location.name}</p>
+							<a
+								href={`/clients/${requisition.company.clientId}/locations/${requisition.location.id}`}
+								>{requisition.location.name}</a
+							>
 						</div>
 					</div>
 

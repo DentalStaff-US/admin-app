@@ -265,7 +265,12 @@
 	$: totalHours = Object.values(timeEntries).reduce((sum, entry) => sum + (entry.hours || 0), 0);
 	$: hasHoursEntered = Object.values(timeEntries).some((entry) => entry.hours > 0);
 	$: latestShiftEnded = dataLoaded ? hasLatestShiftEnded() : false;
-	$: canSubmit = hasHoursEntered && totalHours > 0 && latestShiftEnded;
+
+	// ✅ FIXED: Admins can submit anytime, others must wait for shift to end
+	$: canSubmit =
+		user?.role === USER_ROLES.SUPERADMIN
+			? hasHoursEntered && totalHours > 0
+			: hasHoursEntered && totalHours > 0 && latestShiftEnded;
 
 	// ✅ Status checks
 	$: isDraft = data?.timesheet?.status === 'DRAFT';
@@ -275,9 +280,12 @@
 	$: isVoid = data?.timesheet?.status === 'VOID';
 	$: isRejected = data?.timesheet?.status === 'REJECTED';
 
-	// ✅ Can edit if DRAFT or DISCREPANCY (when in edit mode)
-	$: canEdit = isDraft || (isDiscrepancy && isEditing);
-	$: showEditButton = isDiscrepancy && !isEditing;
+	// ✅ FIXED: Admins can always edit, others follow original logic
+	$: canEdit =
+		user?.role === USER_ROLES.SUPERADMIN ? isEditing : isDraft || (isDiscrepancy && isEditing);
+
+	// ✅ FIXED: Show edit button for admins in any state (when not already editing)
+	$: showEditButton = user?.role === USER_ROLES.SUPERADMIN && !isEditing;
 
 	// ✅ Update time entry
 	function updateTimeEntry(
@@ -636,10 +644,44 @@
 												{/if}
 											{/each}
 
-											{#if isDiscrepancy && isEditing}
-												<div class="flex justify-end pt-2">
+											{#if isEditing}
+												<div class="flex justify-end gap-2 pt-2">
 													<Button variant="outline" size="sm" on:click={cancelEditing}>
-														Cancel Editing
+														Cancel
+													</Button>
+													<Button
+														size="sm"
+														disabled={!canSubmit}
+														on:click={() => {
+															// Determine which action based on status
+															const action = isDraft
+																? '?/adminSubmitTimesheet'
+																: isDiscrepancy
+																	? '?/adminResubmitTimesheet'
+																	: '?/adminSubmitTimesheet';
+
+															const form = document.createElement('form');
+															form.method = 'POST';
+															form.action = action;
+
+															const entriesInput = document.createElement('input');
+															entriesInput.type = 'hidden';
+															entriesInput.name = 'entries';
+															entriesInput.value = JSON.stringify(timeEntries);
+
+															const hoursInput = document.createElement('input');
+															hoursInput.type = 'hidden';
+															hoursInput.name = 'totalHours';
+															hoursInput.value = totalHours.toString();
+
+															form.appendChild(entriesInput);
+															form.appendChild(hoursInput);
+															document.body.appendChild(form);
+															form.submit();
+														}}
+													>
+														<Save class="h-4 w-4 mr-2" />
+														Save Changes
 													</Button>
 												</div>
 											{/if}
@@ -812,69 +854,32 @@
 					<CardContent class="space-y-4">
 						<p class="text-sm text-muted-foreground">
 							{#if isDraft}
-								This timesheet is in draft status. You can submit it on behalf of the professional.
+								This timesheet is in draft status. You can edit and submit it on behalf of the
+								professional.
 							{:else if isPending}
 								This timesheet is pending approval. You can approve, reject, or mark a discrepancy.
 							{:else if isDiscrepancy}
 								This timesheet has discrepancies. Edit the hours and resubmit.
 							{:else if isVoid}
-								This timesheet has been voided.
+								This timesheet has been voided. You can edit and resubmit if needed.
 							{:else if isRejected}
-								This timesheet has been rejected.
+								This timesheet has been rejected. You can edit and resubmit.
 							{:else if isApproved}
-								This timesheet has been approved and processed.
+								This timesheet has been approved and processed. You can still edit if needed.
 							{/if}
 						</p>
 
 						<div class="space-y-2">
-							<!-- SUBMIT BUTTON (for DRAFT) -->
-							{#if isDraft}
-								<Dialog bind:open={submitDialogOpen}>
-									<Button
-										on:click={() => (submitDialogOpen = true)}
-										disabled={!canSubmit}
-										class="w-full gap-2 bg-blue-700 hover:bg-blue-800"
-									>
-										<Save class="h-4 w-4" />
-										<span>Submit Timesheet</span>
-									</Button>
-									<DialogContent>
-										<DialogHeader>
-											<DialogTitle>Submit Timesheet</DialogTitle>
-											<DialogDescription>
-												You're submitting {totalHours.toFixed(2)} hours for {data?.timesheet
-													?.candidate?.firstName}
-												{data?.timesheet?.candidate?.lastName} for the week of {formattedWeekRange}.
-											</DialogDescription>
-										</DialogHeader>
-										<DialogFooter>
-											<Button variant="outline" on:click={() => (submitDialogOpen = false)}>
-												Cancel
-											</Button>
-											<form action="?/adminSubmitTimesheet" method="POST" use:enhance>
-												<input type="hidden" name="entries" value={JSON.stringify(timeEntries)} />
-												<input type="hidden" name="totalHours" value={totalHours} />
-												<Button
-													type="submit"
-													on:click={() => (submitDialogOpen = false)}
-													class="ml-2 bg-blue-700 hover:bg-blue-800"
-												>
-													Submit
-												</Button>
-											</form>
-										</DialogFooter>
-									</DialogContent>
-								</Dialog>
-								{#if hasHoursEntered && totalHours > 0 && !latestShiftEnded}
-									<p class="text-sm text-amber-600 mt-2">
-										<AlertCircle class="h-4 w-4 inline mr-1" />
-										Submit after the last shift has ended.
-									</p>
-								{/if}
+							<!-- ✅ ALWAYS SHOW EDIT BUTTON FOR ADMINS (when not editing) -->
+							{#if !isEditing}
+								<Button on:click={enableEditing} variant="outline" class="w-full gap-2">
+									<Edit class="h-4 w-4" />
+									<span>Edit Hours</span>
+								</Button>
 							{/if}
 
 							<!-- APPROVE/REJECT/DISCREPANCY (for PENDING) -->
-							{#if isPending}
+							{#if isPending && !isEditing}
 								<Button
 									class="w-full bg-green-700 hover:bg-green-800 gap-2"
 									disabled={hasDiscrepancies()}
@@ -905,46 +910,14 @@
 								</Button>
 							{/if}
 
-							<!-- RESUBMIT (for DISCREPANCY after editing) -->
-							{#if isDiscrepancy && isEditing}
-								<Button
-									on:click={() => {
-										const form = document.createElement('form');
-										form.method = 'POST';
-										form.action = '?/adminResubmitTimesheet';
-
-										const entriesInput = document.createElement('input');
-										entriesInput.type = 'hidden';
-										entriesInput.name = 'entries';
-										entriesInput.value = JSON.stringify(timeEntries);
-
-										const hoursInput = document.createElement('input');
-										hoursInput.type = 'hidden';
-										hoursInput.name = 'totalHours';
-										hoursInput.value = totalHours.toString();
-
-										form.appendChild(entriesInput);
-										form.appendChild(hoursInput);
-										document.body.appendChild(form);
-										form.submit();
-									}}
-									disabled={!canSubmit}
-									class="w-full gap-2 bg-green-600 hover:bg-green-700"
-								>
-									<CheckCircle2 class="h-4 w-4" />
-									<span>Resubmit for Approval</span>
-								</Button>
-							{/if}
-
 							{#if canEdit}
 								<Alert>
 									<Edit class="h-4 w-4" />
 									<AlertDescription>
-										You are currently editing hours. Save or cancel your changes before other
-										actions.
+										You are currently editing hours. Save or cancel your changes.
 									</AlertDescription>
 								</Alert>
-							{:else if hasDiscrepancies() && !isApproved}
+							{:else if hasDiscrepancies() && !isApproved && !isEditing}
 								<Alert variant="destructive" class="mt-3">
 									<AlertCircle class="h-4 w-4" />
 									<AlertDescription>
