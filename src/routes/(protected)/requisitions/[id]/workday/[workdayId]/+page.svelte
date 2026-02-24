@@ -362,7 +362,11 @@
 					{#if recurrenceDay}
 						<div class="bg-muted p-3 rounded-md">
 							<h3 class="font-semibold mb-2">Date</h3>
-							<p>{format(recurrenceDay?.recurrenceDay?.date, 'PP')}</p>
+							<p>
+								{new Date(recurrenceDay?.recurrenceDay?.date).toLocaleDateString('en-US', {
+									timeZone: 'UTC'
+								})}
+							</p>
 						</div>
 
 						<div class="grid grid-cols-2 gap-4">

@@ -82,7 +82,7 @@
 	// ✅ Get the timezone for this requisition
 	$: reqTimezone = data?.requisition?.referenceTimezone || 'America/New_York';
 
-	$: console.log('Requisition timezone:', data?.requisition);
+	// $: console.log('Requisition timezone:', data?.requisition);
 	$: reqTimezoneName = reqTimezone.split('/')[1]?.replace(/_/g, ' ') || reqTimezone;
 
 	// ✅ Time entries object (professional app style)

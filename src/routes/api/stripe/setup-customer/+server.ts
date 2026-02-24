@@ -62,7 +62,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			mode: 'setup',
 			currency: 'usd',
 			customer: customerId, // Use customer ID, not customer_email
-			payment_method_types: ['card'],
+			payment_method_types: ['card', 'us_bank_account'],
 			success_url: `${request.headers.get('origin')}/setup-complete`,
 			cancel_url: `${request.headers.get('origin')}/setup-complete`,
 			metadata: {
@@ -70,8 +70,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 				setupType: 'internal_customer'
 			}
 		});
-
-		console.log('Created checkout session:', session.id);
 
 		// Create or update clientSubscription record with pending status
 		if (existingSubscription) {

@@ -9,7 +9,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	try {
 		const session = await stripe.checkout.sessions.create({
 			mode: 'subscription',
-			payment_method_types: ['card'],
+			payment_method_types: ['card', 'us_bank_account'],
 			line_items: [
 				{
 					price: priceId,
@@ -24,7 +24,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		return json({ url: session.url });
 	} catch (err) {
-		console.log(err)
+		console.log(err);
 		return new Response('Error creating checkout session', {
 			status: 500
 		});

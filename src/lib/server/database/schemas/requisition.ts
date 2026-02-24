@@ -316,7 +316,8 @@ export const timeSheetTable = pgTable(
 		weekBeginDate: date('week_begin_date').notNull(),
 		hoursRaw: json('hours_raw').$type<RawTimesheetHours[]>().default([]),
 		status: timesheetStatusEnum('status').default('DRAFT').notNull(),
-		discrepancyNote: text('discrepancy_note')
+		discrepancyNote: text('discrepancy_note'),
+		timesheetHourlyAdjusted: smallint('timesheet_hourly_rate_adjusted')
 	},
 	(table) => [
 		index('timesheet_candidate_idx').on(table.associatedCandidateId),

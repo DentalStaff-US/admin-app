@@ -67,22 +67,22 @@ export const load = async (event: RequestEvent) => {
 			})
 		);
 
-		console.log(
-			JSON.stringify(
-				{
-					timesheet,
-					requisition,
-					recurrenceDays,
-					workdays,
-					invoice,
-					auditHistory: auditHistory
-						.filter((h) => h.status === 'fulfilled')
-						.map((h) => ({ ...h.value, user: h.value.user }))
-				},
-				null,
-				2
-			)
-		);
+		// console.log(
+		// 	JSON.stringify(
+		// 		{
+		// 			timesheet,
+		// 			requisition,
+		// 			recurrenceDays,
+		// 			workdays,
+		// 			invoice,
+		// 			auditHistory: auditHistory
+		// 				.filter((h) => h.status === 'fulfilled')
+		// 				.map((h) => ({ ...h.value, user: h.value.user }))
+		// 		},
+		// 		null,
+		// 		2
+		// 	)
+		// );
 		return {
 			user,
 			timesheet,
@@ -349,6 +349,7 @@ export const actions = {
 
 	// ✅ EXISTING: Approve timesheet
 	approveTimesheet: async (event: RequestEvent) => {
+		console.log('Approve timesheet action triggered');
 		const { id } = event.params;
 		const { user } = event.locals;
 		if (user === null) {

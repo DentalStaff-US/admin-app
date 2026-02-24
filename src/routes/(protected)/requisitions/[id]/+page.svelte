@@ -303,7 +303,10 @@
 										- Req# {requisition.id}</span
 									>
 								</h1>
-								<p class="text-lg font-medium text-gray-700 mt-1">{company?.companyName}</p>
+								<a
+									href={`/clients/${requisition.company.clientId}`}
+									class="text-lg font-medium text-gray-700 mt-1 underline">{company?.companyName}</a
+								>
 							</div>
 
 							<!-- Status Section (Desktop) -->
@@ -437,6 +440,7 @@
 						<div>
 							<p class="text-gray-500 font-medium">Location</p>
 							<a
+								class="underline"
 								href={`/clients/${requisition.company.clientId}/locations/${requisition.location.id}`}
 								>{requisition.location.name}</a
 							>
@@ -627,7 +631,7 @@
 												selectedWorkDayStatus === 'OPEN' && 'bg-blue-500 hover:bg-blue-600'
 											)}
 										>
-											Open
+											Open - {recurrenceDaysTableData.filter((day) => day.status === 'OPEN').length}
 										</Button>
 										<Button
 											variant={selectedWorkDayStatus === 'FILLED' ? 'default' : 'outline'}
@@ -637,7 +641,8 @@
 												selectedWorkDayStatus === 'FILLED' && 'bg-green-500 hover:bg-green-600'
 											)}
 										>
-											Filled
+											Filled - {recurrenceDaysTableData.filter((day) => day.status === 'FILLED')
+												.length}
 										</Button>
 										<Button
 											variant={selectedWorkDayStatus === 'UNFULFILLED' ? 'default' : 'outline'}
@@ -648,7 +653,9 @@
 													'bg-orange-500 hover:bg-orange-600'
 											)}
 										>
-											Unfulfilled
+											Unfulfilled - {recurrenceDaysTableData.filter(
+												(day) => day.status === 'UNFULFILLED'
+											).length}
 										</Button>
 										<Button
 											variant={selectedWorkDayStatus === 'CANCELLED' ? 'default' : 'outline'}
@@ -658,7 +665,9 @@
 												selectedWorkDayStatus === 'CANCELLED' && 'bg-red-500 hover:bg-red-600'
 											)}
 										>
-											Cancelled
+											Cancelled - {recurrenceDaysTableData.filter(
+												(day) => day.status === 'CANCELLED'
+											).length}
 										</Button>
 									</div>
 

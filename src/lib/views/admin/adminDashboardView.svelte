@@ -285,7 +285,7 @@
 													<span class="font-medium truncate max-w-[250px]"
 														>{req.requisition.disciplineName}
 														<span class="text-xs text-muted-foreground"
-															>- Req# ${req.requisition.id}</span
+															>- Req# {req.requisition.id}</span
 														></span
 													>
 													<span class="text-xs text-gray-500">{req.company.companyName}</span>

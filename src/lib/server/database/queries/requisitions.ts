@@ -1035,7 +1035,7 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 						)
 					: undefined
 			)
-			.orderBy(asc(timeSheetTable.createdAt))
+			.orderBy(desc(timeSheetTable.createdAt))
 			.limit(DEFAULT_MAX_RECORD_LIMIT);
 
 		return result || [];

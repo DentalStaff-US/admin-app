@@ -27,7 +27,11 @@
 	let disciplines: any[] = [];
 	let experienceLevels: any[] = [];
 	let selectedLocation = null;
-	let selectedCompany = null;
+	let selectedCompany: {
+		value: string;
+		label: string;
+		sublabel: string;
+	} | null = null;
 	let selectedDiscipline = null;
 	let selectedExperience = null;
 
@@ -58,6 +62,7 @@
 		// Find and set the selected company for display
 		const client = clients.find((c) => c.company.id === currentCompanyID);
 		if (client) {
+			console.log('Found client for currentCompanyID:', client);
 			selectedCompany = {
 				value: client.company.id,
 				label: client.company.companyName,
@@ -159,6 +164,8 @@
 			$formObj.timezone = selectedLocation.timezone;
 		}
 	}
+
+	$: console.log({ currentCompanyID, selectedCompany });
 </script>
 
 <form

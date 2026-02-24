@@ -1,6 +1,5 @@
 import Stripe from 'stripe';
 import { STRIPE_SECRET_KEY } from '$env/static/private';
-console.log(STRIPE_SECRET_KEY);
 export const stripe = new Stripe(STRIPE_SECRET_KEY);
 
 export async function createStripeInvoice(
