@@ -359,7 +359,8 @@ export async function getQualifiedProfessionalsForRequisition(requisition: any, 
 
 		// Required discipline ID from requisition
 		const requiredDisciplineId = requisition.disciplineId;
-		const radiusMiles = 50;
+		// Will eventually be a user provided parameter, but for now we can hardcode a radius
+		const radiusMiles = 60;
 		const radiusMeters = radiusMiles * 1609.34; // Convert miles to meters for PostGIS
 
 		// Query candidates using PostGIS ST_DWithin and ST_Distance

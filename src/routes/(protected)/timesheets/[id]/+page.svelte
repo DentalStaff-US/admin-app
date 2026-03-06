@@ -470,11 +470,6 @@
 									<p class="text-sm whitespace-pre-wrap">
 										{data?.timesheet?.discrepancyNote || 'No notes provided'}
 									</p>
-									{#if isDiscrepancy}
-										<p class="text-sm mt-2 font-medium">
-											Please correct the hours below and resubmit.
-										</p>
-									{/if}
 								</AlertDescription>
 							</Alert>
 						{/if}

@@ -41,9 +41,10 @@
 	} from '$lib/components/ui/dropdown-menu';
 	import type { PageData } from './$types';
 	import { format } from 'date-fns';
-	import { MapPin, Plus, UserPlus } from 'lucide-svelte';
+	import { MapPin, Pencil, Plus, StopCircle, UserPlus, XCircle } from 'lucide-svelte';
 	import { formatInTimeZone } from 'date-fns-tz';
 	import { enhance } from '$app/forms';
+	import WorkdayActionMenu from '$lib/components/dashboard/shared/workday-action-menu.svelte';
 
 	export let data: PageData;
 	$: recurrenceDay = data.recurrenceDay;
@@ -122,7 +123,7 @@
 					<DropdownMenuContent>
 						<DropdownMenuLabel>Workday Actions</DropdownMenuLabel>
 						<DropdownMenuSeparator />
-						<DropdownMenuItem>Edit Workday</DropdownMenuItem>
+						<DropdownMenuItem class="gap-2"><Pencil size={16} /> Edit Workday</DropdownMenuItem>
 						{#if workday?.timesheet}
 							<DropdownMenuItem
 								on:click={() => (window.location.href = '/timesheets/' + workday.timesheet?.id)}
@@ -149,6 +150,11 @@
 								</svg>
 								View Timesheet
 							</DropdownMenuItem>
+							{#if recurrenceDay?.recurrenceDay.status !== 'CANCELED'}
+								<DropdownMenuItem class="gap-2"
+									><XCircle size={16} />Cancel Workday</DropdownMenuItem
+								>
+							{/if}
 							<!-- <DropdownMenuSeparator /> -->
 						{/if}
 

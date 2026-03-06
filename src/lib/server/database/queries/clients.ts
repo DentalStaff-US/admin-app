@@ -188,8 +188,8 @@ export async function getAllClientProfiles(searchTerm?: string) {
 				searchTerm ? ilike(clientCompanyTable.companyName, `%${searchTerm}%`) : undefined
 			)
 		)
-		.orderBy(desc(clientProfileTable.createdAt))
-		.limit(DEFAULT_MAX_RECORD_LIMIT);
+		.orderBy(desc(clientProfileTable.createdAt));
+	// .limit(DEFAULT_MAX_RECORD_LIMIT);
 
 	return results;
 }

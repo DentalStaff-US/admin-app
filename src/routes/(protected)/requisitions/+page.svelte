@@ -78,14 +78,16 @@
 				cell: ({ getValue }) => {
 					const id = getValue() as string;
 					return `#${id}`;
-				}
+				},
+				enableSorting: true
 			},
 			{
 				header: 'Discipline',
 				accessorKey: 'disciplineName',
 				cell: ({ getValue, row }) => {
 					return getValue() as string;
-				}
+				},
+				enableSorting: true
 			}
 		];
 
@@ -93,7 +95,8 @@
 			baseColumns.push({
 				header: 'Client',
 				accessorFn: (row) => `${row.lastName}, Dr. ${row.firstName}`,
-				id: 'client'
+				id: 'client',
+				enableSorting: true
 			});
 		}
 
@@ -271,30 +274,21 @@
 										{#each $currentTable.getHeaderGroups() as headerGroup}
 											<Table.Row>
 												{#each headerGroup.headers as header}
-													<Table.Head
-														class={cn(
-															'cursor-pointer hover:bg-muted/50 transition-colors',
-															header.column.getCanSort() && 'select-none'
-														)}
-														on:click={header.column.getToggleSortingHandler()}
-													>
-														<div class="flex items-center gap-2">
-															<svelte:component
-																this={flexRender(
-																	header.column.columnDef.header,
-																	header.getContext()
-																)}
-															/>
-															{#if header.column.getCanSort()}
-																{#if header.column.getIsSorted() === 'asc'}
-																	<ArrowUp class="h-4 w-4" />
-																{:else if header.column.getIsSorted() === 'desc'}
-																	<ArrowDown class="h-4 w-4" />
-																{:else}
-																	<ArrowUpDown class="h-4 w-4" />
+													<Table.Head>
+														{#if header.column.columnDef.header}
+															<Button
+																variant="ghost"
+																on:click={() =>
+																	header.column.toggleSorting(
+																		header.column.getIsSorted() === 'asc'
+																	)}
+															>
+																{header.column.columnDef.header}
+																{#if header.column.getCanSort()}
+																	<ArrowUpDown class="ml-2 h-4 w-4" />
 																{/if}
-															{/if}
-														</div>
+															</Button>
+														{/if}
 													</Table.Head>
 												{/each}
 											</Table.Row>

@@ -1,6 +1,8 @@
 import Stripe from 'stripe';
-import { STRIPE_SECRET_KEY } from '$env/static/private';
-export const stripe = new Stripe(STRIPE_SECRET_KEY);
+// import { STRIPE_SECRET_KEY } from '$env/static/private';
+import * as dotenv from 'dotenv';
+dotenv.config();
+export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 export async function createStripeInvoice(
 	stripeCustomerId: string,

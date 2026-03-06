@@ -50,9 +50,8 @@ export const timeCategoryEnum = pgEnum('time_category_enum', [
 export const requisitionStatusEnum = pgEnum('requisition_status_enum', [
 	'PENDING',
 	'OPEN',
-	'FILLED',
-	'UNFULFILLED',
-	'CANCELED'
+	'CANCELED',
+	'CLOSED'
 ]);
 
 export const recurrenceDayStatusEnum = pgEnum('workday_status_enum', [

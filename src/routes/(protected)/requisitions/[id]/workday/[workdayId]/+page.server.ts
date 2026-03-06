@@ -8,6 +8,7 @@ import {
 	getLocationByIdForCompany
 } from '$lib/server/database/queries/clients';
 import {
+	editRecurrenceDay,
 	getRecurrenceDayDetails,
 	getRequisitionDetailsById,
 	getWorkdayDetails
@@ -176,11 +177,13 @@ export const actions = {
 					updatedAt: new Date()
 				});
 
-				// Calculate week start date (Sunday of the week containing this recurrence day)
-				const weekStart = new Date(recurrenceDay.date);
-				const dayOfWeek = weekStart.getDay();
-				weekStart.setDate(weekStart.getDate() - dayOfWeek);
-				const weekStartStr = weekStart.toISOString().split('T')[0];
+				// Calculate week start date (Monday of the week containing this recurrence day)
+				const recurrenceDate = new Date(recurrenceDay.date);
+				const dayOfWeek = recurrenceDate.getUTCDay(); // 0 (Sun) to 6 (Sat)
+				const diffToMonday = (dayOfWeek + 6) % 7; // Days to subtract to get Monday
+				const weekStartDate = new Date(recurrenceDate);
+				weekStartDate.setUTCDate(recurrenceDate.getUTCDate() - diffToMonday);
+				const weekStartStr = weekStartDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
 
 				// Check if a timesheet already exists for this candidate, week, and requisition
 				const existingTimesheet = await tx
@@ -212,9 +215,7 @@ export const actions = {
 						hoursRaw: [],
 						status: 'PENDING',
 						validated: false,
-						awaitingClientSignature: true,
-						candidateRateBase: null,
-						candidateRateOvertime: null
+						awaitingClientSignature: true
 					});
 
 					console.log(`Created new timesheet ${timesheetId} for week starting ${weekStartStr}`);
@@ -260,5 +261,83 @@ export const actions = {
 			return fail(500, { error: errorMessage });
 		}
 	},
-	blacklistCandidate: async (request: RequestEvent) => {}
+	cancelWorkday: async (event: RequestEvent) => {
+		const { request, locals, params } = event;
+		const user = locals.user;
+
+		if (!user) {
+			return fail(403, { error: 'Not authenticated' });
+		}
+
+		// Only allow SUPERADMIN, CLIENT, or CLIENT_STAFF to assign
+		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+			return fail(403, { error: 'Not authorized to assign candidates' });
+		}
+
+		try {
+			const formData = await request.formData();
+			const recurrenceDayId = formData.get('recurrenceDayId') as string;
+
+			if (!recurrenceDayId) {
+				return fail(400, { error: 'Missing required fields' });
+			}
+
+			// Use transaction to ensure all operations succeed together
+			await db.transaction(async (tx) => {
+				// Update recurrence day status to CANCELLED
+				await tx
+					.update(recurrenceDayTable)
+					.set({
+						status: 'CANCELED',
+						updatedAt: new Date()
+					})
+					.where(eq(recurrenceDayTable.id, recurrenceDayId));
+
+				// Delete associated workday
+				await tx.delete(workdayTable).where(eq(workdayTable.recurrenceDayId, recurrenceDayId));
+			});
+
+			setFlash(
+				{
+					type: 'success',
+					message: 'Workday successfully cancelled'
+				},
+				event
+			);
+
+			return { success: true };
+		} catch (error) {
+			console.error('Error cancelling workday:', error);
+
+			const errorMessage = error instanceof Error ? error.message : 'Failed to cancel workday';
+
+			setFlash(
+				{
+					type: 'error',
+					message: 'Failed to cancel workday'
+				},
+				event
+			);
+
+			return fail(500, { error: errorMessage });
+		}
+	},
+	blacklistCandidate: async (request: RequestEvent) => {},
+	reassignRecurrenceDay: async (event: RequestEvent) => {
+		const { request, locals, params } = event;
+		const user = locals.user;
+
+		if (!user) {
+			return fail(403, { error: 'Not authenticated' });
+		}
+
+		// Only allow SUPERADMIN, CLIENT, or CLIENT_STAFF to assign
+		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+			return fail(403, { error: 'Not authorized to assign candidates' });
+		}
+
+		// Need to reassign to new candidate
+		// Need to reassign workday to candidate
+		// need to reassign generated timesheet to new candidate
+	}
 };

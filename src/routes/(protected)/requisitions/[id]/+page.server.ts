@@ -381,4 +381,41 @@ export const actions = {
 			return setError(form, 'Something went wrong');
 		}
 	}
+	// deleteRequisition: async (request: RequestEvent) => {
+	// 	const user = request.locals.user;
+	// 	if (!user) {
+	// 		return fail(403);
+	// 	}
+
+	// 	const form = await superValidate(request, changeStatusSchema);
+
+	// 	if (!form.valid) {
+	// 		fail(400, { form });
+	// 	}
+
+	// 	try {
+	// 		const requisitionId = form.data.requisitionId;
+
+	// 		await deleteRequisition(requisitionId, user.id);
+
+	// 		setFlash(
+	// 			{
+	// 				type: 'success',
+	// 				message: 'Requisition deleted successfully'
+	// 			},
+	// 			request
+	// 		);
+	// 		return message(form, 'Requisition Deleted');
+	// 	} catch (error) {
+	// 		console.error(error);
+	// 		setFlash(
+	// 			{
+	// 				type: 'error',
+	// 				message: 'Failed to delete requisition'
+	// 			},
+	// 			request
+	// 		);
+	// 		return setError(form, 'Something went wrong');
+	// 	}
+	// }
 };
