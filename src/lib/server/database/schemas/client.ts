@@ -41,7 +41,8 @@ export const clientProfileTable = pgTable('client_profiles', {
 	})
 		.notNull()
 		.defaultNow(),
-	birthday: date('birthday')
+	birthday: date('birthday'),
+	cellPhone: text('cell_phone')
 
 	// stripeCustomerId: text('stripe_customer_id')
 });
