@@ -191,16 +191,8 @@ export const clientRequisitionSchema = z.object({
 });
 
 export type ClientRequisitionSchema = typeof clientRequisitionSchema;
-const singleDaySchema = z.object({
-	requisitionId: z.string(),
-	date: z.string(),
-	dayStartTime: z.string(),
-	dayEndTime: z.string(),
-	lunchStartTime: z.string(),
-	lunchEndTime: z.string()
-});
 
-const recurrenceDayData = z.object({
+const recurrenceDaySchema = z.object({
 	requisitionId: z.number(),
 	date: z.string(),
 	dayStartTime: z.string(),
@@ -209,16 +201,23 @@ const recurrenceDayData = z.object({
 	lunchEndTime: z.string()
 });
 
+export const editRecurrenceDaySchema = z.object({
+	date: z.string(),
+	startTime: z.string(),
+	endTime: z.string(),
+	lunchStartTime: z.string().optional(),
+	lunchEndTime: z.string().optional()
+});
+
 export const newRecurrenceDaySchema = z.object({
 	recurrenceDays: z.string().transform((str) => {
 		const parsed = JSON.parse(str);
-		return z.array(recurrenceDayData).parse(Array.isArray(parsed) ? parsed : [parsed]);
+		return z.array(recurrenceDaySchema).parse(Array.isArray(parsed) ? parsed : [parsed]);
 	})
 });
 
-export type RecurrenceDayData = z.infer<typeof recurrenceDayData>;
+export type RecurrenceDayData = z.infer<typeof recurrenceDaySchema>;
 export type NewRecurrenceDaySchema = typeof newRecurrenceDaySchema;
-export const editRecurrenceDaySchema = singleDaySchema.extend({ id: z.string() });
 export type EditRecurrenceDaySchema = typeof editRecurrenceDaySchema;
 export const deleteRecurrenceDaySchema = z.object({ id: z.string() });
 export type DeleteRecurrenceDaySchema = typeof deleteRecurrenceDaySchema;
