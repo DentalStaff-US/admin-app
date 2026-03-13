@@ -67,25 +67,40 @@
 	let overrideDialogOpen = false;
 	let submitDialogOpen = false;
 
-	// ✅ Professional-style editing state
+	// Editing state
 	let isEditing = false;
 	let initialLoadDone = false;
 	let dataLoaded = false;
 
-	// ✅ Track when data is ready
+	// Adjusted hourly rate editing (admin only)
+	let editingRate = false;
+	let rateInputValue: number | null = null;
+	let rateSaving = false;
+
+	// Derive workday and effective rate reactively
+	$: primaryWorkday = data.workdays?.[0] ?? null;
+	$: adjustedHourlyRate = primaryWorkday?.workday.adjustedHourlyRate ?? null;
+	$: effectiveHourlyRate = adjustedHourlyRate ?? data?.timesheet?.hourlyRate ?? 0;
+
+	function startEditingRate() {
+		rateInputValue = adjustedHourlyRate;
+		editingRate = true;
+	}
+
+	function cancelEditingRate() {
+		editingRate = false;
+		rateInputValue = null;
+	}
+
 	$: {
 		if (data?.requisition?.referenceTimezone && data.workdays) {
 			dataLoaded = true;
 		}
 	}
 
-	// ✅ Get the timezone for this requisition
 	$: reqTimezone = data?.requisition?.referenceTimezone || 'America/New_York';
-
-	// $: console.log('Requisition timezone:', data?.requisition);
 	$: reqTimezoneName = reqTimezone.split('/')[1]?.replace(/_/g, ' ') || reqTimezone;
 
-	// ✅ Time entries object (professional app style)
 	let timeEntries: Record<
 		string,
 		{
@@ -97,12 +112,10 @@
 		}
 	> = {};
 
-	// Format dates for display
 	const weekBeginDate = parseISO(data?.timesheet?.weekBeginDate || new Date().toISOString());
 	const weekEndDate = endOfWeek(weekBeginDate);
 	const formattedWeekRange = `${format(weekBeginDate, 'MMM d')} - ${format(weekEndDate, 'MMM d, yyyy')}`;
 
-	// ✅ Get scheduled workdays
 	$: workdayDates = data.workdays ? data.workdays.map((wd: any) => wd.recurrenceDay?.date) : [];
 
 	$: scheduledWorkDays = workdayDates
@@ -116,7 +129,6 @@
 		})
 		.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-	// ✅ Initialize entries for all scheduled workdays
 	$: {
 		if (scheduledWorkDays.length > 0 && !initialLoadDone) {
 			scheduledWorkDays.forEach(({ dateKey }) => {
@@ -133,7 +145,6 @@
 		}
 	}
 
-	// ✅ Check if latest shift has ended
 	function hasLatestShiftEnded(): boolean {
 		if (!dataLoaded) return false;
 		if (!data.workdays || data.workdays.length === 0) return true;
@@ -160,7 +171,6 @@
 		}
 	}
 
-	// ✅ Function to load time entries from existing timesheet
 	function loadTimeEntries() {
 		scheduledWorkDays.forEach(({ dateKey }) => {
 			timeEntries[dateKey] = {
@@ -227,7 +237,6 @@
 		timeEntries = { ...timeEntries };
 	}
 
-	// ✅ Calculate lunch hours
 	function calculateLunchHours(lunchStart: string, lunchEnd: string): number {
 		if (!lunchStart || !lunchEnd) return 0;
 		const [startHour, startMin] = lunchStart.split(':').map(Number);
@@ -236,7 +245,6 @@
 		return Math.max(0, Math.round(hours * 100) / 100);
 	}
 
-	// ✅ Calculate work hours (excluding lunch)
 	function calculateHours(
 		startTime: string,
 		endTime: string,
@@ -255,24 +263,20 @@
 		return Math.round(hoursWorked * 100) / 100;
 	}
 
-	// ✅ Load on mount
 	onMount(() => {
 		loadTimeEntries();
 		initialLoadDone = true;
 	});
 
-	// ✅ Reactive calculations
 	$: totalHours = Object.values(timeEntries).reduce((sum, entry) => sum + (entry.hours || 0), 0);
 	$: hasHoursEntered = Object.values(timeEntries).some((entry) => entry.hours > 0);
 	$: latestShiftEnded = dataLoaded ? hasLatestShiftEnded() : false;
 
-	// ✅ FIXED: Admins can submit anytime, others must wait for shift to end
 	$: canSubmit =
 		user?.role === USER_ROLES.SUPERADMIN
 			? hasHoursEntered && totalHours > 0
 			: hasHoursEntered && totalHours > 0 && latestShiftEnded;
 
-	// ✅ Status checks
 	$: isDraft = data?.timesheet?.status === 'DRAFT';
 	$: isPending = data?.timesheet?.status === 'PENDING';
 	$: isDiscrepancy = data?.timesheet?.status === 'DISCREPANCY';
@@ -280,14 +284,11 @@
 	$: isVoid = data?.timesheet?.status === 'VOID';
 	$: isRejected = data?.timesheet?.status === 'REJECTED';
 
-	// ✅ FIXED: Admins can always edit, others follow original logic
 	$: canEdit =
 		user?.role === USER_ROLES.SUPERADMIN ? isEditing : isDraft || (isDiscrepancy && isEditing);
 
-	// ✅ FIXED: Show edit button for admins in any state (when not already editing)
 	$: showEditButton = user?.role === USER_ROLES.SUPERADMIN && !isEditing;
 
-	// ✅ Update time entry
 	function updateTimeEntry(
 		dateKey: string,
 		field: 'startTime' | 'endTime' | 'lunchStartTime' | 'lunchEndTime',
@@ -324,7 +325,6 @@
 		loadTimeEntries();
 	}
 
-	// Get status badge for timesheet
 	function getTimesheetStatusBadge() {
 		const badges = {
 			DRAFT: { text: 'DRAFT', icon: Edit, class: 'bg-gray-300 hover:bg-gray-400' },
@@ -342,12 +342,10 @@
 	}
 
 	function getCostEstimate() {
-		const hourlyRate = data?.timesheet?.hourlyRate || 0;
 		const hours = parseFloat(data?.timesheet?.totalHoursWorked || '0');
-		return (Number(hourlyRate) * hours).toFixed(2);
+		return (Number(effectiveHourlyRate) * hours).toFixed(2);
 	}
 
-	// ✅ Format time in requisition timezone
 	function formatTimeInReqZone(date: Date | string, formatStr: string = 'h:mm a'): string {
 		if (!date) return 'N/A';
 		try {
@@ -396,7 +394,6 @@
 					<Calendar class="h-4 w-4 mr-1" />
 					Week of {formattedWeekRange}
 				</p>
-				<!-- ✅ Timezone indicator -->
 				<p class="text-sm text-blue-600 font-medium mt-1 flex items-center gap-1">
 					<Clock class="h-3 w-3" />
 					All times shown in {reqTimezoneName} time
@@ -443,15 +440,85 @@
 									{canEdit ? totalHours.toFixed(2) : data?.timesheet?.totalHoursWorked}
 								</p>
 							</div>
-							<div class="p-3 bg-gray-50 rounded-lg">
+
+							<!-- Hourly Rate tile — editable for admin -->
+							<div
+								class="p-3 bg-gray-50 rounded-lg flex flex-col items-center justify-center gap-1"
+							>
 								<p class="text-sm text-gray-600">Hourly Rate</p>
-								<p class="text-xl font-bold">${data?.timesheet?.hourlyRate}</p>
+								{#if editingRate}
+									<form
+										method="POST"
+										action="?/setAdjustedHourlyRate"
+										use:enhance={() => {
+											rateSaving = true;
+											return async ({ result, update }) => {
+												rateSaving = false;
+												if (result.type === 'success') {
+													editingRate = false;
+												}
+												await update();
+											};
+										}}
+										class="flex items-center gap-1"
+									>
+										<input type="hidden" name="workdayId" value={primaryWorkday?.id} />
+										<span class="text-sm">$</span>
+										<input
+											type="number"
+											name="adjustedHourlyRate"
+											min="0"
+											class="w-16 h-7 text-sm border rounded px-1 text-center"
+											bind:value={rateInputValue}
+											placeholder={String(data?.timesheet?.hourlyRate ?? '')}
+										/>
+										<Button
+											type="submit"
+											size="sm"
+											class="h-7 px-2 bg-[#2a93d1] hover:bg-blue-500"
+											disabled={rateSaving}
+										>
+											{rateSaving ? '...' : 'Save'}
+										</Button>
+										<Button
+											type="button"
+											variant="ghost"
+											size="sm"
+											class="h-7 px-2"
+											on:click={cancelEditingRate}
+										>
+											<X class="h-3 w-3" />
+										</Button>
+									</form>
+								{:else}
+									<div class="flex items-center gap-1">
+										{#if adjustedHourlyRate != null}
+											<p class="text-xl font-bold text-[#2a93d1]">${adjustedHourlyRate}</p>
+											<p class="text-sm text-muted-foreground line-through">
+												${data?.timesheet?.hourlyRate}
+											</p>
+										{:else}
+											<p class="text-xl font-bold">${data?.timesheet?.hourlyRate}</p>
+										{/if}
+										{#if primaryWorkday}
+											<Button
+												variant="ghost"
+												size="icon"
+												class="h-5 w-5 ml-1"
+												on:click={startEditingRate}
+											>
+												<Edit class="h-3 w-3" />
+											</Button>
+										{/if}
+									</div>
+								{/if}
 							</div>
+
 							<div class="p-3 bg-gray-50 rounded-lg">
 								<p class="text-sm text-gray-600">Est. Cost</p>
 								<p class="text-xl font-bold">
 									${(
-										Number(data?.timesheet?.hourlyRate) *
+										Number(effectiveHourlyRate) *
 										parseFloat(
 											canEdit ? totalHours.toFixed(2) : data?.timesheet?.totalHoursWorked || '0'
 										)
@@ -523,7 +590,6 @@
 
 							<CardContent>
 								{#if canEdit}
-									<!-- ✅ EDIT MODE (Professional style) -->
 									{#if scheduledWorkDays.length > 0}
 										<div class="space-y-4">
 											{#each scheduledWorkDays as { dateKey, dayString }}
@@ -532,7 +598,6 @@
 														(day) => day.date === dateKey
 													)}
 													<div class="p-3 bg-gray-50 rounded-lg space-y-3">
-														<!-- Date Header -->
 														<div class="flex items-center justify-between">
 															<p class="text-sm font-medium">{dayString}</p>
 															<p class="text-sm font-semibold text-blue-700">
@@ -540,7 +605,6 @@
 															</p>
 														</div>
 
-														<!-- Work Hours -->
 														<div class="grid grid-cols-2 gap-2">
 															<div>
 																<Label for="{dateKey}-start" class="text-xs text-gray-600">
@@ -570,7 +634,6 @@
 															</div>
 														</div>
 
-														<!-- Lunch Hours -->
 														<div class="grid grid-cols-2 gap-2">
 															<div>
 																<Label for="{dateKey}-lunch-start" class="text-xs text-gray-600">
@@ -606,7 +669,6 @@
 															</div>
 														</div>
 
-														<!-- Lunch duration display -->
 														{#if timeEntries[dateKey].lunchStartTime && timeEntries[dateKey].lunchEndTime}
 															{@const lunchDuration = calculateLunchHours(
 																timeEntries[dateKey].lunchStartTime,
@@ -618,7 +680,6 @@
 															</div>
 														{/if}
 
-														<!-- Scheduled comparison -->
 														{#if recurrenceDay}
 															<div class="pt-2 border-t">
 																<p class="text-xs text-muted-foreground">
@@ -648,7 +709,6 @@
 														size="sm"
 														disabled={!canSubmit}
 														on:click={() => {
-															// Determine which action based on status
 															const action = isDraft
 																? '?/adminSubmitTimesheet'
 																: isDiscrepancy
@@ -682,7 +742,6 @@
 											{/if}
 										</div>
 
-										<!-- Helper text -->
 										<div class="mt-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-800 flex gap-2">
 											<Info class="h-4 w-4 flex-shrink-0 mt-0.5" />
 											<p>
@@ -696,61 +755,58 @@
 											<p>No scheduled workdays found for this week</p>
 										</div>
 									{/if}
-								{:else}
-									<!-- ✅ VIEW MODE -->
-									{#if data?.timesheet?.hoursRaw && data.timesheet.hoursRaw.length > 0}
-										<div class="divide-y">
-											{#each data.timesheet.hoursRaw as entry}
-												{@const recurrenceDay = data?.recurrenceDays.find(
-													(day) => day.date === entry.date
-												)}
-												<div class="py-3">
-													<div class="flex items-center justify-between mb-1">
-														<p class="font-medium">{formatFullDate(entry.date)}</p>
-														<p class="text-lg font-semibold">{entry.hours} hrs</p>
-													</div>
-													<div class="text-sm text-muted-foreground space-y-1">
-														<p>
-															Work: {formatTimeInReqZone(entry.startTime)} - {formatTimeInReqZone(
-																entry.endTime
+								{:else if data?.timesheet?.hoursRaw && data.timesheet.hoursRaw.length > 0}
+									<div class="divide-y">
+										{#each data.timesheet.hoursRaw as entry}
+											{@const recurrenceDay = data?.recurrenceDays.find(
+												(day) => day.date === entry.date
+											)}
+											<div class="py-3">
+												<div class="flex items-center justify-between mb-1">
+													<p class="font-medium">{formatFullDate(entry.date)}</p>
+													<p class="text-lg font-semibold">{entry.hours} hrs</p>
+												</div>
+												<div class="text-sm text-muted-foreground space-y-1">
+													<p>
+														Work: {formatTimeInReqZone(entry.startTime)} - {formatTimeInReqZone(
+															entry.endTime
+														)}
+														<span class="text-xs text-blue-600">({reqTimezoneName})</span>
+													</p>
+													{#if entry.lunchStartTime && entry.lunchEndTime}
+														<p class="flex items-center gap-1">
+															<span class="text-xs">🍽️</span>
+															Lunch: {formatTimeInReqZone(entry.lunchStartTime)} - {formatTimeInReqZone(
+																entry.lunchEndTime
 															)}
-															<span class="text-xs text-blue-600">({reqTimezoneName})</span>
 														</p>
-														{#if entry.lunchStartTime && entry.lunchEndTime}
-															<p class="flex items-center gap-1">
-																<span class="text-xs">🍽️</span>
-																Lunch: {formatTimeInReqZone(entry.lunchStartTime)} - {formatTimeInReqZone(
-																	entry.lunchEndTime
-																)}
-															</p>
-														{/if}
-													</div>
-
-													{#if recurrenceDay}
-														<div class="pt-2 border-t mt-2">
-															<p class="text-xs text-muted-foreground">
-																Scheduled: {formatTimeInReqZone(recurrenceDay.dayStart)} - {formatTimeInReqZone(
-																	recurrenceDay.dayEnd
-																)}
-																{#if recurrenceDay.lunchStart && recurrenceDay.lunchEnd}
-																	<span class="ml-2">
-																		(Lunch: {formatTimeInReqZone(recurrenceDay.lunchStart)} - {formatTimeInReqZone(
-																			recurrenceDay.lunchEnd
-																		)})
-																	</span>
-																{/if}
-															</p>
-														</div>
 													{/if}
 												</div>
-											{/each}
-										</div>
-									{:else}
-										<div class="py-12 text-center text-muted-foreground">
-											<Clipboard class="h-12 w-12 mx-auto mb-3" />
-											<p>No hours recorded for this timesheet</p>
-										</div>
-									{/if}
+
+												{#if recurrenceDay}
+													<div class="pt-2 border-t mt-2">
+														<p class="text-xs text-muted-foreground">
+															Scheduled: {formatTimeInReqZone(recurrenceDay.dayStart)} - {formatTimeInReqZone(
+																recurrenceDay.dayEnd
+															)}
+															{#if recurrenceDay.lunchStart && recurrenceDay.lunchEnd}
+																<span class="ml-2">
+																	(Lunch: {formatTimeInReqZone(recurrenceDay.lunchStart)} - {formatTimeInReqZone(
+																		recurrenceDay.lunchEnd
+																	)})
+																</span>
+															{/if}
+														</p>
+													</div>
+												{/if}
+											</div>
+										{/each}
+									</div>
+								{:else}
+									<div class="py-12 text-center text-muted-foreground">
+										<Clipboard class="h-12 w-12 mx-auto mb-3" />
+										<p>No hours recorded for this timesheet</p>
+									</div>
 								{/if}
 							</CardContent>
 						</Card>
@@ -840,7 +896,6 @@
 
 			<!-- Sidebar -->
 			<div class="space-y-6">
-				<!-- Admin Actions Card -->
 				<Card>
 					<CardHeader>
 						<CardTitle>Admin Actions</CardTitle>
@@ -865,7 +920,6 @@
 						</p>
 
 						<div class="space-y-2">
-							<!-- ✅ ALWAYS SHOW EDIT BUTTON FOR ADMINS (when not editing) -->
 							{#if !isEditing}
 								<Button on:click={enableEditing} variant="outline" class="w-full gap-2">
 									<Edit class="h-4 w-4" />
@@ -873,7 +927,6 @@
 								</Button>
 							{/if}
 
-							<!-- APPROVE/REJECT/DISCREPANCY (for PENDING) -->
 							{#if isPending && !isEditing}
 								<Button
 									class="w-full bg-green-700 hover:bg-green-800 gap-2"
@@ -928,7 +981,6 @@
 		</div>
 
 		<!-- Dialogs -->
-		<!-- Approval Dialog -->
 		<Dialog bind:open={approvalDialogOpen}>
 			<DialogContent>
 				<DialogHeader>
@@ -955,7 +1007,6 @@
 			</DialogContent>
 		</Dialog>
 
-		<!-- Rejection Dialog -->
 		<Dialog bind:open={rejectionDialogOpen}>
 			<DialogContent>
 				<form
@@ -1012,7 +1063,6 @@
 			</DialogContent>
 		</Dialog>
 
-		<!-- Override Dialog -->
 		<Dialog bind:open={overrideDialogOpen}>
 			<DialogContent>
 				<DialogHeader>
@@ -1038,7 +1088,7 @@
 		</Dialog>
 	</section>
 {:else}
-	<!-- ✅ CLIENT VIEW - COMPLETELY UNCHANGED -->
+	<!-- CLIENT VIEW -->
 	<section class="container mx-auto px-4 py-6 space-y-6">
 		<div class="flex flex-wrap justify-between">
 			<div>
@@ -1105,7 +1155,7 @@
 							</div>
 							<div class="p-3 bg-gray-50 rounded-lg">
 								<p class="text-sm text-gray-600">Hourly Rate</p>
-								<p class="text-xl font-bold">${data?.timesheet?.hourlyRate}</p>
+								<p class="text-xl font-bold">${effectiveHourlyRate}</p>
 							</div>
 							<div class="p-3 bg-gray-50 rounded-lg">
 								<p class="text-sm text-gray-600">Est. Cost</p>

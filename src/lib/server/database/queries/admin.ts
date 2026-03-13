@@ -490,39 +490,39 @@ export async function getAdminDashboardData() {
 	] = await Promise.all([
 		getTimesheetsDueCount().catch((e) => {
 			console.error('❌ getTimesheetsDueCount failed:', e.message);
-			throw e;
+			return 0;
 		}),
 		getSupportTicketsPreview(10).catch((e) => {
 			console.error('❌ getSupportTicketsPreview failed:', e.message);
-			throw e;
+			return [];
 		}),
 		getOpenSupportTicketsCount().catch((e) => {
 			console.error('❌ getOpenSupportTicketsCount failed:', e.message);
-			throw e;
+			return 0;
 		}),
 		getDiscrepanciesForAdminDashboard().catch((e) => {
 			console.error('❌ getDiscrepanciesForAdminDashboard failed:', e.message);
-			throw e;
+			return [];
 		}),
 		getNewCandidateSignupsPreview(10).catch((e) => {
 			console.error('❌ getNewCandidateSignupsPreview failed:', e.message);
-			throw e;
+			return [];
 		}),
 		getNewClientSignupsPreview(10).catch((e) => {
 			console.error('❌ getNewClientSignupsPreview failed:', e.message);
-			throw e;
+			return [];
 		}),
 		getInvoicesDueCount().catch((e) => {
 			console.error('❌ getInvoicesDueCount failed:', e.message);
-			throw e;
+			return 0;
 		}),
 		getInvoicesDuePreview(10).catch((e) => {
 			console.error('❌ getInvoicesDuePreview failed:', e.message);
-			throw e;
+			return [];
 		}),
 		getRequisitionsPreviewAdmin(10).catch((e) => {
 			console.error('❌ getRequisitionsPreviewAdmin failed:', e.message);
-			throw e;
+			return [];
 		})
 	]);
 

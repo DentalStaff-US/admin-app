@@ -1,5 +1,7 @@
-import { jsonb, pgEnum, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, jsonb, pgEnum, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import { userTable } from './auth';
+import { candidateProfileTable } from './candidate';
+import { clientCompanyTable, clientProfileTable } from './client';
 
 export const adminNoteTable = pgTable('admin_notes', {
 	id: text('id').notNull().primaryKey(),
@@ -124,14 +126,47 @@ export const actionHistoryTable = pgTable('action_history', {
 		.defaultNow(),
 	entityId: text('entity_id').notNull(),
 	entityType: text('entity_type').notNull(),
-	userId: text("user_id").notNull().references(() => userTable.id),
+	userId: text('user_id')
+		.notNull()
+		.references(() => userTable.id),
 	action: text('action').notNull(),
 	changes: jsonb('changes').$type<{
-		before?: Record<string, any>,
-		after?: Record<string, any>
+		before?: Record<string, any>;
+		after?: Record<string, any>;
 	}>(),
 	metadata: jsonb('metadata').$type<Record<string, any>>().default({})
 });
+
+// const adminProfileComment = pgTable('admin_comments', {
+// 	id: text('id').notNull().primaryKey(),
+// 	createdAt: timestamp('created_at', {
+// 		withTimezone: true,
+// 		mode: 'date'
+// 	})
+// 		.notNull()
+// 		.defaultNow(),
+// 	updatedAt: timestamp('updated_at', {
+// 		withTimezone: true,
+// 		mode: 'date'
+// 	})
+// 		.notNull()
+// 		.defaultNow(),
+// 	adminId: text('admin_id')
+// 		.notNull()
+// 		.references(() => userTable.id, { onDelete: 'cascade' }),
+// 	body: text('body').notNull(),
+// 	candidateId: text('candidate_id').references(() => candidateProfileTable.id, {
+// 		onDelete: 'cascade'
+// 	}),
+// 	companyId: text('company_id').references(() => clientCompanyTable.id, {
+// 		onDelete: 'cascade'
+// 	}),
+// 	archived: boolean('archived').default(false),
+// 	archivedDate: timestamp('archived_at', {
+// 		withTimezone: true,
+// 		mode: 'date'
+// 	})
+// });
 
 export type AdminNote = typeof adminNoteTable.$inferInsert;
 export type UpdateAdminNote = Partial<typeof adminNoteTable.$inferInsert>;
@@ -142,3 +177,17 @@ export type UpdateSuportTicket = Partial<typeof supportTicketTable.$inferInsert>
 export type SupportTicketComment = typeof supportTicketCommentTable.$inferInsert;
 export type UpdateSuportTicketComment = Partial<typeof supportTicketCommentTable.$inferInsert>;
 export type ActionHistory = typeof actionHistoryTable.$inferInsert;
+// export type AdminProfileComment = typeof adminProfileComment.$inferInsert;
+// export type UpdateAdminProfileComment = Partial<typeof adminProfileComment.$inferInsert>;
+// export type AdminProfileCommentSelect = Pick<
+// 	typeof adminProfileComment.$inferSelect,
+// 	| 'id'
+// 	| 'createdAt'
+// 	| 'updatedAt'
+// 	| 'adminId'
+// 	| 'body'
+// 	| 'candidateId'
+// 	| 'companyId'
+// 	| 'archived'
+// 	| 'archivedDate'
+// >;
