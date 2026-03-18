@@ -98,7 +98,10 @@
 		}
 	}
 
-	$: reqTimezone = data?.requisition?.referenceTimezone || 'America/New_York';
+	$: reqTimezone =
+		data?.requisition?.location?.timezone ||
+		data?.requisition?.referenceTimezone ||
+		'America/New_York';
 	$: reqTimezoneName = reqTimezone.split('/')[1]?.replace(/_/g, ' ') || reqTimezone;
 
 	let timeEntries: Record<
@@ -499,14 +502,16 @@
 										{:else}
 											<p class="text-xl font-bold">${data?.timesheet?.hourlyRate}</p>
 										{/if}
-										<Button
-											variant="ghost"
-											size="icon"
-											class="h-5 w-5 ml-1"
-											on:click={startEditingRate}
-										>
-											<Edit class="h-3 w-3" />
-										</Button>
+										{#if !isApproved}
+											<Button
+												variant="ghost"
+												size="icon"
+												class="h-5 w-5 ml-1"
+												on:click={startEditingRate}
+											>
+												<Edit class="h-3 w-3" />
+											</Button>
+										{/if}
 									</div>
 								{/if}
 							</div>
@@ -570,10 +575,7 @@
 									</div>
 									<div class="flex gap-2">
 										{#if canEdit}
-											<Badge variant="secondary" class="gap-1">
-												<Edit class="h-3 w-3" />
-												Editable
-											</Badge>
+											<Badge variant="secondary" class="gap-1" value="Editable"></Badge>
 										{/if}
 										{#if showEditButton}
 											<Button size="sm" variant="outline" on:click={enableEditing}>

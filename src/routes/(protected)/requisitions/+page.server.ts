@@ -86,7 +86,7 @@ export const actions = {
 		}
 		const formData = await event.request.formData();
 		console.log('formData', formData);
-
+		console.log('timezone from form:', formData.get('timezone'));
 		const title = formData.get('title') as string;
 		const companyId = formData.get('clientId') as string;
 		const locationId = formData.get('locationId') as string;

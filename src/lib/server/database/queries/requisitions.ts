@@ -1369,7 +1369,7 @@ export async function getWorkdaysForTimesheet(timesheet: any) {
 		})
 		.from(workdayTable)
 		.innerJoin(recurrenceDayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
-		.where(eq(workdayTable.requisitionId, timesheet.requisitionId))
+		.where(eq(workdayTable.timesheetId, timesheet.timeSheetId))
 		.orderBy(recurrenceDayTable.date);
 
 	return workdays;
