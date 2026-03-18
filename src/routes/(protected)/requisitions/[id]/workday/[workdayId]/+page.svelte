@@ -89,20 +89,6 @@
 		}
 	});
 
-	$: adjustedRateFormData = data.adjustedRateForm;
-	let editingRate = false;
-	const {
-		form: rateForm,
-		enhance: rateEnhance,
-		submitting: rateSubmitting
-	} = superForm(data.adjustedRateForm, {
-		onResult({ result }) {
-			if (result.type === 'success') {
-				editingRate = false;
-			}
-		}
-	});
-
 	const getStatusColor = (status: string | undefined) => {
 		if (!status) return 'bg-gray-500';
 		const statusColors: Record<string, string> = {
@@ -482,68 +468,18 @@
 						</div>
 						<div class="flex justify-between items-center">
 							<span class="font-medium">Hourly Rate:</span>
-							{#if editingRate && isAdmin && hasWorkday}
-								<form
-									method="POST"
-									action="?/setAdjustedHourlyRate"
-									use:rateEnhance
-									class="flex items-center gap-2"
-								>
-									<input type="hidden" name="workdayId" value={workday?.workday?.id} />
-									<div class="flex items-center gap-1">
-										<span class="text-sm">$</span>
-										<Input
-											name="adjustedHourlyRate"
-											type="number"
-											min="0"
-											class="w-20 h-7 text-sm"
-											bind:value={$rateForm.adjustedHourlyRate}
-											placeholder={String(recurrenceDay?.requisition.hourlyRate ?? '')}
-										/>
-										<span class="text-sm">/hr</span>
-									</div>
-									<Button
-										type="submit"
-										size="sm"
-										class="h-7 px-2 bg-[#2a93d1] hover:bg-blue-500"
-										disabled={$rateSubmitting}
-									>
-										{$rateSubmitting ? '...' : 'Save'}
-									</Button>
-									<Button
-										type="button"
-										variant="ghost"
-										size="sm"
-										class="h-7 px-2"
-										on:click={() => (editingRate = false)}
-									>
-										<X class="h-3 w-3" />
-									</Button>
-								</form>
-							{:else}
-								<div class="flex items-center gap-2">
-									{#if workday?.workday?.adjustedHourlyRate != null}
-										<span class="font-semibold text-[#2a93d1]">
-											${workday.workday.adjustedHourlyRate}/hr
-										</span>
-										<span class="text-xs text-muted-foreground line-through">
-											${recurrenceDay?.requisition.hourlyRate}/hr
-										</span>
-									{:else}
-										<span>${recurrenceDay?.requisition.hourlyRate}/hr</span>
-									{/if}
-									{#if isAdmin && hasWorkday}
-										<Button
-											variant="ghost"
-											size="icon"
-											class="h-5 w-5"
-											on:click={() => (editingRate = true)}
-										>
-											<Edit class="h-3 w-3" />
-										</Button>
-									{/if}
-								</div>
-							{/if}
+							<div class="flex items-center gap-2">
+								{#if timesheet?.adjustedHourlyRate != null}
+									<span class="font-semibold text-[#2a93d1]">
+										${timesheet.adjustedHourlyRate}/hr
+									</span>
+									<span class="text-xs text-muted-foreground line-through">
+										${recurrenceDay?.requisition.hourlyRate}/hr
+									</span>
+								{:else}
+									<span>${recurrenceDay?.requisition.hourlyRate}/hr</span>
+								{/if}
+							</div>
 						</div>
 					</div>
 					<Separator />
@@ -586,9 +522,7 @@
 							${timesheet.totalHoursBilled
 								? (
 										Number(timesheet.totalHoursBilled) *
-										(workday?.workday?.adjustedHourlyRate ??
-											recurrenceDay?.requisition?.hourlyRate ??
-											0)
+										(timesheet?.adjustedHourlyRate ?? recurrenceDay?.requisition?.hourlyRate ?? 0)
 									).toFixed(2)
 								: '0.00'}
 						</span>

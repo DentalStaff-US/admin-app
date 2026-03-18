@@ -31,7 +31,7 @@ import { convertRecurrenceDayToUTC } from '$lib/_helpers/UTCTimezoneUtils';
 import { z } from 'zod';
 
 const adjustedHourlyRateSchema = z.object({
-	workdayId: z.string().min(1),
+	timesheetId: z.string().min(1),
 	adjustedHourlyRate: z.coerce.number().int().min(0).nullable()
 });
 
@@ -44,7 +44,6 @@ export async function load(event: RequestEvent) {
 	const recurrenceDayId = event.params.workdayId;
 	const requisitionId = Number(event.params.id);
 	const editWorkdayScheduleForm = await superValidate(event, editRecurrenceDaySchema);
-	const adjustedRateForm = await superValidate(event, adjustedHourlyRateSchema);
 
 	if (user.role === USER_ROLES.SUPERADMIN) {
 		const requisition = await getRequisitionDetailsById(requisitionId);
@@ -71,13 +70,6 @@ export async function load(event: RequestEvent) {
 			lunchEndTime: recurrenceDay.recurrenceDay.lunchEnd?.toString() ?? undefined
 		};
 
-		if (workday?.workday) {
-			adjustedRateForm.data = {
-				workdayId: workday.workday.id,
-				adjustedHourlyRate: workday.workday.adjustedHourlyRate ?? null
-			};
-		}
-
 		return {
 			user,
 			recurrenceDay,
@@ -87,8 +79,7 @@ export async function load(event: RequestEvent) {
 			requisition,
 			location,
 			qualifiedProfessionals,
-			editWorkdayScheduleForm,
-			adjustedRateForm
+			editWorkdayScheduleForm
 		};
 	}
 
@@ -128,8 +119,7 @@ export async function load(event: RequestEvent) {
 			requisition,
 			location,
 			qualifiedProfessionals,
-			editWorkdayScheduleForm,
-			adjustedRateForm
+			editWorkdayScheduleForm
 		};
 	}
 
@@ -166,8 +156,7 @@ export async function load(event: RequestEvent) {
 			requisition,
 			location,
 			qualifiedProfessionals,
-			editWorkdayScheduleForm,
-			adjustedRateForm
+			editWorkdayScheduleForm
 		};
 	}
 }
@@ -283,8 +272,6 @@ export const actions = {
 
 				if (!requisition) throw new Error('Requisition not found');
 
-				const clientId = await getClientIdByCompanyId(requisition.companyId);
-
 				const workdayId = crypto.randomUUID();
 				await tx.insert(workdayTable).values({
 					id: workdayId,
@@ -294,45 +281,6 @@ export const actions = {
 					createdAt: new Date(),
 					updatedAt: new Date()
 				});
-
-				const recurrenceDate = new Date(recurrenceDay.date);
-				const dayOfWeek = recurrenceDate.getUTCDay();
-				const diffToMonday = (dayOfWeek + 6) % 7;
-				const weekStartDate = new Date(recurrenceDate);
-				weekStartDate.setUTCDate(recurrenceDate.getUTCDate() - diffToMonday);
-				const weekStartStr = weekStartDate.toISOString().split('T')[0];
-
-				const existingTimesheet = await tx
-					.select()
-					.from(timesheetTable)
-					.where(
-						and(
-							eq(timesheetTable.associatedCandidateId, candidateId),
-							eq(timesheetTable.weekBeginDate, weekStartStr),
-							eq(timesheetTable.requisitionId, requisitionId)
-						)
-					)
-					.limit(1);
-
-				if (existingTimesheet.length === 0) {
-					const timesheetId = crypto.randomUUID();
-					await tx.insert(timesheetTable).values({
-						id: timesheetId,
-						createdAt: new Date(),
-						updatedAt: new Date(),
-						workdayId,
-						associatedCandidateId: candidateId,
-						associatedClientId: clientId,
-						requisitionId,
-						weekBeginDate: weekStartStr,
-						totalHoursWorked: '0',
-						totalHoursBilled: '0',
-						hoursRaw: [],
-						status: 'PENDING',
-						validated: false,
-						awaitingClientSignature: true
-					});
-				}
 
 				await tx
 					.update(recurrenceDayTable)
@@ -393,11 +341,20 @@ export const actions = {
 
 				if (!workday) throw new Error('No workday found for this recurrence day');
 
-				// Delete associated timesheets
-				await tx.delete(timesheetTable).where(eq(timesheetTable.workdayId, workday.id));
+				const timesheetId = workday.timesheetId;
 
-				// Delete the workday
 				await tx.delete(workdayTable).where(eq(workdayTable.id, workday.id));
+
+				if (timesheetId) {
+					const remaining = await tx
+						.select()
+						.from(workdayTable)
+						.where(eq(workdayTable.timesheetId, timesheetId))
+						.limit(1);
+					if (remaining.length === 0) {
+						await tx.delete(timesheetTable).where(eq(timesheetTable.id, timesheetId));
+					}
+				}
 
 				// Reset recurrence day back to OPEN
 				await tx
@@ -448,11 +405,22 @@ export const actions = {
 
 				if (!existingWorkday) throw new Error('No workday found to reassign');
 
-				// Delete old timesheets tied to this workday
-				await tx.delete(timesheetTable).where(eq(timesheetTable.workdayId, existingWorkday.id));
+				const oldTimesheetId = existingWorkday.timesheetId;
 
 				// Delete old workday
 				await tx.delete(workdayTable).where(eq(workdayTable.id, existingWorkday.id));
+
+				// If the old timesheet has no remaining workdays, delete it
+				if (oldTimesheetId) {
+					const remaining = await tx
+						.select()
+						.from(workdayTable)
+						.where(eq(workdayTable.timesheetId, oldTimesheetId))
+						.limit(1);
+					if (remaining.length === 0) {
+						await tx.delete(timesheetTable).where(eq(timesheetTable.id, oldTimesheetId));
+					}
+				}
 
 				// Get recurrence day for date info
 				const recurrenceDay = await tx
@@ -476,18 +444,6 @@ export const actions = {
 
 				const clientId = await getClientIdByCompanyId(requisition.companyId);
 
-				// Create new workday for the new candidate
-				const newWorkdayId = crypto.randomUUID();
-				await tx.insert(workdayTable).values({
-					id: newWorkdayId,
-					candidateId: newCandidateId,
-					requisitionId,
-					recurrenceDayId,
-					adjustedHourlyRate: null, // wipe rate on reassign
-					createdAt: new Date(),
-					updatedAt: new Date()
-				});
-
 				// Calculate week start date
 				const recurrenceDate = new Date(recurrenceDay.date);
 				const dayOfWeek = recurrenceDate.getUTCDay();
@@ -509,13 +465,14 @@ export const actions = {
 					)
 					.limit(1);
 
+				let newTimesheetId: string;
+
 				if (existingTimesheet.length === 0) {
-					const timesheetId = crypto.randomUUID();
+					newTimesheetId = crypto.randomUUID();
 					await tx.insert(timesheetTable).values({
-						id: timesheetId,
+						id: newTimesheetId,
 						createdAt: new Date(),
 						updatedAt: new Date(),
-						workdayId: newWorkdayId,
 						associatedCandidateId: newCandidateId,
 						associatedClientId: clientId,
 						requisitionId,
@@ -527,7 +484,21 @@ export const actions = {
 						validated: false,
 						awaitingClientSignature: true
 					});
+				} else {
+					newTimesheetId = existingTimesheet[0].id;
 				}
+
+				// Create new workday for the new candidate, linked to the timesheet
+				const newWorkdayId = crypto.randomUUID();
+				await tx.insert(workdayTable).values({
+					id: newWorkdayId,
+					candidateId: newCandidateId,
+					requisitionId,
+					recurrenceDayId,
+					timesheetId: newTimesheetId,
+					createdAt: new Date(),
+					updatedAt: new Date()
+				});
 
 				// Keep recurrence day as FILLED since we still have someone assigned
 				await tx
@@ -583,43 +554,43 @@ export const actions = {
 		}
 	},
 
-	setAdjustedHourlyRate: async (event: RequestEvent) => {
-		const { locals } = event;
-		const user = locals.user;
+	// setAdjustedHourlyRate: async (event: RequestEvent) => {
+	// 	const { locals } = event;
+	// 	const user = locals.user;
 
-		if (!user) {
-			return fail(403, { error: 'Not authenticated' });
-		}
+	// 	if (!user) {
+	// 		return fail(403, { error: 'Not authenticated' });
+	// 	}
 
-		if (user.role !== USER_ROLES.SUPERADMIN) {
-			return fail(403, { error: 'Only admins can adjust the hourly rate' });
-		}
+	// 	if (user.role !== USER_ROLES.SUPERADMIN) {
+	// 		return fail(403, { error: 'Only admins can adjust the hourly rate' });
+	// 	}
 
-		const form = await superValidate(event, adjustedHourlyRateSchema);
+	// 	const form = await superValidate(event, adjustedHourlyRateSchema);
 
-		if (!form.valid) {
-			return fail(400, { form });
-		}
+	// 	if (!form.valid) {
+	// 		return fail(400, { form });
+	// 	}
 
-		try {
-			const { workdayId, adjustedHourlyRate } = form.data;
+	// 	try {
+	// 		const { timesheetId, adjustedHourlyRate } = form.data;
 
-			await db
-				.update(workdayTable)
-				.set({
-					adjustedHourlyRate: adjustedHourlyRate,
-					updatedAt: new Date()
-				})
-				.where(eq(workdayTable.id, workdayId));
+	// 		await db
+	// 			.update(timesheetTable)
+	// 			.set({
+	// 				adjustedHourlyRate: adjustedHourlyRate,
+	// 				updatedAt: new Date()
+	// 			})
+	// 			.where(eq(timesheetTable.id, timesheetId));
 
-			setFlash({ type: 'success', message: 'Hourly rate updated successfully' }, event);
-			return message(form, 'Rate updated');
-		} catch (error) {
-			console.error('Error updating adjusted hourly rate:', error);
-			setFlash({ type: 'error', message: 'Failed to update hourly rate' }, event);
-			return setError(form, 'Something went wrong');
-		}
-	},
+	// 		setFlash({ type: 'success', message: 'Hourly rate updated successfully' }, event);
+	// 		return message(form, 'Rate updated');
+	// 	} catch (error) {
+	// 		console.error('Error updating adjusted hourly rate:', error);
+	// 		setFlash({ type: 'error', message: 'Failed to update hourly rate' }, event);
+	// 		return setError(form, 'Something went wrong');
+	// 	}
+	// },
 
 	blacklistCandidate: async (_event: RequestEvent) => {}
 };

@@ -79,7 +79,7 @@
 
 	// Derive workday and effective rate reactively
 	$: primaryWorkday = data.workdays?.[0] ?? null;
-	$: adjustedHourlyRate = primaryWorkday?.workday.adjustedHourlyRate ?? null;
+	$: adjustedHourlyRate = data?.timesheet?.adjustedHourlyRate ?? null;
 	$: effectiveHourlyRate = adjustedHourlyRate ?? data?.timesheet?.hourlyRate ?? 0;
 
 	function startEditingRate() {
@@ -98,7 +98,10 @@
 		}
 	}
 
-	$: reqTimezone = data?.requisition?.referenceTimezone || 'America/New_York';
+	$: reqTimezone =
+		data?.requisition?.location?.timezone ||
+		data?.requisition?.referenceTimezone ||
+		'America/New_York';
 	$: reqTimezoneName = reqTimezone.split('/')[1]?.replace(/_/g, ' ') || reqTimezone;
 
 	let timeEntries: Record<
@@ -462,7 +465,6 @@
 										}}
 										class="flex items-center gap-1"
 									>
-										<input type="hidden" name="workdayId" value={primaryWorkday?.id} />
 										<span class="text-sm">$</span>
 										<input
 											type="number"
@@ -500,7 +502,7 @@
 										{:else}
 											<p class="text-xl font-bold">${data?.timesheet?.hourlyRate}</p>
 										{/if}
-										{#if primaryWorkday}
+										{#if !isApproved}
 											<Button
 												variant="ghost"
 												size="icon"
@@ -573,10 +575,7 @@
 									</div>
 									<div class="flex gap-2">
 										{#if canEdit}
-											<Badge variant="secondary" class="gap-1">
-												<Edit class="h-3 w-3" />
-												Editable
-											</Badge>
+											<Badge variant="secondary" class="gap-1" value="Editable"></Badge>
 										{/if}
 										{#if showEditButton}
 											<Button size="sm" variant="outline" on:click={enableEditing}>

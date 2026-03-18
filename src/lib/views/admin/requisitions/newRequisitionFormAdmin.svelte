@@ -268,6 +268,8 @@
 										$formObj.locationId = location.id;
 										selectedLocation = location;
 										$formObj.timezone = location.timezone;
+										console.log('location.timezone:', location.timezone);
+										console.log('formObj.timezone:', $formObj.timezone);
 										openLocation = false;
 										closeAndFocusTrigger(ids.trigger);
 									}}

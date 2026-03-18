@@ -334,7 +334,6 @@ export async function getDiscrepanciesForAdminDashboard() {
 			awaitingClientSignature: timeSheetTable.awaitingClientSignature,
 			hourlyRate: requisitionTable.hourlyRate,
 			hoursRaw: timeSheetTable.hoursRaw,
-			workdayId: timeSheetTable.workdayId,
 			status: timeSheetTable.status,
 			candidate: {
 				...candidateProfileTable,
@@ -348,7 +347,6 @@ export async function getDiscrepanciesForAdminDashboard() {
 		.innerJoin(requisitionTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
 		.innerJoin(clientProfileTable, eq(timeSheetTable.associatedClientId, clientProfileTable.id))
 		.innerJoin(clientCompanyTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
-		.leftJoin(workdayTable, eq(timeSheetTable.workdayId, workdayTable.id))
 		.leftJoin(
 			candidateProfileTable,
 			eq(timeSheetTable.associatedCandidateId, candidateProfileTable.id)
