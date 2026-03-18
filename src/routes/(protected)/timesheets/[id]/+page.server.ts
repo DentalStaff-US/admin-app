@@ -128,18 +128,14 @@ export const actions = {
 	// Set adjusted hourly rate on the workday associated with this timesheet
 	setAdjustedHourlyRate: async (event: RequestEvent) => {
 		const { user } = event.locals;
+		const { id } = event.params;
 
 		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
 			return fail(403, { error: 'Only admins can adjust the hourly rate' });
 		}
 
 		const formData = await event.request.formData();
-		const workdayId = formData.get('workdayId') as string;
 		const rawRate = formData.get('adjustedHourlyRate') as string;
-
-		if (!workdayId) {
-			return fail(400, { error: 'Missing workdayId' });
-		}
 
 		const adjustedHourlyRate = rawRate !== '' && rawRate !== null ? parseInt(rawRate, 10) : null;
 
@@ -149,9 +145,9 @@ export const actions = {
 
 		try {
 			await db
-				.update(workdayTable)
+				.update(timeSheetTable)
 				.set({ adjustedHourlyRate, updatedAt: new Date() })
-				.where(eq(workdayTable.id, workdayId));
+				.where(eq(timeSheetTable.id, id));
 
 			setFlash({ type: 'success', message: 'Hourly rate updated successfully' }, event);
 			return { success: true };
@@ -161,7 +157,6 @@ export const actions = {
 			return fail(500, { error: 'Failed to update hourly rate' });
 		}
 	},
-
 	adminSubmitTimesheet: async (event: RequestEvent) => {
 		const { id } = event.params;
 		const { user } = event.locals;
@@ -372,9 +367,7 @@ export const actions = {
 				throw new Error('Requisition not found for timesheet');
 			}
 
-			// Use adjustedHourlyRate from workday if available
-			const workday = (await getWorkdaysForTimesheet(timesheet))?.[0];
-			const effectiveRate = workday?.adjustedHourlyRate ?? requisition.hourlyRate;
+			const effectiveRate = timesheet.adjustedHourlyRate ?? requisition.hourlyRate;
 
 			const amountInCents = convertToStripeAmount(
 				timesheet.totalHoursWorked || 0,
@@ -480,9 +473,7 @@ export const actions = {
 
 			const [adminConfig] = await db.select().from(adminConfigTable).limit(1);
 
-			// Use adjustedHourlyRate from workday if available
-			const workday = (await getWorkdaysForTimesheet(overridden))?.[0];
-			const effectiveRate = workday?.adjustedHourlyRate ?? requisition.hourlyRate;
+			const effectiveRate = overridden.adjustedHourlyRate ?? requisition.hourlyRate;
 
 			const amountInCents = convertToStripeAmount(
 				timesheet.totalHoursWorked || 0,

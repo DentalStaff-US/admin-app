@@ -62,7 +62,7 @@ export const GET: RequestHandler = async ({ request }) => {
 			.from(timeSheetTable)
 			.leftJoin(requisitionTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
 			.leftJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
-			.leftJoin(workdayTable, eq(timeSheetTable.workdayId, workdayTable.id))
+			.leftJoin(workdayTable, eq(workdayTable.timesheetId, timeSheetTable.id))
 			.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
 			.where(
 				and(

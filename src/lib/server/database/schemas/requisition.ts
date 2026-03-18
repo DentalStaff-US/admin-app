@@ -1,9 +1,3 @@
-// schemas/requisition.ts  — UPDATED
-// Changes:
-//   - workdayTable: added timesheetId (nullable FK → timesheets)
-//   - timeSheetTable: removed workdayId
-//   - new unique index on timesheets (associatedCandidateId, requisitionId, weekBeginDate)
-
 import {
 	pgTable,
 	text,
@@ -11,6 +5,7 @@ import {
 	boolean,
 	smallint,
 	date,
+	time,
 	pgEnum,
 	decimal,
 	serial,
@@ -19,8 +14,7 @@ import {
 	json,
 	index,
 	uuid,
-	jsonb,
-	unique
+	jsonb
 } from 'drizzle-orm/pg-core';
 import {
 	clientCompanyTable,
@@ -69,8 +63,14 @@ export const recurrenceDayStatusEnum = pgEnum('workday_status_enum', [
 
 export const requisitionTable = pgTable('requisitions', {
 	id: serial('id').notNull().primaryKey(),
-	createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
-	updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
+	createdAt: timestamp('created_at', {
+		withTimezone: true,
+		mode: 'date'
+	}).notNull(),
+	updatedAt: timestamp('updated_at', {
+		withTimezone: true,
+		mode: 'date'
+	}).notNull(),
 	status: requisitionStatusEnum('status').default('PENDING').notNull(),
 	title: text('name'),
 	companyId: text('client_id')
@@ -86,7 +86,10 @@ export const requisitionTable = pgTable('requisitions', {
 	specialInstructions: text('special_instructions'),
 	experienceLevelId: text('experience_level_id').references(() => experienceLevelTable.id),
 	archived: boolean('archived').default(false),
-	archivedDate: timestamp('archived_at', { withTimezone: true, mode: 'date' }),
+	archivedDate: timestamp('archived_at', {
+		withTimezone: true,
+		mode: 'date'
+	}),
 	hourlyRate: smallint('hourly_rate'),
 	permanentPosition: boolean('permanent_position').default(false),
 	referenceTimezone: text('reference_timezone').notNull().default('America/New_York')
@@ -94,8 +97,14 @@ export const requisitionTable = pgTable('requisitions', {
 
 export const recurrenceDayTable = pgTable('recurrence_days', {
 	id: text('id').notNull().primaryKey(),
-	createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
-	updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
+	createdAt: timestamp('created_at', {
+		withTimezone: true,
+		mode: 'date'
+	}).notNull(),
+	updatedAt: timestamp('updated_at', {
+		withTimezone: true,
+		mode: 'date'
+	}).notNull(),
 	status: recurrenceDayStatusEnum('status').default('OPEN').notNull(),
 	date: date('date').notNull(),
 	dayStart: timestamp('day_start_time', { withTimezone: true }).notNull(),
@@ -107,12 +116,14 @@ export const recurrenceDayTable = pgTable('recurrence_days', {
 		onUpdate: 'cascade'
 	}),
 	archived: boolean('archived').default(false),
-	archivedDate: timestamp('archived_at', { mode: 'date' })
+	archivedDate: timestamp('archived_at', {
+		mode: 'date'
+	})
 });
 
 export const invoiceStatusEnum = pgEnum('invoice_status', [
-	'draft',
-	'open',
+	'draft', // Matching Stripe's status values
+	'open', // Sent/pending payment
 	'paid',
 	'uncollectible',
 	'void'
@@ -130,17 +141,34 @@ export type InvoiceSourceType = (typeof invoiceSourceTypeEnum.enumValues)[number
 export const invoiceTable = pgTable(
 	'invoices',
 	{
+		// Core fields
 		id: uuid('id').notNull().unique().defaultRandom().primaryKey(),
-		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
-		updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
-		stripeInvoiceId: text('stripe_invoice_id').unique(),
-		stripeCustomerId: text('stripe_customer_id'),
-		stripeStatus: text('stripe_status'),
-		stripePdfUrl: text('stripe_pdf_url'),
-		stripeHostedUrl: text('stripe_hosted_url'),
+		createdAt: timestamp('created_at', {
+			withTimezone: true,
+			mode: 'date'
+		})
+			.notNull()
+			.defaultNow(),
+		updatedAt: timestamp('updated_at', {
+			withTimezone: true,
+			mode: 'date'
+		})
+			.notNull()
+			.defaultNow(),
+
+		// Stripe-related fields
+		stripeInvoiceId: text('stripe_invoice_id').unique(), // Maps to Stripe's 'id'
+		stripeCustomerId: text('stripe_customer_id'), // Maps to Stripe's 'customer'
+		stripeStatus: text('stripe_status'), // Original Stripe status for reference
+		stripePdfUrl: text('stripe_pdf_url'), // Maps to 'invoice_pdf'
+		stripeHostedUrl: text('stripe_hosted_url'), // Maps to 'hosted_invoice_url'
+
+		// Invoice details
 		invoiceNumber: text('invoice_number').notNull().unique(),
 		status: invoiceStatusEnum('status').notNull().default('draft'),
 		sourceType: invoiceSourceTypeEnum('source_type').notNull().default('manual'),
+
+		// Financial data from Stripe
 		currency: text('currency').notNull().default('usd'),
 		amountDue: decimal('amount_due', { precision: 10, scale: 2 }).notNull().default('0'),
 		amountPaid: decimal('amount_paid', { precision: 10, scale: 2 }).notNull().default('0'),
@@ -150,44 +178,61 @@ export const invoiceTable = pgTable(
 		subtotal: decimal('subtotal', { precision: 10, scale: 2 }).notNull().default('0'),
 		total: decimal('total', { precision: 10, scale: 2 }).notNull().default('0'),
 		taxAmount: decimal('tax_amount', { precision: 10, scale: 2 }).default('0'),
+
+		// Important dates
 		dueDate: timestamp('due_date', { withTimezone: true, mode: 'date' }),
 		periodStart: timestamp('period_start', { withTimezone: true, mode: 'date' }),
 		periodEnd: timestamp('period_end', { withTimezone: true, mode: 'date' }),
 		paidAt: timestamp('paid_at', { withTimezone: true, mode: 'date' }),
 		voidedAt: timestamp('voided_at', { withTimezone: true, mode: 'date' }),
+
+		// Customer information
 		clientId: text('client_id')
 			.references(() => clientProfileTable.id, { onDelete: 'restrict' })
 			.notNull(),
 		customerEmail: text('customer_email'),
 		customerName: text('customer_name'),
+
+		// Loosely coupled relationships (nullable for flexibility)
 		candidateId: text('candidate_id').references(() => candidateProfileTable.id, {
 			onDelete: 'set null'
 		}),
 		requisitionId: integer('requisition_id').references(() => requisitionTable.id, {
 			onDelete: 'set null'
 		}),
-		timesheetId: text('timesheet_id'), // FK added after timeSheetTable is defined below
-		billingReason: text('billing_reason'),
-		collectionMethod: text('collection_method').default('send_invoice'),
+		timesheetId: text('timesheet_id').references(() => timeSheetTable.id, { onDelete: 'set null' }),
+
+		// Additional Stripe fields
+		billingReason: text('billing_reason'), // manual, subscription, etc.
+		collectionMethod: text('collection_method').default('send_invoice'), // send_invoice, charge_automatically
 		description: text('description'),
 		footer: text('footer'),
 		attemptCount: integer('attempt_count').default(0),
 		attempted: boolean('attempted').default(false),
 		livemode: boolean('livemode').default(false),
+
+		// Flexible data storage for line items and metadata
 		lineItems: jsonb('line_items').default('[]'),
 		metadata: jsonb('metadata').default('{}'),
 		customFields: jsonb('custom_fields'),
 		discounts: jsonb('discounts').default('[]'),
+
+		// Payment settings
 		paymentMethodTypes: jsonb('payment_method_types'),
 		defaultPaymentMethod: text('default_payment_method')
 	},
 	(table) => ({
+		// Core indexes
 		statusIdx: index('invoice_status_idx').on(table.status),
 		sourceTypeIdx: index('invoice_source_type_idx').on(table.sourceType),
 		clientIdx: index('invoice_client_idx').on(table.clientId),
 		dueDateIdx: index('invoice_due_date_idx').on(table.dueDate),
+
+		// Stripe-related indexes
 		stripeInvoiceIdx: index('invoice_stripe_invoice_idx').on(table.stripeInvoiceId),
 		stripeCustomerIdx: index('invoice_stripe_customer_idx').on(table.stripeCustomerId),
+
+		// Optional relationship indexes (sparse indexes if your DB supports them)
 		candidateIdx: index('invoice_candidate_idx')
 			.on(table.candidateId)
 			.where(sql`candidate_id IS NOT NULL`),
@@ -197,11 +242,39 @@ export const invoiceTable = pgTable(
 		timesheetIdx: index('invoice_timesheet_idx')
 			.on(table.timesheetId)
 			.where(sql`timesheet_id IS NOT NULL`),
+
+		// Compound indexes for common queries
 		clientStatusIdx: index('invoice_client_status_idx').on(table.clientId, table.status),
 		statusDueDateIdx: index('invoice_status_due_date_idx').on(table.status, table.dueDate),
 		sourceTypeStatusIdx: index('invoice_source_type_status_idx').on(table.sourceType, table.status)
 	})
 );
+
+export const workdayTable = pgTable('workdays', {
+	id: text('id').notNull().primaryKey(),
+	createdAt: timestamp('created_at', {
+		withTimezone: true,
+		mode: 'date'
+	}).notNull(),
+	updatedAt: timestamp('updated_at', {
+		withTimezone: true,
+		mode: 'date'
+	}).notNull(),
+	candidateId: text('candidate_id')
+		.notNull()
+		.references(() => candidateProfileTable.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+	requisitionId: integer('requisition_id')
+		.notNull()
+		.references(() => requisitionTable.id, {
+			onDelete: 'cascade',
+			onUpdate: 'cascade'
+		}),
+	recurrenceDayId: text('recurrence_day_id').references(() => recurrenceDayTable.id, {
+		onDelete: 'cascade',
+		onUpdate: 'cascade'
+	}),
+	timesheetId: text('timesheet_id').references(() => timeSheetTable.id, { onDelete: 'set null' })
+});
 
 export const timesheetStatusEnum = pgEnum('timesheet_status', [
 	'DRAFT',
@@ -216,8 +289,14 @@ export const timeSheetTable = pgTable(
 	'timesheets',
 	{
 		id: text('id').notNull().primaryKey(),
-		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
-		updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
+		createdAt: timestamp('created_at', {
+			withTimezone: true,
+			mode: 'date'
+		}).notNull(),
+		updatedAt: timestamp('updated_at', {
+			withTimezone: true,
+			mode: 'date'
+		}).notNull(),
 		associatedClientId: text('associated_client_id')
 			.references(() => clientProfileTable.id, { onDelete: 'cascade' })
 			.notNull(),
@@ -231,46 +310,19 @@ export const timeSheetTable = pgTable(
 		requisitionId: integer('requisition_id').references(() => requisitionTable.id, {
 			onDelete: 'set null'
 		}),
-		// workdayId REMOVED — relationship is now workdays.timesheet_id → timesheets.id
 		weekBeginDate: date('week_begin_date').notNull(),
 		hoursRaw: json('hours_raw').$type<RawTimesheetHours[]>().default([]),
 		status: timesheetStatusEnum('status').default('DRAFT').notNull(),
-		discrepancyNote: text('discrepancy_note')
+		discrepancyNote: text('discrepancy_note'),
+		adjustedHourlyRate: smallint('adjusted_hourly_rate')
 	},
 	(table) => [
 		index('timesheet_candidate_idx').on(table.associatedCandidateId),
 		index('timesheet_client_idx').on(table.associatedClientId),
 		index('timesheet_week_begin_idx').on(table.weekBeginDate),
-		index('timesheet_requisition_idx').on(table.requisitionId),
-		// Enforce one timesheet per candidate per requisition per week
-		unique('timesheets_candidate_req_week_unique').on(
-			table.associatedCandidateId,
-			table.requisitionId,
-			table.weekBeginDate
-		)
+		index('timesheet_requisition_idx').on(table.requisitionId)
 	]
 );
-
-export const workdayTable = pgTable('workdays', {
-	id: text('id').notNull().primaryKey(),
-	createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
-	updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
-	candidateId: text('candidate_id')
-		.notNull()
-		.references(() => candidateProfileTable.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
-	requisitionId: integer('requisition_id')
-		.notNull()
-		.references(() => requisitionTable.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
-	recurrenceDayId: text('recurrence_day_id').references(() => recurrenceDayTable.id, {
-		onDelete: 'cascade',
-		onUpdate: 'cascade'
-	}),
-	adjustedHourlyRate: smallint('adjusted_hourly_rate'),
-	// NEW: each workday belongs to a weekly timesheet
-	timesheetId: text('timesheet_id').references(() => timeSheetTable.id, {
-		onDelete: 'set null'
-	})
-});
 
 export const requisitionApplicationStatusEnum = pgEnum('requisition_application_status', [
 	'PENDING',
@@ -280,8 +332,14 @@ export const requisitionApplicationStatusEnum = pgEnum('requisition_application_
 
 export const requisitionApplicationTable = pgTable('requisition_application', {
 	id: text('id').notNull().primaryKey(),
-	createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
-	updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
+	createdAt: timestamp('created_at', {
+		withTimezone: true,
+		mode: 'date'
+	}).notNull(),
+	updatedAt: timestamp('updated_at', {
+		withTimezone: true,
+		mode: 'date'
+	}).notNull(),
 	clientId: text('client_id')
 		.notNull()
 		.references(() => clientProfileTable.id),
@@ -293,7 +351,9 @@ export const requisitionApplicationTable = pgTable('requisition_application', {
 		.notNull(),
 	status: requisitionApplicationStatusEnum('application_status').default('PENDING'),
 	archived: boolean('archived').default(false),
-	archivedDate: timestamp('archived_at', { mode: 'date' })
+	archivedDate: timestamp('archived_at', {
+		mode: 'date'
+	})
 });
 
 export const candidateRequisitionSavesTable = pgTable(
@@ -305,14 +365,19 @@ export const candidateRequisitionSavesTable = pgTable(
 		requisitionId: integer('requisition_id')
 			.notNull()
 			.references(() => requisitionTable.id, { onDelete: 'cascade' }),
-		savedAt: timestamp('saved_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow()
+		savedAt: timestamp('saved_at', {
+			withTimezone: true,
+			mode: 'date'
+		})
+			.notNull()
+			.defaultNow()
 	},
 	(table) => {
-		return { pk: primaryKey({ columns: [table.candidateId, table.requisitionId] }) };
+		return {
+			pk: primaryKey({ columns: [table.candidateId, table.requisitionId] })
+		};
 	}
 );
-
-// ── Type exports ─────────────────────────────────────────────────────────────
 
 export type Requisition = typeof requisitionTable.$inferInsert;
 export type UpdateRequisition = Partial<typeof requisitionTable.$inferInsert>;
@@ -336,6 +401,7 @@ export type UpdateCandidateRequisitionSave = Partial<
 	typeof candidateRequisitionSavesTable.$inferInsert
 >;
 
+// Add select types for more precise querying
 export type RequisitionSelect = typeof requisitionTable.$inferSelect;
 export type RecurrenceDaySelect = typeof recurrenceDayTable.$inferSelect;
 export type InvoiceSelect = typeof invoiceTable.$inferSelect;
@@ -355,12 +421,13 @@ type UserSelect = {
 	avatarUrl: string | null;
 };
 
+// Timesheet query result type
 export type TimesheetWithRelations = {
 	timesheet: TimeSheetSelect;
 	candidate: CandidateProfileSelect;
 	clientCompany?: ClientCompanySelect;
 	user: Partial<UserSelect>;
-	requisition: RequisitionSelect | null;
+	requisition: RequisitionSelect | null; // null because of leftJoin
 };
 
 export type InvoiceWithRelations = {

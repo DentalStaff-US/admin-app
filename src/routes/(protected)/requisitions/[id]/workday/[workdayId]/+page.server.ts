@@ -31,7 +31,7 @@ import { convertRecurrenceDayToUTC } from '$lib/_helpers/UTCTimezoneUtils';
 import { z } from 'zod';
 
 const adjustedHourlyRateSchema = z.object({
-	workdayId: z.string().min(1),
+	timesheetId: z.string().min(1),
 	adjustedHourlyRate: z.coerce.number().int().min(0).nullable()
 });
 
@@ -73,8 +73,8 @@ export async function load(event: RequestEvent) {
 
 		if (workday?.workday) {
 			adjustedRateForm.data = {
-				workdayId: workday.workday.id,
-				adjustedHourlyRate: workday.workday.adjustedHourlyRate ?? null
+				timesheetId: workday.workday.timesheetId ?? '',
+				adjustedHourlyRate: workday.timesheet?.adjustedHourlyRate ?? null
 			};
 		}
 
@@ -393,11 +393,20 @@ export const actions = {
 
 				if (!workday) throw new Error('No workday found for this recurrence day');
 
-				// Delete associated timesheets
-				await tx.delete(timesheetTable).where(eq(timesheetTable.workdayId, workday.id));
+				const timesheetId = workday.timesheetId;
 
-				// Delete the workday
 				await tx.delete(workdayTable).where(eq(workdayTable.id, workday.id));
+
+				if (timesheetId) {
+					const remaining = await tx
+						.select()
+						.from(workdayTable)
+						.where(eq(workdayTable.timesheetId, timesheetId))
+						.limit(1);
+					if (remaining.length === 0) {
+						await tx.delete(timesheetTable).where(eq(timesheetTable.id, timesheetId));
+					}
+				}
 
 				// Reset recurrence day back to OPEN
 				await tx
@@ -483,7 +492,6 @@ export const actions = {
 					candidateId: newCandidateId,
 					requisitionId,
 					recurrenceDayId,
-					adjustedHourlyRate: null, // wipe rate on reassign
 					createdAt: new Date(),
 					updatedAt: new Date()
 				});
@@ -602,15 +610,15 @@ export const actions = {
 		}
 
 		try {
-			const { workdayId, adjustedHourlyRate } = form.data;
+			const { timesheetId, adjustedHourlyRate } = form.data;
 
 			await db
-				.update(workdayTable)
+				.update(timesheetTable)
 				.set({
 					adjustedHourlyRate: adjustedHourlyRate,
 					updatedAt: new Date()
 				})
-				.where(eq(workdayTable.id, workdayId));
+				.where(eq(timesheetTable.id, timesheetId));
 
 			setFlash({ type: 'success', message: 'Hourly rate updated successfully' }, event);
 			return message(form, 'Rate updated');

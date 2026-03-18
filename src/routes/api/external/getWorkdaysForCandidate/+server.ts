@@ -73,7 +73,7 @@ export const GET: RequestHandler = async ({ request }) => {
 			eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 		)
 		.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
-		.leftJoin(timeSheetTable, eq(timeSheetTable.workdayId, workdayTable.id))
+		.leftJoin(workdayTable, eq(workdayTable.timesheetId, timeSheetTable.id))
 		.where(eq(workdayTable.candidateId, candidateProfile.id));
 
 	return json({ success: true, data: workdays }, { headers: corsHeaders });

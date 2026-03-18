@@ -79,7 +79,7 @@
 
 	// Derive workday and effective rate reactively
 	$: primaryWorkday = data.workdays?.[0] ?? null;
-	$: adjustedHourlyRate = primaryWorkday?.workday.adjustedHourlyRate ?? null;
+	$: adjustedHourlyRate = data?.timesheet?.adjustedHourlyRate ?? null;
 	$: effectiveHourlyRate = adjustedHourlyRate ?? data?.timesheet?.hourlyRate ?? 0;
 
 	function startEditingRate() {
@@ -462,7 +462,6 @@
 										}}
 										class="flex items-center gap-1"
 									>
-										<input type="hidden" name="workdayId" value={primaryWorkday?.id} />
 										<span class="text-sm">$</span>
 										<input
 											type="number"
@@ -500,16 +499,14 @@
 										{:else}
 											<p class="text-xl font-bold">${data?.timesheet?.hourlyRate}</p>
 										{/if}
-										{#if primaryWorkday}
-											<Button
-												variant="ghost"
-												size="icon"
-												class="h-5 w-5 ml-1"
-												on:click={startEditingRate}
-											>
-												<Edit class="h-3 w-3" />
-											</Button>
-										{/if}
+										<Button
+											variant="ghost"
+											size="icon"
+											class="h-5 w-5 ml-1"
+											on:click={startEditingRate}
+										>
+											<Edit class="h-3 w-3" />
+										</Button>
 									</div>
 								{/if}
 							</div>
