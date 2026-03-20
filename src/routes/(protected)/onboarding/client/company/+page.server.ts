@@ -2,7 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { setError, superValidate } from 'sveltekit-superforms/server';
 
-import { clientCompanySchema } from '$lib/config/zod-schemas';
+import { clientCompanySchema, clientProfileSchema } from '$lib/config/zod-schemas';
 import {
 	createClientCompany,
 	createClientProfile,
@@ -13,6 +13,10 @@ import {
 const companySchema = clientCompanySchema.pick({
 	companyName: true
 });
+const clientSchema = clientProfileSchema.pick({
+	cell_phone: true
+})
+const mergedSchemas = companySchema.merge(clientSchema)
 
 export const load = async (event) => {
 	const user = event.locals.user;
@@ -31,7 +35,7 @@ export const load = async (event) => {
 		redirect(302, '/onboarding/client/location');
 	}
 
-	const form = await superValidate(event, companySchema);
+	const form = await superValidate(event, mergedSchemas);
 	return {
 		user,
 		form
@@ -41,7 +45,7 @@ export const load = async (event) => {
 export const actions = {
 	default: async (event) => {
 		console.log('Submitting company details...');
-		const form = await superValidate(event, companySchema);
+		const form = await superValidate(event, mergedSchemas);
 		console.log(form);
 
 		if (!form.valid) {
@@ -57,6 +61,7 @@ export const actions = {
 			await createClientProfile({
 				id: clientId,
 				userId: event.locals.user!.id,
+				cellPhone: form.data.cell_phone,
 				createdAt: new Date(),
 				updatedAt: new Date()
 			});

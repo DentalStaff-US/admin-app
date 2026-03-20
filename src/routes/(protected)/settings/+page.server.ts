@@ -1,7 +1,7 @@
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { setError, superValidate, message } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
-import { clientCompanySchema, userSchema, userUpdatePasswordSchema } from '$lib/config/zod-schemas';
+import { clientCompanySchema, clientProfileSchema, userSchema, userUpdatePasswordSchema } from '$lib/config/zod-schemas';
 import { getUserByEmail, updateUser } from '$lib/server/database/queries/users';
 import { USER_ROLES } from '$lib/config/constants.js';
 import {
@@ -13,7 +13,8 @@ import {
 	getClientStaffProfilebyUserId,
 	getPrimaryLocationForCompany,
 	inviteStaffUsersToAccount,
-	updateClientCompany
+	updateClientCompany,
+	updateClientProfile
 } from '$lib/server/database/queries/clients.js';
 import { Argon2id } from 'oslo/password';
 import { getClientBillingInfo } from '$lib/server/database/queries/billing.js';
@@ -90,7 +91,7 @@ export async function load(event) {
 		const staff = hasAdminRights ? await getAllClientStaffProfiles(clientCompany.id) : null;
 
 		const avatarForm = await superValidate(event, avatarUrlSchema);
-		const profileForm = null;
+		const profileForm = await superValidate(event, clientProfileSchema);
 		const companyForm = await superValidate(event, clientCompanySchema);
 		const userProfileForm = await superValidate(event, userProfileSchema);
 		const subscriptionForm = null;
@@ -102,7 +103,9 @@ export async function load(event) {
 			lastName: user.lastName,
 			email: user.email
 		};
-
+		profileForm.data = {
+			cell_phone: clientProfile?.cellPhone
+		}
 		companyForm.data = {
 			companyName: clientCompany.companyName as string,
 			companyDescription: clientCompany.companyDescription as string,
@@ -226,13 +229,13 @@ export const actions = {
 	},
 	updateUser: async (event) => {
 		const user = event.locals.user;
-		const form = await superValidate(event, userProfileSchema);
+		const formData = await event.request.formData();
+		const userForm = await superValidate(formData, userProfileSchema);
+		const clientForm = await superValidate(formData, clientProfileSchema);
 
-		console.log({ form });
-
-		if (!form.valid || !user) {
+		if (!userForm.valid || !user) {
 			return fail(400, {
-				form
+				form: userForm
 			});
 		}
 
@@ -243,28 +246,34 @@ export const actions = {
 			const user = event.locals.user;
 			if (user) {
 				await updateUser(user.id, {
-					firstName: form.data.firstName,
-					lastName: form.data.lastName,
-					email: form.data.email
+					firstName: userForm.data.firstName,
+					lastName: userForm.data.lastName,
+					email: userForm.data.email
 				});
+				const clientProfile = user.role === USER_ROLES.CLIENT ? await getClientProfilebyUserId(user.id) : await getClientProfileByStaffUserId(user.id);
+				if (clientProfile) {
+					await updateClientProfile(clientProfile?.id, {
+						cellPhone: clientForm.data.cell_phone
+					})
+				}
 				setFlash({ type: 'success', message: 'Profile update successful.' }, event);
 			}
 
-			if (user?.email !== form.data.email) {
+			if (user?.email !== userForm.data.email) {
 				if (user) {
 					await updateUser(user?.userId, {
 						verified: false
 					});
-					await emailService.sendEmailAddressUpdateSuccessEmail(form.data.email, user?.token);
-					await emailService.sendPossibleHijackEmail(form.data.email, user?.email);
+					await emailService.sendEmailAddressUpdateSuccessEmail(userForm.data.email, user?.token);
+					await emailService.sendPossibleHijackEmail(userForm.data.email, user?.email);
 				}
 			}
 		} catch (e) {
 			console.error(e);
-			return setError(form, 'There was a problem updating your profile.');
+			return setError(userForm, 'There was a problem updating your profile.');
 		}
 		console.log('profile updated successfully');
-		return message(form, 'Profile updated successfully.');
+		return message(userForm, 'Profile updated successfully.');
 	},
 	updateCompany: async (event) => {
 		const user = event.locals.user;

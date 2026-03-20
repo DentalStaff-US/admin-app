@@ -45,6 +45,11 @@ export const userSchema = z.object({
 	updatedAt: z.date().optional()
 });
 
+export const clientProfileSchema = z.object({
+	birthday: z.coerce.date().nullable().optional(),
+	cell_phone: z.string().regex(/^(\+\d{1,2}\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}$/gm, 'The phone number entered is not valid.').nullable().optional()
+})
+
 export type UserSchema = typeof userSchema;
 
 export const userResetPasswordSchema = userSchema
