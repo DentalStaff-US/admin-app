@@ -88,6 +88,14 @@
 					return getValue() as string;
 				},
 				enableSorting: true
+			},
+			{
+				header: 'Type',
+				accessorKey: 'permanentPosition',
+				cell: ({getValue, row}) => {
+					return getValue() ? 'Permanent' : 'Temporary'
+				},
+				enableSorting: true
 			}
 		];
 

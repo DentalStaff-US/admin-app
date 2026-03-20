@@ -271,6 +271,7 @@
 									<Table.Row>
 										<Table.Head>Position</Table.Head>
 										<Table.Head>Status</Table.Head>
+										<Table.Head>Type</Table.Head>
 										<Table.Head class="text-right">Rate</Table.Head>
 									</Table.Row>
 								</Table.Header>
@@ -307,6 +308,19 @@
 														'text-white'
 													)}
 												/>
+											</Table.Cell>
+											<Table.Cell>
+												{req.requisition.permanentPosition ? 'Permanent' : 'Temporary'}
+												<!-- <Badge
+													variant="secondary"
+													value={req.requisition.permanentPosition ? 'Permanent' : 'Temporary'}
+													class= {
+														cn(
+															req.requisition.permanentPosition && 'bg-gray-300',
+															!req.requisition.permanentPosition && 'bg-gray-300'
+														)
+													}
+												/> -->
 											</Table.Cell>
 											<Table.Cell class="text-right"
 												>{formatCurrency(req.requisition.hourlyRate)}</Table.Cell
