@@ -93,6 +93,13 @@
 		});
 		const locationsRes = await req.json();
 		locations = locationsRes;
+
+		// Auto-select if only one location
+		if (locations.length === 1) {
+			$formObj.locationId = locations[0].id;
+			selectedLocation = locations[0];
+			$formObj.timezone = locations[0].timezone;
+		}
 	};
 
 	const handleFetchDisciplines = async () => {

@@ -145,7 +145,6 @@ export const actions = {
 
 		const formData = await event.request.formData();
 
-		const title = formData.get('title') as string;
 		const locationId = formData.get('locationId') as string;
 		const disciplineId = formData.get('disciplineId') as string;
 		const jobDescription = formData.get('jobDescription') as string;
@@ -163,7 +162,6 @@ export const actions = {
 			{
 				createdAt: new Date(),
 				updatedAt: new Date(),
-				title,
 				companyId,
 				locationId,
 				hourlyRate,
