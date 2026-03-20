@@ -32,7 +32,7 @@ export const load = async (event) => {
 
 	// if company exists, then client is in next step of onboarding
 	if (existingCompany) {
-		// redirect(302, '/onboarding/client/location');
+		redirect(302, '/onboarding/client/location');
 	}
 
 	const form = await superValidate(event, mergedSchemas);
