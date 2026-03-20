@@ -2,7 +2,11 @@
 	import * as Card from '$lib/components/ui/card';
 	import * as Form from '$lib/components/ui/form';
 	import * as Alert from '$lib/components/ui/alert';
-	import { clientCompanySchema, type ClientCompanySchema } from '$lib/config/zod-schemas';
+	import {
+		clientCompanySchema,
+		clientProfileSchema,
+		type ClientCompanySchema
+	} from '$lib/config/zod-schemas';
 	import { Loader2, AlertCircle } from 'lucide-svelte';
 	import type { SuperValidated } from 'sveltekit-superforms';
 
@@ -11,6 +15,10 @@
 	const companySchema = clientCompanySchema.pick({
 		companyName: true
 	});
+	const clientSchema = clientProfileSchema.pick({
+		cell_phone: true
+	})
+	const mergedSchema = companySchema.merge(clientSchema)
 </script>
 
 <section class="flex flex-col items-center justify-center min-h-screen">
@@ -21,7 +29,7 @@
 			let:errors
 			method="POST"
 			{form}
-			schema={companySchema}
+			schema={mergedSchema}
 			let:config
 			on:submit={(e) => {
 				console.log('Submit event triggered', e);
@@ -48,6 +56,13 @@
 					<Form.Field {config} name="companyName">
 						<Form.Item>
 							<Form.Label>Company Name</Form.Label>
+							<Form.Input />
+							<Form.Validation />
+						</Form.Item>
+					</Form.Field>
+					<Form.Field {config} name="cell_phone">
+						<Form.Item>
+							<Form.Label>Phone number</Form.Label>
 							<Form.Input />
 							<Form.Validation />
 						</Form.Item>

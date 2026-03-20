@@ -67,6 +67,7 @@
     };
 
     export let userProfileForm;
+    export let profileForm;
     export let passwordForm;
     export let companyForm;
     export let billingInfo;
@@ -89,6 +90,7 @@
     let submitting = false;
 
     const {form: userFormObj, enhance: userFormEnhance} = superForm(userProfileForm);
+    const {form: profileFormObj } = superForm(profileForm);
     const {
         form: companyFormObj,
         enhance: companyFormEnhance,
@@ -443,6 +445,10 @@
                     <div class="col-span-2 md:col-span-1">
                         <Label for="email">Email Address</Label>
                         <Input name="email" bind:value={$userFormObj.email}/>
+                    </div>
+                    <div class="col-span-2 md:col-span-1">
+                        <Label for="cell_phone">Phone number</Label>
+                        <Input name="cell_phone" bind:value={$profileFormObj.cell_phone}/>
                     </div>
                 </div>
                 <div class="mt-8">
