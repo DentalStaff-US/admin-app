@@ -310,8 +310,7 @@
 												/>
 											</Table.Cell>
 											<Table.Cell>
-												{req.requisition.permanentPosition ? 'Permanent' : 'Temporary'}
-												<!-- <Badge
+												<Badge
 													variant="secondary"
 													value={req.requisition.permanentPosition ? 'Permanent' : 'Temporary'}
 													class= {
@@ -320,7 +319,7 @@
 															!req.requisition.permanentPosition && 'bg-gray-300'
 														)
 													}
-												/> -->
+												/>
 											</Table.Cell>
 											<Table.Cell class="text-right"
 												>{formatCurrency(req.requisition.hourlyRate)}</Table.Cell
