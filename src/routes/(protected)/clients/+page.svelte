@@ -154,8 +154,8 @@
 	<!-- Header -->
 	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
 		<div>
-			<h1 class="text-3xl font-bold tracking-tight">Business Members</h1>
-			<p class="text-muted-foreground">Manage business member profiles and companies</p>
+			<h1 class="text-3xl font-bold tracking-tight">Clients</h1>
+			<p class="text-muted-foreground">Manage client profiles and companies</p>
 		</div>
 	</div>
 

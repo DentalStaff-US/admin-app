@@ -242,7 +242,7 @@
 	<!-- Header -->
 	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
 		<div>
-			<h1 class="text-3xl font-bold tracking-tight">Professional Members</h1>
+			<h1 class="text-3xl font-bold tracking-tight">Professionals</h1>
 			<p class="text-muted-foreground">Manage professional member profiles</p>
 		</div>
 	</div>
@@ -409,7 +409,12 @@
 
 <Dialog.Root bind:open={addDialogOpen}>
 	<Dialog.Content class="space-y-4">
-		<form use:enhance method="POST" action="?/adminCreateProfessional" class="space-y-4">
+		<form
+			use:enhance
+			method="POST"
+			action="/professionals?/adminCreateProfessional"
+			class="space-y-4"
+		>
 			<Dialog.Header>
 				<Dialog.Title>Add New Professional</Dialog.Title>
 				<Dialog.Description>
