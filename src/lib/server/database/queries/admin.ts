@@ -21,7 +21,11 @@ import {
 } from '$lib/server/database/schemas/client';
 import { convertRecurrenceDayToEvent } from '$lib/components/calendar/utils';
 import type { PgTable, PgTableWithColumns } from 'drizzle-orm/pg-core';
-import { actionHistoryTable, supportTicketTable } from '$lib/server/database/schemas/admin';
+import {
+	actionHistoryTable,
+	adminProfileCommentTable,
+	supportTicketTable
+} from '$lib/server/database/schemas/admin';
 import type { PaginateOptions } from '$lib/types';
 import {
 	candidateDisciplineExperienceTable,
@@ -849,4 +853,75 @@ export async function bulkCreateCandidates(
 		locationJobData: [],
 		candidateJobData
 	};
+}
+
+export async function getCommentsForCandidate(candidateId: string) {
+	return await db
+		.select({
+			id: adminProfileCommentTable.id,
+			body: adminProfileCommentTable.body,
+			createdAt: adminProfileCommentTable.createdAt,
+			authorId: adminProfileCommentTable.authorId,
+			authorFirstName: userTable.firstName,
+			authorLastName: userTable.lastName,
+			authorAvatarUrl: userTable.avatarUrl
+		})
+		.from(adminProfileCommentTable)
+		.innerJoin(userTable, eq(userTable.id, adminProfileCommentTable.authorId))
+		.where(eq(adminProfileCommentTable.candidateId, candidateId))
+		.orderBy(desc(adminProfileCommentTable.createdAt));
+}
+
+export async function getCommentsForClient(clientId: string) {
+	return await db
+		.select({
+			id: adminProfileCommentTable.id,
+			body: adminProfileCommentTable.body,
+			createdAt: adminProfileCommentTable.createdAt,
+			authorId: adminProfileCommentTable.authorId,
+			authorFirstName: userTable.firstName,
+			authorLastName: userTable.lastName,
+			authorAvatarUrl: userTable.avatarUrl
+		})
+		.from(adminProfileCommentTable)
+		.innerJoin(userTable, eq(userTable.id, adminProfileCommentTable.authorId))
+		.where(eq(adminProfileCommentTable.clientId, clientId))
+		.orderBy(desc(adminProfileCommentTable.createdAt));
+}
+
+export async function addComment({
+	body,
+	authorId,
+	candidateId,
+	clientId
+}: {
+	body: string;
+	authorId: string;
+	candidateId?: string;
+	clientId?: string;
+}) {
+	const [result] = await db
+		.insert(adminProfileCommentTable)
+		.values({
+			id: crypto.randomUUID(),
+			body,
+			authorId,
+			candidateId: candidateId ?? null,
+			clientId: clientId ?? null,
+			createdAt: new Date(),
+			updatedAt: new Date()
+		})
+		.returning();
+	return result;
+}
+
+export async function deleteComment(commentId: string, authorId: string) {
+	await db
+		.delete(adminProfileCommentTable)
+		.where(
+			and(
+				eq(adminProfileCommentTable.id, commentId),
+				eq(adminProfileCommentTable.authorId, authorId)
+			)
+		);
 }

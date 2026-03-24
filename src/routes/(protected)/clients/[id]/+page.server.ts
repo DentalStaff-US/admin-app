@@ -10,7 +10,7 @@ import {
 	getClientSubscription,
 	getPrimaryLocationForStaff
 } from '$lib/server/database/queries/clients';
-import { redirect } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import { USER_ROLES } from '$lib/config/constants';
 import {
 	getSupportTicketsForClient,
@@ -34,6 +34,11 @@ import db from '$lib/server/database/drizzle';
 import { userTable } from '$lib/server/database/schemas/auth';
 import { clientCompanyTable } from '$lib/server/database/schemas/client';
 import { eq } from 'drizzle-orm';
+import {
+	addComment,
+	deleteComment,
+	getCommentsForClient
+} from '$lib/server/database/queries/admin';
 // import { getClientBillingInfo } from '$lib/server/database/queries/billing';
 
 const LineItemSchema = z.array(
@@ -113,6 +118,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		})
 	);
 
+	const comments = await getCommentsForClient(id);
+
 	return result
 		? {
 				user,
@@ -131,7 +138,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				invoiceForm,
 				requisitionForm,
 				locationForm,
-				updateClientForm
+				updateClientForm,
+				comments
 			}
 		: {
 				user,
@@ -142,7 +150,10 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				invoices: [],
 				staff: [],
 				invoiceForm,
-				updateClientForm
+				updateClientForm,
+				requisitionForm,
+				locationForm,
+				comments: []
 			};
 };
 
@@ -346,5 +357,31 @@ export const actions = {
 			setFlash({ type: 'error', message: 'Failed to update client' }, event);
 			return setError(form, 'Failed to update client');
 		}
+	},
+	addComment: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+
+		const { id } = event.params;
+		const formData = await event.request.formData();
+		const body = formData.get('body') as string;
+
+		if (!body?.trim()) return fail(400, { error: 'Comment cannot be empty' });
+
+		await addComment({ body: body.trim(), authorId: user.id, clientId: id });
+		setFlash({ type: 'success', message: 'Comment added' }, event);
+		return { success: true };
+	},
+
+	deleteComment: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+
+		const formData = await event.request.formData();
+		const commentId = formData.get('commentId') as string;
+
+		await deleteComment(commentId, user.id);
+		setFlash({ type: 'success', message: 'Comment deleted' }, event);
+		return { success: true };
 	}
 };

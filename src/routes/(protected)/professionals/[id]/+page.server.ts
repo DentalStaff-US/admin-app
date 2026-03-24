@@ -25,6 +25,11 @@ import db from '$lib/server/database/drizzle';
 import { candidateDisciplineExperienceTable } from '$lib/server/database/schemas/candidate';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { eq } from 'drizzle-orm';
+import {
+	addComment,
+	deleteComment,
+	getCommentsForCandidate
+} from '$lib/server/database/queries/admin';
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
@@ -53,6 +58,7 @@ export const load: PageServerLoad = async (event) => {
 	const supportTickets = await getSupportTicketsForUser(candidateResult.candidate.user.id);
 	const workHistory = await getAllCandidateWorkHistory(id);
 	const documents = await getCandidateDocuments(id);
+	const comments = await getCommentsForCandidate(id);
 
 	// Fetch all available disciplines for the dropdown
 	const allDisciplinesData = await db.select().from(disciplineTable);
@@ -75,7 +81,8 @@ export const load: PageServerLoad = async (event) => {
 				documents,
 				statusForm,
 				personalDetailsForm,
-				disciplinesForm
+				disciplinesForm,
+				comments
 			}
 		: {
 				user,
@@ -88,7 +95,8 @@ export const load: PageServerLoad = async (event) => {
 				documents: [],
 				statusForm,
 				personalDetailsForm,
-				disciplinesForm
+				disciplinesForm,
+				comments: []
 			};
 };
 
@@ -300,5 +308,31 @@ export const actions = {
 			setFlash({ type: 'error', message: 'Failed to upload documents' }, event);
 			return setError(form, 'Failed to upload documents');
 		}
+	},
+	addComment: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+
+		const { id } = event.params;
+		const formData = await event.request.formData();
+		const body = formData.get('body') as string;
+
+		if (!body?.trim()) return fail(400, { error: 'Comment cannot be empty' });
+
+		await addComment({ body: body.trim(), authorId: user.id, candidateId: id });
+		setFlash({ type: 'success', message: 'Comment added' }, event);
+		return { success: true };
+	},
+
+	deleteComment: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+
+		const formData = await event.request.formData();
+		const commentId = formData.get('commentId') as string;
+
+		await deleteComment(commentId, user.id);
+		setFlash({ type: 'success', message: 'Comment deleted' }, event);
+		return { success: true };
 	}
 };

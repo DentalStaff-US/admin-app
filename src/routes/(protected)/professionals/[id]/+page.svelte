@@ -11,7 +11,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import * as Select from '$lib/components/ui/select';
-	import { STATES } from '$lib/config/constants';
+	import AdminProfileComments from '$lib/views/admin/adminProfileComments.svelte';
 	import {
 		Save,
 		X,
@@ -29,7 +29,8 @@
 		Download,
 		MoreHorizontal,
 		Trash2,
-		Plus
+		Plus,
+		MessageSquare
 	} from 'lucide-svelte';
 	import { superForm } from 'sveltekit-superforms/client';
 	import { format } from 'date-fns';
@@ -962,6 +963,24 @@
 								{/if}
 							</CardContent>
 						</Card>
+						{#if isAdmin}
+							<Card class="w-full max-w-none">
+								<CardHeader class="pb-3">
+									<CardTitle class="text-blue-600 flex items-center gap-2 text-lg">
+										<MessageSquare class="h-4 w-4" />
+										Admin Notes
+									</CardTitle>
+								</CardHeader>
+								<CardContent class="pt-0">
+									<AdminProfileComments
+										comments={data.comments}
+										currentUserId={user.id}
+										addAction="?/addComment"
+										deleteAction="?/deleteComment"
+									/>
+								</CardContent>
+							</Card>
+						{/if}
 					</div>
 				</TabsContent>
 
