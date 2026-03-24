@@ -7,13 +7,16 @@
 		CalendarClock,
 		ChevronDown,
 		MapPin,
-		// Trash,
 		CircleDollarSign,
 		AlertCircle,
 		Building,
 		ClipboardList,
 		Users,
-		Loader2
+		Loader2,
+		Edit,
+		X,
+		Clock,
+		ChevronUp
 	} from 'lucide-svelte';
 	import type { PageData } from './$types';
 	import type { SuperValidated } from 'sveltekit-superforms';
@@ -59,6 +62,11 @@
 	import TableHeader from '$lib/components/ui/table/table-header.svelte';
 	import TableRow from '$lib/components/ui/table/table-row.svelte';
 	import { formatInTimeZone } from 'date-fns-tz';
+	import { enhance } from '$app/forms';
+	import { Input } from '$lib/components/ui/input';
+	import { Label } from '$lib/components/ui/label';
+	import { Textarea } from '$lib/components/ui/textarea';
+	import { Alert, AlertDescription } from '$lib/components/ui/alert';
 
 	export let data: PageData;
 
@@ -67,12 +75,37 @@
 	$: requisition = data.requisition;
 	$: recurrenceDays = data.recurrenceDays;
 	$: location = data.location;
-
 	$: applications = data.applications;
 	$: status = requisition?.status;
 	$: hasRequisitionRights = data.hasRequisitionRights;
+	$: disciplines = data.disciplines || [];
+	$: experienceLevels = data.experienceLevels || [];
+	$: locations = data.locations || [];
 
-	$: console.log({ recurrenceDays, requisition });
+	// Edit panel state
+	let editPanelOpen = false;
+	let editLocationId = '';
+	let editTimezone = '';
+	let showTimezoneWarning = false;
+	let editSaving = false;
+
+	$: if (requisition) {
+		editLocationId = requisition.locationId;
+		editTimezone = requisition.referenceTimezone;
+	}
+
+	function handleLocationChange(e: Event) {
+		const newLocationId = (e.target as HTMLSelectElement).value;
+		const newLocation = locations.find((l: any) => l.id === newLocationId);
+		if (newLocation && newLocation.timezone !== requisition.referenceTimezone) {
+			editTimezone = newLocation.timezone;
+			showTimezoneWarning = recurrenceDays?.length > 0;
+		} else if (newLocation) {
+			editTimezone = newLocation.timezone;
+			showTimezoneWarning = false;
+		}
+		editLocationId = newLocationId;
+	}
 
 	let applicationTableData: ApplicationResults[] = [];
 	let recurrenceDaysTableData: RecurrenceDaySelect[] = [];
@@ -83,12 +116,10 @@
 	export let recurrenceDayForm: SuperValidated<NewRecurrenceDaySchema>;
 	export let deleteRecurrenceDayForm: SuperValidated<DeleteRecurrenceDaySchema>;
 
-	// Filter recurrence days by status
 	$: filteredRecurrenceDays = recurrenceDaysTableData.filter(
 		(day) => day.status === selectedWorkDayStatus
 	);
 
-	// Update table data when source data changes
 	$: {
 		applicationTableData = (applications as ApplicationResults[]) || [];
 		applicationsOptions.update((o) => ({ ...o, data: applicationTableData }));
@@ -98,10 +129,22 @@
 		recurrenceDaysTableData = (recurrenceDays as RecurrenceDaySelect[]) ?? [];
 	}
 
-	// Update recurrence days table when filtered data changes
 	$: {
 		recurrenceDaysOptions.update((o) => ({ ...o, data: filteredRecurrenceDays }));
 	}
+	$: sortedExperienceLevels = [...experienceLevels].sort((a, b) => {
+		const priorityMap = {
+			'No Preference': 1,
+			'0-2 Years': 2,
+			'3-9 Years': 4,
+			'10 years and Over': 5
+		};
+
+		const priorityA = priorityMap[a.value] || 999;
+		const priorityB = priorityMap[b.value] || 999;
+
+		return priorityA - priorityB;
+	});
 
 	const recurrenceDaysColumns: ColumnDef<RecurrenceDaySelect>[] = [
 		{
@@ -131,8 +174,8 @@
 					value: original.getValue(),
 					class: cn(
 						original.getValue() === 'OPEN' && 'bg-blue-400 hover:bg-blue-500',
-						original.getValue() === 'FILLED' && 'bg-green-400 hover:bg-bg-green-500',
-						original.getValue() === 'UNFULFILLED' && 'bg-orange-400 hover:bg-bg-orange-500',
+						original.getValue() === 'FILLED' && 'bg-green-400 hover:bg-green-500',
+						original.getValue() === 'UNFULFILLED' && 'bg-orange-400 hover:bg-orange-500',
 						original.getValue() === 'CANCELLED' && 'bg-red-500 hover:bg-red-600'
 					)
 				})
@@ -174,7 +217,7 @@
 					value: original.getValue(),
 					class: cn(
 						original.getValue() === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-						original.getValue() === 'APPROVED' && 'bg-green-400 hover:bg-bg-green-500',
+						original.getValue() === 'APPROVED' && 'bg-green-400 hover:bg-green-500',
 						original.getValue() === 'DENIED' && 'bg-red-500 hover:bg-red-600'
 					)
 				})
@@ -186,10 +229,7 @@
 			header: '',
 			id: 'id',
 			accessorFn: (original) => original.timeSheet.id,
-			cell: (original) =>
-				flexRender(ViewLink, {
-					href: `/timesheets/${original.getValue()}`
-				})
+			cell: (original) => flexRender(ViewLink, { href: `/timesheets/${original.getValue()}` })
 		},
 		{
 			header: 'Candidate',
@@ -236,6 +276,7 @@
 				})
 		}
 	];
+
 	const applicationsOptions = writable<TableOptions<ApplicationResults>>({
 		data: applicationTableData,
 		columns: applicationColumns,
@@ -270,16 +311,26 @@
 
 	const { enhance: deleteEnhance } = superForm(deleteRecurrenceDayForm);
 	const { enhance: statusEnhance, submitting: statusSubmitting } = superForm(changeStatusForm);
+
+	function getStatusColor(s: string) {
+		return cn(
+			s === 'OPEN' && 'bg-blue-100 text-blue-800',
+			s === 'CANCELED' && 'bg-red-100 text-red-800',
+			s === 'CLOSED' && 'bg-gray-100 text-gray-800'
+		);
+	}
 </script>
 
 {#if requisition}
-	<section class="container mx-auto px-4 py-6">
-		<div class="flex flex-col gap-6">
-			<!-- Header with requisition info -->
-			<div class="bg-white rounded-lg shadow-sm p-6">
-				<div class="flex flex-col md:flex-row gap-6 items-start md:items-center">
-					<!-- Company Logo -->
-					<div class="h-24 w-24 flex-shrink-0 rounded-lg overflow-hidden border bg-white">
+	<section class="container mx-auto px-4 py-6 space-y-4">
+		<!-- ── Header card ─────────────────────────────────────────────── -->
+		<div class="bg-white rounded-lg border border-gray-200 p-6">
+			<!-- Top row: logo + title + status + actions -->
+			<div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+				<div class="flex items-center gap-4">
+					<div
+						class="h-14 w-14 flex-shrink-0 rounded-lg overflow-hidden border bg-gray-50 flex items-center justify-center"
+					>
 						{#if company?.companyLogo}
 							<img
 								src={company.companyLogo}
@@ -287,507 +338,539 @@
 								class="h-full w-full object-contain"
 							/>
 						{:else}
-							<div class="h-full w-full flex items-center justify-center bg-gray-100 text-gray-400">
-								<Building class="h-12 w-12" />
-							</div>
+							<Building class="h-7 w-7 text-gray-400" />
 						{/if}
 					</div>
-
-					<!-- Requisition Information -->
-					<div class="flex-1">
-						<div class="flex flex-col md:flex-row md:items-center gap-3 md:justify-between">
-							<div>
-								<h1 class="text-3xl md:text-4xl font-bold">
-									{requisition.discipline.name}
-									<span class="text-sm text-muted-foreground font-normal">
-										- Req# {requisition.id}</span
-									>
-								</h1>
-								<a
-									href={`/clients/${requisition.company.clientId}`}
-									class="text-lg font-medium text-gray-700 mt-1 underline">{company?.companyName}</a
-								>
-							</div>
-
-							<!-- Status Section (Desktop) -->
-							<div class="hidden md:block">
-								<div class="flex flex-col flex-wrap gap-2">
-									{#if hasRequisitionRights}
-										<DropdownMenu>
-											<DropdownMenuTrigger>
-												<Button variant="outline" size="sm" class="gap-1 ">
-													{#if $statusSubmitting}
-														Updating...
-														<Loader2 class="mr-2 h-4 w-4 animate-spin" />
-													{:else}
-														Update Status
-													{/if}
-													<ChevronDown class="h-4 w-4" />
-												</Button>
-											</DropdownMenuTrigger>
-											<DropdownMenuContent>
-												<form method="POST" action="?/changeStatus" use:statusEnhance>
-													<input type="hidden" name="requisitionId" value={requisition.id} />
-													<DropdownMenuItem>
-														<button
-															type="submit"
-															name="status"
-															value="OPEN"
-															class="w-full text-left"
-														>
-															Open
-														</button>
-													</DropdownMenuItem>
-													<DropdownMenuItem>
-														<button
-															type="submit"
-															name="status"
-															value="CANCELED"
-															class="w-full text-left"
-														>
-															Canceled
-														</button>
-													</DropdownMenuItem>
-												</form>
-											</DropdownMenuContent>
-										</DropdownMenu>
-									{/if}
-									<div
-										class="py-2.5 px-3 text-sm font-medium border border-gray-300 rounded-md flex items-center gap-2 bg-white"
-									>
-										<span
-											class={cn(
-												'h-3 w-3 rounded-full',
-												status === 'OPEN' && 'bg-blue-500',
-												status === 'CANCELED' && 'bg-red-500'
-											)}
-										></span>
-										{requisition.status}
-									</div>
-								</div>
-							</div>
-						</div>
-					</div>
-				</div>
-
-				<!-- Status Section (Mobile) -->
-				<div class="md:hidden mt-4">
-					<div class="flex flex-wrap gap-2 items-center">
-						<div
-							class="py-2.5 px-3 text-sm font-medium border border-gray-300 rounded-md flex items-center gap-2 bg-white"
-						>
+					<div>
+						<div class="flex flex-wrap items-center gap-2">
+							<h1 class="text-2xl font-bold text-gray-900">{requisition.discipline.name}</h1>
+							<span class="text-sm text-gray-400 font-normal">Req# {requisition.id}</span>
 							<span
-								class={cn(
-									'h-3 w-3 rounded-full',
-									status === 'OPEN' && 'bg-blue-500',
-									status === 'FILLED' && 'bg-green-400',
-									status === 'UNFULFILLED' && 'bg-orange-400',
-									status === 'CANCELED' && 'bg-red-500'
-								)}
-							></span>
-							{requisition.status}
-						</div>
-
-						{#if hasRequisitionRights}
-							<DropdownMenu>
-								<DropdownMenuTrigger>
-									<Button variant="outline" size="sm" class="gap-1">
-										Update Status
-										<ChevronDown class="h-4 w-4" />
-									</Button>
-								</DropdownMenuTrigger>
-								<DropdownMenuContent>
-									<form method="POST" action="?/changeStatus" use:statusEnhance>
-										<input type="hidden" name="requisitionId" value={requisition.id} />
-										<DropdownMenuItem asChild>
-											<button type="submit" name="status" value="OPEN" class="w-full text-left">
-												Open
-											</button>
-										</DropdownMenuItem>
-										<DropdownMenuItem asChild>
-											<button type="submit" name="status" value="FILLED" class="w-full text-left">
-												Filled
-											</button>
-										</DropdownMenuItem>
-										<DropdownMenuItem asChild>
-											<button
-												type="submit"
-												name="status"
-												value="UNFULFILLED"
-												class="w-full text-left"
-											>
-												Unfulfilled
-											</button>
-										</DropdownMenuItem>
-										<DropdownMenuItem asChild>
-											<button type="submit" name="status" value="CANCELED" class="w-full text-left">
-												Canceled
-											</button>
-										</DropdownMenuItem>
-									</form>
-								</DropdownMenuContent>
-							</DropdownMenu>
-						{/if}
-					</div>
-				</div>
-
-				<!-- Key Details Summary -->
-				<div class="mt-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-					<div class="flex items-center gap-3">
-						<div class="p-2 bg-blue-50 rounded-md">
-							<MapPin class="h-5 w-5 text-blue-500" />
-						</div>
-						<div>
-							<p class="text-gray-500 font-medium">Location</p>
-							<a
-								class="underline"
-								href={`/clients/${requisition.company.clientId}/locations/${requisition.location.id}`}
-								>{requisition.location.name}</a
+								class={cn('text-xs font-medium px-2.5 py-1 rounded-full', getStatusColor(status))}
 							>
+								{status}
+							</span>
 						</div>
-					</div>
-
-					<div class="flex items-center gap-3">
-						<div class="p-2 bg-purple-50 rounded-md">
-							<CalendarClock class="h-5 w-5 text-purple-500" />
-						</div>
-						<div>
-							<p class="text-gray-500 font-medium">Position Type</p>
-							<p>{requisition.permanentPosition ? 'Permanent' : 'Temporary'}</p>
-						</div>
-					</div>
-
-					<div class="flex items-center gap-3">
-						<div class="p-2 bg-amber-50 rounded-md">
-							<Briefcase class="h-5 w-5 text-amber-500" />
-						</div>
-						<div>
-							<p class="text-gray-500 font-medium">Experience</p>
-							<p>{requisition.experienceLevel?.value}</p>
-						</div>
-					</div>
-
-					<div class="flex items-center gap-3">
-						<div class="p-2 bg-green-50 rounded-md">
-							<CircleDollarSign class="h-5 w-5 text-green-500" />
-						</div>
-						<div>
-							<p class="text-gray-500 font-medium">Hourly Rate</p>
-							<p>${requisition.hourlyRate}/hr</p>
-						</div>
+						<a
+							href={`/clients/${requisition.company.clientId}`}
+							class="text-sm text-blue-600 hover:underline mt-0.5 block"
+						>
+							{company?.companyName}
+						</a>
 					</div>
 				</div>
+
+				{#if hasRequisitionRights}
+					<div class="flex items-center gap-2 flex-shrink-0">
+						<DropdownMenu>
+							<DropdownMenuTrigger>
+								<Button variant="outline" size="sm" class="gap-1">
+									{#if $statusSubmitting}
+										<Loader2 class="h-3 w-3 animate-spin" />
+										Updating...
+									{:else}
+										Update status
+										<ChevronDown class="h-3 w-3" />
+									{/if}
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								<form method="POST" action="?/changeStatus" use:statusEnhance>
+									<input type="hidden" name="requisitionId" value={requisition.id} />
+									<DropdownMenuItem>
+										<button type="submit" name="status" value="OPEN" class="w-full text-left"
+											>Open</button
+										>
+									</DropdownMenuItem>
+									<DropdownMenuItem>
+										<button type="submit" name="status" value="CANCELED" class="w-full text-left"
+											>Canceled</button
+										>
+									</DropdownMenuItem>
+									<DropdownMenuItem>
+										<button type="submit" name="status" value="CLOSED" class="w-full text-left"
+											>Closed</button
+										>
+									</DropdownMenuItem>
+								</form>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</div>
+				{/if}
 			</div>
 
-			<!-- Tabs section -->
-			<Tabs class="w-full">
-				<TabsList class="grid grid-cols-1 md:grid-cols-3 lg:w-fit bg-muted w-full h-fit">
-					<TabsTrigger value="details" class="data-[state=active]:bg-background">
-						Details
-					</TabsTrigger>
+			<!-- Stat grid -->
+			<div class="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+				<div class="bg-gray-50 rounded-md p-3">
+					<p class="text-xs text-gray-500 mb-1">Hourly rate</p>
+					<p class="text-sm font-semibold text-gray-900">${requisition.hourlyRate}/hr</p>
+				</div>
+				<div class="bg-gray-50 rounded-md p-3">
+					<p class="text-xs text-gray-500 mb-1">Position type</p>
+					<p class="text-sm font-semibold text-gray-900">
+						{requisition.permanentPosition ? 'Permanent' : 'Temporary'}
+					</p>
+				</div>
+				<div class="bg-gray-50 rounded-md p-3">
+					<p class="text-xs text-gray-500 mb-1">Location</p>
+					<a
+						href={`/clients/${requisition.company.clientId}/locations/${requisition.location.id}`}
+						class="text-sm font-semibold text-blue-600 hover:underline"
+					>
+						{requisition.location.name}
+					</a>
+				</div>
+				<div class="bg-gray-50 rounded-md p-3">
+					<p class="text-xs text-gray-500 mb-1">Timezone</p>
+					<p class="text-sm font-semibold text-gray-900">{requisition.referenceTimezone}</p>
+				</div>
+				<div class="bg-gray-50 rounded-md p-3">
+					<p class="text-xs text-gray-500 mb-1">Experience</p>
+					<p class="text-sm font-semibold text-gray-900">
+						{requisition.experienceLevel?.value ?? '—'}
+					</p>
+				</div>
+				<div class="bg-gray-50 rounded-md p-3">
+					<p class="text-xs text-gray-500 mb-1">Discipline</p>
+					<p class="text-sm font-semibold text-gray-900">{requisition.discipline.name}</p>
+				</div>
+			</div>
+		</div>
 
-					{#if requisition.permanentPosition}
-						<TabsTrigger value="applications" class="data-[state=active]:bg-background">
-							Applications
-						</TabsTrigger>
-					{:else}
-						<TabsTrigger value="workdays" class="data-[state=active]:bg-background">
-							Work Days
-						</TabsTrigger>
-						<TabsTrigger value="timesheets" class="data-[state=active]:bg-background">
-							Timesheets
-						</TabsTrigger>
-					{/if}
-				</TabsList>
+		<!-- ── Tabs ────────────────────────────────────────────────────── -->
+		<Tabs class="w-full">
+			<TabsList
+				class="grid lg:w-fit bg-muted h-fit {requisition.permanentPosition
+					? 'grid-cols-2'
+					: 'grid-cols-3'}"
+			>
+				<TabsTrigger value="details" class="data-[state=active]:bg-background">Details</TabsTrigger>
+				{#if requisition.permanentPosition}
+					<TabsTrigger value="applications" class="data-[state=active]:bg-background"
+						>Applications</TabsTrigger
+					>
+				{:else}
+					<TabsTrigger value="workdays" class="data-[state=active]:bg-background"
+						>Work days</TabsTrigger
+					>
+					<TabsTrigger value="timesheets" class="data-[state=active]:bg-background"
+						>Timesheets</TabsTrigger
+					>
+				{/if}
+			</TabsList>
 
-				<!-- Details Tab -->
-				<TabsContent value="details" class="mt-6">
-					<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-						<!-- Job Description -->
-						<div class="col-span-3 space-y-6">
-							<Card class="max-w-none">
-								<CardHeader>
-									<CardTitle>Job Description</CardTitle>
-								</CardHeader>
-								<CardContent>
-									<div class="prose max-w-none">
-										<div class="whitespace-pre-wrap">
-											{requisition.jobDescription}
-										</div>
-									</div>
-								</CardContent>
-							</Card>
-
-							{#if requisition.specialInstructions}
-								<Card class="max-w-none">
-									<CardHeader>
-										<CardTitle>Special Instructions</CardTitle>
-									</CardHeader>
-									<CardContent>
-										<div class="prose max-w-none">
-											<div class="whitespace-pre-wrap">
-												{requisition.specialInstructions}
-											</div>
-										</div>
-									</CardContent>
-								</Card>
-							{/if}
+			<!-- Details tab -->
+			<TabsContent value="details" class="mt-4">
+				<Card class="max-w-none">
+					<CardHeader class="flex flex-row items-center justify-between">
+						<div>
+							<CardTitle>Details</CardTitle>
+							<CardDescription>Job description and requirements</CardDescription>
 						</div>
-					</div>
+						{#if hasRequisitionRights}
+							<Button
+								variant="outline"
+								size="sm"
+								class="gap-1"
+								on:click={() => (editPanelOpen = !editPanelOpen)}
+							>
+								{#if editPanelOpen}
+									<X class="h-3 w-3" />
+									Cancel
+								{:else}
+									<Edit class="h-3 w-3" />
+									Edit
+								{/if}
+							</Button>
+						{/if}
+					</CardHeader>
+					<CardContent>
+						{#if editPanelOpen}
+							<form
+								method="POST"
+								action="?/updateRequisition"
+								use:enhance={() => {
+									editSaving = true;
+									return async ({ result, update }) => {
+										editSaving = false;
+										if (result.type === 'success' || result.type === 'redirect') {
+											editPanelOpen = false;
+											showTimezoneWarning = false;
+										}
+										await update();
+									};
+								}}
+							>
+								<input type="hidden" name="timezone" value={editTimezone} />
+
+								<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+									<div>
+										<Label for="edit-discipline" class="text-xs text-gray-600">Discipline</Label>
+										<select
+											id="edit-discipline"
+											name="disciplineId"
+											class="mt-1 w-full p-2 border rounded text-sm"
+										>
+											{#each disciplines as d}
+												<option value={d.id} selected={d.id === requisition.disciplineId}
+													>{d.name}</option
+												>
+											{/each}
+										</select>
+									</div>
+									<div>
+										<Label for="edit-experience" class="text-xs text-gray-600"
+											>Experience level</Label
+										>
+										<select
+											id="edit-experience"
+											name="experienceLevelId"
+											class="mt-1 w-full p-2 border rounded text-sm"
+										>
+											<option value="">None</option>
+											{#each sortedExperienceLevels as l}
+												<option value={l.id} selected={l.id === requisition.experienceLevelId}
+													>{l.value}</option
+												>
+											{/each}
+										</select>
+									</div>
+									<div>
+										<Label for="edit-rate" class="text-xs text-gray-600">Hourly rate</Label>
+										<Input
+											id="edit-rate"
+											name="hourlyRate"
+											type="number"
+											value={requisition.hourlyRate}
+											class="mt-1 text-sm"
+										/>
+									</div>
+									<div>
+										<Label for="edit-location" class="text-xs text-gray-600">Location</Label>
+										<select
+											id="edit-location"
+											name="locationId"
+											class="mt-1 w-full p-2 border rounded text-sm"
+											value={editLocationId}
+											on:change={handleLocationChange}
+										>
+											{#each locations as l}
+												<option value={l.id} selected={l.id === editLocationId}>{l.name}</option>
+											{/each}
+										</select>
+									</div>
+								</div>
+
+								{#if showTimezoneWarning}
+									<Alert class="mb-4 border-amber-200 bg-amber-50">
+										<AlertDescription class="text-amber-800 text-sm">
+											Changing the location will update the timezone to <strong
+												>{editTimezone}</strong
+											>. Existing recurrence days will display times in the new timezone — please
+											review them after saving.
+										</AlertDescription>
+									</Alert>
+								{/if}
+
+								<div class="mb-4">
+									<Label for="edit-jd" class="text-xs text-gray-600">Job description</Label>
+									<Textarea
+										id="edit-jd"
+										name="jobDescription"
+										value={requisition.jobDescription}
+										class="mt-1 text-sm min-h-[100px]"
+									/>
+								</div>
+								<div class="mb-5">
+									<Label for="edit-si" class="text-xs text-gray-600">Special instructions</Label>
+									<Textarea
+										id="edit-si"
+										name="specialInstructions"
+										value={requisition.specialInstructions ?? ''}
+										class="mt-1 text-sm"
+									/>
+								</div>
+
+								<div class="flex justify-end gap-2">
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										on:click={() => {
+											editPanelOpen = false;
+											showTimezoneWarning = false;
+										}}
+									>
+										Cancel
+									</Button>
+									<Button
+										type="submit"
+										size="sm"
+										class="bg-blue-900 hover:bg-blue-800"
+										disabled={editSaving}
+									>
+										{#if editSaving}
+											<Loader2 class="h-3 w-3 mr-1 animate-spin" />
+											Saving...
+										{:else}
+											Save changes
+										{/if}
+									</Button>
+								</div>
+							</form>
+						{:else}
+							<div class="space-y-6">
+								<div>
+									<p class="text-xs text-gray-500 mb-2 uppercase tracking-wide">Job description</p>
+									<p class="text-sm text-gray-900 whitespace-pre-wrap leading-relaxed">
+										{requisition.jobDescription}
+									</p>
+								</div>
+								{#if requisition.specialInstructions}
+									<div class="border-t pt-5">
+										<p class="text-xs text-gray-500 mb-2 uppercase tracking-wide">
+											Special instructions
+										</p>
+										<p class="text-sm text-gray-900 whitespace-pre-wrap leading-relaxed">
+											{requisition.specialInstructions}
+										</p>
+									</div>
+								{/if}
+							</div>
+						{/if}
+					</CardContent>
+				</Card>
+			</TabsContent>
+
+			<!-- Applications tab -->
+			{#if requisition.permanentPosition}
+				<TabsContent value="applications" class="mt-4">
+					<Card class="max-w-none">
+						<CardHeader>
+							<CardTitle>Applications</CardTitle>
+							<CardDescription>Manage applications for this requisition</CardDescription>
+						</CardHeader>
+						<CardContent>
+							{#if applicationTableData.length === 0}
+								<div class="text-center py-10">
+									<Users class="h-12 w-12 mx-auto text-gray-300" />
+									<h3 class="mt-4 text-lg font-medium">No applications yet</h3>
+									<p class="mt-2 text-sm text-gray-500">
+										Applications will appear here once submitted.
+									</p>
+								</div>
+							{:else}
+								<div class="rounded-md border">
+									<Table.Root>
+										<TableHeader>
+											{#each $applicationsTable.getHeaderGroups() as headerGroup}
+												<TableRow>
+													{#each headerGroup.headers as header}
+														<TableHead>
+															<svelte:component
+																this={flexRender(
+																	header.column.columnDef.header,
+																	header.getContext()
+																)}
+															/>
+														</TableHead>
+													{/each}
+												</TableRow>
+											{/each}
+										</TableHeader>
+										<TableBody>
+											{#each $applicationsTable.getRowModel().rows as row}
+												<TableRow>
+													{#each row.getVisibleCells() as cell}
+														<TableCell>
+															<svelte:component
+																this={flexRender(cell.column.columnDef.cell, cell.getContext())}
+															/>
+														</TableCell>
+													{/each}
+												</TableRow>
+											{/each}
+										</TableBody>
+									</Table.Root>
+								</div>
+							{/if}
+						</CardContent>
+					</Card>
+				</TabsContent>
+			{/if}
+
+			<!-- Work days tab -->
+			{#if !requisition.permanentPosition}
+				<TabsContent value="workdays" class="mt-4">
+					<Card class="max-w-none">
+						<CardHeader class="flex flex-row items-center justify-between">
+							<div>
+								<CardTitle>Work days</CardTitle>
+								<CardDescription>Manage scheduled work days</CardDescription>
+							</div>
+							{#if hasRequisitionRights}
+								<AddRecurrenceDaysDrawer
+									{location}
+									form={recurrenceDayForm}
+									{company}
+									{requisition}
+								/>
+							{/if}
+						</CardHeader>
+						<CardContent>
+							{#if recurrenceDaysTableData.length === 0}
+								<div class="text-center py-10">
+									<CalendarClock class="h-12 w-12 mx-auto text-gray-300" />
+									<h3 class="mt-4 text-lg font-medium">No work days scheduled</h3>
+									<p class="mt-2 text-sm text-gray-500">Add work days using the button above.</p>
+								</div>
+							{:else}
+								<div class="mb-4 flex flex-wrap gap-2">
+									{#each ['OPEN', 'FILLED', 'UNFULFILLED', 'CANCELLED'] as s}
+										<Button
+											variant={selectedWorkDayStatus === s ? 'default' : 'outline'}
+											size="sm"
+											on:click={() => {
+												if (s === 'OPEN') selectedWorkDayStatus = 'OPEN';
+												else if (s === 'FILLED') selectedWorkDayStatus = 'FILLED';
+												else if (s === 'UNFULFILLED') selectedWorkDayStatus = 'UNFULFILLED';
+												else if (s === 'CANCELLED') selectedWorkDayStatus = 'CANCELLED';
+											}}
+											class={cn(
+												selectedWorkDayStatus === s &&
+													s === 'OPEN' &&
+													'bg-blue-500 hover:bg-blue-600',
+												selectedWorkDayStatus === s &&
+													s === 'FILLED' &&
+													'bg-green-500 hover:bg-green-600',
+												selectedWorkDayStatus === s &&
+													s === 'UNFULFILLED' &&
+													'bg-orange-500 hover:bg-orange-600',
+												selectedWorkDayStatus === s &&
+													s === 'CANCELLED' &&
+													'bg-red-500 hover:bg-red-600'
+											)}
+										>
+											{s.charAt(0) + s.slice(1).toLowerCase()} — {recurrenceDaysTableData.filter(
+												(d) => d.status === s
+											).length}
+										</Button>
+									{/each}
+								</div>
+
+								{#if filteredRecurrenceDays.length === 0}
+									<div class="text-center py-10 border rounded-md">
+										<CalendarClock class="h-12 w-12 mx-auto text-gray-300" />
+										<p class="mt-4 text-sm text-gray-500">
+											No {selectedWorkDayStatus.toLowerCase()} work days.
+										</p>
+									</div>
+								{:else}
+									<div class="rounded-md border">
+										<Table.Root>
+											<TableHeader>
+												{#each $recurrenceDaysTable.getHeaderGroups() as headerGroup}
+													<TableRow>
+														{#each headerGroup.headers as header}
+															<TableHead>
+																<svelte:component
+																	this={flexRender(
+																		header.column.columnDef.header,
+																		header.getContext()
+																	)}
+																/>
+															</TableHead>
+														{/each}
+													</TableRow>
+												{/each}
+											</TableHeader>
+											<TableBody>
+												{#each $recurrenceDaysTable.getRowModel().rows as row}
+													<TableRow>
+														{#each row.getVisibleCells() as cell}
+															<TableCell>
+																<svelte:component
+																	this={flexRender(cell.column.columnDef.cell, cell.getContext())}
+																/>
+															</TableCell>
+														{/each}
+													</TableRow>
+												{/each}
+											</TableBody>
+										</Table.Root>
+									</div>
+								{/if}
+							{/if}
+						</CardContent>
+					</Card>
 				</TabsContent>
 
-				<!-- Applications Tab -->
-				{#if requisition.permanentPosition}
-					<TabsContent value="applications" class="mt-6">
-						<Card class="max-w-none">
-							<CardHeader>
-								<CardTitle>Applications</CardTitle>
-								<CardDescription>Manage applications for this requisition</CardDescription>
-							</CardHeader>
-							<CardContent>
-								{#if applicationTableData.length === 0}
-									<div class="text-center py-10">
-										<Users class="h-12 w-12 mx-auto text-gray-300" />
-										<h3 class="mt-4 text-lg font-medium">No Applications</h3>
-										<p class="mt-2 text-sm text-gray-500">
-											There are no applications for this requisition yet.
-										</p>
-									</div>
-								{:else}
-									<div class="rounded-md border">
-										<Table.Root>
-											<TableHeader>
-												{#each $applicationsTable.getHeaderGroups() as headerGroup}
-													<TableRow>
-														{#each headerGroup.headers as header}
-															<TableHead>
-																<svelte:component
-																	this={flexRender(
-																		header.column.columnDef.header,
-																		header.getContext()
-																	)}
-																/>
-															</TableHead>
-														{/each}
-													</TableRow>
-												{/each}
-											</TableHeader>
-											<TableBody>
-												{#each $applicationsTable.getRowModel().rows as row}
-													<TableRow>
-														{#each row.getVisibleCells() as cell}
-															<TableCell>
-																<svelte:component
-																	this={flexRender(cell.column.columnDef.cell, cell.getContext())}
-																/>
-															</TableCell>
-														{/each}
-													</TableRow>
-												{/each}
-											</TableBody>
-										</Table.Root>
-									</div>
-								{/if}
-							</CardContent>
-						</Card>
-					</TabsContent>
-				{/if}
-
-				<!-- Work Days Tab -->
-				{#if !requisition.permanentPosition}
-					<TabsContent value="workdays" class="mt-6">
-						<Card class="max-w-none">
-							<CardHeader class="flex flex-row items-center justify-between">
-								<div>
-									<CardTitle>Work Days</CardTitle>
-									<CardDescription>Manage work days for this requisition</CardDescription>
+				<!-- Timesheets tab -->
+				<TabsContent value="timesheets" class="mt-4">
+					<Card class="max-w-none">
+						<CardHeader>
+							<CardTitle>Timesheets</CardTitle>
+							<CardDescription>Timesheets associated with this requisition</CardDescription>
+						</CardHeader>
+						<CardContent>
+							{#if timesheetTableData.length === 0}
+								<div class="text-center py-10">
+									<ClipboardList class="h-12 w-12 mx-auto text-gray-300" />
+									<h3 class="mt-4 text-lg font-medium">No timesheets yet</h3>
+									<p class="mt-2 text-sm text-gray-500">
+										Timesheets will appear here once work days begin.
+									</p>
 								</div>
-								{#if hasRequisitionRights}
-									<AddRecurrenceDaysDrawer
-										{location}
-										form={recurrenceDayForm}
-										{company}
-										{requisition}
-									/>
-								{/if}
-							</CardHeader>
-							<CardContent>
-								{#if recurrenceDaysTableData.length === 0}
-									<div class="text-center py-10">
-										<CalendarClock class="h-12 w-12 mx-auto text-gray-300" />
-										<h3 class="mt-4 text-lg font-medium">No Work Days</h3>
-										<p class="mt-2 text-sm text-gray-500">
-											There are no work days scheduled for this requisition yet.
-										</p>
-									</div>
-								{:else}
-									<!-- Status Filter Buttons -->
-									<div class="mb-4 flex flex-wrap gap-2">
-										<Button
-											variant={selectedWorkDayStatus === 'OPEN' ? 'default' : 'outline'}
-											size="sm"
-											on:click={() => (selectedWorkDayStatus = 'OPEN')}
-											class={cn(
-												selectedWorkDayStatus === 'OPEN' && 'bg-blue-500 hover:bg-blue-600'
-											)}
-										>
-											Open - {recurrenceDaysTableData.filter((day) => day.status === 'OPEN').length}
-										</Button>
-										<Button
-											variant={selectedWorkDayStatus === 'FILLED' ? 'default' : 'outline'}
-											size="sm"
-											on:click={() => (selectedWorkDayStatus = 'FILLED')}
-											class={cn(
-												selectedWorkDayStatus === 'FILLED' && 'bg-green-500 hover:bg-green-600'
-											)}
-										>
-											Filled - {recurrenceDaysTableData.filter((day) => day.status === 'FILLED')
-												.length}
-										</Button>
-										<Button
-											variant={selectedWorkDayStatus === 'UNFULFILLED' ? 'default' : 'outline'}
-											size="sm"
-											on:click={() => (selectedWorkDayStatus = 'UNFULFILLED')}
-											class={cn(
-												selectedWorkDayStatus === 'UNFULFILLED' &&
-													'bg-orange-500 hover:bg-orange-600'
-											)}
-										>
-											Unfulfilled - {recurrenceDaysTableData.filter(
-												(day) => day.status === 'UNFULFILLED'
-											).length}
-										</Button>
-										<Button
-											variant={selectedWorkDayStatus === 'CANCELLED' ? 'default' : 'outline'}
-											size="sm"
-											on:click={() => (selectedWorkDayStatus = 'CANCELLED')}
-											class={cn(
-												selectedWorkDayStatus === 'CANCELLED' && 'bg-red-500 hover:bg-red-600'
-											)}
-										>
-											Cancelled - {recurrenceDaysTableData.filter(
-												(day) => day.status === 'CANCELLED'
-											).length}
-										</Button>
-									</div>
-
-									{#if filteredRecurrenceDays.length === 0}
-										<div class="text-center py-10 border rounded-md">
-											<CalendarClock class="h-12 w-12 mx-auto text-gray-300" />
-											<h3 class="mt-4 text-lg font-medium">
-												No {selectedWorkDayStatus.toLowerCase()} work days
-											</h3>
-											<p class="mt-2 text-sm text-gray-500">
-												There are no work days with {selectedWorkDayStatus.toLowerCase()} status.
-											</p>
-										</div>
-									{:else}
-										<div class="rounded-md border">
-											<Table.Root>
-												<TableHeader>
-													{#each $recurrenceDaysTable.getHeaderGroups() as headerGroup}
-														<TableRow>
-															{#each headerGroup.headers as header}
-																<TableHead>
-																	<svelte:component
-																		this={flexRender(
-																			header.column.columnDef.header,
-																			header.getContext()
-																		)}
-																	/>
-																</TableHead>
-															{/each}
-														</TableRow>
+							{:else}
+								<div class="rounded-md border">
+									<Table.Root>
+										<TableHeader>
+											{#each $timesheetTable.getHeaderGroups() as headerGroup}
+												<TableRow>
+													{#each headerGroup.headers as header}
+														<TableHead>
+															<svelte:component
+																this={flexRender(
+																	header.column.columnDef.header,
+																	header.getContext()
+																)}
+															/>
+														</TableHead>
 													{/each}
-												</TableHeader>
-												<TableBody>
-													{#each $recurrenceDaysTable.getRowModel().rows as row}
-														<TableRow>
-															{#each row.getVisibleCells() as cell}
-																<TableCell>
-																	<svelte:component
-																		this={flexRender(cell.column.columnDef.cell, cell.getContext())}
-																	/>
-																</TableCell>
-															{/each}
-														</TableRow>
+												</TableRow>
+											{/each}
+										</TableHeader>
+										<TableBody>
+											{#each $timesheetTable.getRowModel().rows as row}
+												<TableRow>
+													{#each row.getVisibleCells() as cell}
+														<TableCell>
+															<svelte:component
+																this={flexRender(cell.column.columnDef.cell, cell.getContext())}
+															/>
+														</TableCell>
 													{/each}
-												</TableBody>
-											</Table.Root>
-										</div>
-									{/if}
-								{/if}
-							</CardContent>
-						</Card>
-					</TabsContent>
-
-					<!-- Timesheets Tab -->
-					<TabsContent value="timesheets" class="mt-6">
-						<Card class="max-w-none">
-							<CardHeader>
-								<CardTitle>Timesheets</CardTitle>
-								<CardDescription>Manage timesheets for this requisition</CardDescription>
-							</CardHeader>
-							<CardContent>
-								{#if timesheetTableData.length === 0}
-									<div class="text-center py-10">
-										<ClipboardList class="h-12 w-12 mx-auto text-gray-300" />
-										<h3 class="mt-4 text-lg font-medium">No Timesheets</h3>
-										<p class="mt-2 text-sm text-gray-500">
-											There are no timesheets for this requisition yet.
-										</p>
-									</div>
-								{:else}
-									<div class="rounded-md border">
-										<Table.Root>
-											<TableHeader>
-												{#each $timesheetTable.getHeaderGroups() as headerGroup}
-													<TableRow>
-														{#each headerGroup.headers as header}
-															<TableHead>
-																<svelte:component
-																	this={flexRender(
-																		header.column.columnDef.header,
-																		header.getContext()
-																	)}
-																/>
-															</TableHead>
-														{/each}
-													</TableRow>
-												{/each}
-											</TableHeader>
-											<TableBody>
-												{#each $timesheetTable.getRowModel().rows as row}
-													<TableRow>
-														{#each row.getVisibleCells() as cell}
-															<TableCell>
-																<svelte:component
-																	this={flexRender(cell.column.columnDef.cell, cell.getContext())}
-																/>
-															</TableCell>
-														{/each}
-													</TableRow>
-												{/each}
-											</TableBody>
-										</Table.Root>
-									</div>
-								{/if}
-							</CardContent>
-						</Card>
-					</TabsContent>
-				{/if}
-			</Tabs>
-		</div>
+												</TableRow>
+											{/each}
+										</TableBody>
+									</Table.Root>
+								</div>
+							{/if}
+						</CardContent>
+					</Card>
+				</TabsContent>
+			{/if}
+		</Tabs>
 	</section>
 {:else}
 	<section
-		class="container mx-auto px-4 py-6 flex flex-col items-center text-center sm:justify-center gap-4 md:gap-6"
+		class="container mx-auto px-4 py-6 flex flex-col items-center text-center sm:justify-center gap-4"
 	>
 		<div class="p-8 bg-gray-50 rounded-lg">
 			<AlertCircle class="h-12 w-12 mx-auto text-gray-400 mb-4" />
-			<h2 class="text-2xl font-bold mb-2">No Requisition Found</h2>
-			<p class="text-gray-500 mb-6">The requested requisition could not be found in our system.</p>
-			<Button type="button" on:click={() => window.history.back()}>Go Back</Button>
+			<h2 class="text-2xl font-bold mb-2">No requisition found</h2>
+			<p class="text-gray-500 mb-6">The requested requisition could not be found.</p>
+			<Button type="button" on:click={() => window.history.back()}>Go back</Button>
 		</div>
 	</section>
 {/if}

@@ -554,6 +554,33 @@ export async function createRequisition(values: Requisition, userId: string) {
 	}
 }
 
+export async function updateRequisition(
+	requisitionId: number,
+	values: UpdateRequisition,
+	userId: string
+) {
+	try {
+		const [result] = await db
+			.update(requisitionTable)
+			.set({ ...values, updatedAt: new Date() })
+			.where(eq(requisitionTable.id, requisitionId))
+			.returning();
+
+		await writeActionHistory({
+			table: 'REQUISITIONS',
+			userId,
+			action: 'UPDATE',
+			entityId: result.id.toString(),
+			afterState: result
+		});
+
+		return result;
+	} catch (err) {
+		console.error('Error updating requisition', err);
+		return error(500, 'Error updating requisition');
+	}
+}
+
 export async function changeRequisitionStatus(
 	values: UpdateRequisition,
 	id: number,
