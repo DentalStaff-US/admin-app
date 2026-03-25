@@ -414,7 +414,6 @@ export const actions = {
 		const disciplineId = formData.get('disciplineId') as string;
 		const experienceLevelId = formData.get('experienceLevelId') as string | null;
 		const hourlyRate = Number(formData.get('hourlyRate'));
-		const locationId = formData.get('locationId') as string;
 		const timezone = formData.get('timezone') as string;
 		const jobDescription = formData.get('jobDescription') as string;
 		const specialInstructions = formData.get('specialInstructions') as string | null;
@@ -426,7 +425,6 @@ export const actions = {
 					disciplineId,
 					experienceLevelId,
 					hourlyRate,
-					locationId,
 					referenceTimezone: timezone,
 					jobDescription,
 					specialInstructions

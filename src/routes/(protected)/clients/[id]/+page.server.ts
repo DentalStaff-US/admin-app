@@ -103,7 +103,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 			lastName: result.user.lastName,
 			email: result.user.email,
 			companyName: result.company.companyName || undefined,
-			baseLocation: result.company.baseLocation || ''
+			baseLocation: result.company.baseLocation || '',
+			cellPhone: result.profile.cellPhone || ''
 		},
 		updateClientSchema
 	);
@@ -338,6 +339,7 @@ export const actions = {
 			if (form.data.companyName !== undefined) companyUpdate.companyName = form.data.companyName;
 			if (form.data.baseLocation !== undefined)
 				companyUpdate.baseLocation = form.data.baseLocation || null;
+			if (form.data.cellPhone !== undefined) companyUpdate.cellPhone = form.data.cellPhone || null;
 
 			if (Object.keys(userUpdate).length > 1) {
 				await db.update(userTable).set(userUpdate).where(eq(userTable.id, client.user.id));

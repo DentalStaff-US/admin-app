@@ -115,9 +115,16 @@
 		}
 	> = {};
 
-	const weekBeginDate = parseISO(data?.timesheet?.weekBeginDate || new Date().toISOString());
-	const weekEndDate = endOfWeek(weekBeginDate);
-	const formattedWeekRange = `${format(weekBeginDate, 'MMM d')} - ${format(weekEndDate, 'MMM d, yyyy')}`;
+	// const weekBeginDate = parseISO(data?.timesheet?.weekBeginDate || new Date().toISOString());
+	// const weekEndDate = endOfWeek(weekBeginDate);
+
+	const start = new Date(data?.timesheet?.weekBeginDate || new Date().toISOString());
+	const end = new Date(start);
+	end.setUTCDate(start.getUTCDate() + 6);
+	const fmt = (d: Date) =>
+		d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+	const formattedWeekRange = `${fmt(start)} – ${fmt(end)}, ${start.getFullYear()}`;
 
 	$: workdayDates = data.workdays ? data.workdays.map((wd: any) => wd.recurrenceDay?.date) : [];
 

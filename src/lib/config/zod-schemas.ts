@@ -47,8 +47,15 @@ export const userSchema = z.object({
 
 export const clientProfileSchema = z.object({
 	birthday: z.coerce.date().nullable().optional(),
-	cell_phone: z.string().regex(/^(\+\d{1,2}\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}$/gm, 'The phone number entered is not valid.').nullable().optional()
-})
+	cell_phone: z
+		.string()
+		.regex(
+			/^(\+\d{1,2}\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}$/gm,
+			'The phone number entered is not valid.'
+		)
+		.nullable()
+		.optional()
+});
 
 export type UserSchema = typeof userSchema;
 
@@ -409,7 +416,8 @@ export const updateClientSchema = z
 		lastName: z.string().min(1, 'Last name is required').optional(),
 		email: z.string().email('Invalid email address').optional(),
 		companyName: z.string().min(1, 'Company name is required').optional(),
-		baseLocation: z.string().optional().nullable()
+		baseLocation: z.string().optional().nullable(),
+		cellPhone: z.string().optional().nullable()
 	})
 	.refine(
 		(data) => {

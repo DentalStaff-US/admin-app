@@ -428,6 +428,14 @@
 			accessorFn: (original) => original.status
 		},
 		{
+			header: 'Type',
+			accessorKey: 'permanentPosition',
+			cell: ({ getValue, row }) => {
+				return getValue() ? 'Permanent' : 'Temporary';
+			},
+			enableSorting: true
+		},
+		{
 			header: 'Rate',
 			accessorFn: (original) => original.hourlyRate
 		}
@@ -896,6 +904,14 @@
 													bind:value={$updateForm.baseLocation}
 												/>
 											</div>
+											<div>
+												<Label for="base-location">Cell Phone</Label>
+												<Input
+													id="cell-phone"
+													name="cellPhone"
+													bind:value={$updateForm.cellPhone}
+												/>
+											</div>
 
 											<!-- Hidden fields to preserve other data -->
 											<input type="hidden" name="firstName" bind:value={$updateForm.firstName} />
@@ -932,6 +948,10 @@
 									<div>
 										<h3 class="text-sm font-medium">Base Location:</h3>
 										<p>{client.company?.baseLocation || 'None Specified'}</p>
+									</div>
+									<div>
+										<h3 class="text-sm font-medium">Cell Phone</h3>
+										<p>{client.profile.cellPhone || 'None Specified'}</p>
 									</div>
 								{/if}
 							</CardContent>
@@ -1495,6 +1515,9 @@
 																		)}
 																	/>
 																{:else if cellIndex === 2}
+																	<!-- Requisition Type -->
+																	{row.original.permanentPosition ? 'Permanent' : 'Temporary'}
+																{:else if cellIndex === 3}
 																	<!-- Rate -->
 																	${row.original.hourlyRate?.toFixed(2) || '0.00'}
 																{/if}

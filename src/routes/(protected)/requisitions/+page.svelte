@@ -92,8 +92,8 @@
 			{
 				header: 'Type',
 				accessorKey: 'permanentPosition',
-				cell: ({getValue, row}) => {
-					return getValue() ? 'Permanent' : 'Temporary'
+				cell: ({ getValue, row }) => {
+					return getValue() ? 'Permanent' : 'Temporary';
 				},
 				enableSorting: true
 			}
@@ -112,17 +112,6 @@
 			header: 'Office',
 			accessorKey: 'locationName'
 		});
-
-		if (!isAdmin) {
-			baseColumns.push({
-				header: 'Type',
-				accessorKey: 'permanentPosition',
-				cell: ({ getValue }) => {
-					const isPermanent = getValue() as boolean;
-					return isPermanent ? 'Permanent' : 'Temporary';
-				}
-			});
-		}
 
 		return baseColumns;
 	};

@@ -84,29 +84,7 @@
 
 	// Edit panel state
 	let editPanelOpen = false;
-	let editLocationId = '';
-	let editTimezone = '';
-	let showTimezoneWarning = false;
 	let editSaving = false;
-
-	$: if (requisition) {
-		editLocationId = requisition.locationId;
-		editTimezone = requisition.referenceTimezone;
-	}
-
-	function handleLocationChange(e: Event) {
-		const newLocationId = (e.target as HTMLSelectElement).value;
-		const newLocation = locations.find((l: any) => l.id === newLocationId);
-		if (newLocation && newLocation.timezone !== requisition.referenceTimezone) {
-			editTimezone = newLocation.timezone;
-			showTimezoneWarning = recurrenceDays?.length > 0;
-		} else if (newLocation) {
-			editTimezone = newLocation.timezone;
-			showTimezoneWarning = false;
-		}
-		editLocationId = newLocationId;
-	}
-
 	let applicationTableData: ApplicationResults[] = [];
 	let recurrenceDaysTableData: RecurrenceDaySelect[] = [];
 	let timesheetTableData: TimeSheetResults[] = [];
@@ -495,15 +473,12 @@
 										editSaving = false;
 										if (result.type === 'success' || result.type === 'redirect') {
 											editPanelOpen = false;
-											showTimezoneWarning = false;
 										}
 										await update();
 									};
 								}}
 							>
-								<input type="hidden" name="timezone" value={editTimezone} />
-
-								<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+								<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
 									<div>
 										<Label for="edit-discipline" class="text-xs text-gray-600">Discipline</Label>
 										<select
@@ -545,33 +520,7 @@
 											class="mt-1 text-sm"
 										/>
 									</div>
-									<div>
-										<Label for="edit-location" class="text-xs text-gray-600">Location</Label>
-										<select
-											id="edit-location"
-											name="locationId"
-											class="mt-1 w-full p-2 border rounded text-sm"
-											value={editLocationId}
-											on:change={handleLocationChange}
-										>
-											{#each locations as l}
-												<option value={l.id} selected={l.id === editLocationId}>{l.name}</option>
-											{/each}
-										</select>
-									</div>
 								</div>
-
-								{#if showTimezoneWarning}
-									<Alert class="mb-4 border-amber-200 bg-amber-50">
-										<AlertDescription class="text-amber-800 text-sm">
-											Changing the location will update the timezone to <strong
-												>{editTimezone}</strong
-											>. Existing recurrence days will display times in the new timezone — please
-											review them after saving.
-										</AlertDescription>
-									</Alert>
-								{/if}
-
 								<div class="mb-4">
 									<Label for="edit-jd" class="text-xs text-gray-600">Job description</Label>
 									<Textarea
