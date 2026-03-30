@@ -414,9 +414,9 @@ export const actions = {
 		const disciplineId = formData.get('disciplineId') as string;
 		const experienceLevelId = formData.get('experienceLevelId') as string | null;
 		const hourlyRate = Number(formData.get('hourlyRate'));
-		const timezone = formData.get('timezone') as string;
 		const jobDescription = formData.get('jobDescription') as string;
 		const specialInstructions = formData.get('specialInstructions') as string | null;
+		const purchaseOrderNumber = formData.get('purchaseOrderNumber') as string;
 
 		try {
 			await updateRequisition(
@@ -425,9 +425,9 @@ export const actions = {
 					disciplineId,
 					experienceLevelId,
 					hourlyRate,
-					referenceTimezone: timezone,
 					jobDescription,
-					specialInstructions
+					specialInstructions,
+					purchaseOrderNumber
 				},
 				user.id
 			);

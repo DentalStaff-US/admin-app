@@ -92,7 +92,8 @@ export const requisitionTable = pgTable('requisitions', {
 	}),
 	hourlyRate: smallint('hourly_rate'),
 	permanentPosition: boolean('permanent_position').default(false),
-	referenceTimezone: text('reference_timezone').notNull().default('America/New_York')
+	referenceTimezone: text('reference_timezone').notNull().default('America/New_York'),
+	purchaseOrderNumber: text('purchase_order_number')
 });
 
 export const recurrenceDayTable = pgTable('recurrence_days', {

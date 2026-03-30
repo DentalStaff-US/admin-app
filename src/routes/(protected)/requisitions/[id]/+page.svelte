@@ -478,7 +478,7 @@
 									};
 								}}
 							>
-								<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+								<div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
 									<div>
 										<Label for="edit-discipline" class="text-xs text-gray-600">Discipline</Label>
 										<select
@@ -517,6 +517,16 @@
 											name="hourlyRate"
 											type="number"
 											value={requisition.hourlyRate}
+											class="mt-1 text-sm"
+										/>
+									</div>
+									<div>
+										<Label for="edit-rate" class="text-xs text-gray-600">Purchase Order #</Label>
+										<Input
+											id="edit-po-number"
+											name="purchaseOrderNumber"
+											type="text"
+											bind:value={requisition.purchaseOrderNumber}
 											class="mt-1 text-sm"
 										/>
 									</div>
@@ -585,6 +595,12 @@
 										</p>
 									</div>
 								{/if}
+								<div>
+									<p class="text-xs text-gray-500 mb-2 uppercase tracking-wide">Purchase Order #</p>
+									<p class="text-sm text-gray-900 whitespace-pre-wrap leading-relaxed">
+										{requisition.purchaseOrderNumber ?? '—'}
+									</p>
+								</div>
 							</div>
 						{/if}
 					</CardContent>

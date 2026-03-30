@@ -184,7 +184,8 @@ export const adminRequisitionSchema = z.object({
 	jobDescription: z.string(),
 	specialInstructions: z.string().optional(),
 	permanentPosition: z.boolean().default(false),
-	timezone: z.string()
+	timezone: z.string(),
+	purchaseOrderNumber: z.string().optional()
 });
 
 export type AdminRequisitionSchema = typeof adminRequisitionSchema;
@@ -199,7 +200,8 @@ export const clientRequisitionSchema = z.object({
 	jobDescription: z.string(),
 	specialInstructions: z.string().optional(),
 	permanentPosition: z.boolean().default(false),
-	timezone: z.string()
+	timezone: z.string(),
+	purchaseOrderNumber: z.string().optional()
 });
 
 export type ClientRequisitionSchema = typeof clientRequisitionSchema;

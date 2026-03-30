@@ -200,6 +200,18 @@
 		</div>
 
 		<div class="mb-4">
+			<Label for="hourlyRate">Purchase Order #</Label>
+			<Input
+				type="text"
+				id="purchaseOrderNumber"
+				name="purchaseOrderNumber"
+				bind:value={$formObj.purchaseOrderNumber}
+				tabindex={drawerExpanded ? 0 : -1}
+				required
+			/>
+		</div>
+
+		<div class="mb-4">
 			<Label for="jobDescription">Job Description</Label>
 			<textarea
 				id="jobDescription"
