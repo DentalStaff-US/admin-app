@@ -1,3 +1,4 @@
+import { candidateDocumentUploadsTable } from './../../../../lib/server/database/schemas/candidate';
 import type { PageServerLoad } from './$types';
 import {
 	getAllCandidateWorkHistory,
@@ -307,6 +308,56 @@ export const actions = {
 			console.error(err);
 			setFlash({ type: 'error', message: 'Failed to upload documents' }, event);
 			return setError(form, 'Failed to upload documents');
+		}
+	},
+	deleteDocument: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+
+		const formData = await event.request.formData();
+		const documentId = formData.get('documentId') as string;
+
+		try {
+			await db
+				.delete(candidateDocumentUploadsTable)
+				.where(eq(candidateDocumentUploadsTable.id, documentId));
+			setFlash({ type: 'success', message: 'Document deleted successfully' }, event);
+			return { success: true };
+		} catch (err) {
+			console.error(err);
+			setFlash({ type: 'error', message: 'Failed to delete document' }, event);
+			return fail(500, { error: 'Failed to delete document' });
+		}
+	},
+	toggleAdminDocumentLock: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+
+		const formData = await event.request.formData();
+		const documentId = formData.get('documentId') as string;
+
+		try {
+			const [document] = await db
+				.select()
+				.from(candidateDocumentUploadsTable)
+				.where(eq(candidateDocumentUploadsTable.id, documentId));
+			const isLocked = document.adminOnly;
+			await db
+				.update(candidateDocumentUploadsTable)
+				.set({ adminOnly: !isLocked, updatedAt: new Date() })
+				.where(eq(candidateDocumentUploadsTable.id, documentId));
+			setFlash(
+				{
+					type: 'success',
+					message: `Document ${isLocked ? 'locked' : 'unlocked'} successfully`
+				},
+				event
+			);
+			return { success: true };
+		} catch (err) {
+			console.error(err);
+			setFlash({ type: 'error', message: 'Failed to update document lock status' }, event);
+			return fail(500, { error: 'Failed to update document lock status' });
 		}
 	},
 	addComment: async (event: RequestEvent) => {

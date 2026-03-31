@@ -30,7 +30,11 @@
 		MoreHorizontal,
 		Trash2,
 		Plus,
-		MessageSquare
+		MessageSquare,
+		Delete,
+		Trash,
+		Lock,
+		Unlock
 	} from 'lucide-svelte';
 	import { superForm } from 'sveltekit-superforms/client';
 	import { format } from 'date-fns';
@@ -1117,8 +1121,40 @@
 															rel="noopener noreferrer"
 														>
 															<Download class="h-4 w-4 mr-2" />
-															<span>Download</span></a
+															<span>Download</span>
+														</a>
+													</DropdownMenuItem>
+													<DropdownMenuItem class="cursor-pointer">
+														<form
+															action="?/toggleAdminDocumentLock"
+															method="post"
+															use:enhance
+															class="w-full"
 														>
+															<input type="hidden" name="documentId" value={doc.id} />
+															<button type="submit" class="flex items-center w-full text-left">
+																{#if doc.adminOnly}
+																	<Unlock class="h-4 w-4 mr-2" />
+																{:else}
+																	<Lock class="h-4 w-4 mr-2" />
+																{/if}
+																<span>{doc.adminOnly ? 'Unlock ' : 'Lock '}</span>
+															</button>
+														</form>
+													</DropdownMenuItem>
+													<DropdownMenuItem class="text-red-600 cursor-pointer">
+														<form
+															action="?/deleteDocument"
+															method="post"
+															use:enhance
+															class="w-full"
+														>
+															<input type="hidden" name="documentId" value={doc.id} />
+															<button type="submit" class="flex items-center w-full text-left">
+																<Trash class="h-4 w-4 mr-2" />
+																<span>Delete</span>
+															</button>
+														</form>
 													</DropdownMenuItem>
 												</DropdownMenuContent>
 											</DropdownMenu>
