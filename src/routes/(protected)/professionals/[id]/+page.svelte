@@ -1066,6 +1066,9 @@
 									<tr class="border-b hover:bg-gray-50">
 										<td class="py-3 px-4">
 											<div class="flex items-center gap-2">
+												{#if doc.adminOnly}
+													<Lock class="h-5 w-5 text-red-600" />
+												{/if}
 												{#if getFileIcon(doc?.filename) === 'image'}
 													<svg
 														xmlns="http://www.w3.org/2000/svg"
