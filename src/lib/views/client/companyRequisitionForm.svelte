@@ -33,6 +33,12 @@
 		});
 		const locationsRes = await req.json();
 		locations = locationsRes;
+
+		// Auto-select if only one location
+		if (locations.length === 1) {
+			$formObj.locationId = locations[0].id;
+			$formObj.timezone = locations[0].timezone;
+		}
 	};
 
 	const handleFetchDisciplines = async () => {
@@ -125,6 +131,10 @@
 				bind:value={$formObj.locationId}
 				class="w-full p-2 border rounded"
 				required
+				on:change={(e) => {
+					const selected = locations.find((l) => l.id === e.currentTarget.value);
+					if (selected) $formObj.timezone = selected.timezone;
+				}}
 			>
 				<option value="">Select Location</option>
 				{#each locations as location}
@@ -165,7 +175,6 @@
 			</select>
 		</div>
 
-
 		<div class="mb-4">
 			<Label for="permanentPosition">Requisition Type</Label>
 			<select
@@ -181,7 +190,25 @@
 		</div>
 		<div class="mb-4">
 			<Label for="hourlyRate">Hourly Rate</Label>
-			<Input type="number" id="hourlyRate" name="hourlyRate" bind:value={$formObj.hourlyRate} required/>
+			<Input
+				type="number"
+				id="hourlyRate"
+				name="hourlyRate"
+				bind:value={$formObj.hourlyRate}
+				required
+			/>
+		</div>
+
+		<div class="mb-4">
+			<Label for="hourlyRate">Purchase Order #</Label>
+			<Input
+				type="text"
+				id="purchaseOrderNumber"
+				name="purchaseOrderNumber"
+				bind:value={$formObj.purchaseOrderNumber}
+				tabindex={drawerExpanded ? 0 : -1}
+				required
+			/>
 		</div>
 
 		<div class="mb-4">

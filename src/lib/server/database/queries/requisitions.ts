@@ -104,7 +104,7 @@ export interface Timesheet {
 	awaitingClientSignature: boolean | null;
 	hourlyRate: number | null;
 	hoursRaw: { date: string; startTime: string; endTime: string; hours: number }[];
-	workdayId: string | null;
+	// workdayId removed
 	status: string;
 	candidate:
 		| (CandidateProfileSelect & {
@@ -554,6 +554,33 @@ export async function createRequisition(values: Requisition, userId: string) {
 	}
 }
 
+export async function updateRequisition(
+	requisitionId: number,
+	values: UpdateRequisition,
+	userId: string
+) {
+	try {
+		const [result] = await db
+			.update(requisitionTable)
+			.set({ ...values, updatedAt: new Date() })
+			.where(eq(requisitionTable.id, requisitionId))
+			.returning();
+
+		await writeActionHistory({
+			table: 'REQUISITIONS',
+			userId,
+			action: 'UPDATE',
+			entityId: result.id.toString(),
+			afterState: result
+		});
+
+		return result;
+	} catch (err) {
+		console.error('Error updating requisition', err);
+		return error(500, 'Error updating requisition');
+	}
+}
+
 export async function changeRequisitionStatus(
 	values: UpdateRequisition,
 	id: number,
@@ -862,7 +889,7 @@ export async function approveApplication(applicationId: string, userId: string) 
 
 		const [reqResult] = await db
 			.update(requisitionTable)
-			.set({ status: 'FILLED' })
+			.set({ status: 'CLOSED' })
 			.where(eq(requisitionTable.id, requisition.id))
 			.returning();
 
@@ -1121,9 +1148,8 @@ export async function getAllTimesheetDiscrepancies() {
 			clientCompanyName: clientCompanyTable.companyName,
 			validated: timeSheetTable.validated,
 			awaitingClientSignature: timeSheetTable.awaitingClientSignature,
-			hourlyRate: requisitionTable.hourlyRate, // ✅ This is correct
+			hourlyRate: requisitionTable.hourlyRate,
 			hoursRaw: timeSheetTable.hoursRaw,
-			workdayId: timeSheetTable.workdayId,
 			status: timeSheetTable.status,
 			candidate: {
 				...candidateProfileTable,
@@ -1137,7 +1163,6 @@ export async function getAllTimesheetDiscrepancies() {
 		.innerJoin(requisitionTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
 		.innerJoin(clientProfileTable, eq(timeSheetTable.associatedClientId, clientProfileTable.id))
 		.innerJoin(clientCompanyTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
-		.leftJoin(workdayTable, eq(timeSheetTable.workdayId, workdayTable.id))
 		.leftJoin(
 			candidateProfileTable,
 			eq(timeSheetTable.associatedCandidateId, candidateProfileTable.id)
@@ -1161,9 +1186,9 @@ export async function getClientCompanyTimesheetDiscrepancies(clientProfileId: st
 			clientCompanyName: clientCompanyTable.companyName,
 			validated: timeSheetTable.validated,
 			awaitingClientSignature: timeSheetTable.awaitingClientSignature,
-			hourlyRate: requisitionTable.hourlyRate, // ✅ This is correct
+			hourlyRate: requisitionTable.hourlyRate,
 			hoursRaw: timeSheetTable.hoursRaw,
-			workdayId: timeSheetTable.workdayId,
+			// workdayId removed
 			status: timeSheetTable.status,
 			candidate: {
 				...candidateProfileTable,
@@ -1177,7 +1202,6 @@ export async function getClientCompanyTimesheetDiscrepancies(clientProfileId: st
 		.innerJoin(requisitionTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
 		.innerJoin(clientProfileTable, eq(timeSheetTable.associatedClientId, clientProfileTable.id))
 		.innerJoin(clientCompanyTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
-		.leftJoin(workdayTable, eq(timeSheetTable.workdayId, workdayTable.id))
 		.leftJoin(
 			candidateProfileTable,
 			eq(timeSheetTable.associatedCandidateId, candidateProfileTable.id)
@@ -1202,15 +1226,9 @@ export async function getWorkdaysForRecurrenceDays(recurrenceDayIds: string[]) {
 	}
 }
 
-export async function getRecurrenceDaysForTimesheet(timesheet: any): Promise<RecurrenceDay[]> {
-	const weekStart = new Date(timesheet.weekBeginDate);
-	const weekEnd = new Date(weekStart);
-	weekEnd.setDate(weekEnd.getDate() + 6);
-
-	// Format both dates as YYYY-MM-DD strings in UTC
-	const startDateString = toUTCDateString(weekStart);
-	const endDateString = toUTCDateString(weekEnd);
-
+export async function getRecurrenceDaysForTimesheet(
+	timesheet: TimeSheetSelect
+): Promise<RecurrenceDaySelect[]> {
 	return await db
 		.select({
 			id: recurrenceDayTable.id,
@@ -1219,21 +1237,17 @@ export async function getRecurrenceDaysForTimesheet(timesheet: any): Promise<Rec
 			dayEnd: recurrenceDayTable.dayEnd,
 			lunchStart: recurrenceDayTable.lunchStart,
 			lunchEnd: recurrenceDayTable.lunchEnd,
-			createdAt: recurrenceDayTable.createdAt, // Add createdAt
-			updatedAt: recurrenceDayTable.updatedAt
+			createdAt: recurrenceDayTable.createdAt,
+			updatedAt: recurrenceDayTable.updatedAt,
+			status: recurrenceDayTable.status,
+			requisitionId: recurrenceDayTable.requisitionId,
+			archived: recurrenceDayTable.archived,
+			archivedDate: recurrenceDayTable.archivedDate
 		})
 		.from(recurrenceDayTable)
-		.where(
-			and(
-				eq(recurrenceDayTable.requisitionId, timesheet.requisitionId),
-				sql`${recurrenceDayTable.date}
-				>=
-				${startDateString}`,
-				sql`${recurrenceDayTable.date}
-				<=
-				${endDateString}`
-			)
-		);
+		.innerJoin(workdayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
+		.where(eq(workdayTable.timesheetId, timesheet.id))
+		.orderBy(asc(recurrenceDayTable.date));
 }
 
 export async function getTimesheetById(timesheetId: string): Promise<TimeSheetSelect | null> {
@@ -1263,11 +1277,11 @@ export async function getTimesheetDetailsAdmin(timesheetId: string) {
 			clientCompanyName: clientCompanyTable.companyName,
 			validated: timeSheetTable.validated,
 			awaitingClientSignature: timeSheetTable.awaitingClientSignature,
-			hourlyRate: requisitionTable.hourlyRate, // ✅ This is correct
+			hourlyRate: requisitionTable.hourlyRate,
 			hoursRaw: timeSheetTable.hoursRaw,
-			workdayId: timeSheetTable.workdayId,
 			status: timeSheetTable.status,
 			discrepancyNote: timeSheetTable.discrepancyNote,
+			adjustedHourlyRate: timeSheetTable.adjustedHourlyRate,
 			candidate: {
 				...candidateProfileTable,
 				firstName: userTable.firstName,
@@ -1280,7 +1294,6 @@ export async function getTimesheetDetailsAdmin(timesheetId: string) {
 		.innerJoin(requisitionTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
 		.innerJoin(clientProfileTable, eq(timeSheetTable.associatedClientId, clientProfileTable.id))
 		.innerJoin(clientCompanyTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
-		.leftJoin(workdayTable, eq(timeSheetTable.workdayId, workdayTable.id))
 		.leftJoin(
 			candidateProfileTable,
 			eq(timeSheetTable.associatedCandidateId, candidateProfileTable.id)
@@ -1346,11 +1359,11 @@ export async function getTimesheetDetails(timesheetId: string, clientId: string 
 			clientCompanyName: clientCompanyTable.companyName,
 			validated: timeSheetTable.validated,
 			awaitingClientSignature: timeSheetTable.awaitingClientSignature,
-			hourlyRate: requisitionTable.hourlyRate, // ✅ This is correct
+			hourlyRate: requisitionTable.hourlyRate,
 			hoursRaw: timeSheetTable.hoursRaw,
-			workdayId: timeSheetTable.workdayId,
 			status: timeSheetTable.status,
 			discrepancyNote: timeSheetTable.discrepancyNote,
+			adjustedHourlyRate: timeSheetTable.adjustedHourlyRate,
 			candidate: {
 				...candidateProfileTable,
 				firstName: userTable.firstName,
@@ -1363,7 +1376,6 @@ export async function getTimesheetDetails(timesheetId: string, clientId: string 
 		.innerJoin(requisitionTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
 		.innerJoin(clientProfileTable, eq(timeSheetTable.associatedClientId, clientProfileTable.id))
 		.innerJoin(clientCompanyTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
-		.leftJoin(workdayTable, eq(timeSheetTable.workdayId, workdayTable.id))
 		.leftJoin(
 			candidateProfileTable,
 			eq(timeSheetTable.associatedCandidateId, candidateProfileTable.id)
@@ -1384,7 +1396,7 @@ export async function getWorkdaysForTimesheet(timesheet: any) {
 		})
 		.from(workdayTable)
 		.innerJoin(recurrenceDayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
-		.where(eq(workdayTable.requisitionId, timesheet.requisitionId))
+		.where(eq(workdayTable.timesheetId, timesheet.timeSheetId))
 		.orderBy(recurrenceDayTable.date);
 
 	return workdays;
@@ -1420,7 +1432,8 @@ export const getWorkdayDetails = async (
 					validated: timeSheetTable.validated,
 					awaitingClientSignature: timeSheetTable.awaitingClientSignature,
 					hoursRaw: timeSheetTable.hoursRaw,
-					status: timeSheetTable.status
+					status: timeSheetTable.status,
+					adjustedHourlyRate: timeSheetTable.adjustedHourlyRate
 				}
 			})
 			.from(workdayTable)
@@ -1437,7 +1450,7 @@ export const getWorkdayDetails = async (
 				experienceLevelTable,
 				eq(requisitionTable.experienceLevelId, experienceLevelTable.id)
 			)
-			.leftJoin(timeSheetTable, eq(timeSheetTable.workdayId, workdayTable.id))
+			.leftJoin(timeSheetTable, eq(timeSheetTable.id, workdayTable.timesheetId))
 			.where(
 				and(
 					eq(workdayTable.recurrenceDayId, recurrenceDayId),
@@ -1689,7 +1702,22 @@ export async function getClientTimesheets(
 
 	const results = await db
 		.select({
-			timesheet: timeSheetTable,
+			timesheet: {
+				id: timeSheetTable.id,
+				createdAt: timeSheetTable.createdAt,
+				updatedAt: timeSheetTable.updatedAt,
+				status: timeSheetTable.status,
+				weekBeginDate: timeSheetTable.weekBeginDate,
+				totalHoursWorked: timeSheetTable.totalHoursWorked,
+				totalHoursBilled: timeSheetTable.totalHoursBilled,
+				hoursRaw: timeSheetTable.hoursRaw,
+				validated: timeSheetTable.validated,
+				awaitingClientSignature: timeSheetTable.awaitingClientSignature,
+				requisitionId: timeSheetTable.requisitionId,
+				associatedCandidateId: timeSheetTable.associatedCandidateId,
+				associatedClientId: timeSheetTable.associatedClientId,
+				discrepancyNote: timeSheetTable.discrepancyNote
+			},
 			candidate: { ...candidateProfileTable },
 			user: {
 				id: userTable.email,
@@ -1708,7 +1736,7 @@ export async function getClientTimesheets(
 		)
 		.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
 		.leftJoin(requisitionTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
-		.innerJoin(workdayTable, eq(timeSheetTable.workdayId, workdayTable.id))
+		.leftJoin(workdayTable, eq(workdayTable.timesheetId, timeSheetTable.id))
 		.orderBy(desc(timeSheetTable.weekBeginDate));
 
 	if (!results.length) {

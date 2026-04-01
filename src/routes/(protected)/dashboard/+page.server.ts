@@ -13,6 +13,7 @@ import { invoiceTable } from '$lib/server/database/schemas/requisition';
 import { count, and, eq, lt, ne, sum } from 'drizzle-orm';
 import { getAdminDashboardData } from '$lib/server/database/queries/admin';
 import { adminRequisitionSchema, clientRequisitionSchema } from '$lib/config/zod-schemas';
+import { adminNewUserSchema } from '$lib/config/zod-schemas';
 
 export const load = async (event: RequestEvent) => {
 	event.setHeaders({
@@ -37,7 +38,8 @@ export const load = async (event: RequestEvent) => {
 			requisitions
 		} = await getAdminDashboardData();
 		const form = superValidate(event, adminRequisitionSchema);
-		console.log(discrepancies);
+		const newProfileForm = await superValidate(event, adminNewUserSchema);
+
 		return {
 			user,
 			timesheetsDueCount,
@@ -50,7 +52,8 @@ export const load = async (event: RequestEvent) => {
 			invoicesDueCount,
 			invoicesDue,
 			clientForm: null,
-			adminForm: form
+			adminForm: form,
+			newProfileForm
 		};
 	}
 
@@ -114,7 +117,8 @@ export const load = async (event: RequestEvent) => {
 			overdueInvoicesCount: overdueInvoicesCount[0]?.count,
 			pendingInvoicesCount: pendingInvoicesCount[0]?.count,
 			clientForm: form,
-			adminForm: null
+			adminForm: null,
+			newProfileForm: null
 		};
 	}
 
@@ -180,7 +184,8 @@ export const load = async (event: RequestEvent) => {
 			overdueInvoicesCount: overdueInvoicesCount[0]?.count,
 			pendingInvoicesCount: pendingInvoicesCount[0]?.count,
 			clientForm: form,
-			adminForm: null
+			adminForm: null,
+			newProfileForm: null
 		};
 	}
 

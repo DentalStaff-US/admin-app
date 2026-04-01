@@ -13,6 +13,7 @@ import log from '$lib/server/log';
 import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 import { USER_ROLES } from '$lib/config/constants';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
+import { processTimesheetCreationJob } from '$lib/server/jobs/timesheets';
 
 export const handleError: HandleServerError = async ({ error, event }) => {
 	const errorId = crypto.randomUUID();
@@ -101,4 +102,5 @@ export const handle: Handle = async ({ event, resolve }) => {
 processPastRecurrenceDaysJob();
 processInvoiceRemindersJob();
 processWorkday48HrReminderJob();
+processTimesheetCreationJob();
 // processOutdatedRequisitionsJob();

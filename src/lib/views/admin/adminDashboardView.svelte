@@ -13,7 +13,8 @@
 		CheckCircle2,
 		Building,
 		DollarSign,
-		PlusIcon
+		PlusIcon,
+		Plus
 	} from 'lucide-svelte';
 	import { goto } from '$app/navigation';
 	import { formatCurrency, formatDate, formatTicketDate } from '$lib/_helpers';
@@ -21,11 +22,19 @@
 	import { cn } from '$lib/utils';
 	import { format } from 'date-fns';
 	import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
+	import * as Dialog from '$lib/components/ui/dialog';
+	import { superForm } from 'sveltekit-superforms/client';
+	import type { AdminNewUserSchema } from '$lib/config/zod-schemas';
+	import { Label } from '$lib/components/ui/label';
+	import { Input } from '$lib/components/ui/input';
 
 	export let user;
 	export let data;
 	export let adminForm;
+
 	let drawerExpanded = false;
+	let addDialogOpen = false;
+	let addClientDialogOpen = false;
 
 	// Stats data from actual API response
 	$: timesheetsDueCount = data.timesheetsDueCount || 0;
@@ -45,6 +54,7 @@
 	// const supportTicketsTrendPercent = -5;
 	// const discrepanciesTrendPercent = 8;
 	// const invoicesTrendPercent = 15;
+	$: newProfileForm = data.newProfileForm;
 
 	let activeTab = 'timesheets';
 
@@ -96,6 +106,16 @@
 				.replace(/\b\w/g, (l) => l.toUpperCase()) || 'Unknown'
 		);
 	}
+	const { form, errors, submitting, enhance } = superForm<AdminNewUserSchema>(newProfileForm, {
+		onResult: ({ result }) => {
+			console.log('Form result:', result);
+			if (result.type === 'success') {
+				addDialogOpen = false;
+				// // Optionally reload the page or refresh data
+				// window.location.reload();
+			}
+		}
+	});
 </script>
 
 <section class="min-h-screen bg-gray-50">
@@ -271,6 +291,7 @@
 									<Table.Row>
 										<Table.Head>Position</Table.Head>
 										<Table.Head>Status</Table.Head>
+										<Table.Head>Type</Table.Head>
 										<Table.Head class="text-right">Rate</Table.Head>
 									</Table.Row>
 								</Table.Header>
@@ -306,6 +327,18 @@
 														req.requisition.status === 'CANCELED' && 'bg-red-500 hover:bg-red-600',
 														'text-white'
 													)}
+												/>
+											</Table.Cell>
+											<Table.Cell>
+												<Badge
+													variant="secondary"
+													value={req.requisition.permanentPosition ? 'Permanent' : 'Temporary'}
+													class= {
+														cn(
+															req.requisition.permanentPosition && 'bg-gray-300',
+															!req.requisition.permanentPosition && 'bg-gray-300'
+														)
+													}
 												/>
 											</Table.Cell>
 											<Table.Cell class="text-right"
@@ -534,8 +567,12 @@
 							<div class="flex justify-between items-center">
 								<Card.Title class="text-lg font-semibold flex items-center">
 									<UserPlus size={20} class="mr-2 text-blue-600" />
-									New Professional Members
+									New Professionals
 								</Card.Title>
+								<Button
+									class="bg-blue-800 hover:bg-blue-900 gap-2"
+									on:click={() => (addDialogOpen = true)}><Plus />Add Professional</Button
+								>
 							</div>
 						</Card.Header>
 						<Card.Content class="pt-4">
@@ -571,7 +608,7 @@
 								</ul>
 							{:else}
 								<div class="text-center py-4">
-									<p class="text-gray-500">No new candidate profiles</p>
+									<p class="text-gray-500">No new professional profiles</p>
 								</div>
 							{/if}
 							<div class="mt-4 text-center">
@@ -588,8 +625,12 @@
 							<div class="flex justify-between items-center">
 								<Card.Title class="text-lg font-semibold flex items-center">
 									<Building size={20} class="mr-2 text-indigo-600" />
-									New Business Members
+									New Clients
 								</Card.Title>
+								<Button
+									class="bg-blue-800 hover:bg-blue-900 gap-2"
+									on:click={() => (addClientDialogOpen = true)}><Plus />Add Client</Button
+								>
 							</div>
 						</Card.Header>
 						<Card.Content class="pt-4">
@@ -645,3 +686,118 @@
 	</div>
 </section>
 <AddRequisitionDrawer {user} bind:drawerExpanded {adminForm} />
+<Dialog.Root bind:open={addDialogOpen}>
+	<Dialog.Content class="space-y-4">
+		<form
+			use:enhance
+			method="POST"
+			action="/professionals?/adminCreateProfessional"
+			class="space-y-4"
+		>
+			<Dialog.Header>
+				<Dialog.Title>Add New Professional</Dialog.Title>
+				<Dialog.Description>
+					Will generate user account so email must be unique and not currently in use. Add
+					additional profile information on the next step.
+				</Dialog.Description>
+			</Dialog.Header>
+			<div class="grid grid-cols-2 gap-4 relative">
+				<div class="col-span-2 md:col-span-1 space-y-2">
+					<Label for="firstName">First Name</Label>
+					<Input bind:value={$form.firstName} name="firstName" type="text" />
+					{#if $errors.firstName}
+						<p class="text-red-500 text-xs">{$errors.firstName}</p>
+					{/if}
+				</div>
+				<div class="col-span-2 md:col-span-1 space-y-2">
+					<Label for="lastName">Last Name</Label>
+					<Input bind:value={$form.lastName} name="lastName" type="text" />
+					{#if $errors.lastName}
+						<p class="text-red-500 text-xs">{$errors.lastName}</p>
+					{/if}
+				</div>
+				<div class="col-span-2 space-y-2">
+					<Label for="email">Email</Label>
+					<Input bind:value={$form.email} name="email" type="email" />
+					{#if $errors.email}
+						<p class="text-red-500 text-xs">{$errors.email}</p>
+					{/if}
+				</div>
+				<div class="col-span-2 space-y-2">
+					<Label for="password">Password</Label>
+					<Input bind:value={$form.password} name="password" type="text" />
+					{#if $errors.password}
+						<p class="text-red-500 text-xs">{$errors.password}</p>
+					{/if}
+				</div>
+			</div>
+			<Dialog.Footer>
+				<Button type="button" variant="destructive" on:click={() => (addDialogOpen = false)}
+					>Cancel</Button
+				>
+				<Button type="submit" class="bg-green-500 hover:bg-green-600" disabled={$submitting}>
+					{$submitting ? 'Creating...' : 'Submit'}
+				</Button>
+			</Dialog.Footer>
+		</form>
+	</Dialog.Content>
+</Dialog.Root>
+
+<Dialog.Root bind:open={addClientDialogOpen}>
+	<Dialog.Content class="space-y-4">
+		<form use:enhance method="POST" action="/clients?/adminCreateClient" class="space-y-4">
+			<Dialog.Header>
+				<Dialog.Title>Add New Client</Dialog.Title>
+				<Dialog.Description>
+					Will generate user account so email must be unique and not currently in use. Add
+					additional profile information on the next step.
+				</Dialog.Description>
+			</Dialog.Header>
+			<div class="grid grid-cols-2 gap-4 relative">
+				<div class="col-span-2 md:col-span-1 space-y-2">
+					<Label for="firstName">First Name</Label>
+					<Input bind:value={$form.firstName} name="firstName" type="text" />
+					{#if $errors.firstName}
+						<p class="text-red-500 text-xs">{$errors.firstName}</p>
+					{/if}
+				</div>
+				<div class="col-span-2 md:col-span-1 space-y-2">
+					<Label for="lastName">Last Name</Label>
+					<Input bind:value={$form.lastName} name="lastName" type="text" />
+					{#if $errors.lastName}
+						<p class="text-red-500 text-xs">{$errors.lastName}</p>
+					{/if}
+				</div>
+				<div class="col-span-2 space-y-2">
+					<Label for="email">Email</Label>
+					<Input bind:value={$form.email} name="email" type="email" />
+					{#if $errors.email}
+						<p class="text-red-500 text-xs">{$errors.email}</p>
+					{/if}
+				</div>
+				<div class="col-span-2 space-y-2">
+					<Label for="email">Company Name</Label>
+					<Input bind:value={$form.companyName} name="companyName" type="text" />
+					{#if $errors.companyName}
+						<p class="text-red-500 text-xs">{$errors.companyName}</p>
+					{/if}
+				</div>
+				<div class="col-span-2 space-y-2">
+					<Label for="password">Password</Label>
+					<Input bind:value={$form.password} name="password" type="text" />
+					{#if $errors.password}
+						<p class="text-red-500 text-xs">{$errors.password}</p>
+					{/if}
+				</div>
+			</div>
+			<Dialog.Footer>
+				<Button type="button" variant="destructive" on:click={() => (addDialogOpen = false)}
+					>Cancel</Button
+				>
+				<Button type="submit" class="bg-green-500 hover:bg-green-600" disabled={$submitting}>
+					{$submitting ? 'Creating...' : 'Submit'}
+				</Button>
+			</Dialog.Footer>
+		</form>
+	</Dialog.Content>
+</Dialog.Root>

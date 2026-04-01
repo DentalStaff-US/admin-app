@@ -86,6 +86,7 @@
 	import { env } from '$env/dynamic/public';
 	import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
 	import AddLocationDrawer from '$lib/components/drawers/addLocationDrawer.svelte';
+	import AdminProfileComments from '$lib/views/admin/adminProfileComments.svelte';
 
 	export let data: PageData;
 	$: adminForm = data.requisitionForm;
@@ -425,6 +426,14 @@
 		{
 			header: 'Status',
 			accessorFn: (original) => original.status
+		},
+		{
+			header: 'Type',
+			accessorKey: 'permanentPosition',
+			cell: ({ getValue, row }) => {
+				return getValue() ? 'Permanent' : 'Temporary';
+			},
+			enableSorting: true
 		},
 		{
 			header: 'Rate',
@@ -895,6 +904,14 @@
 													bind:value={$updateForm.baseLocation}
 												/>
 											</div>
+											<div>
+												<Label for="base-location">Cell Phone</Label>
+												<Input
+													id="cell-phone"
+													name="cellPhone"
+													bind:value={$updateForm.cellPhone}
+												/>
+											</div>
 
 											<!-- Hidden fields to preserve other data -->
 											<input type="hidden" name="firstName" bind:value={$updateForm.firstName} />
@@ -931,6 +948,10 @@
 									<div>
 										<h3 class="text-sm font-medium">Base Location:</h3>
 										<p>{client.company?.baseLocation || 'None Specified'}</p>
+									</div>
+									<div>
+										<h3 class="text-sm font-medium">Cell Phone</h3>
+										<p>{client.profile.cellPhone || 'None Specified'}</p>
 									</div>
 								{/if}
 							</CardContent>
@@ -1260,6 +1281,24 @@
 								{/if}
 							</CardContent>
 						</Card>
+						{#if isAdmin}
+							<Card class="w-full max-w-none col-span-4">
+								<CardHeader class="pb-3">
+									<CardTitle class="text-blue-600 flex items-center gap-2 text-lg">
+										<MessageSquare class="h-4 w-4" />
+										Admin Notes
+									</CardTitle>
+								</CardHeader>
+								<CardContent class="pt-0">
+									<AdminProfileComments
+										comments={data.comments}
+										currentUserId={user.id}
+										addAction="?/addComment"
+										deleteAction="?/deleteComment"
+									/>
+								</CardContent>
+							</Card>
+						{/if}
 					</div>
 				</TabsContent>
 
@@ -1476,6 +1515,9 @@
 																		)}
 																	/>
 																{:else if cellIndex === 2}
+																	<!-- Requisition Type -->
+																	{row.original.permanentPosition ? 'Permanent' : 'Temporary'}
+																{:else if cellIndex === 3}
 																	<!-- Rate -->
 																	${row.original.hourlyRate?.toFixed(2) || '0.00'}
 																{/if}

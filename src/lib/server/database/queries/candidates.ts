@@ -291,7 +291,7 @@ export async function getAllCandidateWorkHistory(candidateId: string) {
 			eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 		)
 		.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
-		.leftJoin(timeSheetTable, eq(timeSheetTable.workdayId, workdayTable.id))
+		.leftJoin(timeSheetTable, eq(timeSheetTable.id, workdayTable.timesheetId))
 		.where(and(eq(workdayTable.candidateId, candidateId), isNotNull(timeSheetTable.id)));
 
 	return workdays || [];

@@ -1,5 +1,7 @@
-import { jsonb, pgEnum, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, jsonb, pgEnum, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 import { userTable } from './auth';
+import { candidateProfileTable } from './candidate';
+import { clientCompanyTable, clientProfileTable } from './client';
 
 export const adminNoteTable = pgTable('admin_notes', {
 	id: text('id').notNull().primaryKey(),
@@ -46,6 +48,20 @@ export const adminNoteCommentsTable = pgTable('admin_note_comments', {
 		.notNull()
 		.references(() => userTable.id, { onDelete: 'cascade' }),
 	body: text('body').notNull()
+});
+
+export const adminProfileCommentTable = pgTable('admin_profile_comments', {
+	id: text('id').notNull().primaryKey(),
+	createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+	body: text('body').notNull(),
+	authorId: text('author_id')
+		.notNull()
+		.references(() => userTable.id, { onDelete: 'cascade' }),
+	candidateId: text('candidate_id').references(() => candidateProfileTable.id, {
+		onDelete: 'cascade'
+	}),
+	clientId: text('client_id').references(() => clientProfileTable.id, { onDelete: 'cascade' })
 });
 
 export const supportTicketStatusEnum = pgEnum('support_ticket_status', [
@@ -124,11 +140,13 @@ export const actionHistoryTable = pgTable('action_history', {
 		.defaultNow(),
 	entityId: text('entity_id').notNull(),
 	entityType: text('entity_type').notNull(),
-	userId: text("user_id").notNull().references(() => userTable.id),
+	userId: text('user_id')
+		.notNull()
+		.references(() => userTable.id),
 	action: text('action').notNull(),
 	changes: jsonb('changes').$type<{
-		before?: Record<string, any>,
-		after?: Record<string, any>
+		before?: Record<string, any>;
+		after?: Record<string, any>;
 	}>(),
 	metadata: jsonb('metadata').$type<Record<string, any>>().default({})
 });
@@ -142,3 +160,5 @@ export type UpdateSuportTicket = Partial<typeof supportTicketTable.$inferInsert>
 export type SupportTicketComment = typeof supportTicketCommentTable.$inferInsert;
 export type UpdateSuportTicketComment = Partial<typeof supportTicketCommentTable.$inferInsert>;
 export type ActionHistory = typeof actionHistoryTable.$inferInsert;
+export type AdminProfileComment = typeof adminProfileCommentTable.$inferInsert;
+export type AdminProfileCommentSelect = typeof adminProfileCommentTable.$inferSelect;

@@ -85,7 +85,6 @@ export const actions = {
 			return fail(403);
 		}
 		const formData = await event.request.formData();
-		console.log('formData', formData);
 
 		const title = formData.get('title') as string;
 		const companyId = formData.get('clientId') as string;
@@ -101,6 +100,7 @@ export const actions = {
 		const timezone = formData.get('timezone') as string;
 		const permanentPosition = formData.get('permanentPosition');
 		const hourlyRate = Number(formData.get('hourlyRate'));
+		const purchaseOrderNumber = formData.get('purchaseOrderNumber') as string;
 
 		const newRequisition = await createRequisition(
 			{
@@ -116,7 +116,8 @@ export const actions = {
 				specialInstructions,
 				experienceLevelId,
 				status: 'OPEN',
-				referenceTimezone: timezone
+				referenceTimezone: timezone,
+				purchaseOrderNumber
 			},
 			user.id
 		);
@@ -145,7 +146,6 @@ export const actions = {
 
 		const formData = await event.request.formData();
 
-		const title = formData.get('title') as string;
 		const locationId = formData.get('locationId') as string;
 		const disciplineId = formData.get('disciplineId') as string;
 		const jobDescription = formData.get('jobDescription') as string;
@@ -158,12 +158,12 @@ export const actions = {
 		const permanentPosition = formData.get('permanentPosition');
 		const hourlyRate = Number(formData.get('hourlyRate'));
 		const timezone = formData.get('timezone') as string;
+		const purchaseOrderNumber = formData.get('purchaseOrderNumber') as string;
 
 		const newRequisition = await createRequisition(
 			{
 				createdAt: new Date(),
 				updatedAt: new Date(),
-				title,
 				companyId,
 				locationId,
 				hourlyRate,
@@ -173,7 +173,8 @@ export const actions = {
 				specialInstructions,
 				experienceLevelId,
 				status: 'OPEN',
-				referenceTimezone: timezone
+				referenceTimezone: timezone,
+				purchaseOrderNumber
 			},
 			user.id
 		);

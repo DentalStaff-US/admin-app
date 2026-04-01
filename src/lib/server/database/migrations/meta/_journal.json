@@ -120,6 +120,48 @@
       "when": 1772825852009,
       "tag": "0016_unique_tomas",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1773336088804,
+      "tag": "0017_lethal_ink",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1773336334933,
+      "tag": "0018_premium_stone_men",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1773348080324,
+      "tag": "0019_parched_joystick",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1773439348198,
+      "tag": "0020_brown_luckman",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1774561627521,
+      "tag": "0021_true_maestro",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1774970905542,
+      "tag": "0022_moaning_giant_girl",
+      "breakpoints": true
     }
   ]
 }

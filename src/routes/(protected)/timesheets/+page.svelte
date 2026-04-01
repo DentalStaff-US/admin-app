@@ -154,7 +154,13 @@
 			},
 			cell: ({ getValue }) => {
 				const date = getValue() as string;
-				return date ? new Date(date).toLocaleDateString() : '-';
+				if (!date) return '-';
+				const start = new Date(date);
+				const end = new Date(start);
+				end.setUTCDate(start.getUTCDate() + 6);
+				const fmt = (d: Date) =>
+					d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+				return `${fmt(start)} – ${fmt(end)}, ${start.getFullYear()}`;
 			}
 		}
 	];

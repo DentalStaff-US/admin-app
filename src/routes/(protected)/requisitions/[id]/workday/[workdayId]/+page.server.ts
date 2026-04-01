@@ -20,20 +20,30 @@ import db from '$lib/server/database/drizzle';
 import {
 	recurrenceDayTable,
 	requisitionTable,
-	workdayTable
+	workdayTable,
+	timeSheetTable as timesheetTable
 } from '$lib/server/database/schemas/requisition';
 import { and, eq } from 'drizzle-orm';
 import { setFlash } from 'sveltekit-flash-message/server';
-import { timeSheetTable as timesheetTable } from '$lib/server/database/schemas/requisition';
+import { editRecurrenceDaySchema } from '$lib/config/zod-schemas';
+import { superValidate, message, setError } from 'sveltekit-superforms/server';
+import { convertRecurrenceDayToUTC } from '$lib/_helpers/UTCTimezoneUtils';
+import { z } from 'zod';
 
-export async function load({ locals, params }: RequestEvent) {
-	const user = locals.user;
+const adjustedHourlyRateSchema = z.object({
+	timesheetId: z.string().min(1),
+	adjustedHourlyRate: z.coerce.number().int().min(0).nullable()
+});
+
+export async function load(event: RequestEvent) {
+	const user = event.locals.user;
 	if (!user) {
 		return redirect(302, '/auth/sign-in');
 	}
 
-	const recurrenceDayId = params.workdayId;
-	const requisitionId = Number(params.id);
+	const recurrenceDayId = event.params.workdayId;
+	const requisitionId = Number(event.params.id);
+	const editWorkdayScheduleForm = await superValidate(event, editRecurrenceDaySchema);
 
 	if (user.role === USER_ROLES.SUPERADMIN) {
 		const requisition = await getRequisitionDetailsById(requisitionId);
@@ -45,12 +55,20 @@ export async function load({ locals, params }: RequestEvent) {
 			requisition.requisition.locationId,
 			company.id
 		);
-		console.log({ requisition, recurrenceDay, workday, client, company, location });
 
 		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
 			requisition.requisition,
 			location
 		);
+
+		editWorkdayScheduleForm.data = {
+			...editWorkdayScheduleForm.data,
+			date: recurrenceDay.recurrenceDay.date,
+			startTime: recurrenceDay.recurrenceDay.dayStart.toString(),
+			endTime: recurrenceDay.recurrenceDay.dayEnd.toString(),
+			lunchStartTime: recurrenceDay.recurrenceDay.lunchStart?.toString() ?? undefined,
+			lunchEndTime: recurrenceDay.recurrenceDay.lunchEnd?.toString() ?? undefined
+		};
 
 		return {
 			user,
@@ -59,7 +77,9 @@ export async function load({ locals, params }: RequestEvent) {
 			client,
 			company,
 			requisition,
-			qualifiedProfessionals
+			location,
+			qualifiedProfessionals,
+			editWorkdayScheduleForm
 		};
 	}
 
@@ -72,6 +92,23 @@ export async function load({ locals, params }: RequestEvent) {
 		const recurrenceDay = await getRecurrenceDayDetails(recurrenceDayId, company.id);
 		const workday = await getWorkdayDetails(recurrenceDayId, company.id);
 		const requisition = await getRequisitionDetailsById(requisitionId);
+		const location = await getLocationByIdForCompany(
+			requisition.requisition.locationId,
+			company.id
+		);
+		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
+			requisition.requisition,
+			location
+		);
+
+		editWorkdayScheduleForm.data = {
+			...editWorkdayScheduleForm.data,
+			date: recurrenceDay.recurrenceDay.date,
+			startTime: recurrenceDay.recurrenceDay.dayStart.toString(),
+			endTime: recurrenceDay.recurrenceDay.dayEnd.toString(),
+			lunchStartTime: recurrenceDay.recurrenceDay.lunchStart?.toString() ?? undefined,
+			lunchEndTime: recurrenceDay.recurrenceDay.lunchEnd?.toString() ?? undefined
+		};
 
 		return {
 			user,
@@ -80,7 +117,9 @@ export async function load({ locals, params }: RequestEvent) {
 			client,
 			company,
 			requisition,
-			location
+			location,
+			qualifiedProfessionals,
+			editWorkdayScheduleForm
 		};
 	}
 
@@ -90,6 +129,23 @@ export async function load({ locals, params }: RequestEvent) {
 		const recurrenceDay = await getRecurrenceDayDetails(recurrenceDayId, company.id);
 		const workday = await getWorkdayDetails(recurrenceDayId, company.id);
 		const requisition = await getRequisitionDetailsById(requisitionId);
+		const location = await getLocationByIdForCompany(
+			requisition.requisition.locationId,
+			company.id
+		);
+		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
+			requisition.requisition,
+			location
+		);
+
+		editWorkdayScheduleForm.data = {
+			...editWorkdayScheduleForm.data,
+			date: recurrenceDay.recurrenceDay.date,
+			startTime: recurrenceDay.recurrenceDay.dayStart.toString(),
+			endTime: recurrenceDay.recurrenceDay.dayEnd.toString(),
+			lunchStartTime: recurrenceDay.recurrenceDay.lunchStart?.toString() ?? undefined,
+			lunchEndTime: recurrenceDay.recurrenceDay.lunchEnd?.toString() ?? undefined
+		};
 
 		return {
 			user,
@@ -97,12 +153,74 @@ export async function load({ locals, params }: RequestEvent) {
 			workday,
 			client,
 			company,
-			requisition
+			requisition,
+			location,
+			qualifiedProfessionals,
+			editWorkdayScheduleForm
 		};
 	}
 }
 
 export const actions = {
+	editRecurrenceDay: async (event: RequestEvent) => {
+		const { locals, params } = event;
+		const user = locals.user;
+
+		if (!user) {
+			return fail(403, { error: 'Not authenticated' });
+		}
+
+		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+			return fail(403, { error: 'Not authorized' });
+		}
+
+		const form = await superValidate(event, editRecurrenceDaySchema);
+
+		if (!form.valid) {
+			return fail(400, { form });
+		}
+
+		try {
+			const recurrenceDayId = params.workdayId;
+			const requisitionId = Number(params.id);
+			const { date, startTime, endTime, lunchStartTime, lunchEndTime } = form.data;
+
+			const requisition = await getRequisitionDetailsById(requisitionId);
+			const timezone = requisition.requisition.referenceTimezone;
+
+			// Re-use the same UTC conversion helper used elsewhere in the app
+			const utcDay = convertRecurrenceDayToUTC(
+				{
+					date,
+					dayStartTime: startTime,
+					dayEndTime: endTime,
+					lunchStartTime: lunchStartTime ?? '',
+					lunchEndTime: lunchEndTime ?? '',
+					requisitionId
+				},
+				timezone
+			);
+
+			const values = {
+				updatedAt: new Date(),
+				date: utcDay.date,
+				dayStart: utcDay.dayStart,
+				dayEnd: utcDay.dayEnd,
+				lunchStart: utcDay.lunchStart,
+				lunchEnd: utcDay.lunchEnd
+			};
+
+			await editRecurrenceDay(recurrenceDayId, values, user.id);
+
+			setFlash({ type: 'success', message: 'Schedule updated successfully' }, event);
+			return message(form, 'Schedule updated');
+		} catch (error) {
+			console.error('Error editing recurrence day:', error);
+			setFlash({ type: 'error', message: 'Failed to update schedule' }, event);
+			return setError(form, 'Something went wrong');
+		}
+	},
+
 	assignCandidate: async (event: RequestEvent) => {
 		const { request, locals, params } = event;
 		const user = locals.user;
@@ -111,7 +229,6 @@ export const actions = {
 			return fail(403, { error: 'Not authenticated' });
 		}
 
-		// Only allow SUPERADMIN, CLIENT, or CLIENT_STAFF to assign
 		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
 			return fail(403, { error: 'Not authorized to assign candidates' });
 		}
@@ -126,9 +243,7 @@ export const actions = {
 		}
 
 		try {
-			// Use transaction to ensure all operations succeed together
 			await db.transaction(async (tx) => {
-				// Check if workday already exists for this recurrence day
 				const existingWorkday = await tx
 					.select()
 					.from(workdayTable)
@@ -139,7 +254,6 @@ export const actions = {
 					throw new Error('Workday already assigned');
 				}
 
-				// Get recurrence day details to get the date
 				const recurrenceDay = await tx
 					.select()
 					.from(recurrenceDayTable)
@@ -147,11 +261,8 @@ export const actions = {
 					.limit(1)
 					.then((rows) => rows[0]);
 
-				if (!recurrenceDay) {
-					throw new Error('Recurrence day not found');
-				}
+				if (!recurrenceDay) throw new Error('Recurrence day not found');
 
-				// Get requisition details for client ID
 				const requisition = await tx
 					.select()
 					.from(requisitionTable)
@@ -159,94 +270,32 @@ export const actions = {
 					.limit(1)
 					.then((rows) => rows[0]);
 
-				if (!requisition) {
-					throw new Error('Requisition not found');
-				}
+				if (!requisition) throw new Error('Requisition not found');
 
-				// Get client ID from company
-				const clientId = await getClientIdByCompanyId(requisition.companyId);
-
-				// Create the workday
 				const workdayId = crypto.randomUUID();
 				await tx.insert(workdayTable).values({
 					id: workdayId,
-					candidateId: candidateId,
-					requisitionId: requisitionId,
-					recurrenceDayId: recurrenceDayId,
+					candidateId,
+					requisitionId,
+					recurrenceDayId,
 					createdAt: new Date(),
 					updatedAt: new Date()
 				});
 
-				// Calculate week start date (Monday of the week containing this recurrence day)
-				const recurrenceDate = new Date(recurrenceDay.date);
-				const dayOfWeek = recurrenceDate.getUTCDay(); // 0 (Sun) to 6 (Sat)
-				const diffToMonday = (dayOfWeek + 6) % 7; // Days to subtract to get Monday
-				const weekStartDate = new Date(recurrenceDate);
-				weekStartDate.setUTCDate(recurrenceDate.getUTCDate() - diffToMonday);
-				const weekStartStr = weekStartDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
-
-				// Check if a timesheet already exists for this candidate, week, and requisition
-				const existingTimesheet = await tx
-					.select()
-					.from(timesheetTable)
-					.where(
-						and(
-							eq(timesheetTable.associatedCandidateId, candidateId),
-							eq(timesheetTable.weekBeginDate, weekStartStr),
-							eq(timesheetTable.requisitionId, requisitionId)
-						)
-					)
-					.limit(1);
-
-				// Create timesheet only if one doesn't exist for this week
-				if (existingTimesheet.length === 0) {
-					const timesheetId = crypto.randomUUID();
-					await tx.insert(timesheetTable).values({
-						id: timesheetId,
-						createdAt: new Date(),
-						updatedAt: new Date(),
-						workdayId: workdayId,
-						associatedCandidateId: candidateId,
-						associatedClientId: clientId,
-						requisitionId: requisitionId,
-						weekBeginDate: weekStartStr,
-						totalHoursWorked: '0',
-						totalHoursBilled: '0',
-						hoursRaw: [],
-						status: 'PENDING',
-						validated: false,
-						awaitingClientSignature: true
-					});
-
-					console.log(`Created new timesheet ${timesheetId} for week starting ${weekStartStr}`);
-				} else {
-					console.log(`Timesheet already exists for week starting ${weekStartStr}`);
-				}
-
-				// Update recurrence day status to FILLED
 				await tx
 					.update(recurrenceDayTable)
-					.set({
-						status: 'FILLED',
-						updatedAt: new Date()
-					})
+					.set({ status: 'FILLED', updatedAt: new Date() })
 					.where(eq(recurrenceDayTable.id, recurrenceDayId));
 			});
 
 			setFlash(
-				{
-					type: 'success',
-					message: 'Professional successfully assigned to workday'
-				},
+				{ type: 'success', message: 'Professional successfully assigned to workday' },
 				event
 			);
-
 			return { success: true };
 		} catch (error) {
 			console.error('Error assigning candidate:', error);
-
 			const errorMessage = error instanceof Error ? error.message : 'Failed to assign candidate';
-
 			setFlash(
 				{
 					type: 'error',
@@ -257,11 +306,73 @@ export const actions = {
 				},
 				event
 			);
-
 			return fail(500, { error: errorMessage });
 		}
 	},
-	cancelWorkday: async (event: RequestEvent) => {
+
+	unassignCandidate: async (event: RequestEvent) => {
+		const { request, locals } = event;
+		const user = locals.user;
+
+		if (!user) {
+			return fail(403, { error: 'Not authenticated' });
+		}
+
+		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+			return fail(403, { error: 'Not authorized' });
+		}
+
+		const formData = await request.formData();
+		const recurrenceDayId = formData.get('recurrenceDayId') as string;
+
+		if (!recurrenceDayId) {
+			return fail(400, { error: 'Missing recurrenceDayId' });
+		}
+
+		try {
+			await db.transaction(async (tx) => {
+				// Find the workday for this recurrence day
+				const workday = await tx
+					.select()
+					.from(workdayTable)
+					.where(eq(workdayTable.recurrenceDayId, recurrenceDayId))
+					.limit(1)
+					.then((rows) => rows[0]);
+
+				if (!workday) throw new Error('No workday found for this recurrence day');
+
+				const timesheetId = workday.timesheetId;
+
+				await tx.delete(workdayTable).where(eq(workdayTable.id, workday.id));
+
+				if (timesheetId) {
+					const remaining = await tx
+						.select()
+						.from(workdayTable)
+						.where(eq(workdayTable.timesheetId, timesheetId))
+						.limit(1);
+					if (remaining.length === 0) {
+						await tx.delete(timesheetTable).where(eq(timesheetTable.id, timesheetId));
+					}
+				}
+
+				// Reset recurrence day back to OPEN
+				await tx
+					.update(recurrenceDayTable)
+					.set({ status: 'OPEN', updatedAt: new Date() })
+					.where(eq(recurrenceDayTable.id, recurrenceDayId));
+			});
+
+			setFlash({ type: 'success', message: 'Professional successfully unassigned' }, event);
+			return { success: true };
+		} catch (error) {
+			console.error('Error unassigning candidate:', error);
+			setFlash({ type: 'error', message: 'Failed to unassign professional' }, event);
+			return fail(500, { error: error instanceof Error ? error.message : 'Unknown error' });
+		}
+	},
+
+	reassignRecurrenceDay: async (event: RequestEvent) => {
 		const { request, locals, params } = event;
 		const user = locals.user;
 
@@ -269,9 +380,152 @@ export const actions = {
 			return fail(403, { error: 'Not authenticated' });
 		}
 
-		// Only allow SUPERADMIN, CLIENT, or CLIENT_STAFF to assign
 		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
-			return fail(403, { error: 'Not authorized to assign candidates' });
+			return fail(403, { error: 'Not authorized to reassign candidates' });
+		}
+
+		const formData = await request.formData();
+		const newCandidateId = formData.get('candidateId') as string;
+		const recurrenceDayId = formData.get('recurrenceDayId') as string;
+		const requisitionId = Number(params.id);
+
+		if (!newCandidateId || !recurrenceDayId) {
+			return fail(400, { error: 'Missing required fields' });
+		}
+
+		try {
+			await db.transaction(async (tx) => {
+				// Find existing workday
+				const existingWorkday = await tx
+					.select()
+					.from(workdayTable)
+					.where(eq(workdayTable.recurrenceDayId, recurrenceDayId))
+					.limit(1)
+					.then((rows) => rows[0]);
+
+				if (!existingWorkday) throw new Error('No workday found to reassign');
+
+				const oldTimesheetId = existingWorkday.timesheetId;
+
+				// Delete old workday
+				await tx.delete(workdayTable).where(eq(workdayTable.id, existingWorkday.id));
+
+				// If the old timesheet has no remaining workdays, delete it
+				if (oldTimesheetId) {
+					const remaining = await tx
+						.select()
+						.from(workdayTable)
+						.where(eq(workdayTable.timesheetId, oldTimesheetId))
+						.limit(1);
+					if (remaining.length === 0) {
+						await tx.delete(timesheetTable).where(eq(timesheetTable.id, oldTimesheetId));
+					}
+				}
+
+				// Get recurrence day for date info
+				const recurrenceDay = await tx
+					.select()
+					.from(recurrenceDayTable)
+					.where(eq(recurrenceDayTable.id, recurrenceDayId))
+					.limit(1)
+					.then((rows) => rows[0]);
+
+				if (!recurrenceDay) throw new Error('Recurrence day not found');
+
+				// Get requisition for client ID
+				const requisition = await tx
+					.select()
+					.from(requisitionTable)
+					.where(eq(requisitionTable.id, requisitionId))
+					.limit(1)
+					.then((rows) => rows[0]);
+
+				if (!requisition) throw new Error('Requisition not found');
+
+				const clientId = await getClientIdByCompanyId(requisition.companyId);
+
+				// Calculate week start date
+				const recurrenceDate = new Date(recurrenceDay.date);
+				const dayOfWeek = recurrenceDate.getUTCDay();
+				const diffToMonday = (dayOfWeek + 6) % 7;
+				const weekStartDate = new Date(recurrenceDate);
+				weekStartDate.setUTCDate(recurrenceDate.getUTCDate() - diffToMonday);
+				const weekStartStr = weekStartDate.toISOString().split('T')[0];
+
+				// Check if a timesheet already exists for new candidate this week
+				const existingTimesheet = await tx
+					.select()
+					.from(timesheetTable)
+					.where(
+						and(
+							eq(timesheetTable.associatedCandidateId, newCandidateId),
+							eq(timesheetTable.weekBeginDate, weekStartStr),
+							eq(timesheetTable.requisitionId, requisitionId)
+						)
+					)
+					.limit(1);
+
+				let newTimesheetId: string;
+
+				if (existingTimesheet.length === 0) {
+					newTimesheetId = crypto.randomUUID();
+					await tx.insert(timesheetTable).values({
+						id: newTimesheetId,
+						createdAt: new Date(),
+						updatedAt: new Date(),
+						associatedCandidateId: newCandidateId,
+						associatedClientId: clientId,
+						requisitionId,
+						weekBeginDate: weekStartStr,
+						totalHoursWorked: '0',
+						totalHoursBilled: '0',
+						hoursRaw: [],
+						status: 'PENDING',
+						validated: false,
+						awaitingClientSignature: true
+					});
+				} else {
+					newTimesheetId = existingTimesheet[0].id;
+				}
+
+				// Create new workday for the new candidate, linked to the timesheet
+				const newWorkdayId = crypto.randomUUID();
+				await tx.insert(workdayTable).values({
+					id: newWorkdayId,
+					candidateId: newCandidateId,
+					requisitionId,
+					recurrenceDayId,
+					timesheetId: newTimesheetId,
+					createdAt: new Date(),
+					updatedAt: new Date()
+				});
+
+				// Keep recurrence day as FILLED since we still have someone assigned
+				await tx
+					.update(recurrenceDayTable)
+					.set({ status: 'FILLED', updatedAt: new Date() })
+					.where(eq(recurrenceDayTable.id, recurrenceDayId));
+			});
+
+			setFlash({ type: 'success', message: 'Professional successfully reassigned' }, event);
+			return { success: true };
+		} catch (error) {
+			console.error('Error reassigning candidate:', error);
+			setFlash({ type: 'error', message: 'Failed to reassign professional' }, event);
+			return fail(500, { error: error instanceof Error ? error.message : 'Unknown error' });
+		}
+	},
+
+	cancelWorkday: async (event: RequestEvent) => {
+		const { request, locals } = event;
+		const user = locals.user;
+
+		if (!user) {
+			return fail(403, { error: 'Not authenticated' });
+		}
+
+		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+			return fail(403, { error: 'Not authorized' });
 		}
 
 		try {
@@ -282,62 +536,61 @@ export const actions = {
 				return fail(400, { error: 'Missing required fields' });
 			}
 
-			// Use transaction to ensure all operations succeed together
 			await db.transaction(async (tx) => {
-				// Update recurrence day status to CANCELLED
 				await tx
 					.update(recurrenceDayTable)
-					.set({
-						status: 'CANCELED',
-						updatedAt: new Date()
-					})
+					.set({ status: 'CANCELED', updatedAt: new Date() })
 					.where(eq(recurrenceDayTable.id, recurrenceDayId));
 
-				// Delete associated workday
 				await tx.delete(workdayTable).where(eq(workdayTable.recurrenceDayId, recurrenceDayId));
 			});
 
-			setFlash(
-				{
-					type: 'success',
-					message: 'Workday successfully cancelled'
-				},
-				event
-			);
-
+			setFlash({ type: 'success', message: 'Workday successfully cancelled' }, event);
 			return { success: true };
 		} catch (error) {
 			console.error('Error cancelling workday:', error);
-
-			const errorMessage = error instanceof Error ? error.message : 'Failed to cancel workday';
-
-			setFlash(
-				{
-					type: 'error',
-					message: 'Failed to cancel workday'
-				},
-				event
-			);
-
-			return fail(500, { error: errorMessage });
+			setFlash({ type: 'error', message: 'Failed to cancel workday' }, event);
+			return fail(500, { error: error instanceof Error ? error.message : 'Unknown error' });
 		}
 	},
-	blacklistCandidate: async (request: RequestEvent) => {},
-	reassignRecurrenceDay: async (event: RequestEvent) => {
-		const { request, locals, params } = event;
-		const user = locals.user;
 
-		if (!user) {
-			return fail(403, { error: 'Not authenticated' });
-		}
+	// setAdjustedHourlyRate: async (event: RequestEvent) => {
+	// 	const { locals } = event;
+	// 	const user = locals.user;
 
-		// Only allow SUPERADMIN, CLIENT, or CLIENT_STAFF to assign
-		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
-			return fail(403, { error: 'Not authorized to assign candidates' });
-		}
+	// 	if (!user) {
+	// 		return fail(403, { error: 'Not authenticated' });
+	// 	}
 
-		// Need to reassign to new candidate
-		// Need to reassign workday to candidate
-		// need to reassign generated timesheet to new candidate
-	}
+	// 	if (user.role !== USER_ROLES.SUPERADMIN) {
+	// 		return fail(403, { error: 'Only admins can adjust the hourly rate' });
+	// 	}
+
+	// 	const form = await superValidate(event, adjustedHourlyRateSchema);
+
+	// 	if (!form.valid) {
+	// 		return fail(400, { form });
+	// 	}
+
+	// 	try {
+	// 		const { timesheetId, adjustedHourlyRate } = form.data;
+
+	// 		await db
+	// 			.update(timesheetTable)
+	// 			.set({
+	// 				adjustedHourlyRate: adjustedHourlyRate,
+	// 				updatedAt: new Date()
+	// 			})
+	// 			.where(eq(timesheetTable.id, timesheetId));
+
+	// 		setFlash({ type: 'success', message: 'Hourly rate updated successfully' }, event);
+	// 		return message(form, 'Rate updated');
+	// 	} catch (error) {
+	// 		console.error('Error updating adjusted hourly rate:', error);
+	// 		setFlash({ type: 'error', message: 'Failed to update hourly rate' }, event);
+	// 		return setError(form, 'Something went wrong');
+	// 	}
+	// },
+
+	blacklistCandidate: async (_event: RequestEvent) => {}
 };

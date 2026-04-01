@@ -63,11 +63,23 @@ export const POST: RequestHandler = async ({ request, params }) => {
 					{ status: 409, headers: corsHeaders }
 				);
 			}
+			const timesheetId = existingWorkday.timesheetId;
+
 			await tx.delete(workdayTable).where(eq(workdayTable.id, existingWorkday.id));
 
-			await tx
-				.delete(timeSheetTable)
-				.where(and(eq(timeSheetTable.workdayId, id), eq(timeSheetTable.status, 'DRAFT')));
+			if (timesheetId) {
+				const remainingWorkdays = await tx
+					.select()
+					.from(workdayTable)
+					.where(eq(workdayTable.timesheetId, timesheetId))
+					.limit(1);
+
+				if (remainingWorkdays.length === 0) {
+					await tx
+						.delete(timeSheetTable)
+						.where(and(eq(timeSheetTable.id, timesheetId), eq(timeSheetTable.status, 'DRAFT')));
+				}
+			}
 
 			// Change Status of the recurrence day
 			const [updatedRecurrenceDay] = await tx

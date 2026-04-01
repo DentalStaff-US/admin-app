@@ -92,7 +92,8 @@ export const requisitionTable = pgTable('requisitions', {
 	}),
 	hourlyRate: smallint('hourly_rate'),
 	permanentPosition: boolean('permanent_position').default(false),
-	referenceTimezone: text('reference_timezone').notNull().default('America/New_York')
+	referenceTimezone: text('reference_timezone').notNull().default('America/New_York'),
+	purchaseOrderNumber: text('purchase_order_number')
 });
 
 export const recurrenceDayTable = pgTable('recurrence_days', {
@@ -272,7 +273,8 @@ export const workdayTable = pgTable('workdays', {
 	recurrenceDayId: text('recurrence_day_id').references(() => recurrenceDayTable.id, {
 		onDelete: 'cascade',
 		onUpdate: 'cascade'
-	})
+	}),
+	timesheetId: text('timesheet_id').references(() => timeSheetTable.id, { onDelete: 'set null' })
 });
 
 export const timesheetStatusEnum = pgEnum('timesheet_status', [
@@ -309,14 +311,11 @@ export const timeSheetTable = pgTable(
 		requisitionId: integer('requisition_id').references(() => requisitionTable.id, {
 			onDelete: 'set null'
 		}),
-		workdayId: text('workday_id')
-			.references(() => workdayTable.id)
-			.notNull(),
 		weekBeginDate: date('week_begin_date').notNull(),
 		hoursRaw: json('hours_raw').$type<RawTimesheetHours[]>().default([]),
 		status: timesheetStatusEnum('status').default('DRAFT').notNull(),
 		discrepancyNote: text('discrepancy_note'),
-		timesheetHourlyAdjusted: smallint('timesheet_hourly_rate_adjusted')
+		adjustedHourlyRate: smallint('adjusted_hourly_rate')
 	},
 	(table) => [
 		index('timesheet_candidate_idx').on(table.associatedCandidateId),

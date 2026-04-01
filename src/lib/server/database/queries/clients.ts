@@ -129,6 +129,8 @@ export async function createClientProfile(values: ClientProfile, tx?: any) {
 }
 
 export async function updateClientProfile(clientId: string, values: UpdateClientProfile) {
+	console.log('Executing updateClientProfile, and params', clientId + '\n' + values)
+	console.log(values)
 	const result = await db
 		.update(clientProfileTable)
 		.set(values)
@@ -136,8 +138,10 @@ export async function updateClientProfile(clientId: string, values: UpdateClient
 		.returning();
 
 	if (result.length === 0) {
+		console.log('El result fue nulitoo', result)
 		return null;
 	} else {
+		console.log('el resultado', result[0])
 		return result[0];
 	}
 }
@@ -538,11 +542,10 @@ export async function getPaginatedLocationsByCompanyId(
 		if (orderSelector && orderBy) {
 			query.append(sql`
 				ORDER BY
-				${
-					orderBy.direction === 'asc'
-						? sql`${sql.raw(orderSelector)}
+				${orderBy.direction === 'asc'
+					? sql`${sql.raw(orderSelector)}
 						ASC`
-						: sql`${sql.raw(orderSelector)}
+					: sql`${sql.raw(orderSelector)}
 						DESC`
 				}
 			`);

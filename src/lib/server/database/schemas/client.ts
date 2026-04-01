@@ -8,7 +8,8 @@ import {
 	smallint,
 	jsonb,
 	decimal,
-	customType
+	customType,
+	uuid
 } from 'drizzle-orm/pg-core';
 import { userTable } from './auth';
 import { candidateProfileTable } from './candidate';
@@ -41,7 +42,8 @@ export const clientProfileTable = pgTable('client_profiles', {
 	})
 		.notNull()
 		.defaultNow(),
-	birthday: date('birthday')
+	birthday: date('birthday'),
+	cellPhone: text('cell_phone')
 
 	// stripeCustomerId: text('stripe_customer_id')
 });
@@ -307,6 +309,40 @@ export const clientRatingTable = pgTable('client_ratings', {
 	rating: smallint('rating').notNull()
 });
 
+export const clientDocumentTypeEnum = pgEnum('client_document_type', [
+	'LICENSE',
+	'CERTIFICATE',
+	'AGGREEMENT',
+	'OTHER'
+]);
+
+export const clientDocumentUploadsTable = pgTable('client_document_uploads', {
+	id: uuid('id').notNull().primaryKey(),
+	createdAt: timestamp('created_at', {
+		withTimezone: true,
+		mode: 'date'
+	})
+		.notNull()
+		.default(new Date()),
+	updatedAt: timestamp('updated_at', {
+		withTimezone: true,
+		mode: 'date'
+	})
+		.notNull()
+		.default(new Date()),
+	clientId: text('client_id')
+		.references(() => clientProfileTable.id)
+		.notNull(),
+	uploadUrl: text('upload_url').notNull(),
+	expiryDate: timestamp('expiry_date', {
+		withTimezone: true,
+		mode: 'date'
+	}),
+	type: clientDocumentTypeEnum('type').notNull(),
+	filename: text('filename'),
+	adminOnly: boolean('admin_only').default(false)
+});
+
 export type ClientProfile = typeof clientProfileTable.$inferInsert;
 export type ClientCompany = typeof clientCompanyTable.$inferInsert;
 export type ClientCompanyLocation = typeof companyOfficeLocationTable.$inferInsert;
@@ -314,6 +350,7 @@ export type ClientCompanyStaffProfile = typeof clientStaffProfileTable.$inferIns
 export type ClientCompanyStaffLocation = typeof clientStaffLocationTable.$inferSelect;
 export type NewClientCompanyStaffLocation = typeof clientStaffLocationTable.$inferInsert;
 export type ClientRating = typeof clientRatingTable.$inferInsert;
+export type ClientDocumentUpload = typeof clientDocumentUploadsTable.$inferInsert;
 
 export type UpdateClientProfile = Partial<typeof clientProfileTable.$inferInsert>;
 export type UpdateClientCompany = Partial<typeof clientCompanyTable.$inferInsert>;
@@ -322,6 +359,8 @@ export type UpdateClientCompanyStaffProfile = Partial<typeof clientStaffProfileT
 export type UpdateClientCompanyStaffLocation = Partial<
 	typeof clientStaffLocationTable.$inferInsert
 >;
+export type UpdateClientRating = Partial<typeof clientRatingTable.$inferInsert>;
+export type UpdateClientDocumentUpload = Partial<typeof clientDocumentUploadsTable.$inferInsert>;
 
 export type ClientCompanySelect = typeof clientCompanyTable.$inferSelect;
 export type ClientCompanyLocationSelect = typeof companyOfficeLocationTable.$inferSelect;
@@ -329,3 +368,4 @@ export type ClientCompanyStaffProfileSelect = typeof clientStaffProfileTable.$in
 export type ClientCompanyStaffLocationSelect = typeof clientStaffLocationTable.$inferSelect;
 export type ClientRatingSelect = typeof clientRatingTable.$inferSelect;
 export type ClientProfileSelect = typeof clientProfileTable.$inferSelect;
+export type ClientDocumentUploadSelect = typeof clientDocumentUploadsTable.$inferSelect;

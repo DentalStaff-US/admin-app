@@ -1,6 +1,7 @@
 import type { PageServerLoad, RequestEvent } from './$types';
 import {
 	changeRequisitionStatus,
+	updateRequisition,
 	createNewRecurrenceDay,
 	deleteRecurrenceDay,
 	editRecurrenceDay,
@@ -9,7 +10,6 @@ import {
 	getRequisitionApplications,
 	getRequisitionDetailsById,
 	getRequisitionTimesheets,
-	getRequisitionDetailsForAdmin,
 	getRequisitionDetailsByIdAdmin,
 	closeAllUpcomingRecurrenceDays
 } from '$lib/server/database/queries/requisitions';
@@ -23,6 +23,7 @@ import {
 } from '$lib/config/zod-schemas';
 import { USER_ROLES } from '$lib/config/constants';
 import {
+	getAllClientLocationsByCompanyId,
 	getClientCompanyByClientId,
 	getClientProfileByStaffUserId,
 	getClientProfilebyUserId,
@@ -33,6 +34,8 @@ import type { ClientCompanyStaffProfile } from '$lib/server/database/schemas/cli
 import { convertRecurrenceDayToUTC, getUserTimezone } from '$lib/_helpers/UTCTimezoneUtils';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
+import { getAllDisciplines } from '$lib/server/database/queries/disciplines';
+import { getAllExperienceLevels } from '$lib/server/database/queries/skills';
 
 export const load: PageServerLoad = async (event: RequestEvent) => {
 	const user = event.locals.user;
@@ -54,6 +57,10 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		const requisitionApplications = await getRequisitionApplications(idAsNum);
 		const requisitionTimesheets = await getRequisitionTimesheets(idAsNum);
 		const requisitionRecurrenceDays = await getRecurrenceDaysForRequisition(idAsNum);
+		const disciplines = await getAllDisciplines();
+		const experienceLevels = await getAllExperienceLevels();
+		const locations = await getAllClientLocationsByCompanyId(company.id);
+
 		const location = await getLocationByIdForCompany(
 			requisition.requisition.location.id,
 			company.id
@@ -71,7 +78,10 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			requisition: requisition.requisition || null,
 			recurrenceDays: requisitionRecurrenceDays || [],
 			applications: requisitionApplications || [],
-			timesheets: requisitionTimesheets || []
+			timesheets: requisitionTimesheets || [],
+			disciplines,
+			experienceLevels,
+			locations
 		};
 	}
 
@@ -89,6 +99,9 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		const requisitionTimesheets = await getRequisitionTimesheets(idAsNum);
 		const requisitionRecurrenceDays = await getRecurrenceDaysForRequisition(idAsNum);
 		const location = await getLocationByIdForCompany(result.requisition.location.id, company.id);
+		const disciplines = await getAllDisciplines();
+		const experienceLevels = await getAllExperienceLevels();
+		const locations = await getAllClientLocationsByCompanyId(company.id);
 
 		const hasRequisitionRights = true;
 
@@ -104,7 +117,10 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			requisition: result?.requisition ?? null,
 			recurrenceDays: requisitionRecurrenceDays || [],
 			applications: requisitionApplications || [],
-			timesheets: requisitionTimesheets || []
+			timesheets: requisitionTimesheets || [],
+			disciplines,
+			experienceLevels,
+			locations
 		};
 	}
 	if (user.role === USER_ROLES.CLIENT_STAFF) {
@@ -119,6 +135,9 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		const requisitionTimesheets = await getRequisitionTimesheets(idAsNum);
 		const requisitionRecurrenceDays = await getRecurrenceDaysForRequisition(idAsNum);
 		const location = await getLocationByIdForCompany(result.requisition.location.id, company.id);
+		const disciplines = await getAllDisciplines();
+		const experienceLevels = await getAllExperienceLevels();
+		const locations = await getAllClientLocationsByCompanyId(company.id);
 
 		const hasRequisitionRights =
 			profile?.staffRole === 'CLIENT_ADMIN' || profile?.staffRole === 'CLIENT_MANAGER';
@@ -135,7 +154,10 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			requisition: result?.requisition ?? null,
 			recurrenceDays: requisitionRecurrenceDays || [],
 			applications: requisitionApplications || [],
-			timesheets: requisitionTimesheets || []
+			timesheets: requisitionTimesheets || [],
+			disciplines,
+			experienceLevels,
+			locations
 		};
 	}
 };
@@ -379,6 +401,43 @@ export const actions = {
 				request
 			);
 			return setError(form, 'Something went wrong');
+		}
+	},
+	updateRequisition: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) return fail(403);
+
+		const { id } = event.params;
+		const idAsNum = Number(id);
+		const formData = await event.request.formData();
+
+		const disciplineId = formData.get('disciplineId') as string;
+		const experienceLevelId = formData.get('experienceLevelId') as string | null;
+		const hourlyRate = Number(formData.get('hourlyRate'));
+		const jobDescription = formData.get('jobDescription') as string;
+		const specialInstructions = formData.get('specialInstructions') as string | null;
+		const purchaseOrderNumber = formData.get('purchaseOrderNumber') as string;
+
+		try {
+			await updateRequisition(
+				idAsNum,
+				{
+					disciplineId,
+					experienceLevelId,
+					hourlyRate,
+					jobDescription,
+					specialInstructions,
+					purchaseOrderNumber
+				},
+				user.id
+			);
+
+			setFlash({ type: 'success', message: 'Requisition updated successfully' }, event);
+			return { success: true };
+		} catch (err) {
+			console.error('Error updating requisition:', err);
+			setFlash({ type: 'error', message: 'Failed to update requisition' }, event);
+			return fail(500, { error: 'Failed to update requisition' });
 		}
 	}
 	// deleteRequisition: async (request: RequestEvent) => {

@@ -139,6 +139,7 @@ export const candidateDocumentTypeEnum = pgEnum('candidate_document_type', [
 	'RESUME',
 	'LICENSE',
 	'CERTIFICATE',
+	'AGGREEMENT',
 	'OTHER'
 ]);
 
@@ -165,16 +166,22 @@ export const candidateDocumentUploadsTable = pgTable('candidate_document_uploads
 		mode: 'date'
 	}),
 	type: candidateDocumentTypeEnum('type').notNull(),
-	filename: text('filename')
+	filename: text('filename'),
+	adminOnly: boolean('admin_only').default(false)
 });
 
 export type CandidateProfile = typeof candidateProfileTable.$inferInsert;
 export type CandidateProfileSelect = typeof candidateProfileTable.$inferSelect;
 export type UpdateCandidateProfile = Partial<typeof candidateProfileTable.$inferInsert>;
+
 export type CandidateRating = typeof candidateRatingTable.$inferInsert;
+export type UpdateCandidateRating = Partial<typeof candidateRatingTable.$inferInsert>;
 export type CandidateRatingSelect = typeof candidateRatingTable.$inferSelect;
+
 export type CandidateBlacklist = typeof candidateBlacklistTable.$inferInsert;
 export type CandidateBlacklistSelect = typeof candidateBlacklistTable.$inferSelect;
+export type UpdateCandidateBlacklist = Partial<typeof candidateBlacklistTable.$inferInsert>;
+
 export type CandidateDisciplineExperience = typeof candidateDisciplineExperienceTable.$inferInsert;
 export type CandidateDisciplineExperienceSelect =
 	typeof candidateDisciplineExperienceTable.$inferSelect;

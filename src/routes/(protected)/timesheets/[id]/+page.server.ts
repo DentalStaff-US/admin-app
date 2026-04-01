@@ -35,7 +35,7 @@ import { actionHistoryTable } from '$lib/server/database/schemas/admin';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
 import { userTable } from '$lib/server/database/schemas/auth';
 import { getUserById } from '$lib/server/database/queries/users';
-import { timeSheetTable } from '$lib/server/database/schemas/requisition';
+import { timeSheetTable, workdayTable } from '$lib/server/database/schemas/requisition';
 import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import type { RawTimesheetHours } from '$lib/server/database/schemas/requisition';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
@@ -67,22 +67,8 @@ export const load = async (event: RequestEvent) => {
 			})
 		);
 
-		// console.log(
-		// 	JSON.stringify(
-		// 		{
-		// 			timesheet,
-		// 			requisition,
-		// 			recurrenceDays,
-		// 			workdays,
-		// 			invoice,
-		// 			auditHistory: auditHistory
-		// 				.filter((h) => h.status === 'fulfilled')
-		// 				.map((h) => ({ ...h.value, user: h.value.user }))
-		// 		},
-		// 		null,
-		// 		2
-		// 	)
-		// );
+		console.log(requisition, 'requisition');
+
 		return {
 			user,
 			timesheet,
@@ -141,7 +127,38 @@ export const load = async (event: RequestEvent) => {
 };
 
 export const actions = {
-	// ✅ NEW: Admin submit timesheet (DRAFT → PENDING) with proper timezone conversion
+	// Set adjusted hourly rate on the workday associated with this timesheet
+	setAdjustedHourlyRate: async (event: RequestEvent) => {
+		const { user } = event.locals;
+		const { id } = event.params;
+
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Only admins can adjust the hourly rate' });
+		}
+
+		const formData = await event.request.formData();
+		const rawRate = formData.get('adjustedHourlyRate') as string;
+
+		const adjustedHourlyRate = rawRate !== '' && rawRate !== null ? parseInt(rawRate, 10) : null;
+
+		if (adjustedHourlyRate !== null && (isNaN(adjustedHourlyRate) || adjustedHourlyRate < 0)) {
+			return fail(400, { error: 'Invalid hourly rate' });
+		}
+
+		try {
+			await db
+				.update(timeSheetTable)
+				.set({ adjustedHourlyRate, updatedAt: new Date() })
+				.where(eq(timeSheetTable.id, id));
+
+			setFlash({ type: 'success', message: 'Hourly rate updated successfully' }, event);
+			return { success: true };
+		} catch (err) {
+			console.error('Error updating adjusted hourly rate:', err);
+			setFlash({ type: 'error', message: 'Failed to update hourly rate' }, event);
+			return fail(500, { error: 'Failed to update hourly rate' });
+		}
+	},
 	adminSubmitTimesheet: async (event: RequestEvent) => {
 		const { id } = event.params;
 		const { user } = event.locals;
@@ -155,7 +172,6 @@ export const actions = {
 		const totalHours = parseFloat(formData.get('totalHours') as string);
 
 		try {
-			// Fetch timesheet
 			const [timesheet] = await db
 				.select()
 				.from(timeSheetTable)
@@ -166,14 +182,12 @@ export const actions = {
 				throw error(404, 'Timesheet not found');
 			}
 
-			// Get requisition for timezone
 			const requisition = await getRequisitionById(timesheet.requisitionId);
 
 			if (!requisition || !requisition.referenceTimezone) {
 				throw error(400, 'Requisition timezone not found');
 			}
 
-			// Convert entries to array format
 			const entriesArray = Object.entries(entries)
 				.filter(([_, value]: [string, any]) => value.hours > 0)
 				.map(([date, value]: [string, any]) => ({
@@ -185,7 +199,6 @@ export const actions = {
 					hours: value.hours
 				}));
 
-			// Format entries with UTC conversion using requisition timezone
 			const formattedEntries: RawTimesheetHours[] = entriesArray.map((entry) => ({
 				...entry,
 				startTime: createUTCDateTime(entry.date, entry.startTime, requisition.referenceTimezone),
@@ -198,7 +211,6 @@ export const actions = {
 					: null
 			}));
 
-			// Update timesheet
 			const [result] = await db
 				.update(timeSheetTable)
 				.set({
@@ -228,7 +240,6 @@ export const actions = {
 		}
 	},
 
-	// ✅ NEW: Admin resubmit timesheet (DISCREPANCY → PENDING) with proper timezone conversion
 	adminResubmitTimesheet: async (event: RequestEvent) => {
 		const { id } = event.params;
 		const { user } = event.locals;
@@ -242,7 +253,6 @@ export const actions = {
 		const totalHours = parseFloat(formData.get('totalHours') as string);
 
 		try {
-			// Fetch timesheet
 			const [timesheet] = await db
 				.select()
 				.from(timeSheetTable)
@@ -253,14 +263,12 @@ export const actions = {
 				throw error(404, 'Timesheet not found');
 			}
 
-			// Get requisition for timezone
 			const requisition = await getRequisitionById(timesheet.requisitionId);
 
 			if (!requisition || !requisition.referenceTimezone) {
 				throw error(400, 'Requisition timezone not found');
 			}
 
-			// Convert entries to array format
 			const entriesArray = Object.entries(entries)
 				.filter(([_, value]: [string, any]) => value.hours > 0)
 				.map(([date, value]: [string, any]) => ({
@@ -272,7 +280,6 @@ export const actions = {
 					hours: value.hours
 				}));
 
-			// Format entries with UTC conversion using requisition timezone
 			const formattedEntries: RawTimesheetHours[] = entriesArray.map((entry) => ({
 				...entry,
 				startTime: createUTCDateTime(entry.date, entry.startTime, requisition.referenceTimezone),
@@ -285,7 +292,6 @@ export const actions = {
 					: null
 			}));
 
-			// Update timesheet and clear discrepancy note
 			const [result] = await db
 				.update(timeSheetTable)
 				.set({
@@ -319,7 +325,6 @@ export const actions = {
 		}
 	},
 
-	// ✅ EXISTING: Reject timesheet
 	rejectTimesheet: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user) {
@@ -347,9 +352,7 @@ export const actions = {
 		}
 	},
 
-	// ✅ EXISTING: Approve timesheet
 	approveTimesheet: async (event: RequestEvent) => {
-		console.log('Approve timesheet action triggered');
 		const { id } = event.params;
 		const { user } = event.locals;
 		if (user === null) {
@@ -365,10 +368,13 @@ export const actions = {
 			if (!requisition) {
 				throw new Error('Requisition not found for timesheet');
 			}
+
+			const effectiveRate = timesheet.adjustedHourlyRate ?? requisition.hourlyRate;
+
 			const amountInCents = convertToStripeAmount(
 				timesheet.totalHoursWorked || 0,
-				requisition!.hourlyRate,
-				requisition!.hourlyRate && requisition.hourlyRate * 1.5
+				effectiveRate,
+				effectiveRate && effectiveRate * 1.5
 			);
 
 			const adminFee = adminConfig.adminPaymentFee;
@@ -426,7 +432,6 @@ export const actions = {
 		}
 	},
 
-	// ✅ EXISTING: Void timesheet
 	voidTimesheet: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user) {
@@ -444,7 +449,6 @@ export const actions = {
 		}
 	},
 
-	// ✅ EXISTING: Admin override timesheet
 	adminOverrideTimesheet: async (event: RequestEvent) => {
 		if (event.locals.user === null) {
 			redirect(302, '/auth/sign-in');
@@ -471,10 +475,12 @@ export const actions = {
 
 			const [adminConfig] = await db.select().from(adminConfigTable).limit(1);
 
+			const effectiveRate = overridden.adjustedHourlyRate ?? requisition.hourlyRate;
+
 			const amountInCents = convertToStripeAmount(
 				timesheet.totalHoursWorked || 0,
-				requisition!.hourlyRate,
-				requisition!.hourlyRate && requisition.hourlyRate * 1.5
+				effectiveRate,
+				effectiveRate && effectiveRate * 1.5
 			);
 
 			const adminFee = adminConfig.adminPaymentFee;

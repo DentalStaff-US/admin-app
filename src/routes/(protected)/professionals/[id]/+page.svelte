@@ -11,7 +11,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import * as Select from '$lib/components/ui/select';
-	import { STATES } from '$lib/config/constants';
+	import AdminProfileComments from '$lib/views/admin/adminProfileComments.svelte';
 	import {
 		Save,
 		X,
@@ -29,7 +29,12 @@
 		Download,
 		MoreHorizontal,
 		Trash2,
-		Plus
+		Plus,
+		MessageSquare,
+		Delete,
+		Trash,
+		Lock,
+		Unlock
 	} from 'lucide-svelte';
 	import { superForm } from 'sveltekit-superforms/client';
 	import { format } from 'date-fns';
@@ -962,6 +967,24 @@
 								{/if}
 							</CardContent>
 						</Card>
+						{#if isAdmin}
+							<Card class="w-full max-w-none">
+								<CardHeader class="pb-3">
+									<CardTitle class="text-blue-600 flex items-center gap-2 text-lg">
+										<MessageSquare class="h-4 w-4" />
+										Admin Notes
+									</CardTitle>
+								</CardHeader>
+								<CardContent class="pt-0">
+									<AdminProfileComments
+										comments={data.comments}
+										currentUserId={user.id}
+										addAction="?/addComment"
+										deleteAction="?/deleteComment"
+									/>
+								</CardContent>
+							</Card>
+						{/if}
 					</div>
 				</TabsContent>
 
@@ -1043,6 +1066,9 @@
 									<tr class="border-b hover:bg-gray-50">
 										<td class="py-3 px-4">
 											<div class="flex items-center gap-2">
+												{#if doc.adminOnly}
+													<Lock class="h-5 w-5 text-red-600" />
+												{/if}
 												{#if getFileIcon(doc?.filename) === 'image'}
 													<svg
 														xmlns="http://www.w3.org/2000/svg"
@@ -1098,8 +1124,40 @@
 															rel="noopener noreferrer"
 														>
 															<Download class="h-4 w-4 mr-2" />
-															<span>Download</span></a
+															<span>Download</span>
+														</a>
+													</DropdownMenuItem>
+													<DropdownMenuItem class="cursor-pointer">
+														<form
+															action="?/toggleAdminDocumentLock"
+															method="post"
+															use:enhance
+															class="w-full"
 														>
+															<input type="hidden" name="documentId" value={doc.id} />
+															<button type="submit" class="flex items-center w-full text-left">
+																{#if doc.adminOnly}
+																	<Unlock class="h-4 w-4 mr-2" />
+																{:else}
+																	<Lock class="h-4 w-4 mr-2" />
+																{/if}
+																<span>{doc.adminOnly ? 'Unlock ' : 'Lock '}</span>
+															</button>
+														</form>
+													</DropdownMenuItem>
+													<DropdownMenuItem class="text-red-600 cursor-pointer">
+														<form
+															action="?/deleteDocument"
+															method="post"
+															use:enhance
+															class="w-full"
+														>
+															<input type="hidden" name="documentId" value={doc.id} />
+															<button type="submit" class="flex items-center w-full text-left">
+																<Trash class="h-4 w-4 mr-2" />
+																<span>Delete</span>
+															</button>
+														</form>
 													</DropdownMenuItem>
 												</DropdownMenuContent>
 											</DropdownMenu>
