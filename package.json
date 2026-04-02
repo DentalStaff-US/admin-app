@@ -101,6 +101,7 @@
 		"svelte-sonner": "^0.3.11",
 		"tailwind-merge": "^2.2.2",
 		"tailwind-variants": "^0.1.18",
+		"twilio": "^5.13.1",
 		"vaul-svelte": "^0.0.6"
 	}
 }
