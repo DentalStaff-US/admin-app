@@ -761,58 +761,88 @@
 											<p>No scheduled workdays found for this week</p>
 										</div>
 									{/if}
-								{:else if data?.timesheet?.hoursRaw && data.timesheet.hoursRaw.length > 0}
-									<div class="divide-y">
-										{#each data.timesheet.hoursRaw as entry}
-											{@const recurrenceDay = data?.recurrenceDays.find(
-												(day) => day.date === entry.date
-											)}
-											<div class="py-3">
-												<div class="flex items-center justify-between mb-1">
-													<p class="font-medium">{formatFullDate(entry.date)}</p>
-													<p class="text-lg font-semibold">{entry.hours} hrs</p>
-												</div>
-												<div class="text-sm text-muted-foreground space-y-1">
-													<p>
-														Work: {formatTimeInReqZone(entry.startTime)} - {formatTimeInReqZone(
-															entry.endTime
-														)}
-														<span class="text-xs text-blue-600">({reqTimezoneName})</span>
-													</p>
-													{#if entry.lunchStartTime && entry.lunchEndTime}
-														<p class="flex items-center gap-1">
-															<span class="text-xs">🍽️</span>
-															Lunch: {formatTimeInReqZone(entry.lunchStartTime)} - {formatTimeInReqZone(
-																entry.lunchEndTime
-															)}
-														</p>
+								{:else}
+									<!-- Read-only view — show hoursRaw if available, otherwise show scheduled workdays -->
+									{@const rowsToShow =
+										data?.timesheet?.hoursRaw && data.timesheet.hoursRaw.length > 0
+											? data.timesheet.hoursRaw.map((entry) => ({
+													dateKey: entry.date,
+													dayString: formatFullDate(entry.date),
+													startTime: entry.startTime,
+													endTime: entry.endTime,
+													lunchStartTime: entry.lunchStartTime,
+													lunchEndTime: entry.lunchEndTime,
+													hours: entry.hours,
+													hasEntry: true
+												}))
+											: scheduledWorkDays.map(({ dateKey, dayString }) => ({
+													dateKey,
+													dayString,
+													startTime: null,
+													endTime: null,
+													lunchStartTime: null,
+													lunchEndTime: null,
+													hours: null,
+													hasEntry: false
+												}))}
+									{#if rowsToShow.length > 0}
+										<div class="divide-y">
+											{#each rowsToShow as row}
+												{@const recurrenceDay = data?.recurrenceDays.find(
+													(d) => d.date === row.dateKey
+												)}
+												<div class="py-3">
+													<div class="flex items-center justify-between mb-1">
+														<p class="font-medium">{row.dayString}</p>
+														{#if row.hasEntry}
+															<p class="text-lg font-semibold">{row.hours} hrs</p>
+														{:else}
+															<p class="text-sm text-gray-400 italic">No hours entered</p>
+														{/if}
+													</div>
+													{#if row.hasEntry}
+														<div class="text-sm text-muted-foreground space-y-1">
+															<p>
+																Work: {formatTimeInReqZone(row.startTime)} - {formatTimeInReqZone(
+																	row.endTime
+																)}
+																<span class="text-xs text-blue-600">({reqTimezoneName})</span>
+															</p>
+															{#if row.lunchStartTime && row.lunchEndTime}
+																<p class="flex items-center gap-1">
+																	<span class="text-xs">🍽️</span>
+																	Lunch: {formatTimeInReqZone(row.lunchStartTime)} - {formatTimeInReqZone(
+																		row.lunchEndTime
+																	)}
+																</p>
+															{/if}
+														</div>
+													{/if}
+													{#if recurrenceDay}
+														<div class="pt-2 border-t mt-2">
+															<p class="text-xs text-muted-foreground">
+																Scheduled: {formatTimeInReqZone(recurrenceDay.dayStart)} - {formatTimeInReqZone(
+																	recurrenceDay.dayEnd
+																)}
+																{#if recurrenceDay.lunchStart && recurrenceDay.lunchEnd}
+																	<span class="ml-2">
+																		(Lunch: {formatTimeInReqZone(recurrenceDay.lunchStart)} - {formatTimeInReqZone(
+																			recurrenceDay.lunchEnd
+																		)})
+																	</span>
+																{/if}
+															</p>
+														</div>
 													{/if}
 												</div>
-
-												{#if recurrenceDay}
-													<div class="pt-2 border-t mt-2">
-														<p class="text-xs text-muted-foreground">
-															Scheduled: {formatTimeInReqZone(recurrenceDay.dayStart)} - {formatTimeInReqZone(
-																recurrenceDay.dayEnd
-															)}
-															{#if recurrenceDay.lunchStart && recurrenceDay.lunchEnd}
-																<span class="ml-2">
-																	(Lunch: {formatTimeInReqZone(recurrenceDay.lunchStart)} - {formatTimeInReqZone(
-																		recurrenceDay.lunchEnd
-																	)})
-																</span>
-															{/if}
-														</p>
-													</div>
-												{/if}
-											</div>
-										{/each}
-									</div>
-								{:else}
-									<div class="py-12 text-center text-muted-foreground">
-										<Clipboard class="h-12 w-12 mx-auto mb-3" />
-										<p>No hours recorded for this timesheet</p>
-									</div>
+											{/each}
+										</div>
+									{:else}
+										<div class="py-12 text-center text-muted-foreground">
+											<Clipboard class="h-12 w-12 mx-auto mb-3" />
+											<p>No scheduled workdays found for this timesheet</p>
+										</div>
+									{/if}
 								{/if}
 							</CardContent>
 						</Card>
