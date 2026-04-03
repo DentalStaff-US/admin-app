@@ -6,15 +6,14 @@ import {
 	getCalendarEventsForClient,
 	getClientCompanyByClientId,
 	getClientProfileById,
-	getClientProfilebyUserId,
 	getClientSubscription,
 	getPrimaryLocationForStaff
 } from '$lib/server/database/queries/clients';
 import { fail, redirect } from '@sveltejs/kit';
 import { USER_ROLES } from '$lib/config/constants';
 import {
-	getSupportTicketsForClient,
-	getSupportTicketsForUser
+	getSupportTicketsForClient
+	// getSupportTicketsForUser
 } from '$lib/server/database/queries/support';
 import {
 	createInvoiceRecord,
@@ -40,6 +39,12 @@ import {
 	getCommentsForClient
 } from '$lib/server/database/queries/admin';
 // import { getClientBillingInfo } from '$lib/server/database/queries/billing';
+import {
+	getClientDocuments,
+	uploadClientDocument,
+	deleteClientDocument,
+	toggleClientDocumentLock
+} from '$lib/server/database/queries/clients';
 
 const LineItemSchema = z.array(
 	z.object({
@@ -97,6 +102,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	const invoiceForm = await superValidate(NewInvoiceSchema);
 	const requisitionForm = await superValidate(adminRequisitionSchema);
 	const locationForm = await superValidate(newClientCompanyLocationSchema);
+	const documents = await getClientDocuments(result.profile.id);
+
 	const updateClientForm = await superValidate(
 		{
 			firstName: result.user.firstName,
@@ -140,7 +147,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				requisitionForm,
 				locationForm,
 				updateClientForm,
-				comments
+				comments,
+				documents
 			}
 		: {
 				user,
@@ -154,7 +162,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				updateClientForm,
 				requisitionForm,
 				locationForm,
-				comments: []
+				comments: [],
+				documents: []
 			};
 };
 
@@ -385,5 +394,62 @@ export const actions = {
 		await deleteComment(commentId, user.id);
 		setFlash({ type: 'success', message: 'Comment deleted' }, event);
 		return { success: true };
+	},
+	uploadClientDocument: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+
+		const { id } = event.params;
+		const formData = await event.request.formData();
+		const uploadUrl = formData.get('uploadUrl') as string;
+		const filename = formData.get('filename') as string;
+		const type = formData.get('type') as 'LICENSE' | 'CERTIFICATE' | 'AGGREEMENT' | 'OTHER';
+		const adminOnly = formData.get('adminOnly') === 'true';
+
+		try {
+			await uploadClientDocument({ clientId: id, uploadUrl, filename, type, adminOnly });
+			setFlash({ type: 'success', message: 'Document uploaded successfully' }, event);
+			return { success: true };
+		} catch (err) {
+			console.error(err);
+			setFlash({ type: 'error', message: 'Failed to upload document' }, event);
+			return fail(500, { error: 'Failed to upload document' });
+		}
+	},
+
+	deleteClientDocument: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+
+		const formData = await event.request.formData();
+		const documentId = formData.get('documentId') as string;
+
+		try {
+			await deleteClientDocument(documentId);
+			setFlash({ type: 'success', message: 'Document deleted' }, event);
+			return { success: true };
+		} catch (err) {
+			console.error(err);
+			setFlash({ type: 'error', message: 'Failed to delete document' }, event);
+			return fail(500, { error: 'Failed to delete document' });
+		}
+	},
+
+	toggleClientDocumentLock: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+
+		const formData = await event.request.formData();
+		const documentId = formData.get('documentId') as string;
+
+		try {
+			await toggleClientDocumentLock(documentId);
+			setFlash({ type: 'success', message: 'Document updated' }, event);
+			return { success: true };
+		} catch (err) {
+			console.error(err);
+			setFlash({ type: 'error', message: 'Failed to update document' }, event);
+			return fail(500, { error: 'Failed to update document' });
+		}
 	}
 };
