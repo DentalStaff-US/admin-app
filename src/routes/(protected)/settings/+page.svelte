@@ -7,14 +7,16 @@
 	import { page } from '$app/stores';
 	import type { PageData } from './$types';
 	import AdminSettingsView from '$lib/views/admin/adminSettingsView.svelte';
-	import {tick} from "svelte";
-	import {superForm} from "sveltekit-superforms/client";
+	import { tick } from 'svelte';
+	import { superForm } from 'sveltekit-superforms/client';
 
 	export let data: PageData;
 	export let subscriptionForm;
 	export let companyForm;
 
+	$: documents = data.documents;
 	$: userProfileForm = data.userProfileForm;
+	$: profileForm = data.profileForm;
 	$: passwordForm = data.passwordForm;
 	$: subscriptionForm = data.subscriptionForm;
 	$: companyForm = data.companyForm;
@@ -24,7 +26,7 @@
 	$: user = data.user;
 	$: URLTab = $page.url.searchParams.get('tab');
 	$: URLRole = $page.url.searchParams.get('role');
-	$: company = data.company
+	$: company = data.company;
 
 	$: console.log('URLTab:', URLTab);
 
@@ -64,6 +66,7 @@
 				bind:selectedTab
 				{companyForm}
 				{userProfileForm}
+				{profileForm}
 				{passwordForm}
 				{billingInfo}
 				staffInviteForm={data.inviteForm}
@@ -71,6 +74,7 @@
 				{user}
 				{company}
 				{handleAvatarUpdated}
+				documents={data.documents ?? []}
 			/>
 		{:else if user?.role === USER_ROLES.CLIENT_STAFF}
 			<ClientStaffSettingsView
@@ -83,16 +87,16 @@
 				{handleAvatarUpdated}
 			/>
 		{:else if user?.role === USER_ROLES.SUPERADMIN}
-			<AdminSettingsView bind:selectedTab {userProfileForm} {passwordForm} {user} {handleAvatarUpdated} />
+			<AdminSettingsView
+				bind:selectedTab
+				{userProfileForm}
+				{passwordForm}
+				{user}
+				{handleAvatarUpdated}
+			/>
 		{/if}
 	</div>
-	<form
-			id="avatar-url-form"
-			method="POST"
-			action="?/avatarUpload"
-			use:avatarEnhance
-			class="hidden"
-	>
+	<form id="avatar-url-form" method="POST" action="?/avatarUpload" use:avatarEnhance class="hidden">
 		<input type="hidden" name="url" bind:value={$formAvatar.url} />
 		<input type="hidden" name="isForUser" bind:value={$formAvatar.isForUser} />
 	</form>

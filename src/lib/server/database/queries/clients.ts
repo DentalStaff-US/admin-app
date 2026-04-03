@@ -2,6 +2,7 @@ import { desc, eq, count, sql, and, ne, notExists, or, ilike, SQL } from 'drizzl
 import db from '$lib/server/database/drizzle';
 import {
 	clientCompanyTable,
+	clientDocumentUploadsTable,
 	clientProfileTable,
 	clientStaffLocationTable,
 	clientStaffProfileTable,
@@ -129,8 +130,8 @@ export async function createClientProfile(values: ClientProfile, tx?: any) {
 }
 
 export async function updateClientProfile(clientId: string, values: UpdateClientProfile) {
-	console.log('Executing updateClientProfile, and params', clientId + '\n' + values)
-	console.log(values)
+	console.log('Executing updateClientProfile, and params', clientId + '\n' + values);
+	console.log(values);
 	const result = await db
 		.update(clientProfileTable)
 		.set(values)
@@ -138,10 +139,10 @@ export async function updateClientProfile(clientId: string, values: UpdateClient
 		.returning();
 
 	if (result.length === 0) {
-		console.log('El result fue nulitoo', result)
+		console.log('El result fue nulitoo', result);
 		return null;
 	} else {
-		console.log('el resultado', result[0])
+		console.log('el resultado', result[0]);
 		return result[0];
 	}
 }
@@ -542,10 +543,11 @@ export async function getPaginatedLocationsByCompanyId(
 		if (orderSelector && orderBy) {
 			query.append(sql`
 				ORDER BY
-				${orderBy.direction === 'asc'
-					? sql`${sql.raw(orderSelector)}
+				${
+					orderBy.direction === 'asc'
+						? sql`${sql.raw(orderSelector)}
 						ASC`
-					: sql`${sql.raw(orderSelector)}
+						: sql`${sql.raw(orderSelector)}
 						DESC`
 				}
 			`);
@@ -969,4 +971,54 @@ export async function inviteStaffUsersToAccount(locationId: string, invitees: Ne
 	}
 
 	return inviteResults;
+}
+
+export async function getClientDocuments(clientId?: string) {
+	if (!clientId) throw error(400, 'Client ID required');
+	return await db
+		.select()
+		.from(clientDocumentUploadsTable)
+		.where(eq(clientDocumentUploadsTable.clientId, clientId))
+		.orderBy(desc(clientDocumentUploadsTable.createdAt));
+}
+
+export async function uploadClientDocument(data: {
+	clientId: string;
+	uploadUrl: string;
+	filename: string;
+	type: 'LICENSE' | 'CERTIFICATE' | 'AGGREEMENT' | 'OTHER';
+	adminOnly?: boolean;
+}) {
+	const [result] = await db
+		.insert(clientDocumentUploadsTable)
+		.values({
+			id: crypto.randomUUID(),
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			clientId: data.clientId,
+			uploadUrl: data.uploadUrl,
+			filename: data.filename,
+			type: data.type,
+			adminOnly: data.adminOnly ?? false
+		})
+		.returning();
+	return result;
+}
+
+export async function deleteClientDocument(documentId: string) {
+	await db.delete(clientDocumentUploadsTable).where(eq(clientDocumentUploadsTable.id, documentId));
+}
+
+export async function toggleClientDocumentLock(documentId: string) {
+	const [doc] = await db
+		.select()
+		.from(clientDocumentUploadsTable)
+		.where(eq(clientDocumentUploadsTable.id, documentId));
+
+	const [result] = await db
+		.update(clientDocumentUploadsTable)
+		.set({ adminOnly: !doc.adminOnly, updatedAt: new Date() })
+		.where(eq(clientDocumentUploadsTable.id, documentId))
+		.returning();
+	return result;
 }

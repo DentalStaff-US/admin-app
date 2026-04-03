@@ -4,6 +4,9 @@
 	import type { PageData } from './$types';
 	import convertNameToInitials from '$lib/_helpers/convertNameToInitials';
 	import { getDayName } from '$lib/_helpers';
+	import { Download, Lock, Unlock, MoreHorizontal, Trash } from 'lucide-svelte';
+	import FileDropzone from '$lib/components/file-upload.svelte';
+	import { enhance as nativeEnhance } from '$app/forms';
 
 	// ShadcnUI Components
 	import { Button } from '$lib/components/ui/button';
@@ -11,6 +14,7 @@
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from '$lib/components/ui/tabs';
 	import {
 		Dialog,
+		DialogTrigger,
 		DialogClose,
 		DialogContent,
 		DialogDescription,
@@ -18,6 +22,12 @@
 		DialogHeader,
 		DialogTitle
 	} from '$lib/components/ui/dialog';
+	import {
+		DropdownMenu,
+		DropdownMenuContent,
+		DropdownMenuItem,
+		DropdownMenuTrigger
+	} from '$lib/components/ui/dropdown-menu';
 	import { Label } from '$lib/components/ui/label';
 	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
@@ -73,11 +83,11 @@
 
 	// Other imports
 	import { writable } from 'svelte/store';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import Calendar from '$lib/components/calendar/calendar.svelte';
 	import { cn } from '$lib/utils';
 	import type { CalendarEvent } from '$lib/types';
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import type {
 		InvoiceSelect,
 		InvoiceWithRelations
@@ -87,6 +97,7 @@
 	import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
 	import AddLocationDrawer from '$lib/components/drawers/addLocationDrawer.svelte';
 	import AdminProfileComments from '$lib/views/admin/adminProfileComments.svelte';
+	import { format } from 'date-fns';
 
 	export let data: PageData;
 	$: adminForm = data.requisitionForm;
@@ -536,6 +547,32 @@
 		navigator.clipboard.writeText(setupLink);
 		alert('Link copied to clipboard!');
 	}
+
+	let uploadDocumentDialogOpen = false;
+	let uploadDocumentType: 'LICENSE' | 'CERTIFICATE' | 'AGGREEMENT' | 'OTHER' = 'OTHER';
+	let uploadDocumentAdminOnly = false;
+	let clientDocsUrlString = '';
+	let clientDocsFileString = '';
+
+	async function handleClientDocumentUpload(file: File) {
+		if (!file) return;
+
+		const formData = new FormData();
+		formData.append('file', file);
+		formData.append('location', 'client-documents');
+
+		const response = await fetch('/api/uploadFile', { method: 'POST', body: formData });
+		if (!response.ok) throw new Error('Upload failed');
+
+		const { url, fileName } = await response.json();
+		clientDocsUrlString = url;
+		clientDocsFileString = fileName;
+
+		await tick();
+
+		const form = document.getElementById('client-documents-form') as HTMLFormElement;
+		if (form) form.requestSubmit();
+	}
 </script>
 
 {#if client}
@@ -838,7 +875,7 @@
 
 			<!-- Tabs section -->
 			<Tabs class="w-full">
-				<TabsList class="w-full md:w-auto grid grid-cols-2 md:grid-cols-4 gap-2 h-fit">
+				<TabsList class="w-full md:w-auto  gap-2 h-fit">
 					<TabsTrigger value="profile" class="flex items-center gap-2">
 						<Users class="h-4 w-4" />
 						<span class="hidden md:inline">Profile</span>
@@ -850,6 +887,10 @@
 					<TabsTrigger value="requisitions" class="flex items-center gap-2">
 						<ClipboardList class="h-4 w-4" />
 						<span class="hidden md:inline">Requisitions</span>
+					</TabsTrigger>
+					<TabsTrigger value="documents" class="flex items-center gap-2">
+						<FileText class="h-4 w-4" />
+						<span class="hidden md:inline">Documents</span>
 					</TabsTrigger>
 					<TabsTrigger value="support" class="flex items-center gap-2">
 						<MessageSquare class="h-4 w-4" />
@@ -1598,6 +1639,200 @@
 								<!-- Calendar View -->
 								<Calendar events={recurrenceDays} {selectEvent} />
 							{/if}
+						</CardContent>
+					</Card>
+				</TabsContent>
+				<!-- Documents Tab -->
+				<TabsContent value="documents" class="mt-6">
+					<Card class="w-full max-w-none">
+						<CardHeader class="flex flex-row items-center justify-between">
+							<CardTitle>Documents</CardTitle>
+							{#if isAdmin}
+								<Dialog bind:open={uploadDocumentDialogOpen}>
+									<DialogTrigger>
+										<Button
+											size="sm"
+											class="gap-1 bg-blue-500 hover:bg-blue-600"
+											on:click={() => (uploadDocumentDialogOpen = true)}
+										>
+											<Plus class="h-4 w-4" />
+											Upload
+										</Button>
+									</DialogTrigger>
+									<DialogContent>
+										<DialogHeader>
+											<DialogTitle>Upload Document</DialogTitle>
+										</DialogHeader>
+										<div class="space-y-4">
+											<div>
+												<Label for="docType">Document Type</Label>
+												<select
+													id="docType"
+													bind:value={uploadDocumentType}
+													class="mt-1 w-full p-2 border rounded text-sm"
+												>
+													<option value="LICENSE">License</option>
+													<option value="CERTIFICATE">Certificate</option>
+													<option value="AGGREEMENT">Agreement</option>
+													<option value="OTHER">Other</option>
+												</select>
+											</div>
+											<div class="flex items-center gap-2">
+												<input
+													type="checkbox"
+													id="adminOnly"
+													bind:checked={uploadDocumentAdminOnly}
+													class="h-4 w-4"
+												/>
+												<Label for="adminOnly" class="text-sm">Admin only</Label>
+											</div>
+											<FileDropzone
+												onFileDrop={handleClientDocumentUpload}
+												accept={['image/*', '.jpg', '.png', '.pdf', '.doc', '.docx']}
+												maxSizeMB={10}
+												multiple={false}
+											/>
+										</div>
+									</DialogContent>
+								</Dialog>
+							{/if}
+						</CardHeader>
+						<CardContent>
+							{#if data.documents && data.documents.length > 0}
+								<table class="w-full border-collapse">
+									<thead>
+										<tr class="border-b">
+											<th class="text-left py-3 px-4 font-medium text-sm">File</th>
+											<th class="text-left py-3 px-4 font-medium text-sm">Type</th>
+											<th class="text-left py-3 px-4 font-medium text-sm">Uploaded</th>
+											<th class="text-right py-3 px-4 font-medium text-sm">Actions</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each data.documents as doc}
+											<tr class="border-b hover:bg-gray-50">
+												<td class="py-3 px-4">
+													<div class="flex items-center gap-2">
+														{#if doc.adminOnly}
+															<Lock class="h-4 w-4 text-red-500 flex-shrink-0" />
+														{/if}
+														<FileText class="h-4 w-4 text-blue-600 flex-shrink-0" />
+														<span class="text-sm font-medium">{doc.filename}</span>
+													</div>
+												</td>
+												<td class="py-3 px-4 text-sm text-gray-600">{doc.type}</td>
+												<td class="py-3 px-4 text-sm text-gray-600">
+													{format(doc.createdAt, 'PP')}
+												</td>
+												<td class="py-3 px-4 text-right">
+													<DropdownMenu>
+														<DropdownMenuTrigger>
+															<Button variant="ghost" size="icon">
+																<MoreHorizontal class="h-4 w-4" />
+															</Button>
+														</DropdownMenuTrigger>
+														<DropdownMenuContent align="end">
+															<DropdownMenuItem>
+																<a
+																	class="flex items-center w-full"
+																	href={doc.uploadUrl}
+																	target="_blank"
+																	rel="noopener noreferrer"
+																>
+																	<Download class="h-4 w-4 mr-2" />
+																	Download
+																</a>
+															</DropdownMenuItem>
+															{#if isAdmin}
+																<DropdownMenuItem>
+																	<form
+																		action="?/toggleClientDocumentLock"
+																		method="post"
+																		use:nativeEnhance={() => {
+																			return async ({ result, update }) => {
+																				if (result.type === 'success') {
+																					await invalidateAll();
+																				}
+																				await update();
+																			};
+																		}}
+																		class="w-full"
+																	>
+																		<input type="hidden" name="documentId" value={doc.id} />
+																		<button
+																			type="submit"
+																			class="flex items-center w-full text-left"
+																		>
+																			{#if doc.adminOnly}
+																				<Unlock class="h-4 w-4 mr-2" />
+																				Unlock
+																			{:else}
+																				<Lock class="h-4 w-4 mr-2" />
+																				Lock
+																			{/if}
+																		</button>
+																	</form>
+																</DropdownMenuItem>
+																<DropdownMenuItem class="text-red-600">
+																	<form
+																		action="?/deleteClientDocument"
+																		method="post"
+																		use:nativeEnhance={() => {
+																			return async ({ result, update }) => {
+																				if (result.type === 'success') {
+																					await invalidateAll();
+																				}
+																				await update();
+																			};
+																		}}
+																		class="w-full"
+																	>
+																		<input type="hidden" name="documentId" value={doc.id} />
+																		<button
+																			type="submit"
+																			class="flex items-center w-full text-left text-red-600"
+																		>
+																			<Trash2 class="h-4 w-4 mr-2" />
+																			Delete
+																		</button>
+																	</form>
+																</DropdownMenuItem>
+															{/if}
+														</DropdownMenuContent>
+													</DropdownMenu>
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							{:else}
+								<div class="flex flex-col items-center justify-center py-8 text-center">
+									<FileText class="h-12 w-12 text-gray-300 mb-2" />
+									<h3 class="text-lg font-medium">No Documents</h3>
+									<p class="text-sm text-gray-500">No documents have been uploaded yet.</p>
+								</div>
+							{/if}
+							<form
+								id="client-documents-form"
+								method="POST"
+								action="?/uploadClientDocument"
+								use:nativeEnhance={() => {
+									return async ({ result, update }) => {
+										if (result.type === 'success') {
+											uploadDocumentDialogOpen = false;
+											uploadDocumentType = 'OTHER';
+											uploadDocumentAdminOnly = false;
+											await invalidateAll();
+										}
+										await update();
+									};
+								}}
+							>
+								<input type="hidden" name="uploadUrl" bind:value={clientDocsUrlString} />
+								<input type="hidden" name="filename" bind:value={clientDocsFileString} />
+								<input type="hidden" name="type" bind:value={uploadDocumentType} />
+								<input type="hidden" name="adminOnly" value={String(uploadDocumentAdminOnly)} />
+							</form>
 						</CardContent>
 					</Card>
 				</TabsContent>
