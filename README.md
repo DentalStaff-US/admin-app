@@ -1,10 +1,6 @@
-# Sveltekit Auth
+# Dental Temp Staffing Solutions
 
-![Sveltekit Auth User Interface](https://github.com/delay/sveltekit-auth/assets/638246/3fbb5318-cf46-40ab-a33b-9660019beec8)
-
-This is a Sveltekit Auth Project. An example website is currently deployed [here](https://sveltekit-auth-alpha.vercel.app). It is an open source auth starter project utilizing [Lucia](https://lucia-auth.com/) for authentication, [shadcn-svelte](https://www.shadcn-svelte.com/) for ui elements, [Lucide](https://lucide.dev) for icons, [Drizzle](https://orm.drizzle.team/) for database connectivity and type safety and [Sveltekit](https://kit.svelte.dev) for the javascript framework. I also used [Zod](https://zod.dev) and [Superforms](https://superforms.vercel.app) to handle form validation and management. It has email verification, password reset, and will send an email if the user changes their email address to re-verify it. It is released as open source under an MIT license.
-
-While creating this project, I made use of several great videos and tutorials from [Huntabyte](https://www.youtube.com/@huntabyte) (who also developed the svelte port for shadcn) and [Joy of Code](https://www.youtube.com/@JoyofCodeDev). Both have great tutorials for all things related to Sveltekit.
+This is an open source auth starter project utilizing [Lucia](https://lucia-auth.com/) for authentication, [shadcn-svelte](https://www.shadcn-svelte.com/) for ui elements, [Lucide](https://lucide.dev) for icons, [Drizzle](https://orm.drizzle.team/) for database connectivity and type safety and [Sveltekit](https://kit.svelte.dev) for the javascript framework. I also used [Zod](https://zod.dev) and [Superforms](https://superforms.vercel.app) to handle form validation and management. It has email verification, password reset, and will send an email if the user changes their email address to re-verify it. It is released as open source under an MIT license.
 
 This project creates an email and password user log in system and is my attempt to make something production ready with all of the usual features you expect. You can create new users and sign them in. It has user roles. It will verify a users email address. You can edit your profile including changing your email address and password. You can reset your password in case you forgot it. You can also change themes and have a light and dark mode. I didn’t see any examples utilizing these frameworks that had all of these necessary features.
 
@@ -19,10 +15,6 @@ I picked [Lucia](https://lucia-auth.com/) for auth because it had great document
 [Zod](https://zod.dev) is a typescript schema validation that allows you to easily validate your input in projects. It is very easy to setup what your data should look like to validate against.
 
 Finally [Superforms](https://superforms.vercel.app/) makes it easy to work with forms in Sveltekit. It cuts down a lot on boilerplate code when working with forms.
-
-This was the first time working with many of these packages, but they really do streamline much of the Sveltekit development process. If there are any mistakes, please open up an issue on the project. Also I was pleasantly surprised at the scores from [Google PageSpeed Insights](https://pagespeed.web.dev). This project scored a 100% in all metrics.
-
-![pagespeed insights metrics](https://github.com/delay/sveltekit-auth/assets/638246/599540c3-54e4-4e99-ad2a-c9da284f44c7)
 
 ## File Structure for the App
 

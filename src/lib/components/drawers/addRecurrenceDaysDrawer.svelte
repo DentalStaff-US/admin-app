@@ -11,7 +11,6 @@
 	import type { DateRange } from 'bits-ui';
 	import type { RecurrenceDay, Requisition } from '$lib/server/database/schemas/requisition';
 	import { superForm } from 'sveltekit-superforms/client';
-
 	import {
 		getUserTimezone,
 		localTimeToUTC,
@@ -21,21 +20,16 @@
 	} from '$lib/_helpers/UTCTimezoneUtils';
 	import { Plus, PlusIcon } from 'lucide-svelte';
 
-	// Props
 	export let requisition: Requisition;
 	export let company;
 	export let location;
-	export let form; // From parent
+	export let form;
 
 	const { enhance, submitting } = superForm(form, {
 		onResult({ result }) {
-			console.log('Form submission result received');
 			if (result.type === 'success') {
 				isOpen = false;
 			}
-		},
-		onSubmit(input) {
-			console.log('Submitting form with:', input);
 		},
 		onUpdate({ form }) {
 			if (form.message === 'success') {
@@ -47,17 +41,14 @@
 		}
 	});
 
-	// Form state
 	let multipleDays = false;
 	let useSameTimeForAllDates = false;
 	let selectedRawDate: DateValue | undefined;
 	let selectedRawDateRange: DateRange | undefined;
-	// let userTimezone = getUserTimezone();
 	let locationTimezone = location.timezone || 'UTC';
 	let localTimezoneDisplay = formatTimezoneName(locationTimezone);
-	let isOpen = false; // ✅ Track sheet state
+	let isOpen = false;
 
-	// Times in local timezone
 	let sharedTimes = {
 		dayStartTime: '',
 		dayEndTime: '',
@@ -65,14 +56,24 @@
 		lunchEndTime: ''
 	};
 
+	let perDayTimes: Record<
+		string,
+		{
+			dayStartTime: string;
+			dayEndTime: string;
+			lunchStartTime: string;
+			lunchEndTime: string;
+		}
+	> = {};
+
 	const df = new DateFormatter('en-US', { dateStyle: 'full' });
 
-	// ✅ Helper to reset form
 	function resetForm() {
 		multipleDays = false;
 		useSameTimeForAllDates = false;
 		selectedRawDate = undefined;
 		selectedRawDateRange = undefined;
+		perDayTimes = {};
 		sharedTimes = {
 			dayStartTime: '',
 			dayEndTime: '',
@@ -82,85 +83,107 @@
 		isOpen = false;
 	}
 
-	// Derived values
 	$: operatingHours = location?.operatingHours || {};
 
 	$: formattedDateRange = (() => {
 		if (multipleDays && selectedRawDateRange?.start && selectedRawDateRange?.end) {
 			const start = new Date(df.format(selectedRawDateRange.start.toDate(getLocalTimeZone())));
 			const end = new Date(df.format(selectedRawDateRange.end.toDate(getLocalTimeZone())));
-			console.log('Multiple days - start:', start, 'end:', end);
 			return getDatesInRange(start, end);
 		} else if (selectedRawDate) {
 			const dateStr = df.format(selectedRawDate.toDate(getLocalTimeZone()));
 			const date = new Date(dateStr);
-			console.log('Single date - formatted string:', dateStr, 'parsed date:', date);
 			return [date];
 		} else {
-			console.log('No date selected');
 			return [];
 		}
 	})();
 
 	$: filteredDates = formattedDateRange.filter((date) => {
-		// If no operating hours, include all dates
-		if (!operatingHours || Object.keys(operatingHours).length === 0) {
-			return true;
-		}
-
+		if (!operatingHours || Object.keys(operatingHours).length === 0) return true;
 		const dayOfWeek = date.getDay();
 		const dayData = operatingHours[dayOfWeek];
-
-		// If this specific day has no data, include it
-		if (!dayData) {
-			return true;
-		}
-
-		// Otherwise, filter based on isClosed
+		if (!dayData) return true;
 		return !dayData.isClosed;
 	});
 
+	// Initialize new dates, remove deselected ones, preserve existing entries
+	$: {
+		const currentKeys = new Set(filteredDates.map((date) => toUTCDateString(date)));
+
+		filteredDates.forEach((date) => {
+			const key = toUTCDateString(date);
+			if (!perDayTimes[key]) {
+				perDayTimes[key] = {
+					dayStartTime: '',
+					dayEndTime: '',
+					lunchStartTime: '',
+					lunchEndTime: ''
+				};
+			}
+		});
+
+		Object.keys(perDayTimes).forEach((key) => {
+			if (!currentKeys.has(key)) delete perDayTimes[key];
+		});
+
+		perDayTimes = { ...perDayTimes };
+	}
+
 	$: selectedDateTimes = filteredDates.map((date) => {
 		const utcDateString = toUTCDateString(date);
-
 		return {
 			date: utcDateString,
 			localDate: date,
 			times: useSameTimeForAllDates
 				? { ...sharedTimes }
-				: {
+				: (perDayTimes[utcDateString] ?? {
 						dayStartTime: '',
 						dayEndTime: '',
 						lunchStartTime: '',
 						lunchEndTime: ''
-					}
+					})
 		};
 	});
 
-	// Convert local times to UTC
 	function convertToUTCTimes(entry) {
 		const localTimes = !multipleDays && selectedRawDate ? sharedTimes : entry.times;
 
-		if (!localTimes.dayStartTime || !localTimes.dayEndTime) {
-			return null;
-		}
+		if (!localTimes.dayStartTime || !localTimes.dayEndTime) return null;
 
-		// Just send the raw times - let the backend handle conversion!
 		return {
 			date: entry.date,
-			dayStartTime: localTimes.dayStartTime, // Keep as-is (e.g., "09:00")
-			dayEndTime: localTimes.dayEndTime, // Keep as-is (e.g., "17:00")
+			dayStartTime: localTimes.dayStartTime,
+			dayEndTime: localTimes.dayEndTime,
 			lunchStartTime: localTimes.lunchStartTime || '',
 			lunchEndTime: localTimes.lunchEndTime || '',
 			requisitionId: requisition.id
 		};
 	}
 
-	// ✅ Improved final value calculation
 	$: finalDateValue = (() => {
 		if (multipleDays) {
-			const converted = selectedDateTimes.map(convertToUTCTimes).filter(Boolean);
-			return converted.length > 0 ? converted : null;
+			if (useSameTimeForAllDates) {
+				const converted = selectedDateTimes.map(convertToUTCTimes).filter(Boolean);
+				return converted.length > 0 ? converted : null;
+			} else {
+				const converted = filteredDates
+					.map((date) => {
+						const key = toUTCDateString(date);
+						const times = perDayTimes[key];
+						if (!times?.dayStartTime || !times?.dayEndTime) return null;
+						return {
+							date: key,
+							dayStartTime: times.dayStartTime,
+							dayEndTime: times.dayEndTime,
+							lunchStartTime: times.lunchStartTime || '',
+							lunchEndTime: times.lunchEndTime || '',
+							requisitionId: requisition.id
+						};
+					})
+					.filter(Boolean);
+				return converted.length > 0 ? converted : null;
+			}
 		} else {
 			if (selectedDateTimes[0]) {
 				const converted = convertToUTCTimes(selectedDateTimes[0]);
@@ -170,14 +193,8 @@
 		}
 	})();
 
-	// ✅ Form submission validation
 	$: isFormValid = (() => {
-		if (!finalDateValue) {
-			console.log('Form invalid: finalDateValue is null');
-			return false;
-		}
-
-		// Check if we have at least one valid entry
+		if (!finalDateValue) return false;
 		if (Array.isArray(finalDateValue)) {
 			return (
 				finalDateValue.length > 0 &&
@@ -188,39 +205,6 @@
 		}
 	})();
 
-	// ✅ Debug logging
-	$: {
-		console.log('Form validation state:', {
-			multipleDays,
-			selectedRawDate: selectedRawDate?.toString(),
-			selectedRawDateRange: selectedRawDateRange?.start?.toString(),
-			filteredDates: filteredDates.length,
-			selectedDateTimes: selectedDateTimes.length,
-			sharedTimes,
-			finalDateValue,
-			isFormValid
-		});
-	}
-
-	$: {
-		console.log('=== DATE SELECTION DEBUG ===');
-		console.log('1. multipleDays:', multipleDays);
-		console.log('2. selectedRawDate:', selectedRawDate);
-		console.log('3. selectedRawDate toString:', selectedRawDate?.toString());
-
-		if (selectedRawDate) {
-			const localDate = selectedRawDate.toDate(getLocalTimeZone());
-			console.log('4. selectedRawDate.toDate():', localDate);
-			console.log('5. df.format():', df.format(localDate));
-		}
-
-		console.log('6. formattedDateRange:', formattedDateRange);
-		console.log('7. filteredDates:', filteredDates);
-		console.log('8. selectedDateTimes:', selectedDateTimes);
-		console.log('========================');
-	}
-
-	// Helper functions
 	function getDatesInRange(start: Date, end: Date): Date[] {
 		const dates = [];
 		const current = new Date(start);
@@ -269,6 +253,7 @@
 
 			{#if multipleDays}
 				<RangeCalendar bind:value={selectedRawDateRange} class="rounded-md border w-fit" />
+
 				{#if filteredDates.length}
 					<div class="mt-4 flex items-center gap-2">
 						<Checkbox bind:checked={useSameTimeForAllDates} id="useSameTime" />
@@ -277,7 +262,6 @@
 
 					{#if useSameTimeForAllDates}
 						<p class="mt-4 font-semibold">All Dates:</p>
-
 						<div class="grid grid-cols-2 gap-4">
 							<div class="space-y-2">
 								<Label for="shared-day-start">Day Start *</Label>
@@ -311,46 +295,49 @@
 							</div>
 						</div>
 					{:else}
-						{#each selectedDateTimes as dateEntry}
-							<div class="mt-4">
-								<p class="font-semibold">Date: {dateEntry.localDate.toLocaleDateString()}</p>
-								<div class="grid grid-cols-2 gap-4">
-									<div class="space-y-2">
-										<Label for={`day-start-${dateEntry.date}`}>Day Start *</Label>
-										<Input
-											id={`day-start-${dateEntry.date}`}
-											type="time"
-											bind:value={dateEntry.times.dayStartTime}
-											required
-										/>
-									</div>
-									<div class="space-y-2">
-										<Label for={`day-end-${dateEntry.date}`}>Day End *</Label>
-										<Input
-											id={`day-end-${dateEntry.date}`}
-											type="time"
-											bind:value={dateEntry.times.dayEndTime}
-											required
-										/>
-									</div>
-									<div class="space-y-2">
-										<Label for={`lunch-start-${dateEntry.date}`}>Lunch Start</Label>
-										<Input
-											id={`lunch-start-${dateEntry.date}`}
-											type="time"
-											bind:value={dateEntry.times.lunchStartTime}
-										/>
-									</div>
-									<div class="space-y-2">
-										<Label for={`lunch-end-${dateEntry.date}`}>Lunch End</Label>
-										<Input
-											id={`lunch-end-${dateEntry.date}`}
-											type="time"
-											bind:value={dateEntry.times.lunchEndTime}
-										/>
+						{#each filteredDates as date}
+							{@const key = toUTCDateString(date)}
+							{#if perDayTimes[key]}
+								<div class="mt-4">
+									<p class="font-semibold">Date: {date.toLocaleDateString()}</p>
+									<div class="grid grid-cols-2 gap-4">
+										<div class="space-y-2">
+											<Label for={`day-start-${key}`}>Day Start *</Label>
+											<Input
+												id={`day-start-${key}`}
+												type="time"
+												bind:value={perDayTimes[key].dayStartTime}
+												required
+											/>
+										</div>
+										<div class="space-y-2">
+											<Label for={`day-end-${key}`}>Day End *</Label>
+											<Input
+												id={`day-end-${key}`}
+												type="time"
+												bind:value={perDayTimes[key].dayEndTime}
+												required
+											/>
+										</div>
+										<div class="space-y-2">
+											<Label for={`lunch-start-${key}`}>Lunch Start</Label>
+											<Input
+												id={`lunch-start-${key}`}
+												type="time"
+												bind:value={perDayTimes[key].lunchStartTime}
+											/>
+										</div>
+										<div class="space-y-2">
+											<Label for={`lunch-end-${key}`}>Lunch End</Label>
+											<Input
+												id={`lunch-end-${key}`}
+												type="time"
+												bind:value={perDayTimes[key].lunchEndTime}
+											/>
+										</div>
 									</div>
 								</div>
-							</div>
+							{/if}
 						{/each}
 					{/if}
 				{/if}
@@ -389,7 +376,6 @@
 				{/if}
 			{/if}
 
-			<!-- ✅ Show validation error -->
 			{#if finalDateValue && !isFormValid}
 				<div class="mt-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
 					Please fill in all required fields (Day Start and Day End times)
