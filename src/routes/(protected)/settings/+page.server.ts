@@ -1,12 +1,19 @@
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { setError, superValidate, message } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
-import { clientCompanySchema, clientProfileSchema, userSchema, userUpdatePasswordSchema } from '$lib/config/zod-schemas';
+import {
+	clientCompanySchema,
+	clientProfileSchema,
+	userSchema,
+	userUpdatePasswordSchema
+} from '$lib/config/zod-schemas';
 import { getUserByEmail, updateUser } from '$lib/server/database/queries/users';
 import { USER_ROLES } from '$lib/config/constants.js';
 import {
+	deleteClientDocument,
 	getAllClientStaffProfiles,
 	getClientCompanyByClientId,
+	getClientDocuments,
 	getClientProfileByStaffUserId,
 	getClientProfilebyUserId,
 	getClientStaffProfilebyClientId,
@@ -14,13 +21,17 @@ import {
 	getPrimaryLocationForCompany,
 	inviteStaffUsersToAccount,
 	updateClientCompany,
-	updateClientProfile
+	updateClientProfile,
+	uploadClientDocument
 } from '$lib/server/database/queries/clients.js';
 import { Argon2id } from 'oslo/password';
 import { getClientBillingInfo } from '$lib/server/database/queries/billing.js';
 import db from '$lib/server/database/drizzle.js';
 import { eq } from 'drizzle-orm';
-import { clientCompanyTable } from '$lib/server/database/schemas/client.js';
+import {
+	clientCompanyTable,
+	clientDocumentUploadsTable
+} from '$lib/server/database/schemas/client.js';
 import { EmailService } from '$lib/server/email/emailService';
 import { z } from 'zod';
 
@@ -52,7 +63,6 @@ export async function load(event) {
 			error: 'You must be signed in to view this page.'
 		});
 	}
-	console.log({ user });
 	if (user.role === USER_ROLES.SUPERADMIN) {
 		const userProfileForm = await superValidate(event, userProfileSchema);
 		const passwordForm = await superValidate(event, userUpdatePasswordSchema);
@@ -72,8 +82,6 @@ export async function load(event) {
 	}
 
 	if (user.role === USER_ROLES.CLIENT || user.role === USER_ROLES.CLIENT_STAFF) {
-		let billingInfo = null;
-
 		const clientProfile =
 			user.role === USER_ROLES.CLIENT
 				? await getClientProfilebyUserId(user.id)
@@ -82,8 +90,13 @@ export async function load(event) {
 		const staffProfile =
 			user.role === USER_ROLES.CLIENT_STAFF ? await getClientStaffProfilebyUserId(user.id) : null;
 
+		let billingInfo = null;
 		if (user.role === USER_ROLES.CLIENT) {
-			billingInfo = await getClientBillingInfo(clientProfile?.id);
+			try {
+				billingInfo = await getClientBillingInfo(clientProfile?.id);
+			} catch (err) {
+				console.error('Error fetching billing info:', err);
+			}
 		}
 		const hasAdminRights =
 			user.role === USER_ROLES.CLIENT || staffProfile?.staffRole === 'CLIENT_ADMIN';
@@ -98,6 +111,8 @@ export async function load(event) {
 		const passwordForm = await superValidate(event, userUpdatePasswordSchema);
 		const inviteForm = await superValidate(newStaffInvitesSchema);
 
+		const documents = await getClientDocuments(clientProfile?.id);
+
 		userProfileForm.data = {
 			firstName: user.firstName,
 			lastName: user.lastName,
@@ -105,7 +120,7 @@ export async function load(event) {
 		};
 		profileForm.data = {
 			cell_phone: clientProfile?.cellPhone
-		}
+		};
 		companyForm.data = {
 			companyName: clientCompany.companyName as string,
 			companyDescription: clientCompany.companyDescription as string,
@@ -128,7 +143,8 @@ export async function load(event) {
 			hasAdminRights,
 			staff,
 			inviteForm,
-			avatarForm
+			avatarForm,
+			documents: documents || []
 		};
 	}
 }
@@ -250,11 +266,14 @@ export const actions = {
 					lastName: userForm.data.lastName,
 					email: userForm.data.email
 				});
-				const clientProfile = user.role === USER_ROLES.CLIENT ? await getClientProfilebyUserId(user.id) : await getClientProfileByStaffUserId(user.id);
+				const clientProfile =
+					user.role === USER_ROLES.CLIENT
+						? await getClientProfilebyUserId(user.id)
+						: await getClientProfileByStaffUserId(user.id);
 				if (clientProfile) {
 					await updateClientProfile(clientProfile?.id, {
 						cellPhone: clientForm.data.cell_phone
-					})
+					});
 				}
 				setFlash({ type: 'success', message: 'Profile update successful.' }, event);
 			}
@@ -445,5 +464,85 @@ export const actions = {
 
 		// Only redirect if at least one invite was successful
 		redirect(302, '/dashboard');
+	},
+	uploadClientDocument: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) return fail(403);
+
+		const clientProfile =
+			user.role === USER_ROLES.CLIENT
+				? await getClientProfilebyUserId(user.id)
+				: await getClientProfileByStaffUserId(user.id);
+
+		if (!clientProfile) {
+			return fail(404, { error: 'Client profile not found' });
+		}
+
+		if (user.role === USER_ROLES.CLIENT_STAFF) {
+			const staffProfile = await getClientStaffProfilebyUserId(user.id);
+			if (
+				staffProfile?.staffRole !== 'CLIENT_ADMIN' &&
+				staffProfile?.staffRole !== 'CLIENT_MANAGER'
+			) {
+				return fail(403);
+			}
+		}
+
+		const formData = await event.request.formData();
+		const uploadUrl = formData.get('uploadUrl') as string;
+		const filename = formData.get('filename') as string;
+		const type = formData.get('type') as 'LICENSE' | 'CERTIFICATE' | 'AGGREEMENT' | 'OTHER';
+
+		try {
+			await uploadClientDocument({
+				clientId: clientProfile.id,
+				uploadUrl,
+				filename,
+				type,
+				adminOnly: false
+			});
+			setFlash({ type: 'success', message: 'Document uploaded successfully' }, event);
+			return { success: true };
+		} catch (err) {
+			console.error(err);
+			setFlash({ type: 'error', message: 'Failed to upload document' }, event);
+			return fail(500, { error: 'Failed to upload document' });
+		}
+	},
+
+	deleteClientDocument: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) return fail(403);
+
+		if (user.role === USER_ROLES.CLIENT_STAFF) {
+			const staffProfile = await getClientStaffProfilebyUserId(user.id);
+			if (
+				staffProfile?.staffRole !== 'CLIENT_ADMIN' &&
+				staffProfile?.staffRole !== 'CLIENT_MANAGER'
+			) {
+				return fail(403);
+			}
+		}
+
+		const formData = await event.request.formData();
+		const documentId = formData.get('documentId') as string;
+
+		try {
+			// Fetch doc first to check adminOnly
+			const [doc] = await db
+				.select()
+				.from(clientDocumentUploadsTable)
+				.where(eq(clientDocumentUploadsTable.id, documentId));
+
+			if (doc.adminOnly) return fail(403, { error: 'Cannot delete admin-locked document' });
+
+			await deleteClientDocument(documentId);
+			setFlash({ type: 'success', message: 'Document deleted' }, event);
+			return { success: true };
+		} catch (err) {
+			console.error(err);
+			setFlash({ type: 'error', message: 'Failed to delete document' }, event);
+			return fail(500, { error: 'Failed to delete document' });
+		}
 	}
 };
