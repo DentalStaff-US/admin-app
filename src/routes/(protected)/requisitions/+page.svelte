@@ -57,6 +57,8 @@
 		regionName: string;
 		regionAbbreviation: string;
 		subregionName: string;
+		recurrenceDayStart: Date;
+		recurrenceDayEnd: Date;
 	};
 
 	let drawerExpanded = false;
@@ -69,6 +71,21 @@
 	$: adminForm = data.adminForm as SuperValidated<AdminRequisitionSchema>;
 	$: isAdmin = user?.role === USER_ROLES.SUPERADMIN;
 
+	function formatWorkWeek(startDay: Date, endDay: Date) {
+		function format(date: Date) {
+			return date.toLocaleDateString('en-US', {
+				month: 'long',
+				day: 'numeric'
+			});
+		}
+		const start = format(startDay)
+		const end = format(endDay)
+		if (start === end){
+			return `${start}`
+		} 
+		return `${start} - ${end}`
+	}
+ 
 	// Define columns for different user roles
 	const getColumns = (isAdmin: boolean): ColumnDef<RequisitionData>[] => {
 		const baseColumns: ColumnDef<RequisitionData>[] = [
@@ -90,12 +107,42 @@
 				enableSorting: true
 			},
 			{
+				header: 'Status',
+				accessorKey: 'status',
+				enableSorting: true
+			},
+			{
 				header: 'Type',
 				accessorKey: 'permanentPosition',
 				cell: ({ getValue, row }) => {
 					return getValue() ? 'Permanent' : 'Temporary';
 				},
 				enableSorting: true
+			},
+			{
+				header: 'Rate',
+				accessorKey: 'hourlyRate',
+				enableSorting: true
+			},
+			{
+				header: 'Client',
+				accessorFn: (row) => `${row.firstName} ${row.lastName}`,
+				enableSorting: true
+			},
+			{
+				header: 'Location',
+				accessorKey: 'locationName',
+				enableSorting: true
+			},
+			{
+				header: 'Address',
+				accessorKey: 'locationAddress',
+				enableSorting: true
+			},
+			{
+				header: 'Work Week',
+				accessorFn: (row) =>
+					`${formatWorkWeek(row.recurrenceDayStart, row.recurrenceDayEnd)}`
 			}
 		];
 
