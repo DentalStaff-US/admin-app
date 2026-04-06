@@ -124,11 +124,11 @@
 				accessorKey: 'hourlyRate',
 				enableSorting: true
 			},
-			{
-				header: 'Client',
-				accessorFn: (row) => `${row.firstName} ${row.lastName}`,
-				enableSorting: true
-			},
+			// {
+			// 	header: 'Client',
+			// 	accessorFn: (row) => `${row.firstName} ${row.lastName}`,
+			// 	enableSorting: true
+			// },
 			{
 				header: 'Location',
 				accessorKey: 'locationName',

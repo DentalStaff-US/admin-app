@@ -73,11 +73,19 @@
 		);
 	}
 
-	function formatWorkWeek(date: Date) {
-		return date.toLocaleDateString('en-US', {
-			month: 'long',
-			day: 'numeric'
-		});
+	function formatWorkWeek(startDay: Date, endDay: Date) {
+		function format(date: Date) {
+			return date.toLocaleDateString('en-US', {
+				month: 'long',
+				day: 'numeric'
+			});
+		}
+		const start = format(startDay)
+		const end = format(endDay)
+		if (start === end){
+			return `${start}`
+		} 
+		return `${start} - ${end}`
 	}
 
 	// Function to format trend value with + or - sign
@@ -388,7 +396,7 @@
 											</Table.Cell>
 											<Table.Cell>
 												<!-- Work Week 9th -->
-												{formatWorkWeek(req.recurrence.dayStart)} - {formatWorkWeek(req.recurrence.dayEnd)}
+												{formatWorkWeek(req.recurrence.dayStart, req.recurrence.dayEnd)}
 											</Table.Cell>
 										</Table.Row>
 									{/each}

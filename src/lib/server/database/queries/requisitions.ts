@@ -188,7 +188,11 @@ export async function getRequisitionsForClient(companyId: string, searchTerm?: s
 				email: userTable.email,
 
 				// Discipline fields
-				disciplineName: disciplineTable.name
+				disciplineName: disciplineTable.name,
+
+				// Currence fields
+				recurrenceDayStart: recurrenceDayTable.dayStart,
+				recurrenceDayEnd: recurrenceDayTable.dayEnd,
 			})
 			.from(requisitionTable)
 			.innerJoin(
@@ -202,6 +206,7 @@ export async function getRequisitionsForClient(companyId: string, searchTerm?: s
 			.innerJoin(clientProfileTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
 			.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
 			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
+			.innerJoin(recurrenceDayTable, eq(requisitionTable.id, recurrenceDayTable.requisitionId))
 			.where(
 				and(
 					eq(requisitionTable.companyId, companyId),
