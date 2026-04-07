@@ -107,13 +107,13 @@ export interface Timesheet {
 	// workdayId removed
 	status: string;
 	candidate:
-		| (CandidateProfileSelect & {
-				email?: string;
-				firstName?: string;
-				lastName?: string;
-				avatarUrl?: string | null;
-		  })
-		| null;
+	| (CandidateProfileSelect & {
+		email?: string;
+		firstName?: string;
+		lastName?: string;
+		avatarUrl?: string | null;
+	})
+	| null;
 }
 
 export type RequisitionDetailsRaw = {
@@ -188,7 +188,11 @@ export async function getRequisitionsForClient(companyId: string, searchTerm?: s
 				email: userTable.email,
 
 				// Discipline fields
-				disciplineName: disciplineTable.name
+				disciplineName: disciplineTable.name,
+
+				// Currence fields
+				recurrenceDayStart: recurrenceDayTable.dayStart,
+				recurrenceDayEnd: recurrenceDayTable.dayEnd,
 			})
 			.from(requisitionTable)
 			.innerJoin(
@@ -202,6 +206,7 @@ export async function getRequisitionsForClient(companyId: string, searchTerm?: s
 			.innerJoin(clientProfileTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
 			.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
 			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
+			.innerJoin(recurrenceDayTable, eq(requisitionTable.id, recurrenceDayTable.requisitionId))
 			.where(
 				and(
 					eq(requisitionTable.companyId, companyId),
@@ -247,6 +252,7 @@ export async function getRequisitionsAdmin(searchTerm?: string) {
 				// Location fields
 				locationId: companyOfficeLocationTable.id,
 				locationName: companyOfficeLocationTable.name,
+				locationAddress: companyOfficeLocationTable.completeAddress,
 				companyId: companyOfficeLocationTable.companyId,
 
 				// Company fields
@@ -258,7 +264,11 @@ export async function getRequisitionsAdmin(searchTerm?: string) {
 				email: userTable.email,
 
 				// Discipline fields
-				disciplineName: disciplineTable.name
+				disciplineName: disciplineTable.name,
+
+				// Currence fields
+				recurrenceDayStart: recurrenceDayTable.dayStart,
+				recurrenceDayEnd: recurrenceDayTable.dayEnd,
 			})
 			.from(requisitionTable)
 			.innerJoin(
@@ -272,6 +282,7 @@ export async function getRequisitionsAdmin(searchTerm?: string) {
 			.innerJoin(clientProfileTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
 			.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
 			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
+			.innerJoin(recurrenceDayTable, eq(requisitionTable.id, recurrenceDayTable.requisitionId))
 			.where(
 				and(
 					eq(requisitionTable.archived, false),
@@ -1055,11 +1066,11 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 			.where(
 				searchTerm
 					? or(
-							ilike(requisitionTable.title, `%${searchTerm}%`),
-							ilike(clientCompanyTable.companyName, `%${searchTerm}%`),
-							ilike(userTable.firstName, `%${searchTerm}%`),
-							ilike(userTable.lastName, `%${searchTerm}%`)
-						)
+						ilike(requisitionTable.title, `%${searchTerm}%`),
+						ilike(clientCompanyTable.companyName, `%${searchTerm}%`),
+						ilike(userTable.firstName, `%${searchTerm}%`),
+						ilike(userTable.lastName, `%${searchTerm}%`)
+					)
 					: undefined
 			)
 			.orderBy(desc(timeSheetTable.createdAt))
@@ -1101,11 +1112,11 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 					eq(timeSheetTable.associatedClientId, clientId),
 					searchTerm
 						? or(
-								ilike(requisitionTable.title, `%${searchTerm}%`),
-								ilike(clientCompanyTable.companyName, `%${searchTerm}%`),
-								ilike(userTable.firstName, `%${searchTerm}%`),
-								ilike(userTable.lastName, `%${searchTerm}%`)
-							)
+							ilike(requisitionTable.title, `%${searchTerm}%`),
+							ilike(clientCompanyTable.companyName, `%${searchTerm}%`),
+							ilike(userTable.firstName, `%${searchTerm}%`),
+							ilike(userTable.lastName, `%${searchTerm}%`)
+						)
 						: undefined
 				)
 			);

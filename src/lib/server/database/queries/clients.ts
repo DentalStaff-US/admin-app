@@ -778,9 +778,32 @@ export async function getRequisitionsForClientWithLimit(clientId: string, count:
 	try {
 		const company = await getClientCompanyByClientId(clientId);
 		const result = await db
-			.select({ requisition: { ...requisitionTable, disciplineName: disciplineTable.name } })
+			.select({
+				requisition: { ...requisitionTable, disciplineName: disciplineTable.name },
+				company: { ...clientCompanyTable },
+				user: {
+					id: userTable.id,
+					firstName: userTable.firstName,
+					lastName: userTable.lastName,
+					avatarUrl: userTable.avatarUrl,
+					email: userTable.email
+				},
+				location: {
+					locationName: companyOfficeLocationTable.name,
+					completeAddress: companyOfficeLocationTable.completeAddress
+				},
+				recurrence: {
+					dayStart: recurrenceDayTable.dayStart,
+					dayEnd: recurrenceDayTable.dayEnd
+				}
+			})
 			.from(requisitionTable)
 			.innerJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
+			.leftJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
+			.leftJoin(clientProfileTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
+			.leftJoin(userTable, eq(clientProfileTable.userId, userTable.id))
+			.leftJoin(companyOfficeLocationTable, eq(requisitionTable.locationId, companyOfficeLocationTable.id))
+			.leftJoin(recurrenceDayTable, eq(requisitionTable.id, recurrenceDayTable.requisitionId))
 			.where(
 				and(eq(requisitionTable.companyId, company.id), ne(requisitionTable.status, 'PENDING'))
 			)

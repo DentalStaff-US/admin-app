@@ -40,6 +40,22 @@
 	$: overdueInvoicesCount = data.overdueInvoicesCount || 0;
 	$: pendingInvoicesCount = data.pendingInvoicesCount || 0;
 	$: totalAmountDue = parseInt(data.totalAmountDue || '0');
+
+	// Function to format work week
+	function formatWorkWeek(startDay: Date, endDay: Date) {
+		function format(date: Date) {
+			return date.toLocaleDateString('en-US', {
+				month: 'long',
+				day: 'numeric'
+			});
+		}
+		const start = format(startDay);
+		const end = format(endDay);
+		if (start === end) {
+			return `${start}`;
+		}
+		return `${start} - ${end}`;
+	}
 </script>
 
 <section class="grow grid grid-cols-1 lg:grid-cols-3">
@@ -144,8 +160,130 @@
 			</Card.Root>
 		</div>
 
+		<!-- Requisitions table (moved to adjust layout) -->
+		<div class='col-span-12'>
+			<Card.Root>
+				<Card.Header class="flex flex-row justify-between items-center flex-wrap">
+					<Card.Title class="text-xl md:text-2xl">Recent Requisitions</Card.Title>
+					<Button
+						on:click={() => (drawerExpanded = true)}
+						size="sm"
+						class="bg-blue-900 hover:bg-blue-800"
+					>
+						<PlusIcon size={16} class="mr-1" /> New Requisition
+					</Button>
+				</Card.Header>
+				<Card.Content class="p-2 md:p-4">
+					<Table.Root>
+						<Table.Header>
+							<Table.Row>
+								<!-- 1st Column 🢃 -->
+								<Table.Head>Requisition Number</Table.Head>
+								<!-- 2nd Column 🢃 -->
+								<Table.Head>Position</Table.Head>
+								<!-- 3rd Column 🢃 -->
+								<Table.Head>Status</Table.Head>
+								<!-- 4th Column 🢃 -->
+								<Table.Head>Type</Table.Head>
+								<!-- 5th Column 🢃 -->
+								<Table.Head>Rate</Table.Head>
+								<!-- 6th Column 🢃 -->
+								<Table.Head>Client</Table.Head>
+								<!-- 7th Column 🢃 -->
+								<Table.Head>Location</Table.Head>
+								<!-- 8th Column 🢃 -->
+								<Table.Head>Address</Table.Head>
+								<!-- 9th Column 🢃 -->
+								<Table.Head>Work Week</Table.Head>
+							</Table.Row>
+						</Table.Header>
+						<Table.Body>
+							{#each requisitions.slice(0, 5) as req, i (req.requisition.id)}
+								<Table.Row
+									class="cursor-pointer"
+									on:click={() => goto(`/requisitions/${req.requisition.id}`)}
+								>
+									<Table.Cell>
+										<!-- Requisition Number 1st -->
+										<div class="flex flex-col">
+											<span class="font-medium truncate max-w-[250px]">
+												#{req.requisition.id}
+											</span>
+											<!-- <span class="text-xs text-gray-500">{req.company.companyName}</span> -->
+										</div>
+									</Table.Cell>
+									<Table.Cell>
+										<!-- Position 2nd -->
+										<div class="flex flex-col">
+											<span class="font-medium truncate max-w-[250px]"
+												>{req.requisition.disciplineName}</span
+											>
+											<span class="text-xs text-gray-500">{req.company.companyName}</span>
+										</div>
+									</Table.Cell>
+									<Table.Cell>
+										<!-- Status 3rd -->
+										<Badge
+											variant="secondary"
+											value={req.requisition.status}
+											class={cn(
+												req.requisition.status === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
+												req.requisition.status === 'OPEN' && 'bg-blue-500 hover:bg-blue-600',
+												req.requisition.status === 'FILLED' && 'bg-green-400 hover:bg-bg-green-500',
+												req.requisition.status === 'UNFULFILLED' &&
+													'bg-orange-400 hover:bg-orange-500',
+												req.requisition.status === 'CANCELED' && 'bg-red-500 hover:bg-red-600',
+												'text-white'
+											)}
+										/>
+									</Table.Cell>
+									<Table.Cell>
+										<!-- Type 4th -->
+										<Badge
+											variant="secondary"
+											value={req.requisition.permanentPosition ? 'Permanent' : 'Temporary'}
+											class={cn(
+												req.requisition.permanentPosition && 'bg-gray-300',
+												!req.requisition.permanentPosition && 'bg-gray-300'
+											)}
+										/>
+									</Table.Cell>
+									<Table.Cell>
+										<!-- Rate 5th -->
+										{formatCurrency(req.requisition.hourlyRate)}+
+									</Table.Cell>
+									<Table.Cell>
+										<!-- Client 6th -->
+										{req.user.firstName}
+										{req.user.lastName}
+									</Table.Cell>
+									<Table.Cell>
+										<!-- Location 7th -->
+										{req.location.locationName}
+									</Table.Cell>
+									<Table.Cell>
+										<!-- Address 8th -->
+										{req.location.completeAddress}
+									</Table.Cell>
+									<Table.Cell>
+										<!-- Work Week 9th -->
+										{formatWorkWeek(req.recurrence.dayStart, req.recurrence.dayEnd)}
+									</Table.Cell>
+								</Table.Row>
+							{/each}
+						</Table.Body>
+					</Table.Root>
+				</Card.Content>
+				<Card.Footer>
+					<Button size="sm" class="bg-blue-900 hover:bg-blue-800" href="/requisitions"
+						>See All</Button
+					>
+				</Card.Footer>
+			</Card.Root>
+		</div>
+
 		<!-- Invoices table -->
-		<div class="col-span-12 xl:col-span-6">
+		<div class="col-span-12 xl:col-span-12">
 			<Card.Root>
 				<Card.Header class="flex flex-row justify-between items-center flex-wrap">
 					<Card.Title class="text-xl md:text-2xl">Recent Invoices</Card.Title>
@@ -232,88 +370,6 @@
 			</Card.Root>
 		</div>
 
-		<!-- Requisitions table (moved to adjust layout) -->
-		<div class="col-span-12 xl:col-span-6">
-			<Card.Root>
-				<Card.Header class="flex flex-row justify-between items-center flex-wrap">
-					<Card.Title class="text-xl md:text-2xl">Recent Requisitions</Card.Title>
-					<Button
-						on:click={() => (drawerExpanded = true)}
-						size="sm"
-						class="bg-blue-900 hover:bg-blue-800"
-					>
-						<PlusIcon size={16} class="mr-1" /> New Requisition
-					</Button>
-				</Card.Header>
-				<Card.Content class="p-2 md:p-4">
-					<Table.Root>
-						<Table.Header>
-							<Table.Row>
-								<Table.Head>Position</Table.Head>
-								<Table.Head>Status</Table.Head>
-								<Table.Head>Type</Table.Head>
-								<Table.Head class="text-right">Rate</Table.Head>
-							</Table.Row>
-						</Table.Header>
-						<Table.Body>
-							{#each requisitions.slice(0, 5) as req, i (req.requisition.id)}
-								<Table.Row
-									class="cursor-pointer"
-									on:click={() => goto(`/requisitions/${req.requisition.id}`)}
-								>
-									<Table.Cell>
-										<div class="flex flex-col">
-											<span class="font-medium truncate max-w-[250px]"
-												>{req.requisition.disciplineName}
-												<span class="text-xs text-muted-foreground">
-													- Req# {req.requisition.id}</span
-												></span
-											>
-											<span class="text-xs text-gray-500"
-												>{formatDate(req.requisition.createdAt)}</span
-											>
-										</div>
-									</Table.Cell>
-									<Table.Cell>
-										<Badge
-											variant="secondary"
-											value={req.requisition.status}
-											class={cn(
-												req.requisition.status === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-												req.requisition.status === 'OPEN' && 'bg-blue-500 hover:bg-blue-600',
-												req.requisition.status === 'FILLED' && 'bg-green-400 hover:bg-bg-green-500',
-												req.requisition.status === 'UNFULFILLED' &&
-													'bg-orange-400 hover:bg-orange-500',
-												req.requisition.status === 'CANCELED' && 'bg-red-500 hover:bg-red-600',
-												'text-white'
-											)}
-										/>
-									</Table.Cell>
-									<Table.Cell>
-										<Badge
-											variant="secondary"
-											value={req.requisition.permanentPosition ? 'Permanent' : 'Temporary'}
-											class={cn(
-												req.requisition.permanentPosition && 'bg-gray-300',
-												!req.requisition.permanentPosition && 'bg-gray-300'
-											)}
-										/>
-									</Table.Cell>
-									<Table.Cell class="text-right"
-										>{formatCurrency(req.requisition.hourlyRate)}</Table.Cell
-									>
-								</Table.Row>
-							{/each}
-						</Table.Body>
-					</Table.Root>
-				</Card.Content>
-				<Card.Footer>
-					<Button size="sm" class="bg-blue-900 hover:bg-blue-800" href="/requisitions"
-						>See All</Button
-					>
-				</Card.Footer>
-			</Card.Root>
-		</div>
 		<!-- Timesheets Due -->
 		<div class="col-span-12 lg:col-span-6">
 			<Card.Root>
