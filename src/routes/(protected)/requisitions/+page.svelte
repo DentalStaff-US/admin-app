@@ -37,6 +37,7 @@
 	import { writable } from 'svelte/store';
 	import { onMount } from 'svelte';
 	import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
+	import { formatInTimeZone } from 'date-fns-tz';
 
 	export let data: PageData;
 
@@ -56,9 +57,9 @@
 		disciplineName: string;
 		regionName: string;
 		regionAbbreviation: string;
+		referenceTimezone: string;
 		subregionName: string;
-		recurrenceDayStart: Date;
-		recurrenceDayEnd: Date;
+		recurrenceDays: { dayStart: Date; dayEnd: Date }[];
 	};
 
 	let drawerExpanded = false;
@@ -71,21 +72,30 @@
 	$: adminForm = data.adminForm as SuperValidated<AdminRequisitionSchema>;
 	$: isAdmin = user?.role === USER_ROLES.SUPERADMIN;
 
-	function formatWorkWeek(startDay: Date, endDay: Date) {
+	function formatWorkWeek(
+		recurrenceDays: { dayStart: Date; dayEnd: Date }[],
+		timezone: string
+	): string {
+		if (!recurrenceDays || recurrenceDays.length === 0) return 'No shifts scheduled';
+
 		function format(date: Date) {
-			return date.toLocaleDateString('en-US', {
-				month: 'long',
-				day: 'numeric'
-			});
+			return formatInTimeZone(new Date(date), timezone, 'MMMM d');
 		}
-		const start = format(startDay)
-		const end = format(endDay)
-		if (start === end){
-			return `${start}`
-		} 
-		return `${start} - ${end}`
+
+		if (recurrenceDays.length === 1) {
+			return format(recurrenceDays[0].dayStart);
+		}
+
+		const sorted = [...recurrenceDays].sort(
+			(a, b) => new Date(a.dayStart).getTime() - new Date(b.dayStart).getTime()
+		);
+
+		const first = format(sorted[0].dayStart);
+		const last = format(sorted[sorted.length - 1].dayStart);
+
+		return `${first} – ${last}`;
 	}
- 
+
 	// Define columns for different user roles
 	const getColumns = (isAdmin: boolean): ColumnDef<RequisitionData>[] => {
 		const baseColumns: ColumnDef<RequisitionData>[] = [
@@ -141,8 +151,7 @@
 			},
 			{
 				header: 'Work Week',
-				accessorFn: (row) =>
-					`${formatWorkWeek(row.recurrenceDayStart, row.recurrenceDayEnd)}`
+				accessorFn: (row) => `${formatWorkWeek(row.recurrenceDays, row.referenceTimezone)}`
 			}
 		];
 
@@ -154,12 +163,6 @@
 				enableSorting: true
 			});
 		}
-
-		baseColumns.push({
-			header: 'Office',
-			accessorKey: 'locationName'
-		});
-
 		return baseColumns;
 	};
 

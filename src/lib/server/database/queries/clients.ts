@@ -1,4 +1,4 @@
-import { desc, eq, count, sql, and, ne, notExists, or, ilike, SQL } from 'drizzle-orm';
+import { desc, eq, count, sql, and, ne, notExists, or, ilike, SQL, inArray } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import {
 	clientCompanyTable,
@@ -777,7 +777,8 @@ export async function getCalendarEventsForClient(clientId: string | undefined) {
 export async function getRequisitionsForClientWithLimit(clientId: string, count: number) {
 	try {
 		const company = await getClientCompanyByClientId(clientId);
-		const result = await db
+
+		const paginatedRequisitions = await db
 			.select({
 				requisition: { ...requisitionTable, disciplineName: disciplineTable.name },
 				company: { ...clientCompanyTable },
@@ -791,10 +792,6 @@ export async function getRequisitionsForClientWithLimit(clientId: string, count:
 				location: {
 					locationName: companyOfficeLocationTable.name,
 					completeAddress: companyOfficeLocationTable.completeAddress
-				},
-				recurrence: {
-					dayStart: recurrenceDayTable.dayStart,
-					dayEnd: recurrenceDayTable.dayEnd
 				}
 			})
 			.from(requisitionTable)
@@ -802,14 +799,44 @@ export async function getRequisitionsForClientWithLimit(clientId: string, count:
 			.leftJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
 			.leftJoin(clientProfileTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
 			.leftJoin(userTable, eq(clientProfileTable.userId, userTable.id))
-			.leftJoin(companyOfficeLocationTable, eq(requisitionTable.locationId, companyOfficeLocationTable.id))
-			.leftJoin(recurrenceDayTable, eq(requisitionTable.id, recurrenceDayTable.requisitionId))
+			.leftJoin(
+				companyOfficeLocationTable,
+				eq(requisitionTable.locationId, companyOfficeLocationTable.id)
+			)
 			.where(
 				and(eq(requisitionTable.companyId, company.id), ne(requisitionTable.status, 'PENDING'))
 			)
 			.limit(count)
 			.orderBy(desc(requisitionTable.createdAt));
-		return result;
+
+		if (paginatedRequisitions.length === 0) return [];
+
+		const requisitionIds = paginatedRequisitions.map((r) => r.requisition.id);
+
+		const recurrenceDays = await db
+			.select({
+				requisitionId: recurrenceDayTable.requisitionId,
+				dayStart: recurrenceDayTable.dayStart,
+				dayEnd: recurrenceDayTable.dayEnd
+			})
+			.from(recurrenceDayTable)
+			.where(inArray(recurrenceDayTable.requisitionId, requisitionIds));
+
+		const recurrenceByRequisition = new Map<number, { dayStart: Date; dayEnd: Date }[]>();
+		for (const day of recurrenceDays) {
+			if (!recurrenceByRequisition.has(day.requisitionId)) {
+				recurrenceByRequisition.set(day.requisitionId, []);
+			}
+			recurrenceByRequisition.get(day.requisitionId)!.push({
+				dayStart: day.dayStart,
+				dayEnd: day.dayEnd
+			});
+		}
+
+		return paginatedRequisitions.map((row) => ({
+			...row,
+			recurrenceDays: recurrenceByRequisition.get(row.requisition.id) ?? []
+		}));
 	} catch (err) {
 		console.log(err);
 		throw error(500, `${err}`);

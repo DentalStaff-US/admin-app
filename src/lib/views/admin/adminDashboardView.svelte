@@ -27,6 +27,7 @@
 	import type { AdminNewUserSchema } from '$lib/config/zod-schemas';
 	import { Label } from '$lib/components/ui/label';
 	import { Input } from '$lib/components/ui/input';
+	import { formatInTimeZone } from 'date-fns-tz';
 
 	export let user;
 	export let data;
@@ -73,19 +74,28 @@
 		);
 	}
 
-	function formatWorkWeek(startDay: Date, endDay: Date) {
+	function formatWorkWeek(
+		recurrenceDays: { dayStart: Date; dayEnd: Date }[],
+		timezone: string
+	): string {
+		if (!recurrenceDays || recurrenceDays.length === 0) return 'No shifts scheduled';
+
 		function format(date: Date) {
-			return date.toLocaleDateString('en-US', {
-				month: 'long',
-				day: 'numeric'
-			});
+			return formatInTimeZone(new Date(date), timezone, 'MMMM d');
 		}
-		const start = format(startDay)
-		const end = format(endDay)
-		if (start === end){
-			return `${start}`
-		} 
-		return `${start} - ${end}`
+
+		if (recurrenceDays.length === 1) {
+			return format(recurrenceDays[0].dayStart);
+		}
+
+		const sorted = [...recurrenceDays].sort(
+			(a, b) => new Date(a.dayStart).getTime() - new Date(b.dayStart).getTime()
+		);
+
+		const first = format(sorted[0].dayStart);
+		const last = format(sorted[sorted.length - 1].dayStart);
+
+		return `${first} – ${last}`;
 	}
 
 	// Function to format trend value with + or - sign
@@ -396,7 +406,7 @@
 											</Table.Cell>
 											<Table.Cell>
 												<!-- Work Week 9th -->
-												{formatWorkWeek(req.recurrence.dayStart, req.recurrence.dayEnd)}
+												{formatWorkWeek(req.recurrenceDays, req.referenceTimezone)}
 											</Table.Cell>
 										</Table.Row>
 									{/each}

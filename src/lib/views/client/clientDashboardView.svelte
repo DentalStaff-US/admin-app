@@ -20,6 +20,7 @@
 	import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
 	import type { ClientRequisitionSchema } from '$lib/config/zod-schemas';
 	import type { SuperValidated } from 'sveltekit-superforms';
+	import { formatInTimeZone } from 'date-fns-tz';
 
 	export let user;
 	export let data;
@@ -42,19 +43,28 @@
 	$: totalAmountDue = parseInt(data.totalAmountDue || '0');
 
 	// Function to format work week
-	function formatWorkWeek(startDay: Date, endDay: Date) {
+	function formatWorkWeek(
+		recurrenceDays: { dayStart: Date; dayEnd: Date }[],
+		timezone: string
+	): string {
+		if (!recurrenceDays || recurrenceDays.length === 0) return 'No shifts scheduled';
+
 		function format(date: Date) {
-			return date.toLocaleDateString('en-US', {
-				month: 'long',
-				day: 'numeric'
-			});
+			return formatInTimeZone(new Date(date), timezone, 'MMMM d');
 		}
-		const start = format(startDay);
-		const end = format(endDay);
-		if (start === end) {
-			return `${start}`;
+
+		if (recurrenceDays.length === 1) {
+			return format(recurrenceDays[0].dayStart);
 		}
-		return `${start} - ${end}`;
+
+		const sorted = [...recurrenceDays].sort(
+			(a, b) => new Date(a.dayStart).getTime() - new Date(b.dayStart).getTime()
+		);
+
+		const first = format(sorted[0].dayStart);
+		const last = format(sorted[sorted.length - 1].dayStart);
+
+		return `${first} – ${last}`;
 	}
 </script>
 
@@ -161,7 +171,7 @@
 		</div>
 
 		<!-- Requisitions table (moved to adjust layout) -->
-		<div class='col-span-12'>
+		<div class="col-span-12">
 			<Card.Root>
 				<Card.Header class="flex flex-row justify-between items-center flex-wrap">
 					<Card.Title class="text-xl md:text-2xl">Recent Requisitions</Card.Title>
@@ -267,7 +277,7 @@
 									</Table.Cell>
 									<Table.Cell>
 										<!-- Work Week 9th -->
-										{formatWorkWeek(req.recurrence.dayStart, req.recurrence.dayEnd)}
+										{formatWorkWeek(req.recurrenceDays, req.referenceTimezone)}
 									</Table.Cell>
 								</Table.Row>
 							{/each}
