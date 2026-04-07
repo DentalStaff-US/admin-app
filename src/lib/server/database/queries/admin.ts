@@ -310,6 +310,14 @@ export async function getRequisitionsPreviewAdmin(limit: number) {
 				lastName: userTable.lastName,
 				avatarUrl: userTable.avatarUrl,
 				email: userTable.email
+			},
+			location: {
+				locationName: companyOfficeLocationTable.name,
+				completeAddress: companyOfficeLocationTable.completeAddress
+			},
+			recurrence: {
+				dayStart: recurrenceDayTable.dayStart,
+				dayEnd: recurrenceDayTable.dayEnd
 			}
 		})
 		.from(requisitionTable)
@@ -317,6 +325,8 @@ export async function getRequisitionsPreviewAdmin(limit: number) {
 		.leftJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
 		.leftJoin(clientProfileTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
 		.leftJoin(userTable, eq(clientProfileTable.userId, userTable.id))
+		.leftJoin(companyOfficeLocationTable, eq(requisitionTable.locationId, companyOfficeLocationTable.id))
+		.leftJoin(recurrenceDayTable, eq(requisitionTable.id, recurrenceDayTable.requisitionId))
 		.limit(limit)
 		.orderBy(desc(requisitionTable.createdAt));
 
