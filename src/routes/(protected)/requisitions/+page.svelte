@@ -98,8 +98,9 @@
 
 	// Define columns for different user roles
 	const getColumns = (isAdmin: boolean): ColumnDef<RequisitionData>[] => {
-		const baseColumns: ColumnDef<RequisitionData>[] = [
+		let baseColumns: ColumnDef<RequisitionData>[] = [
 			{
+				id: 'id',
 				header: 'Req #',
 				accessorKey: 'id',
 				cell: ({ getValue }) => {
@@ -109,6 +110,7 @@
 				enableSorting: true
 			},
 			{
+				id: 'discipline',
 				header: 'Discipline',
 				accessorKey: 'disciplineName',
 				cell: ({ getValue, row }) => {
@@ -117,11 +119,13 @@
 				enableSorting: true
 			},
 			{
+				id: 'status',
 				header: 'Status',
 				accessorKey: 'status',
 				enableSorting: true
 			},
 			{
+				id: 'type',
 				header: 'Type',
 				accessorKey: 'permanentPosition',
 				cell: ({ getValue, row }) => {
@@ -130,33 +134,32 @@
 				enableSorting: true
 			},
 			{
+				id: 'rate',
 				header: 'Rate',
 				accessorKey: 'hourlyRate',
 				enableSorting: true
 			},
-			// {
-			// 	header: 'Client',
-			// 	accessorFn: (row) => `${row.firstName} ${row.lastName}`,
-			// 	enableSorting: true
-			// },
 			{
+				id: 'location',
 				header: 'Location',
 				accessorKey: 'locationName',
 				enableSorting: true
 			},
 			{
+				id: 'address',
 				header: 'Address',
 				accessorKey: 'locationAddress',
 				enableSorting: true
 			},
 			{
+				id: 'work-week',
 				header: 'Work Week',
 				accessorFn: (row) => `${formatWorkWeek(row.recurrenceDays, row.referenceTimezone)}`
 			}
 		];
 
 		if (isAdmin) {
-			baseColumns.push({
+			baseColumns = baseColumns.toSpliced(5, 0, {
 				header: 'Client',
 				accessorFn: (row) => `${row.lastName}, Dr. ${row.firstName}`,
 				id: 'client',
