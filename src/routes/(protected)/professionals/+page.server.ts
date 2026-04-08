@@ -70,7 +70,7 @@ export const actions = {
 				updatedAt: new Date(),
 				firstName: formData.data.firstName,
 				lastName: formData.data.lastName,
-				email: formData.data.email,
+				email: formData.data.email.toLowerCase(),
 				role: 'CANDIDATE',
 				completedOnboarding: true,
 				verified: true,
