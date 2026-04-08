@@ -97,7 +97,7 @@ export const actions = {
 						createdAt: new Date(),
 						updatedAt: new Date(),
 						userId: user.id,
-						status: 'ACTIVE'
+						status: 'PENDING'
 					};
 
 					const profile = await createCandidateProfile(profileData, tx);
