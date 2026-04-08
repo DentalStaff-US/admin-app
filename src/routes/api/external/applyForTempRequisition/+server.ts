@@ -13,7 +13,7 @@ import {
 } from '$lib/server/database/schemas/requisition';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { and, eq } from 'drizzle-orm';
-import { env } from '$env/dynamic/private';
+import { BASE_URL, CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { EmailService } from '$lib/server/email/emailService';
 import {
 	getClientCompanyByClientId,
@@ -25,7 +25,7 @@ import { format } from 'date-fns';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 
 const corsHeaders = {
-	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
+	'Access-Control-Allow-Origin': CANDIDATE_APP_DOMAIN,
 	'Access-Control-Allow-Methods': 'POST, OPTIONS',
 	'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 	'Access-Control-Allow-Credentials': 'true'
@@ -197,7 +197,6 @@ export const POST: RequestHandler = async ({ request }) => {
 					id: crypto.randomUUID(),
 					createdAt: new Date(),
 					updatedAt: new Date(),
-					workdayId: newWorkday.id,
 					associatedCandidateId: candidateProfile.id,
 					associatedClientId: clientId,
 					requisitionId: recurrenceDay.requisition.id,
@@ -223,7 +222,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			await emailService.sendRecurrenceDayClaimedEmail(
 				location.email || client.user.email,
 				{
-					url: `${env.BASE_URL}/requisitions/${recurrenceDay.requisition.id}/workday/${recurrenceDayId}`,
+					url: `${BASE_URL}/requisitions/${recurrenceDay.requisition.id}/workday/${recurrenceDayId}`,
 					companyName: company.companyName as string,
 					location: location.completeAddress || 'Not Specified',
 					date: recurrenceDay.recurrenceDay.date,

@@ -107,13 +107,13 @@ export interface Timesheet {
 	// workdayId removed
 	status: string;
 	candidate:
-	| (CandidateProfileSelect & {
-		email?: string;
-		firstName?: string;
-		lastName?: string;
-		avatarUrl?: string | null;
-	})
-	| null;
+		| (CandidateProfileSelect & {
+				email?: string;
+				firstName?: string;
+				lastName?: string;
+				avatarUrl?: string | null;
+		  })
+		| null;
 }
 
 export type RequisitionDetailsRaw = {
@@ -162,7 +162,6 @@ export async function getRequisitionsForClient(companyId: string, searchTerm?: s
 	try {
 		const results = await db
 			.select({
-				// Requisition fields
 				id: requisitionTable.id,
 				title: requisitionTable.title,
 				status: requisitionTable.status,
@@ -173,26 +172,14 @@ export async function getRequisitionsForClient(companyId: string, searchTerm?: s
 				jobDescription: requisitionTable.jobDescription,
 				specialInstructions: requisitionTable.specialInstructions,
 				referenceTimezone: requisitionTable.referenceTimezone,
-
-				// Location fields
 				locationId: companyOfficeLocationTable.id,
 				locationName: companyOfficeLocationTable.name,
 				companyId: companyOfficeLocationTable.companyId,
-
-				// Company fields
 				companyName: clientCompanyTable.companyName,
-
-				// User fields (client owner)
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				email: userTable.email,
-
-				// Discipline fields
-				disciplineName: disciplineTable.name,
-
-				// Currence fields
-				recurrenceDayStart: recurrenceDayTable.dayStart,
-				recurrenceDayEnd: recurrenceDayTable.dayEnd,
+				disciplineName: disciplineTable.name
 			})
 			.from(requisitionTable)
 			.innerJoin(
@@ -206,7 +193,6 @@ export async function getRequisitionsForClient(companyId: string, searchTerm?: s
 			.innerJoin(clientProfileTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
 			.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
 			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
-			.innerJoin(recurrenceDayTable, eq(requisitionTable.id, recurrenceDayTable.requisitionId))
 			.where(
 				and(
 					eq(requisitionTable.companyId, companyId),
@@ -226,10 +212,37 @@ export async function getRequisitionsForClient(companyId: string, searchTerm?: s
 			.orderBy(desc(requisitionTable.createdAt))
 			.limit(DEFAULT_MAX_RECORD_LIMIT);
 
-		return results;
-	} catch (error) {
-		console.error('Error fetching requisitions for client:', error);
-		throw error;
+		if (results.length === 0) return [];
+
+		const requisitionIds = results.map((r) => r.id);
+
+		const recurrenceDays = await db
+			.select({
+				requisitionId: recurrenceDayTable.requisitionId,
+				dayStart: recurrenceDayTable.dayStart,
+				dayEnd: recurrenceDayTable.dayEnd
+			})
+			.from(recurrenceDayTable)
+			.where(inArray(recurrenceDayTable.requisitionId, requisitionIds));
+
+		const recurrenceByRequisition = new Map<number, { dayStart: Date; dayEnd: Date }[]>();
+		for (const day of recurrenceDays) {
+			if (!recurrenceByRequisition.has(day.requisitionId)) {
+				recurrenceByRequisition.set(day.requisitionId, []);
+			}
+			recurrenceByRequisition.get(day.requisitionId)!.push({
+				dayStart: day.dayStart,
+				dayEnd: day.dayEnd
+			});
+		}
+
+		return results.map((row) => ({
+			...row,
+			recurrenceDays: recurrenceByRequisition.get(row.id) ?? []
+		}));
+	} catch (err) {
+		console.error('Error fetching requisitions for client:', err);
+		throw err;
 	}
 }
 
@@ -237,7 +250,6 @@ export async function getRequisitionsAdmin(searchTerm?: string) {
 	try {
 		const results = await db
 			.select({
-				// Requisition fields
 				id: requisitionTable.id,
 				title: requisitionTable.title,
 				status: requisitionTable.status,
@@ -248,27 +260,15 @@ export async function getRequisitionsAdmin(searchTerm?: string) {
 				jobDescription: requisitionTable.jobDescription,
 				specialInstructions: requisitionTable.specialInstructions,
 				referenceTimezone: requisitionTable.referenceTimezone,
-
-				// Location fields
 				locationId: companyOfficeLocationTable.id,
 				locationName: companyOfficeLocationTable.name,
 				locationAddress: companyOfficeLocationTable.completeAddress,
 				companyId: companyOfficeLocationTable.companyId,
-
-				// Company fields
 				companyName: clientCompanyTable.companyName,
-
-				// User fields (client owner)
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				email: userTable.email,
-
-				// Discipline fields
-				disciplineName: disciplineTable.name,
-
-				// Currence fields
-				recurrenceDayStart: recurrenceDayTable.dayStart,
-				recurrenceDayEnd: recurrenceDayTable.dayEnd,
+				disciplineName: disciplineTable.name
 			})
 			.from(requisitionTable)
 			.innerJoin(
@@ -282,7 +282,6 @@ export async function getRequisitionsAdmin(searchTerm?: string) {
 			.innerJoin(clientProfileTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
 			.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
 			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
-			.innerJoin(recurrenceDayTable, eq(requisitionTable.id, recurrenceDayTable.requisitionId))
 			.where(
 				and(
 					eq(requisitionTable.archived, false),
@@ -301,10 +300,37 @@ export async function getRequisitionsAdmin(searchTerm?: string) {
 			.orderBy(desc(requisitionTable.createdAt))
 			.limit(DEFAULT_MAX_RECORD_LIMIT);
 
-		return results;
-	} catch (error) {
-		console.error('Error fetching requisitions for admin:', error);
-		throw error;
+		if (results.length === 0) return [];
+
+		const requisitionIds = results.map((r) => r.id);
+
+		const recurrenceDays = await db
+			.select({
+				requisitionId: recurrenceDayTable.requisitionId,
+				dayStart: recurrenceDayTable.dayStart,
+				dayEnd: recurrenceDayTable.dayEnd
+			})
+			.from(recurrenceDayTable)
+			.where(inArray(recurrenceDayTable.requisitionId, requisitionIds));
+
+		const recurrenceByRequisition = new Map<number, { dayStart: Date; dayEnd: Date }[]>();
+		for (const day of recurrenceDays) {
+			if (!recurrenceByRequisition.has(day.requisitionId)) {
+				recurrenceByRequisition.set(day.requisitionId, []);
+			}
+			recurrenceByRequisition.get(day.requisitionId)!.push({
+				dayStart: day.dayStart,
+				dayEnd: day.dayEnd
+			});
+		}
+
+		return results.map((row) => ({
+			...row,
+			recurrenceDays: recurrenceByRequisition.get(row.id) ?? []
+		}));
+	} catch (err) {
+		console.error('Error fetching requisitions for admin:', err);
+		throw err;
 	}
 }
 
@@ -1066,11 +1092,11 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 			.where(
 				searchTerm
 					? or(
-						ilike(requisitionTable.title, `%${searchTerm}%`),
-						ilike(clientCompanyTable.companyName, `%${searchTerm}%`),
-						ilike(userTable.firstName, `%${searchTerm}%`),
-						ilike(userTable.lastName, `%${searchTerm}%`)
-					)
+							ilike(requisitionTable.title, `%${searchTerm}%`),
+							ilike(clientCompanyTable.companyName, `%${searchTerm}%`),
+							ilike(userTable.firstName, `%${searchTerm}%`),
+							ilike(userTable.lastName, `%${searchTerm}%`)
+						)
 					: undefined
 			)
 			.orderBy(desc(timeSheetTable.createdAt))
@@ -1112,11 +1138,11 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 					eq(timeSheetTable.associatedClientId, clientId),
 					searchTerm
 						? or(
-							ilike(requisitionTable.title, `%${searchTerm}%`),
-							ilike(clientCompanyTable.companyName, `%${searchTerm}%`),
-							ilike(userTable.firstName, `%${searchTerm}%`),
-							ilike(userTable.lastName, `%${searchTerm}%`)
-						)
+								ilike(requisitionTable.title, `%${searchTerm}%`),
+								ilike(clientCompanyTable.companyName, `%${searchTerm}%`),
+								ilike(userTable.firstName, `%${searchTerm}%`),
+								ilike(userTable.lastName, `%${searchTerm}%`)
+							)
 						: undefined
 				)
 			);
