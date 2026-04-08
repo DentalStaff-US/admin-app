@@ -1,4 +1,5 @@
-import { APP_NAME, BASE_URL } from '$lib/config/constants';
+import { APP_NAME } from '$lib/config/constants';
+import { BASE_URL } from '$env/static/private';
 import { env } from '$env/dynamic/private';
 import type { Invoice } from '../database/schemas/requisition';
 import { format } from 'date-fns';

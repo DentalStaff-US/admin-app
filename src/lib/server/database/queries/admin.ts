@@ -298,8 +298,9 @@ export async function getSupportTicketsPreview(limit: number) {
 	return result;
 }
 
-export async function getRequisitionsPreviewAdmin(limit: number) {
-	const result = await db
+export async function getRequisitionsPreviewAdmin(limit: number, offset: number = 0) {
+	// First: get paginated requisition IDs only
+	const paginatedRequisitions = await db
 		.select({
 			requisition: { ...requisitionTable, disciplineName: disciplineTable.name },
 			client: { ...clientProfileTable },
@@ -310,6 +311,10 @@ export async function getRequisitionsPreviewAdmin(limit: number) {
 				lastName: userTable.lastName,
 				avatarUrl: userTable.avatarUrl,
 				email: userTable.email
+			},
+			location: {
+				locationName: companyOfficeLocationTable.name,
+				completeAddress: companyOfficeLocationTable.completeAddress
 			}
 		})
 		.from(requisitionTable)
@@ -317,10 +322,45 @@ export async function getRequisitionsPreviewAdmin(limit: number) {
 		.leftJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
 		.leftJoin(clientProfileTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
 		.leftJoin(userTable, eq(clientProfileTable.userId, userTable.id))
+		.leftJoin(
+			companyOfficeLocationTable,
+			eq(requisitionTable.locationId, companyOfficeLocationTable.id)
+		)
+		.orderBy(desc(requisitionTable.createdAt))
 		.limit(limit)
-		.orderBy(desc(requisitionTable.createdAt));
+		.offset(offset);
 
-	return result;
+	if (paginatedRequisitions.length === 0) return [];
+
+	// Second: fetch recurrence days for just these requisitions
+	const requisitionIds = paginatedRequisitions.map((r) => r.requisition.id);
+
+	const recurrenceDays = await db
+		.select({
+			requisitionId: recurrenceDayTable.requisitionId,
+			dayStart: recurrenceDayTable.dayStart,
+			dayEnd: recurrenceDayTable.dayEnd
+		})
+		.from(recurrenceDayTable)
+		.where(inArray(recurrenceDayTable.requisitionId, requisitionIds));
+
+	// Group recurrence days by requisition id
+	const recurrenceByRequisition = new Map<number, { dayStart: Date; dayEnd: Date }[]>();
+	for (const day of recurrenceDays) {
+		if (!recurrenceByRequisition.has(day.requisitionId)) {
+			recurrenceByRequisition.set(day.requisitionId, []);
+		}
+		recurrenceByRequisition.get(day.requisitionId)!.push({
+			dayStart: day.dayStart,
+			dayEnd: day.dayEnd
+		});
+	}
+
+	// Merge
+	return paginatedRequisitions.map((row) => ({
+		...row,
+		recurrenceDays: recurrenceByRequisition.get(row.requisition.id) ?? []
+	}));
 }
 
 export async function getDiscrepanciesForAdminDashboard() {

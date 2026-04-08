@@ -1,7 +1,5 @@
 // Comment out the next two lines to seed db
 
-import { dev } from '$app/environment';
-export const BASE_URL = dev ? 'http://localhost:3000' : 'https://internal.dtstaffingsolutions.com';
 export const BRAND_BASE = '#2a93d1';
 
 export const APP_NAME = 'Dental Temp Staffing Solutions';
@@ -20,7 +18,7 @@ export const TERMS_PRIVACY_APP_PRICING_AND_SUBSCRIPTIONS =
 export const TERMS_PRIVACY_COUNTRY = 'United States';
 
 export const DEV_SUPERADMIN_EMAIL = 'brett.a.cole65@gmail.com';
-export const DEV_SUPERADMIN_PASSWORD = 'dentalstaff.us';
+export const DEV_SUPERADMIN_PASSWORD = 'dtssadmin';
 export const DEFAULT_MAX_RECORD_LIMIT = 1000;
 
 export const USER_ROLES = {

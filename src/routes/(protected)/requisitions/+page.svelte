@@ -37,6 +37,7 @@
 	import { writable } from 'svelte/store';
 	import { onMount } from 'svelte';
 	import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
+	import { formatInTimeZone } from 'date-fns-tz';
 
 	export let data: PageData;
 
@@ -56,7 +57,9 @@
 		disciplineName: string;
 		regionName: string;
 		regionAbbreviation: string;
+		referenceTimezone: string;
 		subregionName: string;
+		recurrenceDays: { dayStart: Date; dayEnd: Date }[];
 	};
 
 	let drawerExpanded = false;
@@ -69,10 +72,35 @@
 	$: adminForm = data.adminForm as SuperValidated<AdminRequisitionSchema>;
 	$: isAdmin = user?.role === USER_ROLES.SUPERADMIN;
 
+	function formatWorkWeek(
+		recurrenceDays: { dayStart: Date; dayEnd: Date }[],
+		timezone: string
+	): string {
+		if (!recurrenceDays || recurrenceDays.length === 0) return 'No shifts scheduled';
+
+		function format(date: Date) {
+			return formatInTimeZone(new Date(date), timezone, 'MMMM d');
+		}
+
+		if (recurrenceDays.length === 1) {
+			return format(recurrenceDays[0].dayStart);
+		}
+
+		const sorted = [...recurrenceDays].sort(
+			(a, b) => new Date(a.dayStart).getTime() - new Date(b.dayStart).getTime()
+		);
+
+		const first = format(sorted[0].dayStart);
+		const last = format(sorted[sorted.length - 1].dayStart);
+
+		return `${first} – ${last}`;
+	}
+
 	// Define columns for different user roles
 	const getColumns = (isAdmin: boolean): ColumnDef<RequisitionData>[] => {
-		const baseColumns: ColumnDef<RequisitionData>[] = [
+		let baseColumns: ColumnDef<RequisitionData>[] = [
 			{
+				id: 'id',
 				header: 'Req #',
 				accessorKey: 'id',
 				cell: ({ getValue }) => {
@@ -82,6 +110,7 @@
 				enableSorting: true
 			},
 			{
+				id: 'discipline',
 				header: 'Discipline',
 				accessorKey: 'disciplineName',
 				cell: ({ getValue, row }) => {
@@ -90,29 +119,53 @@
 				enableSorting: true
 			},
 			{
+				id: 'status',
+				header: 'Status',
+				accessorKey: 'status',
+				enableSorting: true
+			},
+			{
+				id: 'type',
 				header: 'Type',
 				accessorKey: 'permanentPosition',
 				cell: ({ getValue, row }) => {
 					return getValue() ? 'Permanent' : 'Temporary';
 				},
 				enableSorting: true
+			},
+			{
+				id: 'rate',
+				header: 'Rate',
+				accessorKey: 'hourlyRate',
+				enableSorting: true
+			},
+			{
+				id: 'location',
+				header: 'Location',
+				accessorKey: 'locationName',
+				enableSorting: true
+			},
+			{
+				id: 'address',
+				header: 'Address',
+				accessorKey: 'locationAddress',
+				enableSorting: true
+			},
+			{
+				id: 'work-week',
+				header: 'Work Week',
+				accessorFn: (row) => `${formatWorkWeek(row.recurrenceDays, row.referenceTimezone)}`
 			}
 		];
 
 		if (isAdmin) {
-			baseColumns.push({
+			baseColumns = baseColumns.toSpliced(5, 0, {
 				header: 'Client',
 				accessorFn: (row) => `${row.lastName}, Dr. ${row.firstName}`,
 				id: 'client',
 				enableSorting: true
 			});
 		}
-
-		baseColumns.push({
-			header: 'Office',
-			accessorKey: 'locationName'
-		});
-
 		return baseColumns;
 	};
 

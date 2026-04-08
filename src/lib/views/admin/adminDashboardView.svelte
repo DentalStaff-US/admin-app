@@ -27,6 +27,7 @@
 	import type { AdminNewUserSchema } from '$lib/config/zod-schemas';
 	import { Label } from '$lib/components/ui/label';
 	import { Input } from '$lib/components/ui/input';
+	import { formatInTimeZone } from 'date-fns-tz';
 
 	export let user;
 	export let data;
@@ -71,6 +72,30 @@
 			status === 'INACTIVE' && 'bg-gray-100 text-gray-800 hover:bg-gray-200',
 			status === 'REJECTED' && 'bg-red-100 text-red-800 hover:bg-red-200'
 		);
+	}
+
+	function formatWorkWeek(
+		recurrenceDays: { dayStart: Date; dayEnd: Date }[],
+		timezone: string
+	): string {
+		if (!recurrenceDays || recurrenceDays.length === 0) return 'No shifts scheduled';
+
+		function format(date: Date) {
+			return formatInTimeZone(new Date(date), timezone, 'MMMM d');
+		}
+
+		if (recurrenceDays.length === 1) {
+			return format(recurrenceDays[0].dayStart);
+		}
+
+		const sorted = [...recurrenceDays].sort(
+			(a, b) => new Date(a.dayStart).getTime() - new Date(b.dayStart).getTime()
+		);
+
+		const first = format(sorted[0].dayStart);
+		const last = format(sorted[sorted.length - 1].dayStart);
+
+		return `${first} – ${last}`;
 	}
 
 	// Function to format trend value with + or - sign
@@ -289,10 +314,24 @@
 							<Table.Root>
 								<Table.Header>
 									<Table.Row>
+										<!-- 1st Column 🢃 -->
+										<Table.Head>Requisition Number</Table.Head>
+										<!-- 2nd Column 🢃 -->
 										<Table.Head>Position</Table.Head>
+										<!-- 3rd Column 🢃 -->
 										<Table.Head>Status</Table.Head>
+										<!-- 4th Column 🢃 -->
 										<Table.Head>Type</Table.Head>
-										<Table.Head class="text-right">Rate</Table.Head>
+										<!-- 5th Column 🢃 -->
+										<Table.Head>Rate</Table.Head>
+										<!-- 6th Column 🢃 -->
+										<Table.Head>Client</Table.Head>
+										<!-- 7th Column 🢃 -->
+										<Table.Head>Location</Table.Head>
+										<!-- 8th Column 🢃 -->
+										<Table.Head>Address</Table.Head>
+										<!-- 9th Column 🢃 -->
+										<Table.Head>Work Week</Table.Head>
 									</Table.Row>
 								</Table.Header>
 								<Table.Body>
@@ -302,17 +341,25 @@
 											on:click={() => goto(`/requisitions/${req.requisition.id}`)}
 										>
 											<Table.Cell>
+												<!-- Requisition Number 1st -->
+												<div class="flex flex-col">
+													<span class="font-medium truncate max-w-[250px]">
+														#{req.requisition.id}
+													</span>
+													<!-- <span class="text-xs text-gray-500">{req.company.companyName}</span> -->
+												</div>
+											</Table.Cell>
+											<Table.Cell>
+												<!-- Position 2nd -->
 												<div class="flex flex-col">
 													<span class="font-medium truncate max-w-[250px]"
-														>{req.requisition.disciplineName}
-														<span class="text-xs text-muted-foreground"
-															>- Req# {req.requisition.id}</span
-														></span
+														>{req.requisition.disciplineName}</span
 													>
 													<span class="text-xs text-gray-500">{req.company.companyName}</span>
 												</div>
 											</Table.Cell>
 											<Table.Cell>
+												<!-- Status 3rd -->
 												<Badge
 													variant="secondary"
 													value={req.requisition.status}
@@ -330,20 +377,37 @@
 												/>
 											</Table.Cell>
 											<Table.Cell>
+												<!-- Type 4th -->
 												<Badge
 													variant="secondary"
 													value={req.requisition.permanentPosition ? 'Permanent' : 'Temporary'}
-													class= {
-														cn(
-															req.requisition.permanentPosition && 'bg-gray-300',
-															!req.requisition.permanentPosition && 'bg-gray-300'
-														)
-													}
+													class={cn(
+														req.requisition.permanentPosition && 'bg-gray-300',
+														!req.requisition.permanentPosition && 'bg-gray-300'
+													)}
 												/>
 											</Table.Cell>
-											<Table.Cell class="text-right"
-												>{formatCurrency(req.requisition.hourlyRate)}</Table.Cell
-											>
+											<Table.Cell>
+												<!-- Rate 5th -->
+												{formatCurrency(req.requisition.hourlyRate)}+
+											</Table.Cell>
+											<Table.Cell>
+												<!-- Client 6th -->
+												{req.user.firstName}
+												{req.user.lastName}
+											</Table.Cell>
+											<Table.Cell>
+												<!-- Location 7th -->
+												{req.location.locationName}
+											</Table.Cell>
+											<Table.Cell>
+												<!-- Address 8th -->
+												{req.location.completeAddress}
+											</Table.Cell>
+											<Table.Cell>
+												<!-- Work Week 9th -->
+												{formatWorkWeek(req.recurrenceDays, req.referenceTimezone)}
+											</Table.Cell>
 										</Table.Row>
 									{/each}
 								</Table.Body>

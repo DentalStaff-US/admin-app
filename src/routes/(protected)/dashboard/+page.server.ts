@@ -40,6 +40,8 @@ export const load = async (event: RequestEvent) => {
 		const form = superValidate(event, adminRequisitionSchema);
 		const newProfileForm = await superValidate(event, adminNewUserSchema);
 
+		console.log({ requisitions: JSON.stringify(requisitions[0], null, 2) });
+
 		return {
 			user,
 			timesheetsDueCount,

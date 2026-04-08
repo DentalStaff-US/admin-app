@@ -162,7 +162,6 @@ export async function getRequisitionsForClient(companyId: string, searchTerm?: s
 	try {
 		const results = await db
 			.select({
-				// Requisition fields
 				id: requisitionTable.id,
 				title: requisitionTable.title,
 				status: requisitionTable.status,
@@ -173,21 +172,13 @@ export async function getRequisitionsForClient(companyId: string, searchTerm?: s
 				jobDescription: requisitionTable.jobDescription,
 				specialInstructions: requisitionTable.specialInstructions,
 				referenceTimezone: requisitionTable.referenceTimezone,
-
-				// Location fields
 				locationId: companyOfficeLocationTable.id,
 				locationName: companyOfficeLocationTable.name,
 				companyId: companyOfficeLocationTable.companyId,
-
-				// Company fields
 				companyName: clientCompanyTable.companyName,
-
-				// User fields (client owner)
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				email: userTable.email,
-
-				// Discipline fields
 				disciplineName: disciplineTable.name
 			})
 			.from(requisitionTable)
@@ -221,10 +212,37 @@ export async function getRequisitionsForClient(companyId: string, searchTerm?: s
 			.orderBy(desc(requisitionTable.createdAt))
 			.limit(DEFAULT_MAX_RECORD_LIMIT);
 
-		return results;
-	} catch (error) {
-		console.error('Error fetching requisitions for client:', error);
-		throw error;
+		if (results.length === 0) return [];
+
+		const requisitionIds = results.map((r) => r.id);
+
+		const recurrenceDays = await db
+			.select({
+				requisitionId: recurrenceDayTable.requisitionId,
+				dayStart: recurrenceDayTable.dayStart,
+				dayEnd: recurrenceDayTable.dayEnd
+			})
+			.from(recurrenceDayTable)
+			.where(inArray(recurrenceDayTable.requisitionId, requisitionIds));
+
+		const recurrenceByRequisition = new Map<number, { dayStart: Date; dayEnd: Date }[]>();
+		for (const day of recurrenceDays) {
+			if (!recurrenceByRequisition.has(day.requisitionId)) {
+				recurrenceByRequisition.set(day.requisitionId, []);
+			}
+			recurrenceByRequisition.get(day.requisitionId)!.push({
+				dayStart: day.dayStart,
+				dayEnd: day.dayEnd
+			});
+		}
+
+		return results.map((row) => ({
+			...row,
+			recurrenceDays: recurrenceByRequisition.get(row.id) ?? []
+		}));
+	} catch (err) {
+		console.error('Error fetching requisitions for client:', err);
+		throw err;
 	}
 }
 
@@ -232,7 +250,6 @@ export async function getRequisitionsAdmin(searchTerm?: string) {
 	try {
 		const results = await db
 			.select({
-				// Requisition fields
 				id: requisitionTable.id,
 				title: requisitionTable.title,
 				status: requisitionTable.status,
@@ -243,21 +260,14 @@ export async function getRequisitionsAdmin(searchTerm?: string) {
 				jobDescription: requisitionTable.jobDescription,
 				specialInstructions: requisitionTable.specialInstructions,
 				referenceTimezone: requisitionTable.referenceTimezone,
-
-				// Location fields
 				locationId: companyOfficeLocationTable.id,
 				locationName: companyOfficeLocationTable.name,
+				locationAddress: companyOfficeLocationTable.completeAddress,
 				companyId: companyOfficeLocationTable.companyId,
-
-				// Company fields
 				companyName: clientCompanyTable.companyName,
-
-				// User fields (client owner)
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				email: userTable.email,
-
-				// Discipline fields
 				disciplineName: disciplineTable.name
 			})
 			.from(requisitionTable)
@@ -290,10 +300,37 @@ export async function getRequisitionsAdmin(searchTerm?: string) {
 			.orderBy(desc(requisitionTable.createdAt))
 			.limit(DEFAULT_MAX_RECORD_LIMIT);
 
-		return results;
-	} catch (error) {
-		console.error('Error fetching requisitions for admin:', error);
-		throw error;
+		if (results.length === 0) return [];
+
+		const requisitionIds = results.map((r) => r.id);
+
+		const recurrenceDays = await db
+			.select({
+				requisitionId: recurrenceDayTable.requisitionId,
+				dayStart: recurrenceDayTable.dayStart,
+				dayEnd: recurrenceDayTable.dayEnd
+			})
+			.from(recurrenceDayTable)
+			.where(inArray(recurrenceDayTable.requisitionId, requisitionIds));
+
+		const recurrenceByRequisition = new Map<number, { dayStart: Date; dayEnd: Date }[]>();
+		for (const day of recurrenceDays) {
+			if (!recurrenceByRequisition.has(day.requisitionId)) {
+				recurrenceByRequisition.set(day.requisitionId, []);
+			}
+			recurrenceByRequisition.get(day.requisitionId)!.push({
+				dayStart: day.dayStart,
+				dayEnd: day.dayEnd
+			});
+		}
+
+		return results.map((row) => ({
+			...row,
+			recurrenceDays: recurrenceByRequisition.get(row.id) ?? []
+		}));
+	} catch (err) {
+		console.error('Error fetching requisitions for admin:', err);
+		throw err;
 	}
 }
 

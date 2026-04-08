@@ -52,80 +52,82 @@ import {
 // 	return obj[keys[(keys.length * Math.random()) << 0]];
 // };
 
-// async function generateClientRecords(count: number) {
-// 	const userRecords: User[] = [];
-// 	const clientRecords: ClientProfile[] = [];
-// 	const companyRecords: ClientCompany[] = [];
+async function generateClientRecords(count: number) {
+	const userRecords: User[] = [];
+	const clientRecords: ClientProfile[] = [];
+	const companyRecords: ClientCompany[] = [];
 
-// 	for (let i = 0; i < count; i++) {
-// 		const token = crypto.randomUUID();
-// 		const uid = crypto.randomUUID();
-// 		const clientId = crypto.randomUUID();
-// 		const companyId = crypto.randomUUID();
+	for (let i = 0; i < count; i++) {
+		const token = crypto.randomUUID();
+		const uid = crypto.randomUUID();
+		const clientId = crypto.randomUUID();
+		const companyId = crypto.randomUUID();
 
-// 		userRecords.push({
-// 			id: uid,
-// 			token,
-// 			avatarUrl: faker.image.avatar(),
-// 			firstName: faker.person.firstName(),
-// 			lastName: faker.person.lastName(),
-// 			email: faker.internet.email().toLowerCase(),
-// 			role: USER_ROLES.CLIENT,
-// 			password: await new Argon2id().hash('test1234'),
-// 			receiveEmail: true,
-// 			verified: true,
-// 			createdAt: new Date(),
-// 			updatedAt: new Date(),
-// 			provider: '',
-// 			providerId: '',
-// 			completedOnboarding: false,
-// 			onboardingStep: null,
-// 			blacklisted: false,
-// 			stripeCustomerId: null,
-// 			timezone: null
-// 		});
-// 		clientRecords.push({
-// 			id: clientId,
-// 			userId: uid,
-// 			birthday: format(faker.date.birthdate({ min: 18, max: 70 }), 'P'),
-// 			createdAt: new Date(),
-// 			updatedAt: new Date()
-// 		});
-// 		companyRecords.push({
-// 			id: companyId,
-// 			clientId,
-// 			createdAt: new Date(),
-// 			updatedAt: new Date(),
-// 			companyName: faker.company.name(),
-// 			licenseNumber: faker.number.bigInt({ min: 999999999999n }).toString()
-// 		});
-// 	}
-// 	return { clientRecords, companyRecords, userRecords };
-// }
+		userRecords.push({
+			id: uid,
+			token,
+			avatarUrl: faker.image.avatar(),
+			firstName: faker.person.firstName(),
+			lastName: faker.person.lastName(),
+			email: faker.internet.email().toLowerCase(),
+			role: USER_ROLES.CLIENT,
+			password: await new Argon2id().hash('test1234'),
+			receiveEmail: true,
+			verified: true,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			provider: '',
+			providerId: '',
+			completedOnboarding: false,
+			onboardingStep: null,
+			blacklisted: false,
+			stripeCustomerId: null,
+			timezone: null
+		});
+		clientRecords.push({
+			id: clientId,
+			userId: uid,
+			birthday: format(faker.date.birthdate({ min: 18, max: 70 }), 'P'),
+			createdAt: new Date(),
+			updatedAt: new Date()
+		});
+		companyRecords.push({
+			id: companyId,
+			clientId,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			companyName: faker.company.name(),
+			licenseNumber: faker.number.bigInt({ min: 999999999999n }).toString()
+		});
+	}
+	return { clientRecords, companyRecords, userRecords };
+}
 
-// async function generateClientCompanyOfficesRecords(count: number, companyId: string) {
-// 	const records: ClientCompanyLocation[] = [];
+async function generateClientCompanyOfficesRecords(count: number, companyId: string) {
+	const records: ClientCompanyLocation[] = [];
 
-// 	for (let i = 0; i < count; i++) {
-// 		const id = crypto.randomUUID();
-// 		records.push({
-// 			id,
-// 			companyId,
-// 			createdAt: new Date(),
-// 			updatedAt: new Date(),
-// 			companyPhone: faker.phone.number(),
-// 			streetOne: faker.location.streetAddress(),
-// 			streetTwo: faker.location.secondaryAddress(),
-// 			city: faker.location.city(),
-// 			state: faker.location.state({ abbreviated: true }),
-// 			zipcode: faker.location.zipCode(),
-// 			cellPhone: faker.phone.number(),
-// 			email: faker.internet.email().toLowerCase(),
-// 			name: faker.lorem.words(3)
-// 		});
-// 	}
-// 	return records;
-// }
+	for (let i = 0; i < count; i++) {
+		const id = crypto.randomUUID();
+		records.push({
+			id,
+			companyId,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+			companyPhone: faker.phone.number(),
+			completeAddress: `${(faker.location.streetAddress(), faker.location.city())}, ${faker.location.state({ abbreviated: true })} ${faker.location.zipCode()}`,
+			timezone: faker.helpers.arrayElement([
+				'America/New_York',
+				'America/Chicago',
+				'America/Denver',
+				'America/Los_Angeles'
+			]),
+			cellPhone: faker.phone.number(),
+			email: faker.internet.email().toLowerCase(),
+			name: faker.lorem.words(3)
+		});
+	}
+	return records;
+}
 
 // async function generateStaffRecords(count: number, companyId: string, clientId: string) {
 // 	const userRecords: User[] = [];
@@ -402,7 +404,7 @@ async function seed() {
 		];
 
 		// Add SUPERADMINS
-		await db.insert(userTable).values(adminUsers).returning();
+		// await db.insert(userTable).values(adminUsers).returning();
 
 		// Add Disciplines & Skills
 		// const disciplines = await generateDisciplineRecords();
@@ -414,11 +416,16 @@ async function seed() {
 		// await db.insert(experienceLevelTable).values(experienceLevels).returning();
 
 		// // Add Client Records
-		// const newClientRecords = await generateClientRecords(20);
-		// await db.insert(userTable).values(newClientRecords.userRecords).returning();
-		// await db.insert(clientProfileTable).values(newClientRecords.clientRecords).returning();
-		// await db.insert(clientCompanyTable).values(newClientRecords.companyRecords).returning();
+		const newClientRecords = await generateClientRecords(20);
+		await db.insert(userTable).values(newClientRecords.userRecords).returning();
+		await db.insert(clientProfileTable).values(newClientRecords.clientRecords).returning();
+		await db.insert(clientCompanyTable).values(newClientRecords.companyRecords).returning();
 
+		for (const company of newClientRecords.companyRecords) {
+			await generateClientCompanyOfficesRecords(3, company.id).then((records) =>
+				db.insert(companyOfficeLocationTable).values(records).returning()
+			);
+		}
 		// Add Client Staff Records and Company Office Locations
 		// for (const client of newClientRecords.clientRecords) {
 		// 	const company = newClientRecords.companyRecords.find(
