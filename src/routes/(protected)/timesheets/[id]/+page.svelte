@@ -437,6 +437,13 @@
 										{data?.timesheet?.candidate?.lastName}
 									</p>
 									<p>• Client: {data?.timesheet?.clientCompanyName}</p>
+									<p>
+										• Worker's Comp. Code: {#if data?.requisition.discipline.workersCompCode}
+											{data.requisition.discipline.workersCompCode}
+										{:else}
+											N/A
+										{/if}
+									</p>
 								</CardDescription>
 							</div>
 						</div>
