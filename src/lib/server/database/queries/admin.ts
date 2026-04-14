@@ -191,15 +191,31 @@ export async function getCalendarEventsForAdmin(userId: string) {
 	const recurrenceDays = await db
 		.select({
 			recurrenceDay: { ...recurrenceDayTable },
-			requisition: { ...requisitionTable, client: { ...clientCompanyTable } }
+			requisition: {
+				...requisitionTable,
+				client: { ...clientCompanyTable },
+				location: { ...companyOfficeLocationTable }
+			},
+			discipline: { ...disciplineTable }
 		})
 		.from(recurrenceDayTable)
 		.innerJoin(requisitionTable, eq(requisitionTable.id, recurrenceDayTable.requisitionId))
 		.innerJoin(clientCompanyTable, eq(clientCompanyTable.id, requisitionTable.companyId))
+		.innerJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
+		.leftJoin(
+			companyOfficeLocationTable,
+			eq(requisitionTable.locationId, companyOfficeLocationTable.id)
+		)
 		.where(eq(requisitionTable.archived, false));
 
 	const recurrenceDayEvents = recurrenceDays.map((recurrenceDay) =>
-		convertRecurrenceDayToEvent(recurrenceDay.recurrenceDay, recurrenceDay.requisition)
+		convertRecurrenceDayToEvent(
+			recurrenceDay.requisition.client,
+			recurrenceDay.recurrenceDay,
+			recurrenceDay.requisition,
+			recurrenceDay.discipline,
+			recurrenceDay.requisition.location
+		)
 	);
 
 	return [...recurrenceDayEvents];

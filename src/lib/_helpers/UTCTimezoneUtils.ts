@@ -403,15 +403,13 @@ export function formatTimestampForDisplay(timestamp: string | Date, timezone: st
 	if (!timestamp) return '';
 
 	try {
-		// Parse the timestamp as a Date object
 		const date = typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
 
-		// Format it for local display with timezone consideration
-		// Format matches what the calendar expects
-		const formattedDate = formatInTimeZone(date, timezone, 'yyyy-MM-dd HH:mm:ss');
-
-		// Add timezone info for debugging/display
-		return `${formattedDate} ${formatInTimeZone(date, timezone, 'z')}`;
+		// Return a naive datetime string — no offset, no timezone suffix.
+		// The calendar treats this as local time, so by shifting to the
+		// requisition timezone first, it displays correctly regardless of
+		// the browser's timezone.
+		return formatInTimeZone(date, timezone, "yyyy-MM-dd'T'HH:mm:ss");
 	} catch (error) {
 		console.error('Error formatting timestamp:', error);
 		return String(timestamp);

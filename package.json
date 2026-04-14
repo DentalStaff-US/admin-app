@@ -61,6 +61,7 @@
 		"@aws-sdk/client-ses": "^3.470.0",
 		"@axiomhq/js": "^1.0.0-rc.1",
 		"@faker-js/faker": "^8.4.1",
+		"@floating-ui/dom": "^1.7.6",
 		"@getbrevo/brevo": "^2.2.0",
 		"@internationalized/date": "^3.5.0",
 		"@lucia-auth/adapter-drizzle": "^1.0.2",
