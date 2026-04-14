@@ -1,5 +1,7 @@
 import { formatTimestampForDisplay, getUserTimezone } from '$lib/_helpers/UTCTimezoneUtils';
+import type { ClientCompanyLocation } from '$lib/server/database/schemas/client';
 import type { RecurrenceDay, Requisition } from '$lib/server/database/schemas/requisition';
+import type { Discipline } from '$lib/server/database/schemas/skill';
 import { format, parseISO } from 'date-fns';
 
 export function _pad(num: number) {
@@ -20,8 +22,11 @@ const requisitionStatusColorEnum = {
  * and converting to local timezone for display
  */
 export function convertRecurrenceDayToEvent(
+	client: any,
 	recurrenceDay: RecurrenceDay,
-	requisition: Requisition
+	requisition: Requisition,
+	discipline: Discipline,
+	location?: ClientCompanyLocation
 ) {
 	const { dayStart, dayEnd, status } = recurrenceDay;
 
@@ -38,13 +43,43 @@ export function convertRecurrenceDayToEvent(
 		start: localDayStart, // Display the local start time
 		end: localDayEnd, // Display the local end time
 		resourceIds: [requisition.id, recurrenceDay.id],
-		title: requisition.title,
+		title: `#${requisition.id} ${discipline.abbreviation.toLocaleUpperCase()} `,
 		data: requisition,
 		color: status ? requisitionStatusColorEnum[status] : '#b3b3b3',
 		extendedProps: {
 			type: 'RECURRENCE_DAY',
 			requisition: { ...requisition },
-			recurrenceDay: { ...recurrenceDay }
+			recurrenceDay: { ...recurrenceDay },
+			discipline: { ...discipline },
+			client: { ...client },
+			location: location ? { ...location } : undefined
+		},
+		styles: ['flex-direction: row-reverse;'],
+		className: 'test'
+	};
+}
+
+export function convertBirthdayToEvent(birthday: string, name: string) {
+	const today = new Date();
+	const currentYear = today.getFullYear();
+
+	// Parse the birthday and set it to the current year
+	const birthDate = parseISO(birthday);
+	birthDate.setFullYear(currentYear);
+
+	// If the birthday has already passed this year, set it for next year
+	if (birthDate < today) {
+		birthDate.setFullYear(currentYear + 1);
+	}
+
+	return {
+		start: birthDate,
+		end: birthDate,
+		title: name,
+		color: '#fbbf24', // A bright color for birthdays
+		extendedProps: {
+			type: 'BIRTHDAY',
+			name
 		}
 	};
 }

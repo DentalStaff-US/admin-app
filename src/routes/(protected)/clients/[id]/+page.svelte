@@ -220,8 +220,6 @@
 	$: client = data.client;
 	$: locations = data.client?.locations || [];
 	$: requisitions = data.requisitions || [];
-
-	$: console.log('requisitions', requisitions);
 	$: recurrenceDays = data.recurrenceDays || [];
 	$: supportTickets = data.supportTickets || [];
 	$: staff = data.staff || [];
