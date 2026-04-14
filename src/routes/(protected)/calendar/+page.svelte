@@ -26,8 +26,6 @@
 	onMount(() => {
 		mounted = true;
 	});
-
-	$: console.log(events);
 </script>
 
 <section class="grow h-screen overflow-y-auto">
