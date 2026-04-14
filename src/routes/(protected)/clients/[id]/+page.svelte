@@ -1,9 +1,8 @@
 <script lang="ts">
 	import type { ClientCompanyLocation } from '$lib/server/database/schemas/client';
-	import { CANDIDATE_STATUS, STAFF_ROLE_ENUM, USER_ROLES } from '$lib/config/constants';
+	import { STAFF_ROLE_ENUM, USER_ROLES } from '$lib/config/constants';
 	import type { PageData } from './$types';
 	import convertNameToInitials from '$lib/_helpers/convertNameToInitials';
-	import { getDayName } from '$lib/_helpers';
 	import { Download, Lock, Unlock, MoreHorizontal, Trash } from 'lucide-svelte';
 	import FileDropzone from '$lib/components/file-upload.svelte';
 	import { enhance as nativeEnhance } from '$app/forms';
