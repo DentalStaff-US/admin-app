@@ -144,8 +144,20 @@ export type NewClientCompanyLocationSchema = typeof newClientCompanyLocationSche
 export type CompanyLocationSchema = typeof clientCompanyLocationSchema;
 
 export const newDisciplineSchema = z.object({
-	name: z.string(),
-	abbreviation: z.string()
+	name: z.string().min(1),
+	abbreviation: z.string().min(1),
+	workersCompCode: z.string().optional()
+});
+
+export const editDisciplineSchema = z.object({
+	id: z.string().min(1),
+	name: z.string().min(1),
+	abbreviation: z.string().min(1),
+	workersCompCode: z.string().optional()
+});
+
+export const deleteDisciplineSchema = z.object({
+	id: z.string().min(1)
 });
 
 export type NewDisciplineSchema = typeof newDisciplineSchema;

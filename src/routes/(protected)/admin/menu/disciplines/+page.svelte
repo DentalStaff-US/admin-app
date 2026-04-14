@@ -16,7 +16,11 @@
 	import type { PageData } from './$types';
 	import { writable } from 'svelte/store';
 	import { onMount } from 'svelte';
-	import { newDisciplineSchema } from '$lib/config/zod-schemas';
+	import {
+		newDisciplineSchema,
+		editDisciplineSchema,
+		deleteDisciplineSchema
+	} from '$lib/config/zod-schemas';
 	import {
 		Loader2,
 		ArrowUpDown,
@@ -26,13 +30,15 @@
 		ChevronRight,
 		GraduationCap,
 		PlusIcon,
-		Trash
+		Trash,
+		Pencil
 	} from 'lucide-svelte';
 	import { goto } from '$app/navigation';
 	import { superForm } from 'sveltekit-superforms/client';
 
 	export let data: PageData;
 
+	// Add form
 	const {
 		submitting,
 		enhance,
@@ -41,10 +47,33 @@
 		onResult: ({ result }) => {
 			if (result.type === 'success') {
 				dialogOpen = false;
-				$disciplineForm = {
-					name: '',
-					abbreviation: ''
-				};
+				$disciplineForm = { name: '', abbreviation: '', workersCompCode: '' };
+			}
+		}
+	});
+
+	// Edit form
+	const {
+		submitting: editSubmitting,
+		enhance: editEnhance,
+		form: editDisciplineForm
+	} = superForm(data.editForm, {
+		onResult: ({ result }) => {
+			if (result.type === 'success') {
+				editDialogOpen = false;
+			}
+		}
+	});
+
+	// Delete form
+	const {
+		submitting: deleteSubmitting,
+		enhance: deleteEnhance,
+		form: deleteDisciplineForm
+	} = superForm(data.deleteForm, {
+		onResult: ({ result }) => {
+			if (result.type === 'success') {
+				deleteDialogOpen = false;
 			}
 		}
 	});
@@ -53,87 +82,100 @@
 		id: string;
 		name: string;
 		abbreviation: string;
+		workersCompCode: string | null;
 		createdAt: Date;
 		updatedAt: Date;
 	};
 
+	let disciplineToEdit: DisciplineData | null = null;
+	let disciplineToDelete: DisciplineData | null = null;
+
 	let tableData: DisciplineData[] = [];
 	let searchTerm = '';
 	let dialogOpen = false;
+	let editDialogOpen = false;
+	let deleteDialogOpen = false;
 
 	$: disciplines = (data.disciplines as DisciplineData[]) || [];
 
-	// Column definitions
+	function openEditDialog(discipline: DisciplineData) {
+		disciplineToEdit = discipline;
+		$editDisciplineForm = {
+			id: discipline.id,
+			name: discipline.name,
+			abbreviation: discipline.abbreviation,
+			workersCompCode: discipline.workersCompCode ?? ''
+		};
+		editDialogOpen = true;
+	}
+
+	function openDeleteDialog(discipline: DisciplineData) {
+		disciplineToDelete = discipline;
+		$deleteDisciplineForm = { id: discipline.id };
+		deleteDialogOpen = true;
+	}
+
 	const columns: ColumnDef<DisciplineData>[] = [
 		{
 			header: 'Discipline Name',
 			id: 'name',
 			accessorKey: 'name',
 			enableSorting: true,
-			sortingFn: (rowA, rowB) => {
-				const nameA = rowA.original.name?.toLowerCase() || '';
-				const nameB = rowB.original.name?.toLowerCase() || '';
-				return nameA.localeCompare(nameB);
-			}
+			sortingFn: (rowA, rowB) =>
+				(rowA.original.name?.toLowerCase() || '').localeCompare(
+					rowB.original.name?.toLowerCase() || ''
+				)
 		},
 		{
 			header: 'Abbreviation',
 			id: 'abbreviation',
 			accessorKey: 'abbreviation',
 			enableSorting: true,
-			sortingFn: (rowA, rowB) => {
-				const abbrevA = rowA.original.abbreviation?.toLowerCase() || '';
-				const abbrevB = rowB.original.abbreviation?.toLowerCase() || '';
-				return abbrevA.localeCompare(abbrevB);
-			}
+			sortingFn: (rowA, rowB) =>
+				(rowA.original.abbreviation?.toLowerCase() || '').localeCompare(
+					rowB.original.abbreviation?.toLowerCase() || ''
+				)
+		},
+		{
+			header: "Workers' Comp Code",
+			id: 'workersCompCode',
+			accessorKey: 'workersCompCode',
+			enableSorting: true,
+			sortingFn: (rowA, rowB) =>
+				(rowA.original.workersCompCode?.toLowerCase() || '').localeCompare(
+					rowB.original.workersCompCode?.toLowerCase() || ''
+				),
+			cell: ({ getValue }) => (getValue() as string) || '—'
 		},
 		{
 			header: 'Created',
 			id: 'createdAt',
 			accessorKey: 'createdAt',
 			enableSorting: true,
-			sortingFn: (rowA, rowB) => {
-				const dateA = new Date(rowA.original.createdAt).getTime();
-				const dateB = new Date(rowB.original.createdAt).getTime();
-				return dateA - dateB;
-			},
-			cell: ({ getValue }) => {
-				const date = getValue() as Date;
-				return new Date(date).toLocaleDateString();
-			}
+			sortingFn: (rowA, rowB) =>
+				new Date(rowA.original.createdAt).getTime() - new Date(rowB.original.createdAt).getTime(),
+			cell: ({ getValue }) => new Date(getValue() as Date).toLocaleDateString()
 		},
 		{
 			header: 'Updated',
 			id: 'updatedAt',
 			accessorKey: 'updatedAt',
 			enableSorting: true,
-			sortingFn: (rowA, rowB) => {
-				const dateA = new Date(rowA.original.updatedAt).getTime();
-				const dateB = new Date(rowB.original.updatedAt).getTime();
-				return dateA - dateB;
-			},
-			cell: ({ getValue }) => {
-				const date = getValue() as Date;
-				return new Date(date).toLocaleDateString();
-			}
+			sortingFn: (rowA, rowB) =>
+				new Date(rowA.original.updatedAt).getTime() - new Date(rowB.original.updatedAt).getTime(),
+			cell: ({ getValue }) => new Date(getValue() as Date).toLocaleDateString()
 		}
 	];
 
-	// Table options
 	const options = writable<TableOptions<DisciplineData>>({
 		data: tableData,
 		columns,
 		getCoreRowModel: getCoreRowModel(),
 		getSortedRowModel: getSortedRowModel(),
 		getPaginationRowModel: getPaginationRowModel(),
-		initialState: {
-			pagination: {
-				pageSize: 10
-			}
-		}
+		initialState: { pagination: { pageSize: 10 } }
 	});
 
-	// Update table data when disciplines change
 	$: {
 		tableData = disciplines;
 		options.update((o) => ({ ...o, data: tableData }));
@@ -148,7 +190,6 @@
 
 	function getSortingIcon(header: any) {
 		if (!header.column.getCanSort()) return null;
-
 		const sorted = header.column.getIsSorted();
 		if (sorted === 'asc') return ArrowUp;
 		if (sorted === 'desc') return ArrowDown;
@@ -171,57 +212,9 @@
 			<h1 class="text-3xl font-bold tracking-tight">Disciplines</h1>
 			<p class="text-muted-foreground">Manage professional disciplines and specialties</p>
 		</div>
-
-		<Dialog.Root bind:open={dialogOpen}>
-			<Dialog.Trigger asChild>
-				<Button on:click={() => (dialogOpen = true)} class="bg-blue-800 hover:bg-blue-900">
-					<PlusIcon size={20} class="mr-2" />Add New Discipline
-				</Button>
-			</Dialog.Trigger>
-			<Dialog.Content class="sm:max-w-[425px]">
-				<form use:enhance method="POST" action="?/addDiscipline">
-					<Dialog.Header>
-						<Dialog.Title>Add New Discipline</Dialog.Title>
-						<Dialog.Description>
-							Add a new professional discipline or specialty area
-						</Dialog.Description>
-					</Dialog.Header>
-					<div class="space-y-4 py-4">
-						<Form.Field
-							config={{ form: superForm(data.form), schema: newDisciplineSchema }}
-							name="name"
-						>
-							<Form.Item>
-								<Form.Label>Discipline Name</Form.Label>
-								<Form.Input required placeholder="e.g., Dental Hygienist, Dentist..." />
-								<Form.Validation />
-							</Form.Item>
-						</Form.Field>
-						<Form.Field
-							config={{ form: superForm(data.form), schema: newDisciplineSchema }}
-							name="abbreviation"
-						>
-							<Form.Item>
-								<Form.Label>Discipline Abbreviation</Form.Label>
-								<Form.Input required placeholder="e.g., DH, DDS, RDA..." />
-								<Form.Validation />
-							</Form.Item>
-						</Form.Field>
-					</div>
-					<Dialog.Footer>
-						<Button variant="outline" type="button" on:click={() => (dialogOpen = false)}>
-							Cancel
-						</Button>
-						<Form.Button disabled={$submitting}>
-							{#if $submitting}
-								<Loader2 class="mr-2 h-4 w-4 animate-spin" />
-							{/if}
-							Add Discipline
-						</Form.Button>
-					</Dialog.Footer>
-				</form>
-			</Dialog.Content>
-		</Dialog.Root>
+		<Button on:click={() => (dialogOpen = true)} class="bg-blue-800 hover:bg-blue-900">
+			<PlusIcon size={20} class="mr-2" />Add New Discipline
+		</Button>
 	</div>
 
 	<!-- Search -->
@@ -278,12 +271,22 @@
 									</Table.Cell>
 								{/each}
 								<Table.Cell>
-									<form method="POST" use:enhance action="?/deleteDiscipline">
-										<Button type="submit" variant="destructive" size="sm">
+									<div class="flex items-center gap-2">
+										<Button
+											variant="outline"
+											size="sm"
+											on:click={() => openEditDialog(row.original)}
+										>
+											<Pencil size={16} />
+										</Button>
+										<Button
+											variant="destructive"
+											size="sm"
+											on:click={() => openDeleteDialog(row.original)}
+										>
 											<Trash size={16} />
 										</Button>
-										<input type="hidden" name="id" value={row.original.id} />
-									</form>
+									</div>
 								</Table.Cell>
 							</Table.Row>
 						{/each}
@@ -307,27 +310,22 @@
 						on:click={() => $table.previousPage()}
 						disabled={!$table.getCanPreviousPage()}
 					>
-						<ChevronLeft class="h-4 w-4" />
-						Previous
+						<ChevronLeft class="h-4 w-4" /> Previous
 					</Button>
-					<div class="flex items-center space-x-1">
-						<span class="text-sm text-muted-foreground">
-							Page {$table.getState().pagination.pageIndex + 1} of {$table.getPageCount()}
-						</span>
-					</div>
+					<span class="text-sm text-muted-foreground">
+						Page {$table.getState().pagination.pageIndex + 1} of {$table.getPageCount()}
+					</span>
 					<Button
 						variant="outline"
 						size="sm"
 						on:click={() => $table.nextPage()}
 						disabled={!$table.getCanNextPage()}
 					>
-						Next
-						<ChevronRight class="h-4 w-4" />
+						Next <ChevronRight class="h-4 w-4" />
 					</Button>
 				</div>
 			</div>
 		{:else}
-			<!-- Empty state -->
 			<div class="flex flex-col items-center justify-center py-12 text-center flex-1">
 				<div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
 					<GraduationCap class="w-8 h-8 text-gray-400" />
@@ -347,3 +345,143 @@
 		{/if}
 	</div>
 </section>
+
+<!-- Add Discipline Dialog -->
+<Dialog.Root bind:open={dialogOpen}>
+	<Dialog.Content class="sm:max-w-[425px]">
+		<form use:enhance method="POST" action="?/addDiscipline">
+			<Dialog.Header>
+				<Dialog.Title>Add New Discipline</Dialog.Title>
+				<Dialog.Description>Add a new professional discipline or specialty area</Dialog.Description>
+			</Dialog.Header>
+			<div class="space-y-4 py-4">
+				<Form.Field
+					config={{ form: superForm(data.form), schema: newDisciplineSchema }}
+					name="name"
+				>
+					<Form.Item>
+						<Form.Label>Discipline Name</Form.Label>
+						<Form.Input required placeholder="e.g., Dental Hygienist, Dentist..." />
+						<Form.Validation />
+					</Form.Item>
+				</Form.Field>
+				<Form.Field
+					config={{ form: superForm(data.form), schema: newDisciplineSchema }}
+					name="abbreviation"
+				>
+					<Form.Item>
+						<Form.Label>Abbreviation</Form.Label>
+						<Form.Input required placeholder="e.g., DH, DDS, RDA..." />
+						<Form.Validation />
+					</Form.Item>
+				</Form.Field>
+				<Form.Field
+					config={{ form: superForm(data.form), schema: newDisciplineSchema }}
+					name="workersCompCode"
+				>
+					<Form.Item>
+						<Form.Label>Workers' Comp Code</Form.Label>
+						<Form.Input placeholder="e.g., 8021..." />
+						<Form.Validation />
+					</Form.Item>
+				</Form.Field>
+			</div>
+			<Dialog.Footer>
+				<Button variant="outline" type="button" on:click={() => (dialogOpen = false)}>Cancel</Button
+				>
+				<Form.Button disabled={$submitting}>
+					{#if $submitting}<Loader2 class="mr-2 h-4 w-4 animate-spin" />{/if}
+					Add Discipline
+				</Form.Button>
+			</Dialog.Footer>
+		</form>
+	</Dialog.Content>
+</Dialog.Root>
+
+<!-- Edit Discipline Dialog -->
+<Dialog.Root bind:open={editDialogOpen}>
+	<Dialog.Content class="sm:max-w-[425px]">
+		<form use:editEnhance method="POST" action="?/editDiscipline">
+			<Dialog.Header>
+				<Dialog.Title>Edit Discipline</Dialog.Title>
+				<Dialog.Description>Update the details for this discipline</Dialog.Description>
+			</Dialog.Header>
+			<div class="space-y-4 py-4">
+				<input type="hidden" name="id" value={$editDisciplineForm.id} />
+				<Form.Field
+					config={{ form: superForm(data.editForm), schema: editDisciplineSchema }}
+					name="name"
+				>
+					<Form.Item>
+						<Form.Label>Discipline Name</Form.Label>
+						<Form.Input
+							bind:value={$editDisciplineForm.name}
+							placeholder="e.g., Dental Hygienist, Dentist..."
+						/>
+						<Form.Validation />
+					</Form.Item>
+				</Form.Field>
+				<Form.Field
+					config={{ form: superForm(data.editForm), schema: editDisciplineSchema }}
+					name="abbreviation"
+				>
+					<Form.Item>
+						<Form.Label>Abbreviation</Form.Label>
+						<Form.Input
+							bind:value={$editDisciplineForm.abbreviation}
+							placeholder="e.g., DH, DDS, RDA..."
+						/>
+						<Form.Validation />
+					</Form.Item>
+				</Form.Field>
+				<Form.Field
+					config={{ form: superForm(data.editForm), schema: editDisciplineSchema }}
+					name="workersCompCode"
+				>
+					<Form.Item>
+						<Form.Label>Workers' Comp Code</Form.Label>
+						<Form.Input
+							bind:value={$editDisciplineForm.workersCompCode}
+							placeholder="e.g., 8021..."
+						/>
+						<Form.Validation />
+					</Form.Item>
+				</Form.Field>
+			</div>
+			<Dialog.Footer>
+				<Button variant="outline" type="button" on:click={() => (editDialogOpen = false)}
+					>Cancel</Button
+				>
+				<Form.Button disabled={$editSubmitting}>
+					{#if $editSubmitting}<Loader2 class="mr-2 h-4 w-4 animate-spin" />{/if}
+					Save Changes
+				</Form.Button>
+			</Dialog.Footer>
+		</form>
+	</Dialog.Content>
+</Dialog.Root>
+
+<!-- Delete Discipline Dialog -->
+<Dialog.Root bind:open={deleteDialogOpen}>
+	<Dialog.Content class="sm:max-w-[425px]">
+		<form use:deleteEnhance method="POST" action="?/deleteDiscipline">
+			<Dialog.Header>
+				<Dialog.Title>Delete Discipline</Dialog.Title>
+				<Dialog.Description>
+					Are you sure you want to delete <strong>{disciplineToDelete?.name}</strong>? This action
+					cannot be undone.
+				</Dialog.Description>
+			</Dialog.Header>
+			<input type="hidden" name="id" value={$deleteDisciplineForm.id} />
+			<Dialog.Footer class="pt-4">
+				<Button variant="outline" type="button" on:click={() => (deleteDialogOpen = false)}
+					>Cancel</Button
+				>
+				<Form.Button variant="destructive" disabled={$deleteSubmitting}>
+					{#if $deleteSubmitting}<Loader2 class="mr-2 h-4 w-4 animate-spin" />{/if}
+					Delete
+				</Form.Button>
+			</Dialog.Footer>
+		</form>
+	</Dialog.Content>
+</Dialog.Root>

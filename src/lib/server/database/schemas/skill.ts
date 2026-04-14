@@ -40,7 +40,8 @@ export const disciplineTable = pgTable('disciplines', {
 		mode: 'date'
 	}).notNull(),
 	name: text('name').notNull(),
-	abbreviation: text('abbreviation').notNull()
+	abbreviation: text('abbreviation').notNull(),
+	workersCompCode: text('workers_comp_code')
 });
 
 export const experienceLevelTable = pgTable('experience_levels', {
