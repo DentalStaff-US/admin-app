@@ -57,8 +57,9 @@
 	},
 	"type": "module",
 	"dependencies": {
-		"@aws-sdk/client-s3": "^3.758.0",
+		"@aws-sdk/client-s3": "^3.1030.0",
 		"@aws-sdk/client-ses": "^3.470.0",
+		"@aws-sdk/s3-request-presigner": "^3.1030.0",
 		"@axiomhq/js": "^1.0.0-rc.1",
 		"@faker-js/faker": "^8.4.1",
 		"@floating-ui/dom": "^1.7.6",

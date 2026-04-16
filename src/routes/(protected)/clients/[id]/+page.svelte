@@ -97,6 +97,8 @@
 	import AddLocationDrawer from '$lib/components/drawers/addLocationDrawer.svelte';
 	import AdminProfileComments from '$lib/views/admin/adminProfileComments.svelte';
 	import { format } from 'date-fns';
+	import * as Select from '$lib/components/ui/select';
+	import { Trigger } from '$lib/components/ui/accordion';
 
 	export let data: PageData;
 	$: adminForm = data.requisitionForm;
@@ -118,6 +120,8 @@
 	let drawerExpanded = false;
 	let locationDrawerExpanded = false;
 	let editingSection: 'header' | 'personal' | 'billing' | null = null;
+	let selectedInvoiceMethod: 'STRIPE' | 'PAPER' =
+		data.client?.profile?.clientInvoiceMethod === 'PAPER' ? 'PAPER' : 'STRIPE';
 
 	const {
 		form: invoiceForm,
@@ -134,11 +138,14 @@
 					amount: 0,
 					dueDate: '',
 					description: '',
-					items: [{ description: '', quantity: 1, rate: 0, amount: 0 }]
+					items: [{ description: '', quantity: 1, rate: 0, amount: 0 }],
+
+					invoiceMethod: 'STRIPE'
 				};
 			}
 		}
 	});
+	$: $invoiceForm.invoiceMethod = selectedInvoiceMethod;
 
 	const {
 		form: updateForm,
@@ -755,7 +762,30 @@
 									{/if}
 								</div>
 							</div>
-
+							<div class="space-y-2">
+								<Label>Invoice Method</Label>
+								<Select.Root
+									selected={{ value: selectedInvoiceMethod, label: selectedInvoiceMethod }}
+									onSelectedChange={(v) => {
+										if (v) selectedInvoiceMethod = v.value;
+									}}
+								>
+									<Select.Trigger>
+										<Select.Value placeholder="Select invoice method" />
+									</Select.Trigger>
+									<Select.Content>
+										<Select.Item value="STRIPE">Electronic (Stripe)</Select.Item>
+										<Select.Item value="PAPER">Paper Invoice</Select.Item>
+									</Select.Content>
+								</Select.Root>
+								<input type="hidden" name="invoiceMethod" bind:value={$invoiceForm.invoiceMethod} />
+								{#if selectedInvoiceMethod === 'PAPER'}
+									<p class="text-xs text-muted-foreground">
+										A paper invoice will be created and tracked manually. No Stripe charge will be
+										initiated.
+									</p>
+								{/if}
+							</div>
 							<div class="space-y-2">
 								<div class="flex items-center justify-between">
 									<Label>Invoice Items</Label>
@@ -1057,6 +1087,30 @@
 													<p class="text-sm text-red-500 mt-1">{$updateErrors.email}</p>
 												{/if}
 											</div>
+											<div>
+												<Label for="invoice-method">Invoicing Method</Label>
+												<Select.Root
+													onSelectedChange={(v) => {
+														v && ($updateForm.invoiceMethod = v.value);
+													}}
+												>
+													<Select.Trigger>
+														<Select.Value placeholder={$updateForm.invoiceMethod} />
+													</Select.Trigger>
+													<Select.Content>
+														<Select.Item value="STRIPE">STRIPE</Select.Item>
+														<Select.Item value="PAPER">PAPER</Select.Item>
+													</Select.Content>
+													<Input
+														name="invoiceMethod"
+														type="hidden"
+														value={$updateForm.invoiceMethod}
+													/>
+												</Select.Root>
+												{#if $updateErrors.invoiceMethod}
+													<p class="text-sm text-red-500 mt-1">{$updateErrors.invoiceMethod}</p>
+												{/if}
+											</div>
 
 											<!-- Hidden fields -->
 											<input
@@ -1095,6 +1149,10 @@
 									<div>
 										<h3 class="text-sm font-medium">Billing Email:</h3>
 										<p>{client.user.email}</p>
+									</div>
+									<div>
+										<h3 class="text-sm font-medium">Invoice Method:</h3>
+										<p>{client.profile.clientInvoiceMethod}</p>
 									</div>
 								{/if}
 							</CardContent>
