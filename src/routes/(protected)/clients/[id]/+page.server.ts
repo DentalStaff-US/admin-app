@@ -17,6 +17,7 @@ import {
 } from '$lib/server/database/queries/support';
 import {
 	createInvoiceRecord,
+	createPaperInvoiceRecord,
 	getClientInvoices,
 	getRequisitionsForClient
 } from '$lib/server/database/queries/requisitions';
@@ -30,8 +31,13 @@ import {
 	updateClientSchema
 } from '$lib/config/zod-schemas';
 import db from '$lib/server/database/drizzle';
-import { userTable } from '$lib/server/database/schemas/auth';
-import { clientCompanyTable } from '$lib/server/database/schemas/client';
+import { userTable, type User } from '$lib/server/database/schemas/auth';
+import {
+	clientCompanyTable,
+	type ClientCompany,
+	type ClientProfile,
+	clientProfileTable
+} from '$lib/server/database/schemas/client';
 import { eq } from 'drizzle-orm';
 import {
 	addComment,
@@ -71,6 +77,7 @@ const NewInvoiceSchema = z.object({
 	amount: z.number().min(0, 'Amount must be a positive number'),
 	dueDate: z.string().optional(),
 	description: z.string().optional(),
+	invoiceMethod: z.enum(['STRIPE', 'PAPER']).default('STRIPE'),
 	items: z.string().transform((val) => {
 		try {
 			return JSON.parse(val);
@@ -111,7 +118,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 			email: result.user.email,
 			companyName: result.company.companyName || undefined,
 			baseLocation: result.company.baseLocation || '',
-			cellPhone: result.profile.cellPhone || ''
+			cellPhone: result.profile.cellPhone || '',
+			invoiceMethod: result.profile.clientInvoiceMethod || 'STRIPE'
 		},
 		updateClientSchema
 	);
@@ -180,38 +188,64 @@ export const actions = {
 
 		try {
 			const lineItems = await LineItemSchema.parseAsync(form.data.items);
-			const dateString = form.data.dueDate; // User selected this date
-			const localDate = new Date(dateString + 'T00:00:00'); // Treat as local midnight
-			const utcDate = localDate.toISOString();
-			const stripeCustomerId = await getClientSubscription(clientId);
+			const dateString = form.data.dueDate;
+			const invoiceMethod = form.data.invoiceMethod; // 'STRIPE' | 'PAPER'
 
-			if (stripeCustomerId) {
-				const invoice = await createStripeInvoice(
-					stripeCustomerId,
-					lineItems.map((item) => ({
-						amountInCents: Math.round(item.amount * 100), // Convert to cents
-						description: item.description || '',
-						quantity: item.quantity || 1,
-						currency: 'usd'
-					})),
-					{ clientId: clientId },
-					form.data.description,
-					utcDate
-				);
-				await createInvoiceRecord(
+			// Get client info for customer name/email
+			const clientResult = await getClientProfileById(clientId);
+			const customerName = `${clientResult.user.firstName} ${clientResult.user.lastName}`;
+			const customerEmail = clientResult.user.email;
+
+			if (invoiceMethod === 'PAPER') {
+				await createPaperInvoiceRecord(
 					{
 						clientId,
-						stripeInvoice: invoice,
-						amountInDollars: (invoice.amount_due / 100).toFixed(2)
+						amountInDollars: form.data.amount.toFixed(2),
+						dueDate: dateString,
+						description: form.data.description,
+						lineItems,
+						customerEmail,
+						customerName
 					},
 					user.id
 				);
-			} else throw new Error('Stripe customer ID not found for the client');
+			} else {
+				// Existing Stripe flow
+				const localDate = new Date(dateString + 'T00:00:00');
+				const utcDate = localDate.toISOString();
+				const stripeCustomerId = await getClientSubscription(clientId);
+
+				if (stripeCustomerId) {
+					const invoice = await createStripeInvoice(
+						stripeCustomerId,
+						lineItems.map((item) => ({
+							amountInCents: Math.round(item.amount * 100),
+							description: item.description || '',
+							quantity: item.quantity || 1,
+							currency: 'usd'
+						})),
+						{ clientId },
+						form.data.description,
+						utcDate
+					);
+					await createInvoiceRecord(
+						{
+							clientId,
+							stripeInvoice: invoice,
+							amountInDollars: (invoice.amount_due / 100).toFixed(2)
+						},
+						user.id
+					);
+				} else {
+					throw new Error('Stripe customer ID not found for the client');
+				}
+			}
+
 			setFlash({ type: 'success', message: 'Invoice created successfully' }, request);
 			return message(form, 'Invoice created successfully');
-		} catch (error) {
+		} catch (err) {
 			setFlash({ type: 'error', message: 'Failed to create invoice' }, request);
-			console.error('Error creating invoice:', error);
+			console.error('Error creating invoice:', err);
 			return setError(form, 'Failed to create invoice');
 		}
 	},
@@ -336,11 +370,13 @@ export const actions = {
 			return { form };
 		}
 
+		console.log(form.data);
 		try {
 			const client = await getClientProfileById(clientId);
 
-			const userUpdate: any = { updatedAt: new Date() };
-			const companyUpdate: any = { updatedAt: new Date() };
+			const userUpdate: Partial<User> = { updatedAt: new Date() };
+			const profileUpdate: Partial<ClientProfile> = { updatedAt: new Date() };
+			const companyUpdate: Partial<ClientCompany> = { updatedAt: new Date() };
 
 			if (form.data.firstName !== undefined) userUpdate.firstName = form.data.firstName;
 			if (form.data.lastName !== undefined) userUpdate.lastName = form.data.lastName;
@@ -348,10 +384,19 @@ export const actions = {
 			if (form.data.companyName !== undefined) companyUpdate.companyName = form.data.companyName;
 			if (form.data.baseLocation !== undefined)
 				companyUpdate.baseLocation = form.data.baseLocation || null;
-			if (form.data.cellPhone !== undefined) companyUpdate.cellPhone = form.data.cellPhone || null;
+			if (form.data.cellPhone !== undefined) profileUpdate.cellPhone = form.data.cellPhone || null;
+			if (form.data.invoiceMethod !== undefined)
+				profileUpdate.clientInvoiceMethod = form.data.invoiceMethod;
 
 			if (Object.keys(userUpdate).length > 1) {
 				await db.update(userTable).set(userUpdate).where(eq(userTable.id, client.user.id));
+			}
+
+			if (Object.keys(profileUpdate).length > 1) {
+				await db
+					.update(clientProfileTable)
+					.set(profileUpdate)
+					.where(eq(clientProfileTable.id, client.profile.id));
 			}
 
 			if (Object.keys(companyUpdate).length > 1) {

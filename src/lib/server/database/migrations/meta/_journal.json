@@ -169,6 +169,41 @@
       "when": 1776198171055,
       "tag": "0023_warm_dreaming_celestial",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1776271665718,
+      "tag": "0024_colossal_unus",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1776272051137,
+      "tag": "0025_certain_raider",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1776373186079,
+      "tag": "0026_brave_susan_delgado",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1776375707587,
+      "tag": "0027_old_madame_hydra",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1776377905535,
+      "tag": "0028_rare_brother_voodoo",
+      "breakpoints": true
     }
   ]
 }

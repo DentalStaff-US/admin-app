@@ -431,7 +431,8 @@ export const updateClientSchema = z
 		email: z.string().email('Invalid email address').optional(),
 		companyName: z.string().min(1, 'Company name is required').optional(),
 		baseLocation: z.string().optional().nullable(),
-		cellPhone: z.string().optional().nullable()
+		cellPhone: z.string().optional().nullable(),
+		invoiceMethod: z.enum(['STRIPE', 'PAPER']).optional()
 	})
 	.refine(
 		(data) => {

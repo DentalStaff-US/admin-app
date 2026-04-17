@@ -139,6 +139,8 @@ export const invoiceSourceTypeEnum = pgEnum('invoice_source_type', [
 ]);
 export type InvoiceSourceType = (typeof invoiceSourceTypeEnum.enumValues)[number];
 
+export const invoiceTypeEnum = pgEnum('invoice_type', ['STRIPE', 'PAPER']);
+
 export const invoiceTable = pgTable(
 	'invoices',
 	{
@@ -220,7 +222,13 @@ export const invoiceTable = pgTable(
 
 		// Payment settings
 		paymentMethodTypes: jsonb('payment_method_types'),
-		defaultPaymentMethod: text('default_payment_method')
+		defaultPaymentMethod: text('default_payment_method'),
+
+		invoiceType: invoiceTypeEnum('invoice_type').notNull().default('STRIPE'),
+
+		// Paper invoice fields (if needed in the future)
+		paperInvoiceUrl: text('paper_invoice_url'),
+		paperInvoiceKey: text('paper_invoice_key')
 	},
 	(table) => ({
 		// Core indexes
@@ -248,6 +256,62 @@ export const invoiceTable = pgTable(
 		clientStatusIdx: index('invoice_client_status_idx').on(table.clientId, table.status),
 		statusDueDateIdx: index('invoice_status_due_date_idx').on(table.status, table.dueDate),
 		sourceTypeStatusIdx: index('invoice_source_type_status_idx').on(table.sourceType, table.status)
+	})
+);
+
+export const paperInvoiceTransactionStatusEnum = pgEnum('paper_invoice_transaction_status', [
+	'SUCCESSFUL',
+	'PENDING',
+	'FAILED',
+	'CANCELLED'
+]);
+
+export const paperInvoiceTransactionTypeEnum = pgEnum('paper_invoice_transaction_type', [
+	'PAYMENT',
+	'REFUND',
+	'ADJUSTMENT'
+]);
+
+export const paperInvoiceTransactionTable = pgTable(
+	'paper_invoice_transactions',
+	{
+		id: uuid('id').notNull().unique().defaultRandom().primaryKey(),
+		createdAt: timestamp('created_at', {
+			withTimezone: true,
+			mode: 'date'
+		})
+			.notNull()
+			.defaultNow(),
+		updatedAt: timestamp('updated_at', {
+			withTimezone: true,
+			mode: 'date'
+		})
+			.notNull()
+			.defaultNow(),
+		invoiceId: uuid('invoice_id')
+			.references(() => invoiceTable.id, { onDelete: 'cascade' })
+			.notNull(),
+		timesheetId: text('timesheet_id').references(() => timeSheetTable.id, { onDelete: 'set null' }),
+
+		batchNumber: text('batch_number'),
+		transactionType: paperInvoiceTransactionTypeEnum('transaction_type')
+			.notNull()
+			.default('PAYMENT'), // e.g., 'payment', 'refund', 'adjustment'
+		status: paperInvoiceTransactionStatusEnum('status').notNull().default('PENDING'), // e.g., 'pending', 'completed', 'failed'
+		details: jsonb('details'), // Flexible field for any additional info about the transaction
+		amount: decimal('amount', { precision: 10, scale: 2 }).notNull().default('0')
+	},
+	(table) => ({
+		// Indexes for efficient querying
+		// Index on invoiceId for fetching transactions related to a specific invoice
+		invoiceIdx: index('paper_invoice_transaction_invoice_idx').on(table.invoiceId),
+		// Index on timesheetId for fetching transactions related to a specific timesheet
+		timesheetIdx: index('paper_invoice_transaction_timesheet_idx').on(table.timesheetId),
+		// Compound index on status and transactionType for reporting and filtering
+		statusTypeIdx: index('paper_invoice_transaction_status_type_idx').on(
+			table.status,
+			table.transactionType
+		)
 	})
 );
 

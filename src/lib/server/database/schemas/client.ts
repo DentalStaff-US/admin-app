@@ -25,6 +25,8 @@ export type OperatingHours = {
 	[key: number]: DaySchedule;
 };
 
+export const clientInvoiceMethodEnum = pgEnum('client_invoice_method_enum', ['STRIPE', 'PAPER']);
+
 export const clientProfileTable = pgTable('client_profiles', {
 	id: text('id').notNull().primaryKey(),
 	userId: text('user_id')
@@ -43,8 +45,8 @@ export const clientProfileTable = pgTable('client_profiles', {
 		.notNull()
 		.defaultNow(),
 	birthday: date('birthday'),
-	cellPhone: text('cell_phone')
-
+	cellPhone: text('cell_phone'),
+	clientInvoiceMethod: clientInvoiceMethodEnum('client_invoice_method').default('STRIPE')
 	// stripeCustomerId: text('stripe_customer_id')
 });
 

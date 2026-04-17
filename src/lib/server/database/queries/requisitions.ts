@@ -13,7 +13,8 @@ import {
 	SQL,
 	ilike,
 	inArray,
-	gt
+	gt,
+	like
 } from 'drizzle-orm';
 import db from '../drizzle';
 import {
@@ -1753,7 +1754,8 @@ export async function getClientTimesheets(
 				requisitionId: timeSheetTable.requisitionId,
 				associatedCandidateId: timeSheetTable.associatedCandidateId,
 				associatedClientId: timeSheetTable.associatedClientId,
-				discrepancyNote: timeSheetTable.discrepancyNote
+				discrepancyNote: timeSheetTable.discrepancyNote,
+				adjustedHourlyRate: timeSheetTable.adjustedHourlyRate
 			},
 			candidate: { ...candidateProfileTable },
 			user: {
@@ -2863,6 +2865,86 @@ export async function createInvoiceRecord(
 	} catch (err) {
 		console.error('Error creating invoice record:', error);
 		throw error(500, `Error creating invoice record: ${error}`);
+	}
+}
+
+export async function createPaperInvoiceRecord(
+	{
+		clientId,
+		amountInDollars,
+		dueDate,
+		description,
+		lineItems,
+		customerEmail,
+		customerName,
+		invoiceType = 'PAPER'
+	}: {
+		clientId: string;
+		amountInDollars: string;
+		dueDate?: string;
+		description?: string;
+		lineItems: { description?: string; quantity: number; rate: number; amount: number }[];
+		customerEmail?: string;
+		customerName?: string;
+		invoiceType?: 'PAPER' | 'STRIPE';
+	},
+	userId: string
+): Promise<Invoice> {
+	try {
+		// Get next paper invoice number
+		const [last] = await db
+			.select({ invoiceNumber: invoiceTable.invoiceNumber })
+			.from(invoiceTable)
+			.where(like(invoiceTable.invoiceNumber, 'PAPER-%'))
+			.orderBy(desc(invoiceTable.createdAt))
+			.limit(1);
+
+		let nextNumber = 1000;
+		if (last?.invoiceNumber) {
+			const parts = last.invoiceNumber.split('-');
+			const lastNum = parseInt(parts[parts.length - 1]);
+			if (!isNaN(lastNum)) nextNumber = lastNum + 1;
+		}
+
+		const invoiceNumber = `PAPER-${new Date().getFullYear()}-${String(nextNumber).padStart(4, '0')}`;
+
+		const [invoice] = await db
+			.insert(invoiceTable)
+			.values({
+				id: crypto.randomUUID(),
+				clientId,
+				invoiceNumber,
+				status: 'open',
+				sourceType: 'manual',
+				invoiceType: 'PAPER',
+				currency: 'usd',
+				amountDue: amountInDollars,
+				total: amountInDollars,
+				subtotal: amountInDollars,
+				amountRemaining: amountInDollars,
+				amountPaid: '0',
+				customerEmail,
+				customerName,
+				dueDate: dueDate
+					? new Date(dueDate + 'T00:00:00')
+					: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+				description,
+				lineItems: JSON.stringify(lineItems)
+			})
+			.returning();
+
+		await writeActionHistory({
+			table: 'INVOICES',
+			userId,
+			action: 'CREATE',
+			entityId: invoice.id,
+			afterState: invoice
+		});
+
+		return invoice;
+	} catch (err) {
+		console.error('Error creating paper invoice record:', err);
+		throw error(500, `Error creating paper invoice record: ${err}`);
 	}
 }
 
