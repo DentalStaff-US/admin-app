@@ -23,8 +23,25 @@
 	import type { InvoiceWithRelations } from '$lib/server/database/schemas/requisition';
 	import type { PageData } from './$types';
 	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
+	import { Loader2 } from 'lucide-svelte';
+	import * as Select from '$lib/components/ui/select';
+	import { Textarea } from '$lib/components/ui/textarea';
+	import * as Dialog from '$lib/components/ui/dialog';
+	import { Label } from '$lib/components/ui/label';
+	import { Input } from '$lib/components/ui/input';
 
 	export let data: PageData;
+	let recordTransactionOpen = false;
+	let transactionAmount = '';
+	let transactionType: 'PAYMENT' | 'REFUND' | 'ADJUSTMENT' = 'PAYMENT';
+	let batchNumber = '';
+	let transactionNotes = '';
+	let recordingTransaction = false;
+
+	$: isPaperInvoice = invoiceData.invoice.invoiceType === 'PAPER';
+	$: isFullyPaid = invoiceData.invoice.status === 'paid';
+	$: amountRemaining = parseFloat(String(invoiceData.invoice.amountRemaining ?? 0));
 
 	$: user = data.user;
 	$: invoiceData = data.invoice as InvoiceWithRelations;
@@ -126,6 +143,9 @@
 				>
 					<svelte:component this={getStatusIcon(invoiceData.invoice.status)} class="h-3 w-3 mr-1" />
 				</Badge>
+				{#if isPaperInvoice}
+					<Badge variant="outline" class="border-blue-300 text-blue-700" value="Paper Invoice" />
+				{/if}
 			</div>
 			<p class="text-muted-foreground">
 				{#if isAdmin}
@@ -137,51 +157,44 @@
 		</div>
 
 		<div class="flex items-center gap-2 flex-wrap">
-			{#if !isAdmin && invoiceData.invoice.status === 'open'}
+			{#if !isAdmin && invoiceData.invoice.status === 'open' && !isPaperInvoice}
 				<Button size="sm" href={invoiceData.invoice.stripeHostedUrl} class="w-full sm:w-fit">
 					<CreditCard class="h-4 w-4 mr-2" />
 					Pay Invoice
 				</Button>
 			{/if}
-			{#if isAdmin && isOverdue}
+
+			{#if isAdmin && !isPaperInvoice && isOverdue}
 				<form use:enhance action="?/adminProcessInvoice" method="POST">
 					<Button type="submit" size="sm" class="w-full sm:w-fit">
 						<CreditCard class="h-4 w-4 mr-2" />
-						Process Invoice
+						Process Payment
 					</Button>
 				</form>
 			{/if}
-			<Button
-				href={invoiceData.invoice.stripePdfUrl}
-				variant="outline"
-				size="sm"
-				class="w-full sm:w-fit"
-			>
-				<Download class="h-4 w-4 mr-2" />
-				Download PDF
-			</Button>
-			<!-- {#if isAdmin}
-				<Button variant="outline" size="sm">
-					<Mail class="h-4 w-4 mr-2" />
-					Send Invoice
+
+			{#if isAdmin && isPaperInvoice && !isFullyPaid}
+				<Button
+					size="sm"
+					class="w-full sm:w-fit bg-blue-800 hover:bg-blue-900"
+					on:click={() => (recordTransactionOpen = true)}
+				>
+					<CreditCard class="h-4 w-4 mr-2" />
+					Record Transaction
 				</Button>
-				<DropdownMenu.Root>
-					<DropdownMenu.Trigger asChild let:builder>
-						<Button variant="outline" size="sm" builders={[builder]}>
-							<MoreHorizontal class="h-4 w-4" />
-						</Button>
-					</DropdownMenu.Trigger>
-					<DropdownMenu.Content>
-						<DropdownMenu.Item>Edit Invoice</DropdownMenu.Item>
-						<DropdownMenu.Item>Duplicate</DropdownMenu.Item>
-						<DropdownMenu.Separator />
-						<DropdownMenu.Item>Mark as Paid</DropdownMenu.Item>
-						<DropdownMenu.Item>Mark as Overdue</DropdownMenu.Item>
-						<DropdownMenu.Separator />
-						<DropdownMenu.Item class="text-destructive">Cancel Invoice</DropdownMenu.Item>
-					</DropdownMenu.Content>
-				</DropdownMenu.Root>
-			{/if} -->
+			{/if}
+
+			{#if !isPaperInvoice && invoiceData.invoice.stripePdfUrl}
+				<Button
+					href={invoiceData.invoice.stripePdfUrl}
+					variant="outline"
+					size="sm"
+					class="w-full sm:w-fit"
+				>
+					<Download class="h-4 w-4 mr-2" />
+					Download PDF
+				</Button>
+			{/if}
 		</div>
 	</div>
 
@@ -313,12 +326,23 @@
 							<span>Total</span>
 							<span>{formatCurrency(+calculateTotal())}</span>
 						</div>
+						{#if isPaperInvoice && parseFloat(String(invoiceData.invoice.amountPaid ?? 0)) > 0}
+							<div class="flex justify-between text-sm text-green-600">
+								<span>Amount Paid</span>
+								<span
+									>{formatCurrency(parseFloat(String(invoiceData.invoice.amountPaid ?? 0)))}</span
+								>
+							</div>
+							<div class="flex justify-between text-sm font-semibold text-red-600">
+								<span>Balance Remaining</span>
+								<span>{formatCurrency(amountRemaining)}</span>
+							</div>
+						{/if}
 					</div>
 				</Card.Content>
 			</Card.Root>
 
 			{#if isAdmin}
-				<!-- Admin: Payment History -->
 				<Card.Root>
 					<Card.Header>
 						<Card.Title class="flex items-center gap-2">
@@ -327,7 +351,47 @@
 						</Card.Title>
 					</Card.Header>
 					<Card.Content>
-						{#if invoiceData.invoice.paidAt}
+						{#if isPaperInvoice}
+							{#if invoiceData.invoice.amountPaid && parseFloat(String(invoiceData.invoice.amountPaid)) > 0}
+								<div class="space-y-2">
+									<div class="flex items-center justify-between p-3 border rounded-lg">
+										<div class="flex items-center gap-3">
+											<CheckCircle class="h-5 w-5 text-green-600" />
+											<div>
+												<p class="font-medium">Total Paid</p>
+												<p class="text-sm text-muted-foreground">Via paper transactions</p>
+											</div>
+										</div>
+										<p class="font-medium text-green-600">
+											{formatCurrency(parseFloat(String(invoiceData.invoice.amountPaid)))}
+										</p>
+									</div>
+									{#if amountRemaining > 0}
+										<div
+											class="flex items-center justify-between p-3 border border-orange-200 bg-orange-50 rounded-lg"
+										>
+											<p class="text-sm font-medium text-orange-700">Balance Remaining</p>
+											<p class="font-medium text-orange-700">{formatCurrency(amountRemaining)}</p>
+										</div>
+									{/if}
+								</div>
+							{:else}
+								<div class="text-center py-8 text-muted-foreground">
+									<CreditCard class="h-8 w-8 mx-auto mb-2 opacity-50" />
+									<p>No transactions recorded yet</p>
+									{#if !isFullyPaid}
+										<Button
+											variant="outline"
+											size="sm"
+											class="mt-4"
+											on:click={() => (recordTransactionOpen = true)}
+										>
+											Record First Transaction
+										</Button>
+									{/if}
+								</div>
+							{/if}
+						{:else if invoiceData.invoice.paidAt}
 							<div class="flex items-center justify-between p-3 border rounded-lg">
 								<div class="flex items-center gap-3">
 									<CheckCircle class="h-5 w-5 text-green-600" />
@@ -501,3 +565,126 @@
 		</div>
 	</div>
 </section>
+{#if isAdmin}
+	<Dialog.Root bind:open={recordTransactionOpen}>
+		<Dialog.DialogContent class="sm:max-w-[425px]">
+			<form
+				method="POST"
+				action="?/recordPaperTransaction"
+				use:enhance={() => {
+					recordingTransaction = true;
+					return async ({ result, update }) => {
+						recordingTransaction = false;
+						if (result.type === 'success') {
+							recordTransactionOpen = false;
+							transactionAmount = '';
+							batchNumber = '';
+							transactionNotes = '';
+							await invalidateAll();
+						}
+						await update();
+					};
+				}}
+			>
+				<Dialog.DialogHeader>
+					<Dialog.DialogTitle>Record Paper Transaction</Dialog.DialogTitle>
+					<Dialog.DialogDescription>
+						Record a manual payment against invoice #{invoiceData.invoice.invoiceNumber}. Balance
+						remaining: {formatCurrency(amountRemaining)}
+					</Dialog.DialogDescription>
+				</Dialog.DialogHeader>
+
+				<input type="hidden" name="invoiceId" value={invoiceData.invoice.id} />
+
+				<div class="space-y-4 py-4">
+					<div class="space-y-2">
+						<Label for="transactionType">Transaction Type</Label>
+						<Select.Root
+							selected={{ value: transactionType, label: transactionType }}
+							onSelectedChange={(v) => {
+								if (v) transactionType = v.value;
+							}}
+						>
+							<Select.Trigger>
+								<Select.Value placeholder="Select type" />
+							</Select.Trigger>
+							<Select.Content>
+								<Select.Item value="PAYMENT">Payment</Select.Item>
+								<Select.Item value="REFUND">Refund</Select.Item>
+								<Select.Item value="ADJUSTMENT">Adjustment</Select.Item>
+							</Select.Content>
+						</Select.Root>
+						<input type="hidden" name="transactionType" value={transactionType} />
+					</div>
+
+					<div class="space-y-2">
+						<Label for="amount">Amount</Label>
+						<div class="relative">
+							<span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+							<Input
+								id="amount"
+								name="amount"
+								type="number"
+								step="0.01"
+								min="0.01"
+								max={amountRemaining}
+								bind:value={transactionAmount}
+								class="pl-7"
+								placeholder="0.00"
+								required
+							/>
+						</div>
+						{#if parseFloat(transactionAmount) > amountRemaining && transactionType === 'PAYMENT'}
+							<p class="text-xs text-orange-600">
+								Amount exceeds remaining balance of {formatCurrency(amountRemaining)}
+							</p>
+						{/if}
+					</div>
+
+					<div class="space-y-2">
+						<Label for="batchNumber"
+							>Batch / Check Number <span class="text-muted-foreground text-xs">(optional)</span
+							></Label
+						>
+						<Input
+							id="batchNumber"
+							name="batchNumber"
+							bind:value={batchNumber}
+							placeholder="e.g. CHK-1042"
+						/>
+					</div>
+
+					<div class="space-y-2">
+						<Label for="notes"
+							>Notes <span class="text-muted-foreground text-xs">(optional)</span></Label
+						>
+						<Textarea
+							id="notes"
+							name="notes"
+							bind:value={transactionNotes}
+							placeholder="Any additional notes about this transaction"
+							rows={2}
+						/>
+					</div>
+				</div>
+
+				<Dialog.DialogFooter>
+					<Button
+						type="button"
+						variant="outline"
+						on:click={() => (recordTransactionOpen = false)}
+						disabled={recordingTransaction}
+					>
+						Cancel
+					</Button>
+					<Button type="submit" disabled={recordingTransaction || !transactionAmount}>
+						{#if recordingTransaction}
+							<Loader2 class="mr-2 h-4 w-4 animate-spin" />
+						{/if}
+						Record Transaction
+					</Button>
+				</Dialog.DialogFooter>
+			</form>
+		</Dialog.DialogContent>
+	</Dialog.Root>
+{/if}
