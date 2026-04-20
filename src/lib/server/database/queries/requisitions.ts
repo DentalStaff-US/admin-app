@@ -155,6 +155,20 @@ export type TimeSheetResults = {
 	candidateProfile: CandidateProfile;
 };
 
+export type PaperInvoiceLineItem = {
+	id: string;
+	description: string | null;
+	quantity: number;
+	rate: number; // rate in cents - mirrors Stripe
+	unit_amount: number; // rate in cents - mirrors Stripe
+	unit_amount_excluding_tax: number;
+	amount: number; // total in cents - mirrors Stripe
+	currency: string;
+	type: 'paper'; // discriminator
+};
+
+export type InvoiceLineItem = Stripe.InvoiceLineItem | PaperInvoiceLineItem;
+
 export async function getAllRequisitions() {
 	return await db.select().from(requisitionTable).where(eq(requisitionTable.archived, false));
 }
@@ -1908,7 +1922,7 @@ export async function getClientInvoices(
 				: null,
 		timesheet: row.timesheet,
 		requisition: row.requisition,
-		lineItems: (row.invoice.lineItems as Stripe.InvoiceLineItem[]) || [],
+		lineItems: (row.invoice.lineItems as InvoiceLineItem[]) || [],
 		client: row.client,
 		clientUser: row.clientUser,
 		company: row.clientCompany
@@ -2009,7 +2023,7 @@ export async function getAllInvoicesAdmin(searchTerm?: string): Promise<InvoiceW
 					: null,
 			timesheet: row.timesheet,
 			requisition: row.requisition,
-			lineItems: (row.invoice.lineItems as Stripe.InvoiceLineItem[]) || [],
+			lineItems: (row.invoice.lineItems as InvoiceLineItem[]) || [],
 			client: row.client,
 			clientUser: row.clientUser,
 			company: row.clientCompany
@@ -2105,7 +2119,7 @@ export async function getTimesheetInvoices(
 		candidate: { profile: row.candidateProfile, user: row.candidateUser },
 		timesheet: row.timesheet,
 		requisition: row.requisition,
-		lineItems: (row.invoice.lineItems as Stripe.InvoiceLineItem[]) || [],
+		lineItems: (row.invoice.lineItems as InvoiceLineItem[]) || [],
 		client: row.client,
 		clientUser: row.clientUser,
 		company: row.clientCompany
@@ -2170,7 +2184,7 @@ export async function getManualInvoices(
 		client: row.client,
 		clientUser: row.clientUser,
 		company: row.clientCompany,
-		lineItems: (row.invoice.lineItems as Stripe.InvoiceLineItem[]) || [],
+		lineItems: (row.invoice.lineItems as InvoiceLineItem[]) || [],
 		// These will be null for manual invoices
 		candidate: null,
 		timesheet: null,
@@ -2251,7 +2265,7 @@ export async function getInvoiceByIdAdmin(invoiceId: string): Promise<InvoiceWit
 				: null,
 		timesheet: row.timesheet,
 		requisition: row.requisition,
-		lineItems: (row.invoice.lineItems as Stripe.InvoiceLineItem[]) || [],
+		lineItems: (row.invoice.lineItems as InvoiceLineItem[]) || [],
 		client: row.client,
 		clientUser: row.clientUser,
 		company: row.clientCompany
@@ -2335,7 +2349,7 @@ export async function getInvoiceById(
 				: null,
 		timesheet: row.timesheet,
 		requisition: row.requisition,
-		lineItems: (row.invoice.lineItems as Stripe.InvoiceLineItem[]) || [],
+		lineItems: (row.invoice.lineItems as InvoiceLineItem[]) || [],
 		client: row.client,
 		clientUser: row.clientUser,
 		company: row.clientCompany
@@ -2877,16 +2891,22 @@ export async function createPaperInvoiceRecord(
 		lineItems,
 		customerEmail,
 		customerName,
-		invoiceType = 'PAPER'
+		timesheetId,
+		requisitionId,
+		candidateId,
+		sourceType = 'manual'
 	}: {
 		clientId: string;
 		amountInDollars: string;
 		dueDate?: string;
 		description?: string;
-		lineItems: { description?: string; quantity: number; rate: number; amount: number }[];
+		lineItems: PaperInvoiceLineItem[];
 		customerEmail?: string;
 		customerName?: string;
-		invoiceType?: 'PAPER' | 'STRIPE';
+		timesheetId?: string;
+		requisitionId?: number;
+		candidateId?: string;
+		sourceType?: 'manual' | 'timesheet' | 'recurring' | 'other';
 	},
 	userId: string
 ): Promise<Invoice> {
@@ -2915,7 +2935,7 @@ export async function createPaperInvoiceRecord(
 				clientId,
 				invoiceNumber,
 				status: 'open',
-				sourceType: 'manual',
+				sourceType, // now dynamic
 				invoiceType: 'PAPER',
 				currency: 'usd',
 				amountDue: amountInDollars,
@@ -2925,6 +2945,9 @@ export async function createPaperInvoiceRecord(
 				amountPaid: '0',
 				customerEmail,
 				customerName,
+				timesheetId: timesheetId ?? null,
+				requisitionId: requisitionId ?? null,
+				candidateId: candidateId ?? null,
 				dueDate: dueDate
 					? new Date(dueDate + 'T00:00:00')
 					: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),

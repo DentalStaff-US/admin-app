@@ -297,10 +297,12 @@
 										{item.quantity || 1}
 									</Table.Cell>
 									<Table.Cell class="text-right">
-										{formatCurrency(Number(item.unit_amount_excluding_tax || 0) / 100)}
+										{formatCurrency(
+											Number(item.unit_amount_excluding_tax ?? item.unit_amount ?? 0) / 100
+										)}
 									</Table.Cell>
 									<Table.Cell class="text-right font-medium">
-										{formatCurrency(Number(+item.amount.toFixed(2) / 100) || 0)}
+										{formatCurrency(Number(item.amount) / 100)}
 									</Table.Cell>
 								</Table.Row>
 							{/each}

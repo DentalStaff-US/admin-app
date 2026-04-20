@@ -27,6 +27,7 @@ import { candidateProfileTable, type CandidateProfileSelect } from './candidate'
 import { disciplineTable, experienceLevelTable } from './skill';
 import { sql } from 'drizzle-orm/sql';
 import type Stripe from 'stripe';
+import type { InvoiceLineItem } from '../queries/requisitions';
 
 export type RawTimesheetHours = {
 	date: string;
@@ -508,7 +509,7 @@ export type InvoiceWithRelations = {
 	} | null;
 	timesheet: TimeSheetSelect | null;
 	requisition: RequisitionSelect | null;
-	lineItems: Stripe.InvoiceLineItem[];
+	lineItems: InvoiceLineItem[];
 	client: ClientProfileSelect;
 	company: ClientCompanySelect | null;
 	clientUser: {

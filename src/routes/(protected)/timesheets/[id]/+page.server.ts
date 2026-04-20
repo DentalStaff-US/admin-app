@@ -1,6 +1,7 @@
 import { USER_ROLES } from '$lib/config/constants';
 import {
 	getClientCompanyByClientId,
+	getClientProfileById,
 	getClientProfileByStaffUserId,
 	getClientProfilebyUserId,
 	getClientSubscription
@@ -22,7 +23,8 @@ import {
 	rejectTimesheet,
 	revertTimesheetToPending,
 	updateTimesheetHours,
-	voidTimesheet
+	voidTimesheet,
+	createPaperInvoiceRecord
 } from '$lib/server/database/queries/requisitions';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from './$types';
@@ -39,6 +41,7 @@ import { timeSheetTable, workdayTable } from '$lib/server/database/schemas/requi
 import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import type { RawTimesheetHours } from '$lib/server/database/schemas/requisition';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
+import { clientProfileTable } from '$lib/server/database/schemas/client';
 
 export const load = async (event: RequestEvent) => {
 	const user = event.locals.user;
@@ -402,28 +405,65 @@ export const actions = {
 				return fail(400, { error: 'Invoice amount must be greater than $0.00' });
 			}
 
-			const stripeCustomerId =
-				(await getClientSubscription(timesheet.associatedClientId)) || user.stripeCustomerId;
+			const clientProfile = await getClientProfileById(timesheet.associatedClientId);
+			const isPaperBilling = clientProfile?.profile.clientInvoiceMethod === 'PAPER';
 
-			const stripeInvoice = await createStripeInvoice(
-				stripeCustomerId,
-				[{ amountInCents: finalAmt, description: `Invoice for timesheet ${id}` }],
-				{ userId: user.id, timesheetId: timesheet.id },
-				`Dental Temp Staffing Solutions invoice: Hours worked for ${user.firstName} ${user.lastName} for timesheet ${id}`
-			);
+			console.log({ clientProfile, isPaperBilling });
 
-			await createInvoiceRecord(
-				{
-					clientId: timesheet.associatedClientId,
-					timesheet,
-					stripeInvoice: stripeInvoice,
-					amountInDollars: (stripeInvoice.amount_due / 100).toFixed(2)
-				},
-				user.id
-			);
+			if (isPaperBilling) {
+				const amountInDollars = (finalAmt / 100).toFixed(2);
+				const hoursWorked = parseFloat(String(timesheet.totalHoursWorked ?? 0));
+				const effectiveRateDollars = effectiveRate ?? 0;
+
+				await createPaperInvoiceRecord(
+					{
+						clientId: timesheet.associatedClientId,
+						amountInDollars,
+						sourceType: 'timesheet',
+						timesheetId: timesheet.id,
+						requisitionId: timesheet.requisitionId ?? undefined,
+						candidateId: timesheet.associatedCandidateId,
+						description: `Dental Temp Staffing Solutions invoice: Hours worked for timesheet ${id}`,
+						lineItems: [
+							{
+								id: crypto.randomUUID(),
+								description: `Hours worked for timesheet ${id}`,
+								quantity: hoursWorked,
+								rate: Math.round(effectiveRateDollars * 100),
+								unit_amount: Math.round(effectiveRateDollars * 100),
+								unit_amount_excluding_tax: Math.round(effectiveRateDollars * 100),
+								amount: Math.round(parseFloat(amountInDollars) * 100),
+								currency: 'usd',
+								type: 'paper'
+							}
+						]
+					},
+					user.id
+				);
+			} else {
+				const stripeCustomerId =
+					(await getClientSubscription(timesheet.associatedClientId)) || user.stripeCustomerId;
+
+				const stripeInvoice = await createStripeInvoice(
+					stripeCustomerId,
+					[{ amountInCents: finalAmt, description: `Invoice for timesheet ${id}` }],
+					{ userId: user.id, timesheetId: timesheet.id },
+					`Dental Temp Staffing Solutions invoice: Hours worked for ${user.firstName} ${user.lastName} for timesheet ${id}`
+				);
+
+				await createInvoiceRecord(
+					{
+						clientId: timesheet.associatedClientId,
+						timesheet,
+						stripeInvoice,
+						amountInDollars: (stripeInvoice.amount_due / 100).toFixed(2)
+					},
+					user.id
+				);
+			}
 
 			setFlash({ type: 'success', message: 'Timesheet approved' }, event);
-			return { success: true, message: 'Timesheet approved', timesheet, stripeInvoice };
+			return { success: true, message: 'Timesheet approved', timesheet };
 		} catch (err) {
 			await revertTimesheetToPending(id, user?.id);
 			console.error('Error approving timesheet:', err);
@@ -507,31 +547,66 @@ export const actions = {
 				return fail(400, { error: 'Invoice amount must be greater than $0.00' });
 			}
 
-			const stripeCustomerId = await getClientSubscription(overridden.associatedClientId);
+			const clientProfile = await getClientProfileById(overridden.associatedClientId);
+			const isPaperBilling = clientProfile?.profile.clientInvoiceMethod === 'PAPER';
 
-			if (!stripeCustomerId) {
-				return fail(404, { error: 'No Stripe customer found for this client' });
+			if (isPaperBilling) {
+				const amountInDollars = (finalAmt / 100).toFixed(2);
+				const hoursWorked = parseFloat(String(overridden.totalHoursWorked ?? 0));
+				const effectiveRateDollars = effectiveRate ?? 0;
+
+				await createPaperInvoiceRecord(
+					{
+						clientId: overridden.associatedClientId,
+						amountInDollars,
+						sourceType: 'timesheet',
+						timesheetId: overridden.id,
+						requisitionId: overridden.requisitionId ?? undefined,
+						candidateId: overridden.associatedCandidateId,
+						description: `Dental Temp Staffing Solutions invoice: Hours worked for timesheet ${id}`,
+						lineItems: [
+							{
+								id: crypto.randomUUID(),
+								description: `Hours worked for timesheet ${id}`,
+								quantity: hoursWorked,
+								rate: Math.round(effectiveRateDollars * 100),
+								unit_amount: Math.round(effectiveRateDollars * 100),
+								unit_amount_excluding_tax: Math.round(effectiveRateDollars * 100),
+								amount: Math.round(parseFloat(amountInDollars) * 100),
+								currency: 'usd',
+								type: 'paper'
+							}
+						]
+					},
+					user.id
+				);
+			} else {
+				const stripeCustomerId = await getClientSubscription(overridden.associatedClientId);
+
+				if (!stripeCustomerId) {
+					return fail(404, { error: 'No Stripe customer found for this client' });
+				}
+
+				const stripeInvoice = await createStripeInvoice(
+					stripeCustomerId,
+					[{ amountInCents: finalAmt, description: `Invoice for timesheet ${id}` }],
+					{ userId: user.id, timesheetId: overridden.id },
+					`Dental Temp Staffing Solutions invoice: Hours worked for ${user.firstName} ${user.lastName} for timesheet ${id}`
+				);
+
+				await createInvoiceRecord(
+					{
+						clientId: overridden.associatedClientId,
+						timesheet: overridden,
+						stripeInvoice,
+						amountInDollars: (stripeInvoice.amount_due / 100).toFixed(2)
+					},
+					user.id
+				);
 			}
 
-			const stripeInvoice = await createStripeInvoice(
-				stripeCustomerId,
-				[{ amountInCents: finalAmt, description: `Invoice for timesheet ${id}` }],
-				{ userId: user.id, timesheetId: overridden.id },
-				`Dental Temp Staffing Solutions invoice: Hours worked for ${user.firstName} ${user.lastName} for timesheet ${id}`
-			);
-
-			await createInvoiceRecord(
-				{
-					clientId: overridden.associatedClientId,
-					timesheet: overridden,
-					stripeInvoice: stripeInvoice,
-					amountInDollars: (stripeInvoice.amount_due / 100).toFixed(2)
-				},
-				user.id
-			);
-
 			setFlash({ type: 'success', message: 'Timesheet approved' }, event);
-			return { success: true, message: 'Timesheet approved', overridden, stripeInvoice };
+			return { success: true, message: 'Timesheet approved', overridden };
 		} catch (error) {
 			console.error('Error overriding timesheet:', error);
 			setFlash({ type: 'error', message: 'Error overriding timesheet' }, event);
