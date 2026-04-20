@@ -408,50 +408,41 @@
 			</Dialog.Header>
 			<div class="space-y-4 py-4">
 				<input type="hidden" name="id" value={$editDisciplineForm.id} />
-				<Form.Field
-					config={{ form: superForm(data.editForm), schema: editDisciplineSchema }}
-					name="name"
-				>
-					<Form.Item>
-						<Form.Label>Discipline Name</Form.Label>
-						<Form.Input
-							bind:value={$editDisciplineForm.name}
-							placeholder="e.g., Dental Hygienist, Dentist..."
-						/>
-						<Form.Validation />
-					</Form.Item>
-				</Form.Field>
-				<Form.Field
-					config={{ form: superForm(data.editForm), schema: editDisciplineSchema }}
-					name="abbreviation"
-				>
-					<Form.Item>
-						<Form.Label>Abbreviation</Form.Label>
-						<Form.Input
-							bind:value={$editDisciplineForm.abbreviation}
-							placeholder="e.g., DH, DDS, RDA..."
-						/>
-						<Form.Validation />
-					</Form.Item>
-				</Form.Field>
-				<Form.Field
-					config={{ form: superForm(data.editForm), schema: editDisciplineSchema }}
-					name="workersCompCode"
-				>
-					<Form.Item>
-						<Form.Label>Workers' Comp Code</Form.Label>
-						<Form.Input
-							bind:value={$editDisciplineForm.workersCompCode}
-							placeholder="e.g., 8021..."
-						/>
-						<Form.Validation />
-					</Form.Item>
-				</Form.Field>
+
+				<div class="space-y-2">
+					<label class="text-sm font-medium" for="edit-name">Discipline Name</label>
+					<Input
+						id="edit-name"
+						name="name"
+						bind:value={$editDisciplineForm.name}
+						placeholder="e.g., Dental Hygienist, Dentist..."
+					/>
+				</div>
+
+				<div class="space-y-2">
+					<label class="text-sm font-medium" for="edit-abbreviation">Abbreviation</label>
+					<Input
+						id="edit-abbreviation"
+						name="abbreviation"
+						bind:value={$editDisciplineForm.abbreviation}
+						placeholder="e.g., DH, DDS, RDA..."
+					/>
+				</div>
+
+				<div class="space-y-2">
+					<label class="text-sm font-medium" for="edit-workersCompCode">Workers' Comp Code</label>
+					<Input
+						id="edit-workersCompCode"
+						name="workersCompCode"
+						bind:value={$editDisciplineForm.workersCompCode}
+						placeholder="e.g., 8021..."
+					/>
+				</div>
 			</div>
 			<Dialog.Footer>
-				<Button variant="outline" type="button" on:click={() => (editDialogOpen = false)}
-					>Cancel</Button
-				>
+				<Button variant="outline" type="button" on:click={() => (editDialogOpen = false)}>
+					Cancel
+				</Button>
 				<Form.Button disabled={$editSubmitting}>
 					{#if $editSubmitting}<Loader2 class="mr-2 h-4 w-4 animate-spin" />{/if}
 					Save Changes

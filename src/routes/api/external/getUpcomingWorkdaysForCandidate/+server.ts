@@ -80,7 +80,7 @@ export const GET: RequestHandler = async ({ request }) => {
 			eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 		)
 		.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
-		.leftJoin(workdayTable, eq(workdayTable.timesheetId, timeSheetTable.id))
+		.leftJoin(timeSheetTable, eq(timeSheetTable.id, workdayTable.timesheetId))
 		.where(
 			and(
 				eq(workdayTable.candidateId, candidateProfile.id),
