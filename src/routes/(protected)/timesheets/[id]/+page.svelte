@@ -435,8 +435,8 @@
 									<p>
 										• Candidate: {data?.timesheet?.candidate?.firstName}
 										{data?.timesheet?.candidate?.lastName}	
+										<span>#{data?.timesheet?.candidate?.puid}</span>
 									</p>
-									<span>• Unique Identifying Number: #{data?.timesheet?.candidate?.puid}</span>
 									<p>• Client: {data?.timesheet?.clientCompanyName}</p>
 									<p>
 										• Worker's Comp. Code: {#if data?.requisition.discipline.workersCompCode}
