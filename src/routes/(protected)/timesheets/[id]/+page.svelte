@@ -434,8 +434,9 @@
 								<CardDescription>
 									<p>
 										• Candidate: {data?.timesheet?.candidate?.firstName}
-										{data?.timesheet?.candidate?.lastName}
+										{data?.timesheet?.candidate?.lastName}	
 									</p>
+									<span>• Unique Identifying Number: #{data?.timesheet?.candidate?.puid}</span>
 									<p>• Client: {data?.timesheet?.clientCompanyName}</p>
 									<p>
 										• Worker's Comp. Code: {#if data?.requisition.discipline.workersCompCode}
