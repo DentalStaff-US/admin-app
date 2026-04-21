@@ -314,7 +314,7 @@
 					<!-- Totals -->
 					<div class="space-y-2">
 						<div class="flex justify-between text-sm">
-							<span>Subtotal</span>
+							<span>Subtotal (includes any platform fees)</span>
 							<span>{formatCurrency(calculateSubtotal())}</span>
 						</div>
 						{#if +calculateTax() > 0}
