@@ -452,7 +452,7 @@ export async function getInvoicesDueCount() {
 	const [result] = await db
 		.select({ count: count() })
 		.from(invoiceTable)
-		.where(lt(invoiceTable.dueDate, new Date()));
+		.where(and(lt(invoiceTable.dueDate, new Date()), eq(invoiceTable.status, 'open')));
 
 	return result.count;
 }
