@@ -2948,9 +2948,7 @@ export async function createPaperInvoiceRecord(
 				timesheetId: timesheetId ?? null,
 				requisitionId: requisitionId ?? null,
 				candidateId: candidateId ?? null,
-				dueDate: dueDate
-					? new Date(dueDate + 'T00:00:00')
-					: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+				dueDate: dueDate ? new Date(dueDate + 'T00:00:00') : new Date(Date.now()), // due upon receipt if no date is provided
 				description,
 				lineItems: JSON.stringify(lineItems)
 			})

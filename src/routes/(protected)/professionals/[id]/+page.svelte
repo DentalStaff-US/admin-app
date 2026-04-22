@@ -403,6 +403,9 @@
 							<h1 class="text-2xl font-bold">
 								{candidate.user.firstName}
 								{candidate.user.lastName}
+								{#if user.role === USER_ROLES.SUPERADMIN}
+									<span class="text-xs text-muted-foreground">#{candidate.profile.puid}</span>
+								{/if}
 							</h1>
 							<p class="text-sm text-gray-500">Professional Member</p>
 							<div class="flex items-center gap-2 mt-1">
