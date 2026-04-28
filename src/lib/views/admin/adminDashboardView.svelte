@@ -50,6 +50,8 @@
 	$: newClientSignups = data.newClientSignups || [];
 	$: invoicesDue = data.invoicesDue || [];
 	$: requisitions = data.requisitions || [];
+	$: wagesDueCount = data.wagesDueCount;
+	$: console.log('Wages due count:', wagesDueCount);
 	// Calculate the % change in timesheets due from previous period (placeholder - you'll need to implement actual trend calculation)
 	// const timesheetsTrendPercent = 12; // This should be calculated based on historical data
 	// const supportTicketsTrendPercent = -5;
@@ -156,7 +158,7 @@
 		</div>
 
 		<!-- Stat cards row -->
-		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
 			<!-- Timesheets due -->
 			<Card.Root>
 				<Card.Content class="p-6">
@@ -217,7 +219,11 @@
 						</div>
 					</div>
 					<div class="mt-4">
-						<Button variant="link" class="text-orange-600 p-0 h-auto" href="/timesheets">
+						<Button
+							variant="link"
+							class="text-orange-600 p-0 h-auto"
+							href="/timesheets?tab=discrepancies"
+						>
 							Review discrepancies
 							<ArrowRight size={16} class="ml-1" />
 						</Button>
@@ -287,6 +293,32 @@
 					<div class="mt-4">
 						<Button variant="link" class="text-green-600 p-0 h-auto" href="/invoices">
 							View invoices
+							<ArrowRight size={16} class="ml-1" />
+						</Button>
+					</div>
+				</Card.Content>
+			</Card.Root>
+			<!-- Add to the stat cards row in the dashboard, after the Invoices Due card -->
+			<Card.Root>
+				<Card.Content class="p-6">
+					<div class="flex justify-between items-start">
+						<div>
+							<p class="text-gray-500 text-sm font-medium">Wages Due</p>
+							<div class="flex items-baseline mt-1">
+								<p class="text-4xl font-bold text-gray-900">{wagesDueCount}</p>
+							</div>
+						</div>
+						<div class="bg-yellow-100 p-3 rounded-full">
+							<DollarSign size={24} class="text-yellow-600" />
+						</div>
+					</div>
+					<div class="mt-4">
+						<Button
+							variant="link"
+							class="text-yellow-600 p-0 h-auto"
+							href="/timesheets?tab=wages-due"
+						>
+							View wages due
 							<ArrowRight size={16} class="ml-1" />
 						</Button>
 					</div>

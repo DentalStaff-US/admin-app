@@ -27,7 +27,7 @@ import { candidateProfileTable, type CandidateProfileSelect } from './candidate'
 import { disciplineTable, experienceLevelTable } from './skill';
 import { sql } from 'drizzle-orm/sql';
 import type Stripe from 'stripe';
-import type { InvoiceLineItem } from '../queries/requisitions';
+import type { InvoiceLineItem, WagesStatus } from '../queries/requisitions';
 
 export type RawTimesheetHours = {
 	date: string;
@@ -493,7 +493,10 @@ export type TimesheetWithRelations = {
 	candidate: CandidateProfileSelect;
 	clientCompany?: ClientCompanySelect;
 	user: Partial<UserSelect>;
-	requisition: RequisitionSelect | null; // null because of leftJoin
+	requisition: RequisitionSelect | null;
+	invoiceStatus?: string | null; // raw invoice status
+	invoiceId?: string | null; // for linking
+	wagesStatus?: WagesStatus; // derived
 };
 
 export type InvoiceWithRelations = {

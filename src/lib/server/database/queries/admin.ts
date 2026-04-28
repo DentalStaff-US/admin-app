@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { sql, count, eq, desc, lt, and, ne, ilike, or } from 'drizzle-orm';
+import { sql, count, eq, desc, lt, and, ne, ilike, or, sum } from 'drizzle-orm';
 import db from '../drizzle';
 import { userTable, type UpdateUser, type User } from '$lib/server/database/schemas/auth';
 import { DEFAULT_MAX_RECORD_LIMIT, USER_ROLES } from '$lib/config/constants';
@@ -314,6 +314,16 @@ export async function getSupportTicketsPreview(limit: number) {
 	return result;
 }
 
+const getWagesDueCount = async () => {
+	const [result] = await db
+		.select({ count: count() })
+		.from(timeSheetTable)
+		.innerJoin(invoiceTable, eq(invoiceTable.timesheetId, timeSheetTable.id))
+		.where(and(eq(timeSheetTable.status, 'APPROVED'), eq(invoiceTable.status, 'open')));
+
+	return result.count;
+};
+
 export async function getRequisitionsPreviewAdmin(limit: number, offset: number = 0) {
 	// First: get paginated requisition IDs only
 	const paginatedRequisitions = await db
@@ -544,7 +554,8 @@ export async function getAdminDashboardData() {
 		newClientSignups,
 		invoicesDueCount,
 		invoicesDue,
-		requisitions
+		requisitions,
+		wagesDueCount
 	] = await Promise.all([
 		getTimesheetsDueCount().catch((e) => {
 			console.error('❌ getTimesheetsDueCount failed:', e.message);
@@ -581,6 +592,10 @@ export async function getAdminDashboardData() {
 		getRequisitionsPreviewAdmin(10).catch((e) => {
 			console.error('❌ getRequisitionsPreviewAdmin failed:', e.message);
 			return [];
+		}),
+		getWagesDueCount().catch((e) => {
+			console.error('❌ getWagesDueCount failed:', e.message);
+			return 0;
 		})
 	]);
 
@@ -593,7 +608,8 @@ export async function getAdminDashboardData() {
 		newClientSignups,
 		invoicesDueCount,
 		invoicesDue,
-		requisitions
+		requisitions,
+		wagesDueCount
 	};
 }
 

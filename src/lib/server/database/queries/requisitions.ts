@@ -169,6 +169,18 @@ export type PaperInvoiceLineItem = {
 
 export type InvoiceLineItem = Stripe.InvoiceLineItem | PaperInvoiceLineItem;
 
+export type WagesStatus = 'WAGES_DUE' | 'WAGES_PAID' | null;
+
+export function deriveWagesStatus(
+	timesheetStatus: string | null,
+	invoiceStatus: string | null
+): WagesStatus {
+	if (timesheetStatus !== 'APPROVED') return null;
+	if (invoiceStatus === 'paid') return 'WAGES_PAID';
+	if (invoiceStatus === 'open') return 'WAGES_DUE';
+	return null;
+}
+
 export async function getAllRequisitions() {
 	return await db.select().from(requisitionTable).where(eq(requisitionTable.archived, false));
 }
@@ -1085,7 +1097,7 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 			.select({
 				timesheet: {
 					...timeSheetTable,
-					hourlyRate: requisitionTable.hourlyRate // ✅ Add this
+					hourlyRate: requisitionTable.hourlyRate
 				},
 				requisition: { ...requisitionTable, disciplineName: disciplineTable.name },
 				clientCompany: { ...clientCompanyTable },
@@ -1093,7 +1105,10 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 					...candidateProfileTable,
 					firstName: userTable.firstName,
 					lastName: userTable.lastName
-				}
+				},
+				// Extend with invoice status for derived wages status
+				invoiceStatus: invoiceTable.status,
+				invoiceId: invoiceTable.id
 			})
 			.from(timeSheetTable)
 			.leftJoin(requisitionTable, eq(requisitionTable.id, timeSheetTable.requisitionId))
@@ -1104,6 +1119,7 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 				eq(candidateProfileTable.id, timeSheetTable.associatedCandidateId)
 			)
 			.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+			.leftJoin(invoiceTable, eq(invoiceTable.timesheetId, timeSheetTable.id))
 			.where(
 				searchTerm
 					? or(
@@ -1117,7 +1133,10 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 			.orderBy(desc(timeSheetTable.createdAt))
 			.limit(DEFAULT_MAX_RECORD_LIMIT);
 
-		return result || [];
+		return (result || []).map((row) => ({
+			...row,
+			wagesStatus: deriveWagesStatus(row.timesheet.status, row.invoiceStatus)
+		}));
 	} catch (err) {
 		console.log(err);
 		return error(500, 'Error fetching timesheets');
@@ -1131,14 +1150,16 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 			.select({
 				timesheet: {
 					...timeSheetTable,
-					hourlyRate: requisitionTable.hourlyRate // ✅ Add this
+					hourlyRate: requisitionTable.hourlyRate
 				},
 				requisition: { ...requisitionTable },
 				candidate: {
 					...candidateProfileTable,
 					firstName: userTable.firstName,
 					lastName: userTable.lastName
-				}
+				},
+				invoiceStatus: invoiceTable.status,
+				invoiceId: invoiceTable.id
 			})
 			.from(timeSheetTable)
 			.leftJoin(requisitionTable, eq(requisitionTable.id, timeSheetTable.requisitionId))
@@ -1148,6 +1169,7 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 			)
 			.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
 			.leftJoin(clientCompanyTable, eq(clientCompanyTable.clientId, clientId))
+			.leftJoin(invoiceTable, eq(invoiceTable.timesheetId, timeSheetTable.id))
 			.where(
 				and(
 					eq(timeSheetTable.associatedClientId, clientId),
@@ -1162,7 +1184,10 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 				)
 			);
 
-		return result;
+		return (result || []).map((row) => ({
+			...row,
+			wagesStatus: deriveWagesStatus(row.timesheet.status, row.invoiceStatus)
+		}));
 	} catch (err) {
 		console.log(err);
 		return error(500, 'Error fetching timesheets');
