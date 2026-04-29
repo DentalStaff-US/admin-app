@@ -58,7 +58,10 @@ export const candidateProfileTable = pgTable('candidate_profiles', {
 	lat: decimal('lat'),
 	lon: decimal('lon'),
 	geom: geometry('geom'),
-	puid: integer('puid').notNull().unique().default(sql`nextval(puid_seq)`)
+	puid: integer('puid')
+		.notNull()
+		.unique()
+		.default(sql`nextval('puid_seq')`)
 });
 
 export const candidateRatingTable = pgTable('candidate_ratings', {

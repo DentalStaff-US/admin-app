@@ -23,6 +23,7 @@
 		DropdownMenu,
 		DropdownMenuContent,
 		DropdownMenuItem,
+		DropdownMenuSeparator,
 		DropdownMenuTrigger
 	} from '$lib/components/ui/dropdown-menu';
 	import { ChevronDown } from 'lucide-svelte';
@@ -89,12 +90,7 @@
 	$: adjustedHourlyRate = data?.timesheet?.adjustedHourlyRate ?? null;
 	$: effectiveHourlyRate = adjustedHourlyRate ?? data?.timesheet?.hourlyRate ?? 0;
 	$: invoice = data.invoice;
-	$: wagesStatus = (() => {
-		if (data.timesheet?.status !== 'APPROVED') return null;
-		if (invoice?.status === 'paid') return 'WAGES_PAID';
-		if (invoice?.status === 'open') return 'WAGES_DUE';
-		return null;
-	})();
+	$: wagesStatus = data.timesheet?.wagesStatus ?? null;
 
 	function startEditingRate() {
 		rateInputValue = adjustedHourlyRate;
@@ -467,6 +463,28 @@
 									<FileText class="h-4 w-4" />
 									View Invoice
 								</a>
+							</DropdownMenuItem>
+						{/if}
+						{#if isApproved && wagesStatus === 'WAGES_PAID'}
+							<DropdownMenuSeparator />
+							<DropdownMenuItem>
+								<form method="POST" action="?/markWagesDue" use:enhance class="w-full">
+									<button type="submit" class="flex items-center gap-2 w-full text-orange-600">
+										<AlertCircle class="h-4 w-4" />
+										Mark Wages Due
+									</button>
+								</form>
+							</DropdownMenuItem>
+						{/if}
+						{#if isApproved && wagesStatus === 'WAGES_DUE'}
+							<DropdownMenuSeparator />
+							<DropdownMenuItem>
+								<form method="POST" action="?/markWagesPaid" use:enhance class="w-full">
+									<button type="submit" class="flex items-center gap-2 w-full text-green-700">
+										<CheckCircle2 class="h-4 w-4" />
+										Mark Wages Paid
+									</button>
+								</form>
 							</DropdownMenuItem>
 						{/if}
 					</DropdownMenuContent>

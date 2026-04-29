@@ -171,16 +171,6 @@ export type InvoiceLineItem = Stripe.InvoiceLineItem | PaperInvoiceLineItem;
 
 export type WagesStatus = 'WAGES_DUE' | 'WAGES_PAID' | null;
 
-export function deriveWagesStatus(
-	timesheetStatus: string | null,
-	invoiceStatus: string | null
-): WagesStatus {
-	if (timesheetStatus !== 'APPROVED') return null;
-	if (invoiceStatus === 'paid') return 'WAGES_PAID';
-	if (invoiceStatus === 'open') return 'WAGES_DUE';
-	return null;
-}
-
 export async function getAllRequisitions() {
 	return await db.select().from(requisitionTable).where(eq(requisitionTable.archived, false));
 }
@@ -1105,10 +1095,7 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 					...candidateProfileTable,
 					firstName: userTable.firstName,
 					lastName: userTable.lastName
-				},
-				// Extend with invoice status for derived wages status
-				invoiceStatus: invoiceTable.status,
-				invoiceId: invoiceTable.id
+				}
 			})
 			.from(timeSheetTable)
 			.leftJoin(requisitionTable, eq(requisitionTable.id, timeSheetTable.requisitionId))
@@ -1119,7 +1106,6 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 				eq(candidateProfileTable.id, timeSheetTable.associatedCandidateId)
 			)
 			.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
-			.leftJoin(invoiceTable, eq(invoiceTable.timesheetId, timeSheetTable.id))
 			.where(
 				searchTerm
 					? or(
@@ -1133,10 +1119,7 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 			.orderBy(desc(timeSheetTable.createdAt))
 			.limit(DEFAULT_MAX_RECORD_LIMIT);
 
-		return (result || []).map((row) => ({
-			...row,
-			wagesStatus: deriveWagesStatus(row.timesheet.status, row.invoiceStatus)
-		}));
+		return result || [];
 	} catch (err) {
 		console.log(err);
 		return error(500, 'Error fetching timesheets');
@@ -1157,9 +1140,7 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 					...candidateProfileTable,
 					firstName: userTable.firstName,
 					lastName: userTable.lastName
-				},
-				invoiceStatus: invoiceTable.status,
-				invoiceId: invoiceTable.id
+				}
 			})
 			.from(timeSheetTable)
 			.leftJoin(requisitionTable, eq(requisitionTable.id, timeSheetTable.requisitionId))
@@ -1169,7 +1150,6 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 			)
 			.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
 			.leftJoin(clientCompanyTable, eq(clientCompanyTable.clientId, clientId))
-			.leftJoin(invoiceTable, eq(invoiceTable.timesheetId, timeSheetTable.id))
 			.where(
 				and(
 					eq(timeSheetTable.associatedClientId, clientId),
@@ -1184,10 +1164,7 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 				)
 			);
 
-		return (result || []).map((row) => ({
-			...row,
-			wagesStatus: deriveWagesStatus(row.timesheet.status, row.invoiceStatus)
-		}));
+		return result || [];
 	} catch (err) {
 		console.log(err);
 		return error(500, 'Error fetching timesheets');
@@ -1359,6 +1336,7 @@ export async function getTimesheetDetailsAdmin(timesheetId: string) {
 			status: timeSheetTable.status,
 			discrepancyNote: timeSheetTable.discrepancyNote,
 			adjustedHourlyRate: timeSheetTable.adjustedHourlyRate,
+			wagesStatus: timeSheetTable.wagesStatus,
 			candidate: {
 				...candidateProfileTable,
 				firstName: userTable.firstName,
@@ -2654,7 +2632,11 @@ export async function approveTimesheet(timesheetId: string, userId: string) {
 		// Update timesheet status to APPROVED
 		const [result] = await db
 			.update(timeSheetTable)
-			.set({ status: 'APPROVED', totalHoursBilled: original.totalHoursWorked })
+			.set({
+				status: 'APPROVED',
+				totalHoursBilled: original.totalHoursWorked,
+				wagesStatus: 'WAGES_DUE'
+			})
 			.where(eq(timeSheetTable.id, timesheetId))
 			.returning();
 
@@ -2751,8 +2733,9 @@ export const adminOverrideTimesheet = async (
 
 		const updatedValues: UpdateTimeSheet = {
 			...values,
-			totalHoursBilled: original.totalHoursWorked, // Preserve total hours worked
-			status: 'APPROVED' // Force status to APPROVED
+			totalHoursBilled: original.totalHoursWorked,
+			status: 'APPROVED',
+			wagesStatus: 'WAGES_DUE' // add this
 		};
 
 		const [result] = await db

@@ -33,7 +33,6 @@
 	import { USER_ROLES } from '$lib/config/constants';
 	import ViewLink from '$lib/components/tables/ViewLink.svelte';
 	import type { TimesheetWithRelations } from '$lib/server/database/schemas/requisition';
-	import type { WagesStatus } from '$lib/server/database/queries/requisitions';
 
 	export let data: PageData;
 
@@ -255,9 +254,8 @@
 		}));
 	});
 
-	// Add to existing filter functions
-	const filterByWagesStatus = (timesheets: any[], status: WagesStatus) =>
-		timesheets.filter((ts) => ts.wagesStatus === status);
+	const filterByWagesStatus = (timesheets: any[], status: 'WAGES_DUE' | 'WAGES_PAID') =>
+		timesheets.filter((ts) => ts.timesheet.wagesStatus === status);
 
 	// Add to tabCounts
 	$: tabCounts = {

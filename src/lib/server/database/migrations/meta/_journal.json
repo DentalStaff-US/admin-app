@@ -204,6 +204,27 @@
       "when": 1776377905535,
       "tag": "0028_rare_brother_voodoo",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1777432753084,
+      "tag": "0029_melodic_nomad",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1777432770066,
+      "tag": "0030_foamy_wong",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1777436582635,
+      "tag": "0031_acoustic_impossible_man",
+      "breakpoints": true
     }
   ]
 }
