@@ -612,5 +612,93 @@ export const actions = {
 			setFlash({ type: 'error', message: 'Error overriding timesheet' }, event);
 			return { success: false };
 		}
+	},
+	markWagesPaid: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id } = event.params;
+
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Unauthorized' });
+		}
+
+		try {
+			const [original] = await db
+				.select()
+				.from(timeSheetTable)
+				.where(eq(timeSheetTable.id, id))
+				.limit(1);
+
+			if (!original) return fail(404, { error: 'Timesheet not found' });
+			if (original.status !== 'APPROVED') {
+				return fail(400, { error: 'Timesheet must be approved before marking wages paid' });
+			}
+
+			const [result] = await db
+				.update(timeSheetTable)
+				.set({ wagesStatus: 'WAGES_PAID', updatedAt: new Date() })
+				.where(eq(timeSheetTable.id, id))
+				.returning();
+
+			await writeActionHistory({
+				table: 'TIMESHEETS',
+				userId: user.id,
+				action: 'UPDATE',
+				entityId: id,
+				beforeState: original,
+				afterState: result,
+				metadata: { wagesStatus: 'WAGES_PAID' }
+			});
+
+			setFlash({ type: 'success', message: 'Wages marked as paid' }, event);
+			return { success: true };
+		} catch (err) {
+			console.error('Error marking wages paid:', err);
+			setFlash({ type: 'error', message: 'Failed to mark wages as paid' }, event);
+			return fail(500, { error: 'Failed to mark wages as paid' });
+		}
+	},
+	markWagesDue: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id } = event.params;
+
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Unauthorized' });
+		}
+
+		try {
+			const [original] = await db
+				.select()
+				.from(timeSheetTable)
+				.where(eq(timeSheetTable.id, id))
+				.limit(1);
+
+			if (!original) return fail(404, { error: 'Timesheet not found' });
+			if (original.status !== 'APPROVED') {
+				return fail(400, { error: 'Timesheet must be approved to change wages status' });
+			}
+
+			const [result] = await db
+				.update(timeSheetTable)
+				.set({ wagesStatus: 'WAGES_DUE', updatedAt: new Date() })
+				.where(eq(timeSheetTable.id, id))
+				.returning();
+
+			await writeActionHistory({
+				table: 'TIMESHEETS',
+				userId: user.id,
+				action: 'UPDATE',
+				entityId: id,
+				beforeState: original,
+				afterState: result,
+				metadata: { wagesStatus: 'WAGES_DUE' }
+			});
+
+			setFlash({ type: 'success', message: 'Wages marked as due' }, event);
+			return { success: true };
+		} catch (err) {
+			console.error('Error marking wages due:', err);
+			setFlash({ type: 'error', message: 'Failed to mark wages as due' }, event);
+			return fail(500, { error: 'Failed to mark wages as due' });
+		}
 	}
 };

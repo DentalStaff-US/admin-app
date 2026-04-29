@@ -35,12 +35,11 @@ export const load = async (event: RequestEvent) => {
 			newClientSignups,
 			invoicesDueCount,
 			invoicesDue,
-			requisitions
+			requisitions,
+			wagesDueCount
 		} = await getAdminDashboardData();
 		const form = superValidate(event, adminRequisitionSchema);
 		const newProfileForm = await superValidate(event, adminNewUserSchema);
-
-		console.log({ requisitions: JSON.stringify(requisitions[0], null, 2) });
 
 		return {
 			user,
@@ -55,7 +54,8 @@ export const load = async (event: RequestEvent) => {
 			invoicesDue,
 			clientForm: null,
 			adminForm: form,
-			newProfileForm
+			newProfileForm,
+			wagesDueCount
 		};
 	}
 
@@ -120,7 +120,8 @@ export const load = async (event: RequestEvent) => {
 			pendingInvoicesCount: pendingInvoicesCount[0]?.count,
 			clientForm: form,
 			adminForm: null,
-			newProfileForm: null
+			newProfileForm: null,
+			wagesDueCount: 0
 		};
 	}
 
@@ -187,7 +188,8 @@ export const load = async (event: RequestEvent) => {
 			pendingInvoicesCount: pendingInvoicesCount[0]?.count,
 			clientForm: form,
 			adminForm: null,
-			newProfileForm: null
+			newProfileForm: null,
+			wagesDueCount: 0
 		};
 	}
 
@@ -207,6 +209,8 @@ export const load = async (event: RequestEvent) => {
 		overdueInvoicesCount: 0,
 		pendingInvoicesCount: 0,
 		clientForm: null,
-		adminForm: null
+		adminForm: null,
+		newProfileForm: null,
+		wagesDueCount: 0
 	};
 };

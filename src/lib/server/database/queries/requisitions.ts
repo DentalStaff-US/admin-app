@@ -169,6 +169,8 @@ export type PaperInvoiceLineItem = {
 
 export type InvoiceLineItem = Stripe.InvoiceLineItem | PaperInvoiceLineItem;
 
+export type WagesStatus = 'WAGES_DUE' | 'WAGES_PAID' | null;
+
 export async function getAllRequisitions() {
 	return await db.select().from(requisitionTable).where(eq(requisitionTable.archived, false));
 }
@@ -1085,7 +1087,7 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 			.select({
 				timesheet: {
 					...timeSheetTable,
-					hourlyRate: requisitionTable.hourlyRate // ✅ Add this
+					hourlyRate: requisitionTable.hourlyRate
 				},
 				requisition: { ...requisitionTable, disciplineName: disciplineTable.name },
 				clientCompany: { ...clientCompanyTable },
@@ -1131,7 +1133,7 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 			.select({
 				timesheet: {
 					...timeSheetTable,
-					hourlyRate: requisitionTable.hourlyRate // ✅ Add this
+					hourlyRate: requisitionTable.hourlyRate
 				},
 				requisition: { ...requisitionTable },
 				candidate: {
@@ -1162,7 +1164,7 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 				)
 			);
 
-		return result;
+		return result || [];
 	} catch (err) {
 		console.log(err);
 		return error(500, 'Error fetching timesheets');
@@ -1334,6 +1336,7 @@ export async function getTimesheetDetailsAdmin(timesheetId: string) {
 			status: timeSheetTable.status,
 			discrepancyNote: timeSheetTable.discrepancyNote,
 			adjustedHourlyRate: timeSheetTable.adjustedHourlyRate,
+			wagesStatus: timeSheetTable.wagesStatus,
 			candidate: {
 				...candidateProfileTable,
 				firstName: userTable.firstName,
@@ -2629,7 +2632,11 @@ export async function approveTimesheet(timesheetId: string, userId: string) {
 		// Update timesheet status to APPROVED
 		const [result] = await db
 			.update(timeSheetTable)
-			.set({ status: 'APPROVED', totalHoursBilled: original.totalHoursWorked })
+			.set({
+				status: 'APPROVED',
+				totalHoursBilled: original.totalHoursWorked,
+				wagesStatus: 'WAGES_DUE'
+			})
 			.where(eq(timeSheetTable.id, timesheetId))
 			.returning();
 
@@ -2726,8 +2733,9 @@ export const adminOverrideTimesheet = async (
 
 		const updatedValues: UpdateTimeSheet = {
 			...values,
-			totalHoursBilled: original.totalHoursWorked, // Preserve total hours worked
-			status: 'APPROVED' // Force status to APPROVED
+			totalHoursBilled: original.totalHoursWorked,
+			status: 'APPROVED',
+			wagesStatus: 'WAGES_DUE' // add this
 		};
 
 		const [result] = await db

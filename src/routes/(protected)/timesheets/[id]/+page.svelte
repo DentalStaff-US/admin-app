@@ -19,6 +19,14 @@
 		DialogHeader,
 		DialogTitle
 	} from '$lib/components/ui/dialog';
+	import {
+		DropdownMenu,
+		DropdownMenuContent,
+		DropdownMenuItem,
+		DropdownMenuSeparator,
+		DropdownMenuTrigger
+	} from '$lib/components/ui/dropdown-menu';
+	import { ChevronDown } from 'lucide-svelte';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from '$lib/components/ui/tabs';
 	import {
@@ -81,6 +89,8 @@
 	$: primaryWorkday = data.workdays?.[0] ?? null;
 	$: adjustedHourlyRate = data?.timesheet?.adjustedHourlyRate ?? null;
 	$: effectiveHourlyRate = adjustedHourlyRate ?? data?.timesheet?.hourlyRate ?? 0;
+	$: invoice = data.invoice;
+	$: wagesStatus = data.timesheet?.wagesStatus ?? null;
 
 	function startEditingRate() {
 		rateInputValue = adjustedHourlyRate;
@@ -395,10 +405,25 @@
 		<!-- Admin Header -->
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<div>
-				<div class="flex items-center gap-3">
+				<div class="flex items-center gap-3 flex-wrap">
 					<h1 class="text-2xl font-bold">Timesheet Details</h1>
-					<Badge class={cn(statusBadge.class, 'gap-1')} variant="default" value={statusBadge.text}
-					></Badge>
+					<Badge
+						class={cn(statusBadge.class, 'gap-1')}
+						variant="default"
+						value={statusBadge.text}
+					/>
+					{#if wagesStatus}
+						<span
+							class={cn(
+								'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold',
+								wagesStatus === 'WAGES_DUE'
+									? 'bg-red-100 text-red-700'
+									: 'bg-green-100 text-green-700'
+							)}
+						>
+							{wagesStatus === 'WAGES_DUE' ? 'Wages Due' : 'Wages Paid'}
+						</span>
+					{/if}
 				</div>
 				<p class="text-gray-600 flex items-center mt-1">
 					<Calendar class="h-4 w-4 mr-1" />
@@ -415,10 +440,55 @@
 					<ArrowLeft class="h-4 w-4" />
 					Back to List
 				</Button>
-				<Button href={`/requisitions/${data.requisition.id}`} variant="outline" class="gap-1">
-					<Eye class="h-4 w-4" />
-					View Requisition
-				</Button>
+				<DropdownMenu>
+					<DropdownMenuTrigger>
+						<Button variant="outline" class="gap-1">
+							Actions
+							<ChevronDown class="h-4 w-4" />
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end">
+						<DropdownMenuItem>
+							<a
+								href={`/requisitions/${data.requisition.id}`}
+								class="flex items-center gap-2 w-full"
+							>
+								<Eye class="h-4 w-4" />
+								View Requisition
+							</a>
+						</DropdownMenuItem>
+						{#if data.invoice}
+							<DropdownMenuItem>
+								<a href={`/invoices/${data.invoice.id}`} class="flex items-center gap-2 w-full">
+									<FileText class="h-4 w-4" />
+									View Invoice
+								</a>
+							</DropdownMenuItem>
+						{/if}
+						{#if isApproved && wagesStatus === 'WAGES_PAID'}
+							<DropdownMenuSeparator />
+							<DropdownMenuItem>
+								<form method="POST" action="?/markWagesDue" use:enhance class="w-full">
+									<button type="submit" class="flex items-center gap-2 w-full text-orange-600">
+										<AlertCircle class="h-4 w-4" />
+										Mark Wages Due
+									</button>
+								</form>
+							</DropdownMenuItem>
+						{/if}
+						{#if isApproved && wagesStatus === 'WAGES_DUE'}
+							<DropdownMenuSeparator />
+							<DropdownMenuItem>
+								<form method="POST" action="?/markWagesPaid" use:enhance class="w-full">
+									<button type="submit" class="flex items-center gap-2 w-full text-green-700">
+										<CheckCircle2 class="h-4 w-4" />
+										Mark Wages Paid
+									</button>
+								</form>
+							</DropdownMenuItem>
+						{/if}
+					</DropdownMenuContent>
+				</DropdownMenu>
 			</div>
 		</div>
 
@@ -434,7 +504,7 @@
 								<CardDescription>
 									<p>
 										• Candidate: {data?.timesheet?.candidate?.firstName}
-										{data?.timesheet?.candidate?.lastName}	
+										{data?.timesheet?.candidate?.lastName}
 										<span>#{data?.timesheet?.candidate?.puid}</span>
 									</p>
 									<p>• Client: {data?.timesheet?.clientCompanyName}</p>
@@ -1155,10 +1225,33 @@
 				</p>
 			</div>
 			<div class="flex gap-2">
-				<Button href={`/requisitions/${data.requisition.id}`} variant="outline" class="gap-1">
-					<Eye class="h-4 w-4" />
-					View Requisition
-				</Button>
+				<DropdownMenu>
+					<DropdownMenuTrigger>
+						<Button variant="outline" class="gap-1">
+							Actions
+							<ChevronDown class="h-4 w-4" />
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end">
+						<DropdownMenuItem>
+							<a
+								href={`/requisitions/${data.requisition.id}`}
+								class="flex items-center gap-2 w-full"
+							>
+								<Eye class="h-4 w-4" />
+								View Requisition
+							</a>
+						</DropdownMenuItem>
+						{#if data.invoice}
+							<DropdownMenuItem>
+								<a href={`/invoices/${data.invoice.id}`} class="flex items-center gap-2 w-full">
+									<FileText class="h-4 w-4" />
+									View Invoice
+								</a>
+							</DropdownMenuItem>
+						{/if}
+					</DropdownMenuContent>
+				</DropdownMenu>
 			</div>
 		</div>
 

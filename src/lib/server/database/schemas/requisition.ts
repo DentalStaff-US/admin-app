@@ -351,6 +351,8 @@ export const timesheetStatusEnum = pgEnum('timesheet_status', [
 	'VOID'
 ]);
 
+export const wagesStatusEnum = pgEnum('wages_status', ['WAGES_DUE', 'WAGES_PAID']);
+
 export const timeSheetTable = pgTable(
 	'timesheets',
 	{
@@ -380,7 +382,8 @@ export const timeSheetTable = pgTable(
 		hoursRaw: json('hours_raw').$type<RawTimesheetHours[]>().default([]),
 		status: timesheetStatusEnum('status').default('DRAFT').notNull(),
 		discrepancyNote: text('discrepancy_note'),
-		adjustedHourlyRate: smallint('adjusted_hourly_rate')
+		adjustedHourlyRate: smallint('adjusted_hourly_rate'),
+		wagesStatus: wagesStatusEnum('wages_status')
 	},
 	(table) => [
 		index('timesheet_candidate_idx').on(table.associatedCandidateId),
@@ -493,7 +496,8 @@ export type TimesheetWithRelations = {
 	candidate: CandidateProfileSelect;
 	clientCompany?: ClientCompanySelect;
 	user: Partial<UserSelect>;
-	requisition: RequisitionSelect | null; // null because of leftJoin
+	requisition: RequisitionSelect | null;
+	wagesStatus?: 'WAGES_DUE' | 'WAGES_PAID' | null;
 };
 
 export type InvoiceWithRelations = {
