@@ -107,6 +107,11 @@ export async function createStripeInvoice(
 
 		// Send the invoice
 		console.log('Sending invoice...');
+		const customer = await stripe.customers.retrieve(stripeCustomerId);
+		if (!('email' in customer) || !customer.email) {
+			throw new Error('Stripe customer has no email — cannot send invoice');
+		}
+
 		await stripe.invoices.sendInvoice(finalizedInvoice.id);
 		console.log('Invoice sent successfully');
 

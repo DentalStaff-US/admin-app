@@ -230,7 +230,11 @@ export async function handleCustomerSetupCompleted(session: Stripe.Checkout.Sess
 		const setupIntent = await stripe.setupIntents.retrieve(session.setup_intent as string);
 		const paymentMethodId = setupIntent.payment_method as string;
 
-		console.log('Payment method attached:', paymentMethodId);
+		await stripe.customers.update(customerId, {
+			invoice_settings: {
+				default_payment_method: paymentMethodId
+			}
+		});
 
 		// Update the clientSubscription record to mark setup complete
 		await db

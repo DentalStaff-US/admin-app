@@ -38,6 +38,7 @@
 	let batchNumber = '';
 	let transactionNotes = '';
 	let recordingTransaction = false;
+	let processingPayment = false;
 
 	$: isPaperInvoice = invoiceData.invoice.invoiceType === 'PAPER';
 	$: isFullyPaid = invoiceData.invoice.status === 'paid';
@@ -165,10 +166,25 @@
 			{/if}
 
 			{#if isAdmin && !isPaperInvoice && isOverdue}
-				<form use:enhance action="?/adminProcessInvoice" method="POST">
-					<Button type="submit" size="sm" class="w-full sm:w-fit">
-						<CreditCard class="h-4 w-4 mr-2" />
-						Process Payment
+				<form
+					use:enhance={() => {
+						processingPayment = true;
+						return async ({ update }) => {
+							processingPayment = false;
+							await update();
+						};
+					}}
+					action="?/adminProcessInvoice"
+					method="POST"
+				>
+					<Button type="submit" size="sm" class="w-full sm:w-fit" disabled={processingPayment}>
+						{#if processingPayment}
+							<Loader2 class="h-4 w-4 mr-2 animate-spin" />
+							Processing...
+						{:else}
+							<CreditCard class="h-4 w-4 mr-2" />
+							Process Payment
+						{/if}
 					</Button>
 				</form>
 			{/if}

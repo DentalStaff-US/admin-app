@@ -130,21 +130,19 @@
 		errors: invoiceFormError
 	} = superForm(data.invoiceForm, {
 		resetForm: true,
+		onSubmit: ({ formData }) => {
+			// Force sync items into the form data at submit time
+			formData.set('items', JSON.stringify(items));
+			formData.set('amount', String(items.reduce((t, i) => t + i.amount, 0)));
+		},
 		onResult: ({ result }) => {
 			if (result.type === 'success') {
 				showInvoiceDialog = false;
-				// Reset form to initial state
-				$invoiceForm = {
-					amount: 0,
-					dueDate: '',
-					description: '',
-					items: [{ description: '', quantity: 1, rate: 0, amount: 0 }],
-
-					invoiceMethod: 'STRIPE'
-				};
+				items = [{ description: '', quantity: 1, rate: 0, amount: 0 }];
 			}
 		}
 	});
+
 	$: $invoiceForm.invoiceMethod = selectedInvoiceMethod;
 
 	const {
@@ -822,7 +820,7 @@
 														<Input
 															type="number"
 															bind:value={item.quantity}
-															on:change={() => updateItemAmount(i)}
+															on:input={() => updateItemAmount(i)}
 															min="1"
 														/>
 													</TableCell>
@@ -830,7 +828,7 @@
 														<Input
 															type="number"
 															bind:value={item.rate}
-															on:change={() => updateItemAmount(i)}
+															on:input={() => updateItemAmount(i)}
 															min="0"
 															step="0.01"
 														/>
