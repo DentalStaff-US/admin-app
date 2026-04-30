@@ -33,11 +33,12 @@
 	import { USER_ROLES } from '$lib/config/constants';
 	import ViewLink from '$lib/components/tables/ViewLink.svelte';
 	import type { TimesheetWithRelations } from '$lib/server/database/schemas/requisition';
+	import { page } from '$app/stores';
 
 	export let data: PageData;
 
 	let searchTerm = data.searchTerm || '';
-	let activeTab = 'all';
+	let activeTab = $page.url.searchParams.get('tab') || 'all';
 
 	$: user = data.user;
 	$: timesheets = (data.timesheets as TimesheetWithRelations[]) || [];
