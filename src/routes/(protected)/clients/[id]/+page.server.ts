@@ -234,7 +234,7 @@ export const actions = {
 							quantity: item.quantity || 1,
 							currency: 'usd'
 						})),
-						{ clientId },
+						{ clientId, userId: clientResult.user.id },
 						form.data.description,
 						utcDate
 					);

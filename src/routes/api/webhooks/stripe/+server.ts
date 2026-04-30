@@ -7,7 +7,10 @@ import { stripe } from '$lib/server/stripe';
 import { json } from '@sveltejs/kit';
 import { STRIPE_WEBHOOK_SECRET } from '$env/static/private';
 import type { RequestHandler } from './$types';
-import { getClientProfilebyUserId } from '$lib/server/database/queries/clients';
+import {
+	getClientProfileById,
+	getClientProfilebyUserId
+} from '$lib/server/database/queries/clients';
 import {
 	handleCheckoutCompleted,
 	handleCustomerSetupCompleted,
@@ -112,13 +115,24 @@ export const POST: RequestHandler = async ({ request }) => {
 			case 'invoice.finalized':
 				console.log('Handling invoice finalized');
 				const invoiceFinalized = event.data.object as Stripe.Invoice;
+				const userId = invoiceFinalized.metadata?.userId;
+				const clientId = invoiceFinalized.metadata?.clientId;
+				let timesheet: TimeSheetSelect | null = null;
 
-				let timesheet;
+				if (!userId && !clientId) {
+					console.error('No userId or clientId in metadata for invoice:', invoiceFinalized.id);
+					break;
+				}
 
-				const client = await getClientProfilebyUserId(invoiceFinalized.metadata?.userId);
+				const client = userId
+					? await getClientProfilebyUserId(userId)
+					: clientId
+						? await getClientProfileById(clientId)
+						: null;
+
 				if (!client) {
-					console.error('Client not found for userId:', invoiceFinalized.metadata?.userId);
-					return new Response('Client not found', { status: 400 });
+					console.error('Client not found for invoice:', invoiceFinalized.id);
+					break; // never return 400 here — Stripe will retry forever
 				}
 
 				if (invoiceFinalized.metadata?.timesheetId) {

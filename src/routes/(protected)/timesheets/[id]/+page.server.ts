@@ -447,7 +447,7 @@ export const actions = {
 				const stripeInvoice = await createStripeInvoice(
 					stripeCustomerId,
 					[{ amountInCents: finalAmt, description: `Invoice for timesheet ${id}` }],
-					{ userId: user.id, timesheetId: timesheet.id },
+					{ userId: user.id, timesheetId: timesheet.id, clientId: timesheet.associatedClientId },
 					`Dental Temp Staffing Solutions invoice: Hours worked for ${user.firstName} ${user.lastName} for timesheet ${id}`
 				);
 
@@ -590,7 +590,7 @@ export const actions = {
 				const stripeInvoice = await createStripeInvoice(
 					stripeCustomerId,
 					[{ amountInCents: finalAmt, description: `Invoice for timesheet ${id}` }],
-					{ userId: user.id, timesheetId: overridden.id },
+					{ userId: user.id, timesheetId: overridden.id, clientId: overridden.associatedClientId },
 					`Dental Temp Staffing Solutions invoice: Hours worked for ${user.firstName} ${user.lastName} for timesheet ${id}`
 				);
 
