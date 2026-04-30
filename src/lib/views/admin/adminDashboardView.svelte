@@ -222,7 +222,7 @@
 						<Button
 							variant="link"
 							class="text-orange-600 p-0 h-auto"
-							href="/timesheets?tab=discrepancies"
+							href="/timesheets?tab=discrepancy"
 						>
 							Review discrepancies
 							<ArrowRight size={16} class="ml-1" />
