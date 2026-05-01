@@ -408,7 +408,10 @@
 									<Table.Cell>
 										<div class="flex flex-col">
 											<span class="font-medium truncate max-w-[150px]"
-												>{timesheet.requisition.title}</span
+												>{timesheet.requisition.disciplineName}
+												<span class="text-xs text-muted-foreground"
+													>#{timesheet.requisition.id}</span
+												></span
 											>
 											<span class="text-xs text-gray-500">
 												{timesheet.candidate?.firstName}

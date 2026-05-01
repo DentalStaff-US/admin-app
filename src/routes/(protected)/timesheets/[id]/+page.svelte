@@ -65,6 +65,7 @@
 	import { onMount } from 'svelte';
 
 	export let data: PageData;
+	$: console.log('Timesheet Page Data:', data);
 	$: user = data.user;
 
 	// State variables
@@ -1354,9 +1355,10 @@
 										<div class="col-span-2 text-right">Hours</div>
 									</div>
 									{#each data?.timesheet?.hoursRaw || [] as entry}
-										{@const recurrenceDay = data?.recurrenceDays.find(
-											(day) => day.date === entry.date
-										)}
+										{@const recurrenceDay = data?.recurrenceDays.find((day) => {
+											console.log(day.date, entry.date);
+											return day.date === entry.date;
+										})}
 										<div class="py-3 grid grid-cols-12 items-center">
 											<div class="col-span-4">
 												<p class="font-medium">
@@ -1365,15 +1367,14 @@
 											</div>
 											<div class="col-span-3">
 												<p class="text-sm text-gray-600">
-													{format(entry.startTime, 'hh:mm a')} -{' '}
-													{format(entry.endTime, 'hh:mm a')}
+													{formatTimeInReqZone(entry.startTime)} -{' '}
+													{formatTimeInReqZone(entry.endTime)}
 												</p>
 											</div>
 											<div class="col-span-3">
 												<p class="text-sm text-gray-600">
-													{format(recurrenceDay?.dayStart, 'hh:mm a')} - {format(
-														recurrenceDay.dayEnd,
-														'hh:mm a'
+													{formatTimeInReqZone(recurrenceDay.dayStart)} - {formatTimeInReqZone(
+														recurrenceDay.dayEnd
 													)}
 												</p>
 											</div>

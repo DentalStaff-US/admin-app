@@ -14,7 +14,10 @@ import {
 	ilike,
 	inArray,
 	gt,
-	like
+	like,
+	ne,
+	notInArray,
+	isNull
 } from 'drizzle-orm';
 import db from '../drizzle';
 import {
@@ -1053,7 +1056,7 @@ export async function getRecentTimesheetsDueForClient(clientId: string) {
 		const result = await db
 			.select({
 				timesheet: { ...timeSheetTable },
-				requisition: { ...requisitionTable },
+				requisition: { ...requisitionTable, disciplineName: disciplineTable.name },
 				candidate: {
 					...candidateProfileTable,
 					firstName: userTable.firstName,
@@ -1062,6 +1065,7 @@ export async function getRecentTimesheetsDueForClient(clientId: string) {
 			})
 			.from(timeSheetTable)
 			.leftJoin(requisitionTable, eq(requisitionTable.id, timeSheetTable.requisitionId))
+			.innerJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
 			.innerJoin(
 				candidateProfileTable,
 				eq(candidateProfileTable.id, timeSheetTable.associatedCandidateId)
@@ -1070,7 +1074,8 @@ export async function getRecentTimesheetsDueForClient(clientId: string) {
 			.where(
 				and(
 					eq(timeSheetTable.associatedClientId, clientId),
-					eq(timeSheetTable.awaitingClientSignature, true)
+					eq(timeSheetTable.status, 'PENDING'),
+					isNull(timeSheetTable.wagesStatus)
 				)
 			);
 
@@ -1281,8 +1286,13 @@ export async function getWorkdaysForRecurrenceDays(recurrenceDayIds: string[]) {
 }
 
 export async function getRecurrenceDaysForTimesheet(
-	timesheet: TimeSheetSelect
+	timesheet: TimeSheetSelect | { timeSheetId: string; [key: string]: any }
 ): Promise<RecurrenceDaySelect[]> {
+	const timesheetId =
+		'timeSheetId' in timesheet && timesheet.timeSheetId
+			? timesheet.timeSheetId
+			: (timesheet as TimeSheetSelect).id;
+
 	return await db
 		.select({
 			id: recurrenceDayTable.id,
@@ -1300,7 +1310,7 @@ export async function getRecurrenceDaysForTimesheet(
 		})
 		.from(recurrenceDayTable)
 		.innerJoin(workdayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
-		.where(eq(workdayTable.timesheetId, timesheet.id))
+		.where(eq(workdayTable.timesheetId, timesheetId))
 		.orderBy(asc(recurrenceDayTable.date));
 }
 
