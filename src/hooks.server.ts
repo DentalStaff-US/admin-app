@@ -14,6 +14,8 @@ import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 import { USER_ROLES } from '$lib/config/constants';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { processTimesheetCreationJob } from '$lib/server/jobs/timesheets';
+import { getPostHogClient } from '$lib/server/posthog';
+import { dev } from '$app/environment';
 
 export const handleError: HandleServerError = async ({ error, event }) => {
 	const errorId = crypto.randomUUID();
@@ -25,7 +27,17 @@ export const handleError: HandleServerError = async ({ error, event }) => {
 		event.locals.errorStackTrace = '';
 	}
 	event.locals.errorId = errorId;
-	log(500, event);
+	if (dev) log(500, event);
+
+	const posthog = getPostHogClient();
+	posthog.capture({
+		distinctId: 'server',
+		event: 'server_error',
+		properties: {
+			error: error instanceof Error ? error.message : String(error),
+			errorId
+		}
+	});
 
 	return {
 		message: 'An unexpected error occurred.',
@@ -33,6 +45,40 @@ export const handleError: HandleServerError = async ({ error, event }) => {
 	};
 };
 export const handle: Handle = async ({ event, resolve }) => {
+	const { pathname } = event.url;
+
+	// Reverse proxy for PostHog — route /ingest requests to PostHog servers
+	if (pathname.startsWith('/ingest')) {
+		const useAssetHost =
+			pathname.startsWith('/ingest/static/') || pathname.startsWith('/ingest/array/');
+		const hostname = useAssetHost ? 'us-assets.i.posthog.com' : 'us.i.posthog.com';
+
+		const url = new URL(event.request.url);
+		url.protocol = 'https:';
+		url.hostname = hostname;
+		url.port = '443';
+		url.pathname = pathname.replace(/^\/ingest/, '');
+
+		const headers = new Headers(event.request.headers);
+		headers.set('host', hostname);
+		headers.set('accept-encoding', '');
+
+		const clientIp = event.request.headers.get('x-forwarded-for') || event.getClientAddress();
+		if (clientIp) {
+			headers.set('x-forwarded-for', clientIp);
+		}
+
+		const response = await fetch(url.toString(), {
+			method: event.request.method,
+			headers,
+			body: event.request.body,
+			// @ts-expect-error - duplex is required for streaming request bodies
+			duplex: 'half'
+		});
+
+		return response;
+	}
+
 	if (event.url.pathname === '/api/webhooks/stripe') {
 		const requestEvent = event;
 		return await resolve(requestEvent, {
@@ -94,7 +140,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	}
 
 	const response = await resolve(event);
-	log(response.status, event);
+	if (dev) log(response.status, event);
 	return response;
 };
 

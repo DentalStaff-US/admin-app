@@ -10,6 +10,7 @@ import { authenticateUser } from '$lib/server/serverUtils';
 import { and, eq } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import { getClientIdByCompanyId } from '$lib/server/database/queries/clients';
+import { getPostHogClient } from '$lib/server/posthog';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -124,6 +125,18 @@ export const POST: RequestHandler = async ({ request }) => {
 
 			// Log successful application
 			console.log(`New application created: ${application.id} for requisition: ${requisitionId}`);
+
+			const posthog = getPostHogClient();
+			posthog.capture({
+				distinctId: user.id,
+				event: 'candidate_applied',
+				properties: {
+					application_id: application.id,
+					requisition_id: requisitionId,
+					company_id: requisition.companyId,
+					client_id: clientId
+				}
+			});
 
 			return json(
 				{

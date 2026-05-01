@@ -10,6 +10,7 @@ import {
 import { getClientCompanyById } from '$lib/server/database/queries/clients';
 import type { RequestEvent } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
+import { getPostHogClient } from '$lib/server/posthog';
 
 export async function load(event: RequestEvent) {
 	const token = event.params.token;
@@ -122,6 +123,15 @@ export const actions = {
 				secure: process.env.NODE_ENV === 'production',
 				sameSite: 'lax'
 			});
+			const posthog = getPostHogClient();
+			posthog.capture({
+				distinctId: invite.referrerId ?? 'unknown',
+				event: 'invitation_accepted',
+				properties: {
+					invite_type: 'admin',
+					invited_role: 'SUPERADMIN'
+				}
+			});
 		} catch (error) {
 			console.error('Error accepting invite:', error);
 			return fail(500, {
@@ -168,6 +178,19 @@ export const actions = {
 				httpOnly: true,
 				secure: process.env.NODE_ENV === 'production',
 				sameSite: 'lax'
+			});
+
+			const posthog = getPostHogClient();
+			posthog.capture({
+				distinctId: invite.referrerId ?? 'unknown',
+				event: 'invitation_accepted',
+				properties: {
+					invite_type: 'client_staff',
+					invited_role: invite.invitedRole,
+					staff_role: invite.staffRole,
+					company_id: invite.companyId,
+					location_count: locationAssignments.length
+				}
 			});
 		} catch (error) {
 			console.error('Error accepting invite:', error);

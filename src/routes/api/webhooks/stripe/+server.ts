@@ -22,6 +22,9 @@ import type Stripe from 'stripe';
 import db from '$lib/server/database/drizzle';
 import { clientSubscriptionTable } from '$lib/server/database/schemas/client';
 import { eq } from 'drizzle-orm';
+import { getPostHogClient } from '$lib/server/posthog';
+import { dev } from '$app/environment';
+import posthog from 'posthog-js';
 // import {
 // 	createInvoiceRecord,
 // 	getTimesheetDetails
@@ -41,14 +44,16 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	try {
-		console.log('Constructing event...');
+		if (dev) console.log('Constructing event...');
 		const event = stripe.webhooks.constructEvent(payload, signature, STRIPE_WEBHOOK_SECRET);
-		console.log('Event constructed successfully:', event.type);
+		if (dev) console.log('Event constructed successfully:', event.type);
+
+		const posthog = getPostHogClient();
 
 		// Add special handling for invoice.paid events
 		switch (event.type) {
 			case 'checkout.session.completed':
-				console.log('Handling checkout session completed');
+				if (dev) console.log('Handling checkout session completed');
 				const session = event.data.object as Stripe.Checkout.Session;
 
 				// Check if this is setup mode (payment method collection)
@@ -61,42 +66,61 @@ export const POST: RequestHandler = async ({ request }) => {
 				break;
 
 			case 'customer.subscription.created':
-				console.log('Handling customer subscription created');
-				await handleSubscriptionCreated(event.data.object as Stripe.Subscription);
+				if (dev) console.log('Handling customer subscription created');
+				const newSubscription = event.data.object as Stripe.Subscription;
+				await handleSubscriptionCreated(newSubscription);
+				posthog.capture({
+					distinctId: newSubscription.metadata?.userId ?? String(newSubscription.customer),
+					event: 'subscription_created',
+					properties: {
+						stripe_subscription_id: newSubscription.id,
+						plan: newSubscription.items.data[0]?.price?.id ?? null,
+						status: newSubscription.status
+					}
+				});
 				break;
 
 			case 'customer.subscription.updated':
-				console.log('Handling customer subscription updated');
+				if (dev) console.log('Handling customer subscription updated');
 				await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
 				break;
 
 			case 'customer.subscription.deleted':
-				console.log('Handling customer subscription deleted');
-				await handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
+				if (dev) console.log('Handling customer subscription deleted');
+				const deletedSubscription = event.data.object as Stripe.Subscription;
+				await handleSubscriptionDeleted(deletedSubscription);
 				// TODO: handle subscription delete/cleanup in database
 				await db
 					.delete(clientSubscriptionTable)
 					.where(
-						eq(clientSubscriptionTable.stripeCustomerId, event.data.object.customer as string)
+						eq(clientSubscriptionTable.stripeCustomerId, deletedSubscription.customer as string)
 					);
+				posthog.capture({
+					distinctId: deletedSubscription.metadata?.userId ?? String(deletedSubscription.customer),
+					event: 'subscription_cancelled',
+					properties: {
+						stripe_subscription_id: deletedSubscription.id,
+						status: deletedSubscription.status
+					}
+				});
 				break;
 			case 'invoice.created':
-				console.log('Handling invoice created');
+				if (dev) console.log('Handling invoice created');
 				const invoiceCreated = event.data.object as Stripe.Invoice;
-				console.log(invoiceCreated);
+				if (dev) console.log(invoiceCreated);
 				break;
 
 			case 'invoice.updated':
-				console.log('Handling invoice updated');
+				if (dev) console.log('Handling invoice updated');
 				const invoiceUpdated = event.data.object as Stripe.Invoice;
-				console.log(invoiceUpdated);
+				if (dev) console.log(invoiceUpdated);
 				const [existingInvoice] = await db
 					.select()
 					.from(invoiceTable)
 					.where(eq(invoiceTable.stripeInvoiceId, invoiceUpdated.id))
 					.limit(1);
 				if (existingInvoice) {
-					console.log('Invoice exists in the database:', existingInvoice);
+					if (dev) console.log('Invoice exists in the database:', existingInvoice);
 					await db
 						.update(invoiceTable)
 						.set({
@@ -109,18 +133,28 @@ export const POST: RequestHandler = async ({ request }) => {
 						})
 						.where(eq(invoiceTable.id, existingInvoice.id));
 				} else {
-					console.log('Invoice does not exist in the database, creating new record');
+					if (dev) console.log('Invoice does not exist in the database, creating new record');
 				}
 				break;
 			case 'invoice.finalized':
-				console.log('Handling invoice finalized');
+				if (dev) console.log('Handling invoice finalized');
 				const invoiceFinalized = event.data.object as Stripe.Invoice;
 				const userId = invoiceFinalized.metadata?.userId;
 				const clientId = invoiceFinalized.metadata?.clientId;
 				let timesheet: TimeSheetSelect | null = null;
 
 				if (!userId && !clientId) {
-					console.error('No userId or clientId in metadata for invoice:', invoiceFinalized.id);
+					if (dev) {
+						console.error('No userId or clientId in metadata for invoice:', invoiceFinalized.id);
+					}
+					posthog.capture({
+						distinctId: 'server',
+						event: 'invoice_finalization_error',
+						properties: {
+							error: 'No userId or clientId in metadata',
+							stripe_invoice_id: invoiceFinalized.id
+						}
+					});
 					break;
 				}
 
@@ -131,7 +165,26 @@ export const POST: RequestHandler = async ({ request }) => {
 						: null;
 
 				if (!client) {
-					console.error('Client not found for invoice:', invoiceFinalized.id);
+					if (dev) {
+						console.error(
+							'No client found for invoice:',
+							invoiceFinalized.id,
+							'userId:',
+							userId,
+							'clientId:',
+							clientId
+						);
+					}
+					posthog.capture({
+						distinctId: 'server',
+						event: 'invoice_finalization_error',
+						properties: {
+							error: 'No client found for userId or clientId in metadata',
+							stripe_invoice_id: invoiceFinalized.id,
+							userId,
+							clientId
+						}
+					});
 					break; // never return 400 here — Stripe will retry forever
 				}
 
@@ -145,24 +198,24 @@ export const POST: RequestHandler = async ({ request }) => {
 				}
 
 				const invoice = event.data.object as Stripe.Invoice;
-				console.log('Invoice paid:', invoice.id);
+				if (dev) console.log('Invoice paid:', invoice.id);
 				break;
 			case 'invoice.payment_failed':
-				console.log('Handling invoice payment failed');
+				if (dev) console.log('Handling invoice payment failed');
 				const invoicePaymentFailed = event.data.object as Stripe.Invoice;
-				console.log(invoicePaymentFailed);
+				if (dev) console.log(invoicePaymentFailed);
 				break;
 			case 'invoice.payment_succeeded':
-				console.log('Handling invoice payment succeeded');
+				if (dev) console.log('Handling invoice payment succeeded');
 				const invoicePaymentSucceeded = event.data.object as Stripe.Invoice;
-				console.log(invoicePaymentSucceeded);
+				if (dev) console.log(invoicePaymentSucceeded);
 				const [existingPaidInvoice] = await db
 					.select()
 					.from(invoiceTable)
 					.where(eq(invoiceTable.stripeInvoiceId, invoicePaymentSucceeded.id))
 					.limit(1);
 				if (existingPaidInvoice) {
-					console.log('Invoice  exists in the database:', existingPaidInvoice);
+					if (dev) console.log('Invoice  exists in the database:', existingPaidInvoice);
 					await db
 						.update(invoiceTable)
 						.set({
@@ -174,6 +227,17 @@ export const POST: RequestHandler = async ({ request }) => {
 							amountRemaining: (invoicePaymentSucceeded.amount_remaining / 100).toFixed(2)
 						})
 						.where(eq(invoiceTable.id, existingPaidInvoice.id));
+					posthog.capture({
+						distinctId:
+							invoicePaymentSucceeded.metadata?.userId ?? String(invoicePaymentSucceeded.customer),
+						event: 'invoice_payment_succeeded',
+						properties: {
+							stripe_invoice_id: invoicePaymentSucceeded.id,
+							amount_paid: invoicePaymentSucceeded.amount_paid / 100,
+							currency: invoicePaymentSucceeded.currency,
+							invoice_id: existingPaidInvoice.id
+						}
+					});
 				}
 				break;
 			// case 'invoice.overdue':
@@ -197,16 +261,16 @@ export const POST: RequestHandler = async ({ request }) => {
 			// 	}
 			// 	break;
 			case 'invoice.voided':
-				console.log('Handling invoice voided');
+				if (dev) console.log('Handling invoice voided');
 				const invoiceVoided = event.data.object as Stripe.Invoice;
-				console.log(invoiceVoided);
+				if (dev) console.log(invoiceVoided);
 				const [existingVoidedInvoice] = await db
 					.select()
 					.from(invoiceTable)
 					.where(eq(invoiceTable.stripeInvoiceId, invoiceVoided.id))
 					.limit(1);
 				if (existingVoidedInvoice) {
-					console.log('Invoice  exists in the database:', existingVoidedInvoice);
+					if (dev) console.log('Invoice  exists in the database:', existingVoidedInvoice);
 					await db
 						.update(invoiceTable)
 						.set({
@@ -220,8 +284,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		return json({ received: true });
 	} catch (err) {
-		console.error('Full webhook error:', err);
-		console.error('Error message:', (err as Error).message);
+		if (dev) console.error('Full webhook error:', err);
+		if (dev) console.error('Error message:', (err as Error).message);
 		return new Response(`Webhook Error: ${err instanceof Error ? err.message : 'Unknown Error'}`, {
 			status: 400
 		});

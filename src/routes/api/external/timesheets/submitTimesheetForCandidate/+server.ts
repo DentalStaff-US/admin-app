@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { getRequisitionByWorkdayId } from '$lib/server/database/queries/requisitions';
 import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
+import { getPostHogClient } from '$lib/server/posthog';
 
 const newTimesheetSchema = z.object({
 	userId: z.string().min(1, 'User ID is required'),
@@ -200,6 +201,20 @@ export const POST: RequestHandler = async ({ request }) => {
 			table: 'TIMESHEETS',
 			beforeState: {},
 			afterState: result
+		});
+
+		const posthog = getPostHogClient();
+		posthog.capture({
+			distinctId: user.id,
+			event: 'timesheet_submitted',
+			properties: {
+				timesheet_id: result.id,
+				requisition_id: requisition?.id,
+				company_id: companyId,
+				week_start: weekStart,
+				total_hours: parsedBody.data.totalHours,
+				entry_count: entries.length
+			}
 		});
 
 		return json(

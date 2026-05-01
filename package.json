@@ -96,6 +96,8 @@
 		"papaparse": "^5.5.3",
 		"pg": "^8.11.3",
 		"places-autocomplete-svelte": "^1.0.1",
+		"posthog-js": "^1.372.5",
+		"posthog-node": "^5.32.0",
 		"resend": "^4.5.2",
 		"stripe": "^17.6.0",
 		"svelte-file-dropzone": "^2.0.9",
@@ -103,6 +105,7 @@
 		"svelte-sonner": "^0.3.11",
 		"tailwind-merge": "^2.2.2",
 		"tailwind-variants": "^0.1.18",
+		"twilio": "^6.0.0",
 		"vaul-svelte": "^0.0.6"
 	}
 }

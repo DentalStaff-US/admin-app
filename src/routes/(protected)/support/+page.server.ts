@@ -9,6 +9,7 @@ import {
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { newSupportTicketSchema } from '$lib/config/zod-schemas';
 import { setFlash } from 'sveltekit-flash-message/server';
+import { getPostHogClient } from '$lib/server/posthog';
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
@@ -65,6 +66,14 @@ export const actions = {
 			if (newTicket) {
 				setFlash({ type: 'success', message: 'New support ticket created.' }, request);
 				newId = newTicket.id;
+				const posthog = getPostHogClient();
+				posthog.capture({
+					distinctId: reportedById,
+					event: 'support_ticket_created',
+					properties: {
+						ticket_id: newTicket.id
+					}
+				});
 			}
 		} catch (error) {
 			console.log({ error });

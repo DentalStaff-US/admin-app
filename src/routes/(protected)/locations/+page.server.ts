@@ -15,6 +15,7 @@ import {
 } from '$lib/server/database/queries/clients';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
+import { getPostHogClient } from '$lib/server/posthog';
 
 export const load: PageServerLoad = async (event) => {
 	const skip = Number(event.url.searchParams.get('skip'));
@@ -174,6 +175,17 @@ export const actions = {
 					},
 					event
 				);
+				const posthog = getPostHogClient();
+				posthog.capture({
+					distinctId: user.id,
+					event: 'location_created',
+					properties: {
+						location_id: result.id,
+						company_id: form.data.companyId,
+						timezone: form.data.timezone,
+						state: form.data.state ?? null
+					}
+				});
 				return { form, success: true, message: 'Location created successfully' };
 			} else {
 				setFlash(

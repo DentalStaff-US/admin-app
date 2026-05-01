@@ -12,10 +12,13 @@ import { and, eq, isNull, lte } from 'drizzle-orm';
 import crypto from 'crypto';
 import { CRON_SECRET } from '$env/static/private';
 import { toZonedTime } from 'date-fns-tz';
+import { TwilioService } from '$lib/server/sms/smsService';
+import { userTable } from '$lib/server/database/schemas/auth';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const signature = request.headers.get('x-signature');
 	const expectedSignature = crypto.createHmac('sha256', CRON_SECRET).digest('hex');
+	const sms = new TwilioService();
 
 	if (signature !== expectedSignature) {
 		return new Response('Invalid signature', { status: 401 });
@@ -134,6 +137,24 @@ export const GET: RequestHandler = async ({ request }) => {
 						validated: false,
 						awaitingClientSignature: true
 					});
+
+					const [candidate] = await tx
+						.select({ phone: candidateProfileTable.cellPhone, name: userTable.firstName })
+						.from(candidateProfileTable)
+						.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+						.where(eq(candidateProfileTable.id, group.candidateId))
+						.limit(1);
+
+					if (candidate.phone) {
+						await sms.sendTemplated(candidate.phone, 'timesheetGeneratedNotification', {
+							assignedCandidate: candidate.name,
+							requisitionNumber: group.requisitionId
+						});
+					} else {
+						console.warn(
+							`No phone number for candidate ${group.candidateId}, cannot send timesheet notification SMS`
+						);
+					}
 					created++;
 				} else {
 					timesheetId = existing[0].id;

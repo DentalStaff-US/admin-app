@@ -6,10 +6,19 @@
 	import { getFlash } from 'sveltekit-flash-message';
 	import { Toaster } from '$lib/components/ui/sonner';
 	import { toast } from 'svelte-sonner';
+	import posthog from 'posthog-js';
+	import { browser } from '$app/environment';
 
 	export let data: any;
 	let user: LayoutData['user'];
 	$: user = data.user;
+
+	$: if (browser && user) {
+		posthog.identify(user.id, { role: user.role });
+	} else if (browser && !user) {
+		posthog.reset();
+	}
+
 	const flash = getFlash(page);
 	$: console.log('+layout.svelte root flash: ' + JSON.stringify($flash));
 	$: if ($flash) {
