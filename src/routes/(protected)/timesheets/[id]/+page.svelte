@@ -1093,113 +1093,6 @@
 				</Card>
 			</div>
 		</div>
-
-		<!-- Dialogs -->
-		<Dialog bind:open={approvalDialogOpen}>
-			<DialogContent>
-				<DialogHeader>
-					<DialogTitle>Approve Timesheet</DialogTitle>
-					<DialogDescription>
-						Approving this timesheet will confirm that the hours and work details are accurate.
-					</DialogDescription>
-				</DialogHeader>
-				<DialogFooter class="mt-4">
-					<form method="POST" action="?/approveTimesheet" use:enhance>
-						<Button type="button" variant="outline" on:click={() => (approvalDialogOpen = false)}>
-							Cancel
-						</Button>
-						<Button
-							type="submit"
-							variant="default"
-							class="bg-green-500 hover:bg-green-600 text-white"
-							on:click={() => (approvalDialogOpen = false)}
-						>
-							Approve Timesheet
-						</Button>
-					</form>
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
-
-		<Dialog bind:open={rejectionDialogOpen}>
-			<DialogContent>
-				<form
-					method="POST"
-					action="?/rejectTimesheet"
-					use:enhance={() => {
-						return async ({ result }) => {
-							if (result.type === 'success') {
-								rejectionDialogOpen = false;
-								rejectionNote = '';
-								window.location.reload();
-							}
-						};
-					}}
-				>
-					<DialogHeader>
-						<DialogTitle>Reject Timesheet</DialogTitle>
-						<DialogDescription>
-							Please provide a reason for rejecting this timesheet. This will be sent to the
-							candidate so they can correct the issues.
-						</DialogDescription>
-					</DialogHeader>
-
-					<div class="py-4">
-						<Label for="discrepancyNote" class="text-sm font-medium">
-							Reason for Rejection <span class="text-red-500">*</span>
-						</Label>
-						<Textarea
-							id="discrepancyNote"
-							name="discrepancyNote"
-							bind:value={rejectionNote}
-							placeholder="Explain what needs to be corrected..."
-							class="mt-2 min-h-[100px]"
-							required
-						/>
-					</div>
-
-					<DialogFooter>
-						<Button
-							type="button"
-							variant="outline"
-							on:click={() => {
-								rejectionDialogOpen = false;
-								rejectionNote = '';
-							}}
-						>
-							Cancel
-						</Button>
-						<Button type="submit" variant="destructive" disabled={!rejectionNote.trim()}>
-							Reject Timesheet
-						</Button>
-					</DialogFooter>
-				</form>
-			</DialogContent>
-		</Dialog>
-
-		<Dialog bind:open={overrideDialogOpen}>
-			<DialogContent>
-				<DialogHeader>
-					<DialogTitle>Override Discrepancies</DialogTitle>
-					<DialogDescription>
-						You're about to approve this timesheet despite having unresolved discrepancies.
-					</DialogDescription>
-				</DialogHeader>
-				<DialogFooter class="mt-4">
-					<form method="POST" use:enhance action="?/adminOverrideTimesheet">
-						<Button type="button" variant="outline">Cancel</Button>
-						<Button
-							on:click={() => (overrideDialogOpen = false)}
-							type="submit"
-							variant="default"
-							class="bg-amber-600 hover:bg-amber-700"
-						>
-							Override & Approve
-						</Button>
-					</form>
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
 	</section>
 {:else}
 	<!-- CLIENT VIEW -->
@@ -1501,4 +1394,113 @@
 			</div>
 		</div>
 	</section>
+{/if}
+
+<!-- Shared Dialogs (admin + client + client-staff) -->
+<Dialog bind:open={approvalDialogOpen}>
+	<DialogContent>
+		<DialogHeader>
+			<DialogTitle>Approve Timesheet</DialogTitle>
+			<DialogDescription>
+				Approving this timesheet will confirm that the hours and work details are accurate.
+			</DialogDescription>
+		</DialogHeader>
+		<DialogFooter class="mt-4">
+			<form method="POST" action="?/approveTimesheet" use:enhance>
+				<Button type="button" variant="outline" on:click={() => (approvalDialogOpen = false)}>
+					Cancel
+				</Button>
+				<Button
+					type="submit"
+					variant="default"
+					class="bg-green-500 hover:bg-green-600 text-white"
+					on:click={() => (approvalDialogOpen = false)}
+				>
+					Approve Timesheet
+				</Button>
+			</form>
+		</DialogFooter>
+	</DialogContent>
+</Dialog>
+
+<Dialog bind:open={rejectionDialogOpen}>
+	<DialogContent>
+		<form
+			method="POST"
+			action="?/rejectTimesheet"
+			use:enhance={() => {
+				return async ({ result }) => {
+					if (result.type === 'success') {
+						rejectionDialogOpen = false;
+						rejectionNote = '';
+						window.location.reload();
+					}
+				};
+			}}
+		>
+			<DialogHeader>
+				<DialogTitle>Reject Timesheet</DialogTitle>
+				<DialogDescription>
+					Please provide a reason for rejecting this timesheet. This will be sent to the
+					candidate so they can correct the issues.
+				</DialogDescription>
+			</DialogHeader>
+
+			<div class="py-4">
+				<Label for="discrepancyNote" class="text-sm font-medium">
+					Reason for Rejection <span class="text-red-500">*</span>
+				</Label>
+				<Textarea
+					id="discrepancyNote"
+					name="discrepancyNote"
+					bind:value={rejectionNote}
+					placeholder="Explain what needs to be corrected..."
+					class="mt-2 min-h-[100px]"
+					required
+				/>
+			</div>
+
+			<DialogFooter>
+				<Button
+					type="button"
+					variant="outline"
+					on:click={() => {
+						rejectionDialogOpen = false;
+						rejectionNote = '';
+					}}
+				>
+					Cancel
+				</Button>
+				<Button type="submit" variant="destructive" disabled={!rejectionNote.trim()}>
+					Reject Timesheet
+				</Button>
+			</DialogFooter>
+		</form>
+	</DialogContent>
+</Dialog>
+
+{#if user?.role === USER_ROLES.SUPERADMIN}
+	<Dialog bind:open={overrideDialogOpen}>
+		<DialogContent>
+			<DialogHeader>
+				<DialogTitle>Override Discrepancies</DialogTitle>
+				<DialogDescription>
+					You're about to approve this timesheet despite having unresolved discrepancies.
+				</DialogDescription>
+			</DialogHeader>
+			<DialogFooter class="mt-4">
+				<form method="POST" use:enhance action="?/adminOverrideTimesheet">
+					<Button type="button" variant="outline">Cancel</Button>
+					<Button
+						on:click={() => (overrideDialogOpen = false)}
+						type="submit"
+						variant="default"
+						class="bg-amber-600 hover:bg-amber-700"
+					>
+						Override & Approve
+					</Button>
+				</form>
+			</DialogFooter>
+		</DialogContent>
+	</Dialog>
 {/if}
