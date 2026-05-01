@@ -10,11 +10,28 @@ import { setFlash } from 'sveltekit-flash-message/server';
 import { USER_ROLES } from '$lib/config/constants';
 import db from '$lib/server/database/drizzle';
 import { experienceLevelTable } from '$lib/server/database/schemas/skill';
-import { eq } from 'drizzle-orm';
+import { eq, max } from 'drizzle-orm';
 import { z } from 'zod';
 
 const experienceLevelSchema = newExperienceLevelSchema.pick({
 	value: true
+});
+
+const reorderSchema = z.object({
+	order: z
+		.string()
+		.transform((s, ctx) => {
+			try {
+				const parsed = JSON.parse(s);
+				const arr = z
+					.array(z.object({ id: z.string().min(1), order: z.number().int().min(0) }))
+					.parse(parsed);
+				return arr;
+			} catch {
+				ctx.addIssue({ code: 'custom', message: 'Invalid order payload' });
+				return z.NEVER;
+			}
+		})
 });
 
 export const load: PageServerLoad = async (event) => {
@@ -50,9 +67,15 @@ export const actions = {
 
 		try {
 			const experienceLevelId = crypto.randomUUID();
+			const [{ maxOrder }] = await db
+				.select({ maxOrder: max(experienceLevelTable.order) })
+				.from(experienceLevelTable);
+			const nextOrder = (maxOrder ?? -1) + 1;
+
 			const newExperienceLevel = await createNewExperienceLevel({
 				id: experienceLevelId,
 				value: form.data.value,
+				order: nextOrder,
 				createdAt: new Date(),
 				updatedAt: new Date()
 			});
@@ -119,5 +142,36 @@ export const actions = {
 
 		console.log('Experience Level deleted successfully');
 		return message(form, 'Experience Level deleted successfully.');
+	},
+
+	reorderExperienceLevels: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) redirect(302, '/auth/sign-in');
+		if (user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { message: 'You do not have permission to reorder experience levels.' });
+		}
+
+		const form = await superValidate(event, reorderSchema);
+		if (!form.valid) {
+			setFlash({ type: 'error', message: 'Invalid reorder payload' }, event);
+			return fail(400, { form });
+		}
+
+		try {
+			await db.transaction(async (tx) => {
+				for (const row of form.data.order) {
+					await tx
+						.update(experienceLevelTable)
+						.set({ order: row.order, updatedAt: new Date() })
+						.where(eq(experienceLevelTable.id, row.id));
+				}
+			});
+			setFlash({ type: 'success', message: 'Order saved.' }, event);
+			return { success: true };
+		} catch (e) {
+			console.error('Error reordering experience levels:', e);
+			setFlash({ type: 'error', message: 'Failed to save order.' }, event);
+			return fail(500, { message: 'Failed to save order.' });
+		}
 	}
 };

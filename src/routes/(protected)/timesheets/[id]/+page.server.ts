@@ -42,6 +42,7 @@ import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import type { RawTimesheetHours } from '$lib/server/database/schemas/requisition';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
 import { clientProfileTable } from '$lib/server/database/schemas/client';
+import { notifyTimesheetSubmitted } from '$lib/server/notifications/transactional';
 
 export const load = async (event: RequestEvent) => {
 	const user = event.locals.user;
@@ -234,6 +235,8 @@ export const actions = {
 				afterState: result
 			});
 
+			await notifyTimesheetSubmitted(result.id);
+
 			setFlash({ type: 'success', message: 'Timesheet submitted successfully!' }, event);
 			return { success: true };
 		} catch (err) {
@@ -315,6 +318,8 @@ export const actions = {
 				beforeState: timesheet,
 				afterState: result
 			});
+
+			await notifyTimesheetSubmitted(result.id);
 
 			setFlash(
 				{ type: 'success', message: 'Timesheet corrected and resubmitted successfully!' },

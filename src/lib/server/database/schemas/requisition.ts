@@ -85,7 +85,9 @@ export const requisitionTable = pgTable('requisitions', {
 		.references(() => disciplineTable.id),
 	jobDescription: text('job_description').notNull(),
 	specialInstructions: text('special_instructions'),
-	experienceLevelId: text('experience_level_id').references(() => experienceLevelTable.id),
+	experienceLevelId: text('experience_level_id').references(() => experienceLevelTable.id, {
+		onDelete: 'set null'
+	}),
 	archived: boolean('archived').default(false),
 	archivedDate: timestamp('archived_at', {
 		withTimezone: true,

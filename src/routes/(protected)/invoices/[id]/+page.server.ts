@@ -13,6 +13,10 @@ import {
 	paperInvoiceTransactionTable
 } from '$lib/server/database/schemas/requisition';
 import { eq } from 'drizzle-orm';
+import {
+	notifyInvoicePaymentProcessed,
+	notifyMiscellaneousTransaction
+} from '$lib/server/notifications/transactional';
 
 const RecordTransactionSchema = z.object({
 	invoiceId: z.string().min(1),
@@ -59,6 +63,7 @@ export const actions = {
 			if (invoice.invoice.stripeInvoiceId) {
 				const result = await stripe.invoices.pay(invoice.invoice.stripeInvoiceId);
 				console.log('Invoice payment result:', result);
+				await notifyInvoicePaymentProcessed(id);
 				setFlash({ type: 'success', message: 'Invoice processed successfully' }, event);
 				return { success: true };
 			}
@@ -142,6 +147,13 @@ export const actions = {
 					updatedAt: new Date()
 				})
 				.where(eq(invoiceTable.id, invoiceId));
+
+			await notifyMiscellaneousTransaction({
+				invoiceId,
+				transactionType,
+				amount,
+				notes: notes ?? null
+			});
 
 			setFlash({ type: 'success', message: 'Transaction recorded successfully' }, event);
 			return message(form, 'Transaction recorded successfully');

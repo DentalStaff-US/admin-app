@@ -99,20 +99,9 @@
 		}
 	}
 
-	$: sortedExperienceLevels = [...experienceLevels].sort((a, b) => {
-		const priorityMap = {
-			'0-2 Years': 1,
-			'2-5 Years': 2,
-			'5-7 Years': 3,
-			'7-10 Years': 4,
-			'10+ years': 5
-		};
-
-		const priorityA = priorityMap[a.value] || 999;
-		const priorityB = priorityMap[b.value] || 999;
-
-		return priorityA - priorityB;
-	});
+	$: sortedExperienceLevels = [...experienceLevels].sort(
+		(a, b) => (a.order ?? 0) - (b.order ?? 0)
+	);
 </script>
 
 <form
@@ -166,9 +155,8 @@
 				name="experienceLevelId"
 				bind:value={$formObj.experienceLevelId}
 				class="w-full p-2 border rounded"
-				required
 			>
-				<option value="">Select Experience</option>
+				<option value="">No Preference</option>
 				{#each sortedExperienceLevels as level}
 					<option value={level.id}>{level.value}</option>
 				{/each}

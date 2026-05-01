@@ -19,6 +19,7 @@ import { getRequisitionByWorkdayId } from '$lib/server/database/queries/requisit
 import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
 import { getPostHogClient } from '$lib/server/posthog';
+import { notifyTimesheetSubmitted } from '$lib/server/notifications/transactional';
 
 const newTimesheetSchema = z.object({
 	userId: z.string().min(1, 'User ID is required'),
@@ -216,6 +217,9 @@ export const POST: RequestHandler = async ({ request }) => {
 				entry_count: entries.length
 			}
 		});
+
+		// Notify the client that a timesheet is awaiting their approval.
+		await notifyTimesheetSubmitted(result.id);
 
 		return json(
 			{ success: true, message: 'Timesheet submitted successfully', data: result },

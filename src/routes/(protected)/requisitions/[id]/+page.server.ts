@@ -36,6 +36,16 @@ import { setFlash } from 'sveltekit-flash-message/server';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
 import { getAllDisciplines } from '$lib/server/database/queries/disciplines';
 import { getAllExperienceLevels } from '$lib/server/database/queries/skills';
+import {
+	notifyRequisitionCancelled,
+	notifyRequisitionChanged,
+	notifyQualifiedCandidatesOfNewWorkdays,
+	notifyWorkdayChanged,
+	notifyWorkdayDeleted
+} from '$lib/server/notifications/transactional';
+import db from '$lib/server/database/drizzle';
+import { eq } from 'drizzle-orm';
+import { workdayTable, recurrenceDayTable } from '$lib/server/database/schemas/requisition';
 
 export const load: PageServerLoad = async (event: RequestEvent) => {
 	const user = event.locals.user;
@@ -187,6 +197,7 @@ export const actions = {
 			await changeRequisitionStatus(values, Number(requisitionId), user.id);
 			if (status === 'CANCELED') {
 				await closeAllUpcomingRecurrenceDays(Number(requisitionId), user.id);
+				await notifyRequisitionCancelled(Number(requisitionId));
 			}
 			setFlash(
 				{
@@ -234,6 +245,8 @@ export const actions = {
 			await Promise.all(
 				Array.isArray(daysToAdd) ? daysToAdd.map(processDay) : [processDay(daysToAdd)]
 			);
+
+			await notifyQualifiedCandidatesOfNewWorkdays(idAsNum);
 
 			setFlash(
 				{
@@ -327,6 +340,8 @@ export const actions = {
 			};
 
 			await editRecurrenceDay(id, values, user.id);
+			await notifyWorkdayChanged(id);
+
 			setFlash(
 				{
 					type: 'success',
@@ -381,7 +396,36 @@ export const actions = {
 				fail(400, { form });
 			}
 
+			// Snapshot the assigned candidate (if any) and the recurrence day's
+			// time/date BEFORE the delete cascade, so the dispatcher can email the
+			// candidate after the rows are gone.
+			const [snapshot] = await db
+				.select({
+					candidateId: workdayTable.candidateId,
+					requisitionId: workdayTable.requisitionId,
+					date: recurrenceDayTable.date,
+					dayStart: recurrenceDayTable.dayStart,
+					dayEnd: recurrenceDayTable.dayEnd
+				})
+				.from(recurrenceDayTable)
+				.leftJoin(workdayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
+				.where(eq(recurrenceDayTable.id, id))
+				.limit(1);
+
 			await deleteRecurrenceDay(id, user.id);
+
+			if (snapshot && snapshot.candidateId && snapshot.requisitionId !== null) {
+				await notifyWorkdayDeleted({
+					candidateId: snapshot.candidateId,
+					requisitionId: snapshot.requisitionId,
+					recurrenceDay: {
+						date: snapshot.date,
+						dayStart: snapshot.dayStart,
+						dayEnd: snapshot.dayEnd
+					}
+				});
+			}
+
 			setFlash(
 				{
 					type: 'success',
@@ -412,7 +456,9 @@ export const actions = {
 		const formData = await event.request.formData();
 
 		const disciplineId = formData.get('disciplineId') as string;
-		const experienceLevelId = formData.get('experienceLevelId') as string | null;
+		const rawExperienceLevelId = formData.get('experienceLevelId');
+		const experienceLevelId =
+			rawExperienceLevelId && rawExperienceLevelId !== '' ? (rawExperienceLevelId as string) : null;
 		const hourlyRate = Number(formData.get('hourlyRate'));
 		const jobDescription = formData.get('jobDescription') as string;
 		const specialInstructions = formData.get('specialInstructions') as string | null;
@@ -431,6 +477,8 @@ export const actions = {
 				},
 				user.id
 			);
+
+			await notifyRequisitionChanged(idAsNum);
 
 			setFlash({ type: 'success', message: 'Requisition updated successfully' }, event);
 			return { success: true };

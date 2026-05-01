@@ -14,13 +14,12 @@ import {
 	clientCompanyTable,
 	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
-import { EmailService } from '$lib/server/email/emailService';
-import { format } from 'date-fns';
+import { notifyWorkday48HrReminder } from '$lib/server/notifications/transactional';
+import { disciplineTable } from '$lib/server/database/schemas/skill';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const signature = request.headers.get('x-signature');
 	const expectedSignature = crypto.createHmac('sha256', CRON_SECRET).digest('hex');
-	const emailService = new EmailService();
 
 	if (signature !== expectedSignature) {
 		return new Response('Invalid signature', { status: 401 });
@@ -45,7 +44,8 @@ export const GET: RequestHandler = async ({ request }) => {
 					email: userTable.email,
 					firstName: userTable.firstName,
 					lastName: userTable.lastName
-				}
+				},
+				discipline: { ...disciplineTable }
 			})
 			.from(workdayTable)
 			.innerJoin(requisitionTable, eq(workdayTable.requisitionId, requisitionTable.id))
@@ -57,6 +57,7 @@ export const GET: RequestHandler = async ({ request }) => {
 			)
 			.innerJoin(candidateProfileTable, eq(workdayTable.candidateId, candidateProfileTable.id))
 			.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
+			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
 			.where(
 				and(
 					eq(recurrenceDayTable.status, 'OPEN'),
@@ -70,15 +71,18 @@ export const GET: RequestHandler = async ({ request }) => {
 			return json({ success: true, message: 'No upcoming workdays found.' });
 		}
 		console.log(`Found ${upcomingWorkdays.length} upcoming workdays within the next 48 hours.`);
-		for (const workday of upcomingWorkdays) {
-			// const { workday: workdayData, candidateProfileTable: candidateProfile } = workday;
-
-			await emailService.sendWorkdayReminderEmail(workday.user.email, {
-				companyName: workday.company.companyName as string,
-				location: workday.location.completeAddress || 'Not Specified',
-				date: workday.recurrenceDay.date,
-				workdayStart: format(workday.recurrenceDay?.dayStart, 'h:mm a'),
-				workdayEnd: format(workday.recurrenceDay?.dayEnd, 'h:mm a')
+		for (const row of upcomingWorkdays) {
+			await notifyWorkday48HrReminder({
+				candidateUserEmail: row.user.email,
+				candidateFirstName: row.user.firstName,
+				candidateLastName: row.user.lastName,
+				candidatePhone: row.candidate.cellPhone,
+				companyName: (row.company.companyName as string) ?? '',
+				location: row.location.completeAddress || 'Not Specified',
+				date: row.recurrenceDay.date,
+				dayStart: row.recurrenceDay.dayStart,
+				dayEnd: row.recurrenceDay.dayEnd,
+				requisitionName: row.discipline.name
 			});
 		}
 		return json({ success: true });

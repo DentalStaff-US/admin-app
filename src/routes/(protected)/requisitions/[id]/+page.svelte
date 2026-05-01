@@ -110,19 +110,9 @@
 	$: {
 		recurrenceDaysOptions.update((o) => ({ ...o, data: filteredRecurrenceDays }));
 	}
-	$: sortedExperienceLevels = [...experienceLevels].sort((a, b) => {
-		const priorityMap = {
-			'No Preference': 1,
-			'0-2 Years': 2,
-			'3-9 Years': 4,
-			'10 years and Over': 5
-		};
-
-		const priorityA = priorityMap[a.value] || 999;
-		const priorityB = priorityMap[b.value] || 999;
-
-		return priorityA - priorityB;
-	});
+	$: sortedExperienceLevels = [...experienceLevels].sort(
+		(a, b) => (a.order ?? 0) - (b.order ?? 0)
+	);
 
 	const recurrenceDaysColumns: ColumnDef<RecurrenceDaySelect>[] = [
 		{
@@ -405,7 +395,7 @@
 				<div class="bg-gray-50 rounded-md p-3">
 					<p class="text-xs text-gray-500 mb-1">Experience</p>
 					<p class="text-sm font-semibold text-gray-900">
-						{requisition.experienceLevel?.value ?? '—'}
+						{requisition.experienceLevel?.value ?? 'No Preference'}
 					</p>
 				</div>
 				<div class="bg-gray-50 rounded-md p-3">
@@ -502,7 +492,7 @@
 											name="experienceLevelId"
 											class="mt-1 w-full p-2 border rounded text-sm"
 										>
-											<option value="">None</option>
+											<option value="">No Preference</option>
 											{#each sortedExperienceLevels as l}
 												<option value={l.id} selected={l.id === requisition.experienceLevelId}
 													>{l.value}</option

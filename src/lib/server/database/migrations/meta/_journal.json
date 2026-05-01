@@ -225,6 +225,13 @@
       "when": 1777436582635,
       "tag": "0031_acoustic_impossible_man",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1777673592740,
+      "tag": "0032_military_bishop",
+      "breakpoints": true
     }
   ]
 }

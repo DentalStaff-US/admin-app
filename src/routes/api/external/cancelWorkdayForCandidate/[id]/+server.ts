@@ -11,6 +11,7 @@ import {
 import { authenticateUser } from '$lib/server/serverUtils';
 import { and, eq } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
+import { notifyWorkdayReposted } from '$lib/server/notifications/transactional';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -50,59 +51,89 @@ export const POST: RequestHandler = async ({ request, params }) => {
 
 		const { id } = params;
 
-		return await db.transaction(async (tx) => {
-			const [existingWorkday] = await tx
-				.select()
-				.from(workdayTable)
-				.where(eq(workdayTable.id, id))
-				.limit(1);
-
-			if (!existingWorkday) {
-				return json(
-					{ success: false, message: 'Application not found for this workday' },
-					{ status: 409, headers: corsHeaders }
-				);
-			}
-			const timesheetId = existingWorkday.timesheetId;
-
-			await tx.delete(workdayTable).where(eq(workdayTable.id, existingWorkday.id));
-
-			if (timesheetId) {
-				const remainingWorkdays = await tx
+		const txResult = await db.transaction(
+			async (
+				tx
+			): Promise<
+				| { kind: 'response'; response: Response }
+				| {
+						kind: 'success';
+						recurrenceDayId: string;
+						candidateId: string;
+						requisitionId: number;
+				  }
+			> => {
+				const [existingWorkday] = await tx
 					.select()
 					.from(workdayTable)
-					.where(eq(workdayTable.timesheetId, timesheetId))
+					.where(eq(workdayTable.id, id))
 					.limit(1);
 
-				if (remainingWorkdays.length === 0) {
-					await tx
-						.delete(timeSheetTable)
-						.where(and(eq(timeSheetTable.id, timesheetId), eq(timeSheetTable.status, 'DRAFT')));
+				if (!existingWorkday) {
+					return {
+						kind: 'response',
+						response: json(
+							{ success: false, message: 'Application not found for this workday' },
+							{ status: 409, headers: corsHeaders }
+						)
+					};
 				}
-			}
+				const timesheetId = existingWorkday.timesheetId;
 
-			// Change Status of the recurrence day
-			const [updatedRecurrenceDay] = await tx
-				.update(recurrenceDayTable)
-				.set({ status: 'OPEN' })
-				.where(eq(recurrenceDayTable.id, existingWorkday.recurrenceDayId as string))
-				.returning();
+				await tx.delete(workdayTable).where(eq(workdayTable.id, existingWorkday.id));
 
-			// TODO Update any relevant data for the candidate
-			// TODO Notify the client of a cancelled workday
+				if (timesheetId) {
+					const remainingWorkdays = await tx
+						.select()
+						.from(workdayTable)
+						.where(eq(workdayTable.timesheetId, timesheetId))
+						.limit(1);
 
-			return json(
-				{
-					success: true,
-					data: {
-						workday: {
-							id: updatedRecurrenceDay.id
-						}
+					if (remainingWorkdays.length === 0) {
+						await tx
+							.delete(timeSheetTable)
+							.where(and(eq(timeSheetTable.id, timesheetId), eq(timeSheetTable.status, 'DRAFT')));
 					}
-				},
-				{ headers: corsHeaders }
-			);
+				}
+
+				// Change Status of the recurrence day
+				const [updatedRecurrenceDay] = await tx
+					.update(recurrenceDayTable)
+					.set({ status: 'OPEN' })
+					.where(eq(recurrenceDayTable.id, existingWorkday.recurrenceDayId as string))
+					.returning();
+
+				return {
+					kind: 'success',
+					recurrenceDayId: updatedRecurrenceDay.id,
+					candidateId: existingWorkday.candidateId,
+					requisitionId: existingWorkday.requisitionId
+				};
+			}
+		);
+
+		if (txResult.kind === 'response') {
+			return txResult.response;
+		}
+
+		// Fire notification after the DB transaction commits.
+		await notifyWorkdayReposted({
+			candidateId: txResult.candidateId,
+			requisitionId: txResult.requisitionId,
+			recurrenceDayId: txResult.recurrenceDayId
 		});
+
+		return json(
+			{
+				success: true,
+				data: {
+					workday: {
+						id: txResult.recurrenceDayId
+					}
+				}
+			},
+			{ headers: corsHeaders }
+		);
 	} catch (err) {
 		console.error('Error in POST /api/external/cancelWorkdayForCandidate:', err);
 		// Determine if error is known/expected

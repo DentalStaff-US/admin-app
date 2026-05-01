@@ -12,13 +12,11 @@ import { and, eq, isNull, lte } from 'drizzle-orm';
 import crypto from 'crypto';
 import { CRON_SECRET } from '$env/static/private';
 import { toZonedTime } from 'date-fns-tz';
-import { TwilioService } from '$lib/server/sms/smsService';
-import { userTable } from '$lib/server/database/schemas/auth';
+import { notifyTimesheetCreated } from '$lib/server/notifications/transactional';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const signature = request.headers.get('x-signature');
 	const expectedSignature = crypto.createHmac('sha256', CRON_SECRET).digest('hex');
-	const sms = new TwilioService();
 
 	if (signature !== expectedSignature) {
 		return new Response('Invalid signature', { status: 401 });
@@ -103,7 +101,7 @@ export const GET: RequestHandler = async ({ request }) => {
 
 		// Process each group
 		for (const group of groups.values()) {
-			await db.transaction(async (tx) => {
+			const createdNew = await db.transaction(async (tx) => {
 				// Check if a timesheet already exists for this group
 				const existing = await tx
 					.select()
@@ -118,6 +116,7 @@ export const GET: RequestHandler = async ({ request }) => {
 					.limit(1);
 
 				let timesheetId: string;
+				let didCreate = false;
 
 				if (existing.length === 0) {
 					// Create new timesheet
@@ -137,24 +136,7 @@ export const GET: RequestHandler = async ({ request }) => {
 						validated: false,
 						awaitingClientSignature: true
 					});
-
-					const [candidate] = await tx
-						.select({ phone: candidateProfileTable.cellPhone, name: userTable.firstName })
-						.from(candidateProfileTable)
-						.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
-						.where(eq(candidateProfileTable.id, group.candidateId))
-						.limit(1);
-
-					if (candidate.phone) {
-						await sms.sendTemplated(candidate.phone, 'timesheetGeneratedNotification', {
-							assignedCandidate: candidate.name,
-							requisitionNumber: group.requisitionId
-						});
-					} else {
-						console.warn(
-							`No phone number for candidate ${group.candidateId}, cannot send timesheet notification SMS`
-						);
-					}
+					didCreate = true;
 					created++;
 				} else {
 					timesheetId = existing[0].id;
@@ -168,7 +150,19 @@ export const GET: RequestHandler = async ({ request }) => {
 						.where(eq(workdayTable.id, workdayId));
 					linked++;
 				}
+
+				return didCreate;
 			});
+
+			// Notify the candidate that they have a new draft timesheet to fill out.
+			// Fire after the transaction commits so the email/SMS doesn't fire on a
+			// rollback. Only on first creation, not re-link of existing timesheet.
+			if (createdNew) {
+				await notifyTimesheetCreated({
+					candidateId: group.candidateId,
+					requisitionId: group.requisitionId
+				});
+			}
 		}
 
 		return json({

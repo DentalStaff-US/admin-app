@@ -363,6 +363,19 @@ export async function getQualifiedProfessionalsForRequisition(requisition: any, 
 		const radiusMiles = 60;
 		const radiusMeters = radiusMiles * 1609.34; // Convert miles to meters for PostGIS
 
+		// If the requisition specifies a required experience level, look up its
+		// `order` so we can do reductive filtering: candidate level >= required level.
+		// Null required level == "No Preference" — skip the level filter entirely.
+		let requiredOrder: number | null = null;
+		if (requisition.experienceLevelId) {
+			const [requiredLevel] = await db
+				.select({ order: experienceLevelTable.order })
+				.from(experienceLevelTable)
+				.where(eq(experienceLevelTable.id, requisition.experienceLevelId))
+				.limit(1);
+			requiredOrder = requiredLevel?.order ?? null;
+		}
+
 		// Query candidates using PostGIS ST_DWithin and ST_Distance
 		const candidates = await db
 			.select({
@@ -391,6 +404,8 @@ export async function getQualifiedProfessionalsForRequisition(requisition: any, 
 				disciplineId: candidateDisciplineExperienceTable.disciplineId,
 				disciplineName: disciplineTable.name,
 				disciplineAbbr: disciplineTable.abbreviation,
+				experienceLevelId: candidateDisciplineExperienceTable.experienceLevelId,
+				experienceLevelOrder: experienceLevelTable.order,
 
 				// Calculate distance in miles using PostGIS
 				// ST_Distance returns meters, convert to miles
@@ -411,14 +426,19 @@ export async function getQualifiedProfessionalsForRequisition(requisition: any, 
 				disciplineTable,
 				eq(disciplineTable.id, candidateDisciplineExperienceTable.disciplineId)
 			)
-			// .leftJoin(
-			// 	experienceLevelTable,
-			// 	eq(experienceLevelTable.id, candidateDisciplineExperienceTable.experienceLevelId)
-			// )
+			.innerJoin(
+				experienceLevelTable,
+				eq(experienceLevelTable.id, candidateDisciplineExperienceTable.experienceLevelId)
+			)
 			.where(
 				and(
 					// Must have the required discipline
 					eq(candidateDisciplineExperienceTable.disciplineId, requiredDisciplineId),
+					// Reductive experience-level filter: candidate level order must be >=
+					// required level order. Skipped when requisition has no level (null).
+					requiredOrder !== null
+						? sql`${experienceLevelTable.order} >= ${requiredOrder}`
+						: undefined,
 					// Must be approved and active
 					eq(candidateProfileTable.approved, true),
 					eq(candidateProfileTable.status, 'ACTIVE'),

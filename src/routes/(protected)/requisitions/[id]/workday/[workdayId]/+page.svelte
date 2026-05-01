@@ -464,7 +464,7 @@
 						</div>
 						<div class="flex justify-between">
 							<span class="font-medium">Experience Level:</span>
-							<span>{recurrenceDay?.requisition.experienceLevelName}</span>
+							<span>{recurrenceDay?.requisition.experienceLevelName ?? 'No Preference'}</span>
 						</div>
 						<div class="flex justify-between items-center">
 							<span class="font-medium">Hourly Rate:</span>
