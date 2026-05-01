@@ -65,7 +65,6 @@
 	import { onMount } from 'svelte';
 
 	export let data: PageData;
-	$: console.log('Timesheet Page Data:', data);
 	$: user = data.user;
 
 	// State variables
