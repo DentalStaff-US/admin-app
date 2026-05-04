@@ -1,14 +1,20 @@
 import twilio from 'twilio';
 import { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import { SMS_TEMPLATES, type TemplateName, type TemplateVariables } from './templates';
 
 export class TwilioService {
 	private client: twilio.Twilio;
 	private fromNumber: string;
+	// Optional. When set, sends are routed through the A2P 10DLC Messaging
+	// Service instead of the bare from-number — required for compliant
+	// production traffic. See https://www.twilio.com/docs/errors/21606.
+	private messagingServiceSid: string | undefined;
 
 	constructor() {
 		this.client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 		this.fromNumber = TWILIO_PHONE_NUMBER;
+		this.messagingServiceSid = env.TWILIO_MESSAGING_SERVICE_SID || undefined;
 	}
 
 	formatPhoneNumber(phone: string): string {
@@ -32,15 +38,19 @@ export class TwilioService {
 			return { success: false, error: `Invalid US phone number: ${to}` };
 		}
 
+		const formattedTo = this.formatPhoneNumber(to);
+
 		try {
 			const message = await this.client.messages.create({
 				body,
-				from: this.fromNumber,
-				to: this.formatPhoneNumber(to)
+				to: formattedTo,
+				...(this.messagingServiceSid
+					? { messagingServiceSid: this.messagingServiceSid }
+					: { from: this.fromNumber })
 			});
 			return { success: true, sid: message.sid };
 		} catch (err) {
-			console.error('Twilio send error:', err);
+			console.error(`Twilio send error (to=${formattedTo}):`, err);
 			return { success: false, error: String(err) };
 		}
 	}
