@@ -1140,7 +1140,7 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 					...timeSheetTable,
 					hourlyRate: requisitionTable.hourlyRate
 				},
-				requisition: { ...requisitionTable },
+				requisition: { ...requisitionTable, disciplineName: disciplineTable.name },
 				candidate: {
 					...candidateProfileTable,
 					firstName: userTable.firstName,
@@ -1149,6 +1149,7 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 			})
 			.from(timeSheetTable)
 			.leftJoin(requisitionTable, eq(requisitionTable.id, timeSheetTable.requisitionId))
+			.leftJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
 			.innerJoin(
 				candidateProfileTable,
 				eq(candidateProfileTable.id, timeSheetTable.associatedCandidateId)

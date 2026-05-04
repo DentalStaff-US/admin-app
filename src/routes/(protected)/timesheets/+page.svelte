@@ -32,6 +32,7 @@
 	import { cn } from '$lib/utils';
 	import { USER_ROLES } from '$lib/config/constants';
 	import ViewLink from '$lib/components/tables/ViewLink.svelte';
+	import RequisitionCell from '$lib/components/tables/RequisitionCell.svelte';
 	import type { TimesheetWithRelations } from '$lib/server/database/schemas/requisition';
 	import { page } from '$app/stores';
 
@@ -89,7 +90,12 @@
 				const titleA = rowA.original.requisition?.disciplineName?.toLowerCase() || '';
 				const titleB = rowB.original.requisition?.disciplineName?.toLowerCase() || '';
 				return titleA.localeCompare(titleB);
-			}
+			},
+			cell: ({ row }) =>
+				flexRender(RequisitionCell, {
+					disciplineName: row.original.requisition?.disciplineName,
+					requisitionId: row.original.requisition?.id
+				})
 		},
 		{
 			header: 'Candidate',
