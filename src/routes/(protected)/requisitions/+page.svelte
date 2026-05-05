@@ -192,49 +192,43 @@
 
 	// Table options for each status
 	const openOptions = writable<TableOptions<RequisitionData>>(createTableOptions([]));
-	// const filledOptions = writable<TableOptions<RequisitionData>>(createTableOptions([]));
-	// const unfulfilledOptions = writable<TableOptions<RequisitionData>>(createTableOptions([]));
+	const closedOptions = writable<TableOptions<RequisitionData>>(createTableOptions([]));
 	const canceledOptions = writable<TableOptions<RequisitionData>>(createTableOptions([]));
 
 	// Create table instances
 	const openTable = createSvelteTable(openOptions);
-	// const filledTable = createSvelteTable(filledOptions);
-	// const unfulfilledTable = createSvelteTable(unfulfilledOptions);
+	const closedTable = createSvelteTable(closedOptions);
 	const canceledTable = createSvelteTable(canceledOptions);
 
 	// Get current active table
-	$: currentTable = activeTab === 'open' ? openTable : canceledTable;
+	$: currentTable =
+		activeTab === 'open' ? openTable : activeTab === 'closed' ? closedTable : canceledTable;
 
 	// Update table data when requisitions change
 	$: {
 		const openData = filterByStatus(requisitions, 'open');
-		// const filledData = filterByStatus(requisitions, 'filled');
-		// const unfulfilledData = filterByStatus(requisitions, 'unfulfilled');
+		const closedData = filterByStatus(requisitions, 'closed');
 		const canceledData = filterByStatus(requisitions, 'canceled');
 
 		openOptions.update((opts) => ({ ...opts, data: openData, columns }));
-		// filledOptions.update((opts) => ({ ...opts, data: filledData, columns }));
-		// unfulfilledOptions.update((opts) => ({ ...opts, data: unfulfilledData, columns }));
+		closedOptions.update((opts) => ({ ...opts, data: closedData, columns }));
 		canceledOptions.update((opts) => ({ ...opts, data: canceledData, columns }));
 	}
 
 	onMount(() => {
 		const openData = filterByStatus(requisitions, 'open');
-		// const filledData = filterByStatus(requisitions, 'filled');
-		// const unfulfilledData = filterByStatus(requisitions, 'unfulfilled');
+		const closedData = filterByStatus(requisitions, 'closed');
 		const canceledData = filterByStatus(requisitions, 'canceled');
 
 		openOptions.update((opts) => ({ ...opts, data: openData, columns }));
-		// filledOptions.update((opts) => ({ ...opts, data: filledData, columns }));
-		// unfulfilledOptions.update((opts) => ({ ...opts, data: unfulfilledData, columns }));
+		closedOptions.update((opts) => ({ ...opts, data: closedData, columns }));
 		canceledOptions.update((opts) => ({ ...opts, data: canceledData, columns }));
 	});
 
 	// Get tab counts
 	$: tabCounts = {
 		open: filterByStatus(requisitions, 'open').length,
-		filled: filterByStatus(requisitions, 'filled').length,
-		unfulfilled: filterByStatus(requisitions, 'unfulfilled').length,
+		closed: filterByStatus(requisitions, 'closed').length,
 		canceled: filterByStatus(requisitions, 'canceled').length
 	};
 
@@ -279,7 +273,7 @@
 
 	<!-- Tabs with Tables -->
 	<Tabs.Root bind:value={activeTab} class="">
-		<Tabs.List class="grid w-full grid-cols-4">
+		<Tabs.List class="grid w-full grid-cols-3">
 			<Tabs.Trigger value="open" class="relative">
 				Open
 				{#if tabCounts.open > 0}
@@ -287,33 +281,24 @@
 					></Badge>
 				{/if}
 			</Tabs.Trigger>
-			<!-- <Tabs.Trigger value="filled" class="relative">
-				Filled
-				{#if tabCounts.filled > 0}
-					<Badge variant="secondary" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.filled}
+			<Tabs.Trigger value="closed" class="relative">
+				Closed
+				{#if tabCounts.closed > 0}
+					<Badge variant="secondary" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.closed}
 					></Badge>
 				{/if}
 			</Tabs.Trigger>
-			<Tabs.Trigger value="unfulfilled" class="relative">
-				Unfulfilled
-				{#if tabCounts.unfulfilled > 0}
-					<Badge variant="secondary" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.unfulfilled}>
-						{tabCounts.unfulfilled}
-					</Badge>
-				{/if}
-			</Tabs.Trigger> -->
 			<Tabs.Trigger value="canceled" class="relative">
 				Canceled
 				{#if tabCounts.canceled > 0}
-					<Badge variant="secondary" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.canceled}>
-						{tabCounts.canceled}
-					</Badge>
+					<Badge variant="secondary" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.canceled}
+					></Badge>
 				{/if}
 			</Tabs.Trigger>
 		</Tabs.List>
 
 		<!-- Tab Contents -->
-		{#each ['open', 'canceled'] as tabValue}
+		{#each ['open', 'closed', 'canceled'] as tabValue}
 			<Tabs.Content value={tabValue} class="">
 				{#if activeTab === tabValue}
 					<div class="bg-white rounded-lg shadow-sm">

@@ -33,6 +33,7 @@ import {
 	type RecurrenceDaySelect,
 	workdayTable,
 	invoiceTable,
+	paperInvoiceTransactionTable,
 	type Workday,
 	type InvoiceWithRelations,
 	type TimesheetWithRelations,
@@ -641,11 +642,16 @@ export async function updateRequisition(
 export async function changeRequisitionStatus(
 	values: UpdateRequisition,
 	id: number,
-	userId: string
+	userId: string,
+	tx?: any
 ) {
-	const [original] = await db.select().from(requisitionTable).where(eq(requisitionTable.id, id));
+	const exec = tx || db;
+	const [original] = await exec
+		.select()
+		.from(requisitionTable)
+		.where(eq(requisitionTable.id, id));
 	if (original) {
-		const [update] = await db
+		const [update] = await exec
 			.update(requisitionTable)
 			.set(values)
 			.where(eq(requisitionTable.id, original.id))
@@ -1374,21 +1380,24 @@ export async function getTimesheetDetailsAdmin(timesheetId: string) {
 
 export async function closeAllUpcomingRecurrenceDays(
 	requisitionId: number | undefined,
-	userId: string
+	userId: string,
+	tx?: any
 ) {
+	const exec = tx || db;
 	const beginningOfDay = new Date();
 	beginningOfDay.setHours(0, 0, 0, 0); // Set to the start of the day
 	const beginningOfDayString = beginningOfDay.toISOString().split('T')[0]; // Format as YYYY-MM-DD
 
 	if (!requisitionId) throw error(400, 'Requisition ID is required');
 	try {
-		const result = await db
+		const result = await exec
 			.update(recurrenceDayTable)
 			.set({ status: 'CANCELED', updatedAt: new Date() })
 			.where(
 				and(
 					eq(recurrenceDayTable.requisitionId, requisitionId),
-					gt(recurrenceDayTable.date, beginningOfDayString)
+					gt(recurrenceDayTable.date, beginningOfDayString),
+					eq(recurrenceDayTable.status, 'OPEN')
 				)
 			)
 			.returning();
@@ -2368,6 +2377,23 @@ export async function getInvoiceById(
 		clientUser: row.clientUser,
 		company: row.clientCompany
 	};
+}
+
+/**
+ * Returns every paper-invoice transaction recorded against an invoice, oldest
+ * first so the caller can render a top-to-bottom timeline.
+ */
+export async function getPaperTransactionsByInvoiceId(invoiceId: string) {
+	try {
+		return await db
+			.select()
+			.from(paperInvoiceTransactionTable)
+			.where(eq(paperInvoiceTransactionTable.invoiceId, invoiceId))
+			.orderBy(asc(paperInvoiceTransactionTable.createdAt));
+	} catch (err) {
+		console.error('Error fetching paper transactions:', err);
+		return [];
+	}
 }
 
 export async function getInvoicesWithStripeData(

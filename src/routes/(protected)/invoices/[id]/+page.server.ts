@@ -3,7 +3,11 @@ import { stripe } from '$lib/server/stripe';
 import { redirect, error } from '@sveltejs/kit';
 import type { PageServerLoad, RequestEvent } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
-import { getInvoiceById, getInvoiceByIdAdmin } from '$lib/server/database/queries/requisitions';
+import {
+	getInvoiceById,
+	getInvoiceByIdAdmin,
+	getPaperTransactionsByInvoiceId
+} from '$lib/server/database/queries/requisitions';
 import { getClientProfilebyUserId } from '$lib/server/database/queries/clients';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { z } from 'zod';
@@ -37,17 +41,19 @@ export const load: PageServerLoad = async (event) => {
 	if (user.role === USER_ROLES.SUPERADMIN) {
 		const invoiceDetails = await getInvoiceByIdAdmin(event.params.id);
 		const transactionForm = await superValidate(RecordTransactionSchema);
-		return { user, invoice: invoiceDetails, transactionForm };
+		const paperTransactions = await getPaperTransactionsByInvoiceId(event.params.id);
+		return { user, invoice: invoiceDetails, transactionForm, paperTransactions };
 	}
 
 	if (user.role === USER_ROLES.CLIENT) {
 		if (!user.completedOnboarding) redirect(302, '/onboarding/client/company');
 		const client = await getClientProfilebyUserId(user.id);
 		const invoiceDetails = await getInvoiceById(event.params.id, client.id);
-		return { user, invoice: invoiceDetails, transactionForm: null };
+		const paperTransactions = await getPaperTransactionsByInvoiceId(event.params.id);
+		return { user, invoice: invoiceDetails, transactionForm: null, paperTransactions };
 	}
 
-	return { user, invoice: null, transactionForm: null };
+	return { user, invoice: null, transactionForm: null, paperTransactions: [] };
 };
 
 export const actions = {

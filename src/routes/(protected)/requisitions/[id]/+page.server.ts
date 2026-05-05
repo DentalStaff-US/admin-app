@@ -194,11 +194,22 @@ export const actions = {
 				status
 			};
 
-			await changeRequisitionStatus(values, Number(requisitionId), user.id);
+			// Closing or cancelling a requisition should also close any of its
+			// still-OPEN upcoming recurrence days. Both updates run in one
+			// transaction so partial failures roll back together.
+			await db.transaction(async (tx) => {
+				await changeRequisitionStatus(values, Number(requisitionId), user.id, tx);
+				if (status === 'CANCELED' || status === 'CLOSED') {
+					await closeAllUpcomingRecurrenceDays(Number(requisitionId), user.id, tx);
+				}
+			});
+
+			// Notifications fire after the transaction commits — dispatcher swallows
+			// its own failures, so the status change itself is unaffected.
 			if (status === 'CANCELED') {
-				await closeAllUpcomingRecurrenceDays(Number(requisitionId), user.id);
 				await notifyRequisitionCancelled(Number(requisitionId));
 			}
+
 			setFlash(
 				{
 					type: 'success',
