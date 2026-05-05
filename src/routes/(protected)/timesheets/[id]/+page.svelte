@@ -9,6 +9,7 @@
 	} from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import { Separator } from '$lib/components/ui/separator';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import {
@@ -345,21 +346,6 @@
 		loadTimeEntries();
 	}
 
-	function getTimesheetStatusBadge() {
-		const badges = {
-			DRAFT: { text: 'DRAFT', icon: Edit, class: 'bg-gray-300 hover:bg-gray-400' },
-			PENDING: { text: 'PENDING', icon: AlertCircle, class: 'bg-yellow-300 hover:bg-yellow-400' },
-			DISCREPANCY: {
-				text: 'DISCREPANCY',
-				icon: AlertTriangle,
-				class: 'bg-orange-400 hover:bg-orange-500'
-			},
-			APPROVED: { text: 'APPROVED', icon: CheckCircle2, class: 'bg-green-400 hover:bg-green-600' },
-			VOID: { text: 'VOID', icon: X, class: 'bg-gray-200 hover:bg-gray-300' },
-			REJECTED: { text: 'REJECTED', icon: X, class: 'bg-red-500 hover:bg-red-600' }
-		};
-		return badges[data?.timesheet?.status] || badges.DRAFT;
-	}
 
 	function getCostEstimate() {
 		const hours = parseFloat(data?.timesheet?.totalHoursWorked || '0');
@@ -397,7 +383,6 @@
 		return data?.timesheet?.status === 'DISCREPANCY';
 	}
 
-	const statusBadge = getTimesheetStatusBadge();
 </script>
 
 {#if user.role === USER_ROLES.SUPERADMIN}
@@ -407,22 +392,9 @@
 			<div>
 				<div class="flex items-center gap-3 flex-wrap">
 					<h1 class="text-2xl font-bold">Timesheet Details</h1>
-					<Badge
-						class={cn(statusBadge.class, 'gap-1')}
-						variant="default"
-						value={statusBadge.text}
-					/>
+					<StatusBadge status={data?.timesheet?.status} />
 					{#if wagesStatus}
-						<span
-							class={cn(
-								'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold',
-								wagesStatus === 'WAGES_DUE'
-									? 'bg-red-100 text-red-700'
-									: 'bg-green-100 text-green-700'
-							)}
-						>
-							{wagesStatus === 'WAGES_DUE' ? 'Wages Due' : 'Wages Paid'}
-						</span>
+						<StatusBadge status={wagesStatus} />
 					{/if}
 				</div>
 				<p class="text-gray-600 flex items-center mt-1">
@@ -1101,16 +1073,7 @@
 			<div>
 				<div class="flex flex-wrap items-center gap-3">
 					<h1 class="text-2xl font-bold">Timesheet Review</h1>
-					<Badge
-						class={cn(
-							data?.timesheet?.status === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-							data?.timesheet?.status === 'DISCREPANCY' && 'bg-orange-400 hover:bg-bg-orange-500',
-							data?.timesheet?.status === 'APPROVED' && 'bg-green-400 hover:bg-green-600',
-							data?.timesheet?.status === 'VOID' && 'bg-gray-200 hover:bg-gray-300',
-							data?.timesheet?.status === 'REJECTED' && 'bg-red-500 hover:bg-red-500'
-						)}
-						value={data?.timesheet?.status}
-					/>
+					<StatusBadge status={data?.timesheet?.status} />
 				</div>
 				<p class="text-gray-600 flex items-center mt-1">
 					<Calendar class="h-4 w-4 mr-1" />

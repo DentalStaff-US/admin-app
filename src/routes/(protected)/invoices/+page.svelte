@@ -15,6 +15,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Badge } from '$lib/components/ui/badge';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import type { PageData } from './$types';
 	import { writable } from 'svelte/store';
 	import { onMount } from 'svelte';
@@ -108,19 +109,11 @@
 			id: 'status',
 			accessorKey: 'invoice.status',
 			enableSorting: true,
-			cell: ({ getValue, row }) => {
+			cell: ({ getValue }) => {
 				const status = getValue() as string;
-				const invoice = row.original;
-				const overdue = isOverdue(invoice);
-
-				return flexRender(Badge, {
-					value: status.toLocaleUpperCase(),
-					class: cn(
-						'text-xs',
-						status === 'paid' && 'bg-green-500 hover:bg-green-600',
-						status === 'open' && 'bg-blue-500 hover:bg-blue-600',
-						status === 'draft' && 'bg-gray-500 hover:bg-gray-600'
-					)
+				return flexRender(StatusBadge, {
+					status,
+					label: status.toUpperCase()
 				});
 			}
 		},

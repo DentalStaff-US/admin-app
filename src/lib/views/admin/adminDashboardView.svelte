@@ -19,6 +19,7 @@
 	import { goto } from '$app/navigation';
 	import { formatCurrency, formatDate, formatTicketDate } from '$lib/_helpers';
 	import { Badge } from '$lib/components/ui/badge';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import { cn } from '$lib/utils';
 	import { format } from 'date-fns';
 	import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
@@ -392,21 +393,7 @@
 											</Table.Cell>
 											<Table.Cell>
 												<!-- Status 3rd -->
-												<Badge
-													variant="secondary"
-													value={req.requisition.status}
-													class={cn(
-														req.requisition.status === 'PENDING' &&
-															'bg-yellow-300 hover:bg-yellow-400',
-														req.requisition.status === 'OPEN' && 'bg-blue-500 hover:bg-blue-600',
-														req.requisition.status === 'FILLED' &&
-															'bg-green-400 hover:bg-bg-green-500',
-														req.requisition.status === 'UNFULFILLED' &&
-															'bg-orange-400 hover:bg-orange-500',
-														req.requisition.status === 'CANCELED' && 'bg-red-500 hover:bg-red-600',
-														'text-white'
-													)}
-												/>
+												<StatusBadge status={req.requisition.status} />
 											</Table.Cell>
 											<Table.Cell>
 												<!-- Type 4th -->
@@ -570,10 +557,7 @@
 													</div>
 												</Table.Cell>
 												<Table.Cell class="text-right">
-													<Badge
-														value={ticket.supportTicket.status}
-														class={getStatusColorClass(ticket.supportTicket.status)}
-													/>
+													<StatusBadge status={ticket.supportTicket.status} />
 												</Table.Cell>
 											</Table.Row>
 										{/each}
@@ -628,11 +612,11 @@
 													</div>
 												</Table.Cell>
 												<Table.Cell class="text-right">
-													<Badge
-														value={invoiceData.invoice.status}
-														class={invoiceData.invoice.status === 'overdue'
-															? 'bg-red-100 text-red-800'
-															: getStatusColorClass(invoiceData.invoice.status)}
+													<StatusBadge
+														status={invoiceData.invoice.status === 'overdue'
+															? 'REJECTED'
+															: invoiceData.invoice.status}
+														label={invoiceData.invoice.status}
 													/>
 												</Table.Cell>
 											</Table.Row>
@@ -694,10 +678,7 @@
 														{profileData.profile.desiredPosition || 'Position not specified'}
 													</p>
 												</div>
-												<Badge
-													class="bg-yellow-100 text-yellow-800"
-													value={profileData.profile.status || 'PENDING'}
-												></Badge>
+												<StatusBadge status={profileData.profile.status || 'PENDING'} />
 											</a>
 										</li>
 									{/each}

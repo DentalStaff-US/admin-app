@@ -33,6 +33,7 @@
 	import { USER_ROLES } from '$lib/config/constants';
 	import ViewLink from '$lib/components/tables/ViewLink.svelte';
 	import RequisitionCell from '$lib/components/tables/RequisitionCell.svelte';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import type { TimesheetWithRelations } from '$lib/server/database/schemas/requisition';
 	import { page } from '$app/stores';
 
@@ -115,23 +116,8 @@
 			id: 'status',
 			accessorKey: 'timesheet.status',
 			enableSorting: true,
-			cell: ({ getValue, row }) => {
-				const status = getValue() as string;
-				const timesheet = row.original;
-
-				// Show validation warning if there are discrepancies beyond just status
-				const displayStatus = status;
-
-				return flexRender(Badge, {
-					value: displayStatus,
-					class: cn(
-						'text-xs',
-						status === 'DISCREPANCY' && 'bg-red-500',
-						status === 'APPROVED' && 'bg-green-400',
-						status === 'PENDING' && 'bg-yellow-500',
-						status === 'REJECTED' && 'bg-gray-200'
-					)
-				});
+			cell: ({ getValue }) => {
+				return flexRender(StatusBadge, { status: getValue() as string });
 			}
 		},
 		{

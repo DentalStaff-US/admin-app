@@ -39,6 +39,7 @@
 	import { superForm } from 'sveltekit-superforms/client';
 	import { format } from 'date-fns';
 	import { CardHeader, CardTitle, CardContent } from '$lib/components/ui/card';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import { Card } from 'flowbite-svelte';
 	import { enhance } from '$app/forms';
 	import { CandidateStatusSchema } from '$lib/config/zod-schemas';
@@ -63,12 +64,6 @@
 		filename: string;
 		url: string;
 	}
-
-	const statusStyles: Record<keyof typeof CANDIDATE_STATUS, string> = {
-		INACTIVE: 'bg-gray-200 text-gray-800 border-gray-800',
-		PENDING: 'bg-yellow-100 text-yellow-600 border-yellow-600',
-		ACTIVE: 'bg-green-200 text-green-600 border-green-600'
-	};
 
 	export let data: PageData;
 	let initials: string = '';
@@ -409,15 +404,14 @@
 							</h1>
 							<p class="text-sm text-gray-500">Professional Member</p>
 							<div class="flex items-center gap-2 mt-1">
-								<span
-									class={cn(statusStyles[candidate.profile.status], 'px-2 py-1 rounded text-xs')}
-								>
-									{candidate.profile.status === 'ACTIVE'
+								<StatusBadge
+									status={candidate.profile.status}
+									label={candidate.profile.status === 'ACTIVE'
 										? 'Approved'
 										: candidate.profile.status === 'INACTIVE'
 											? 'Disapproved'
 											: 'Pending Review'}
-								</span>
+								/>
 							</div>
 						</div>
 					</div>

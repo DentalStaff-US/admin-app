@@ -9,6 +9,7 @@
 	} from '$lib/components/ui/card';
 	import { Separator } from '$lib/components/ui/separator';
 	import { Badge } from '$lib/components/ui/badge';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import {
 		Dialog,
 		DialogContent,
@@ -89,17 +90,6 @@
 		}
 	});
 
-	const getStatusColor = (status: string | undefined) => {
-		if (!status) return 'bg-gray-500';
-		const statusColors: Record<string, string> = {
-			OPEN: 'bg-blue-500',
-			FILLED: 'bg-green-500',
-			UNFULFILLED: 'bg-yellow-500',
-			CANCELED: 'bg-red-500',
-			PENDING: 'bg-purple-500'
-		};
-		return statusColors[status] || 'bg-gray-500';
-	};
 </script>
 
 <section class="grow h-screen overflow-y-auto p-6 flex flex-col gap-6 container mx-auto">
@@ -426,10 +416,7 @@
 
 						<div class="flex items-center justify-between mt-4">
 							<span class="font-medium">Status:</span>
-							<Badge
-								class={getStatusColor(recurrenceDay?.recurrenceDay?.status)}
-								value={recurrenceDay?.recurrenceDay?.status}
-							/>
+							<StatusBadge status={recurrenceDay?.recurrenceDay?.status} />
 						</div>
 					</div>
 				{/if}
@@ -495,10 +482,7 @@
 					{/if}
 					<div class="flex items-center justify-between mt-4">
 						<span class="font-medium">Status:</span>
-						<Badge
-							class={getStatusColor(recurrenceDay?.requisition.status)}
-							value={recurrenceDay?.requisition.status}
-						/>
+						<StatusBadge status={recurrenceDay?.requisition.status} />
 					</div>
 				</div>
 			</CardContent>

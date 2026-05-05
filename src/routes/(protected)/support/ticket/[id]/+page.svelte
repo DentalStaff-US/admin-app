@@ -2,6 +2,7 @@
 	import { format } from 'date-fns';
 	import * as Avatar from '$lib/components/ui/avatar';
 	import { Badge } from '$lib/components/ui/badge';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import { Button } from '$lib/components/ui/button';
 	import {
 		Card,
@@ -28,15 +29,6 @@
 	$: comments = ticket.comments || [];
 
 	let newComment = '';
-
-	function getStatusColor(status: string) {
-		return cn(
-			'text-xs font-medium',
-			status === 'NEW' && 'bg-green-400 text-white',
-			status === 'PENDING' && 'bg-yellow-400 text-white',
-			status === 'CLOSED' && 'bg-gray-600 text-white'
-		);
-	}
 
 	function getTimeAgo(date: Date) {
 		const now = new Date();
@@ -90,10 +82,7 @@
 				<h2 class="text-2xl font-bold leading-tight">
 					{ticket.details.ticket.title}
 				</h2>
-				<Badge
-					value={ticket.details.ticket.status}
-					class={getStatusColor(ticket.details.ticket.status)}
-				/>
+				<StatusBadge status={ticket.details.ticket.status} />
 			</div>
 			<p class="text-sm text-muted-foreground">
 				Ticket #{ticket.details.ticket.id.slice(0, 8)} • Submitted on: {format(
@@ -273,10 +262,7 @@
 					<div class="space-y-4">
 						<div>
 							<p class="text-sm text-muted-foreground">Status</p>
-							<Badge
-								value={ticket.details.ticket.status}
-								class={getStatusColor(ticket.details.ticket.status)}
-							/>
+							<StatusBadge status={ticket.details.ticket.status} />
 						</div>
 
 						<div>

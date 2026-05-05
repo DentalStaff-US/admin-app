@@ -23,6 +23,7 @@
 		Sliders
 	} from 'lucide-svelte';
 	import { USER_ROLES } from '$lib/config/constants';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import type { InvoiceWithRelations } from '$lib/server/database/schemas/requisition';
 	import type { PageData } from './$types';
 	import { enhance } from '$app/forms';
@@ -196,12 +197,10 @@
 				<h1 class="text-3xl font-bold tracking-tight">
 					Invoice #{invoiceData.invoice.invoiceNumber}
 				</h1>
-				<Badge
-					variant={getStatusVariant(invoiceData.invoice.status)}
-					value={invoiceData.invoice.status}
-				>
-					<svelte:component this={getStatusIcon(invoiceData.invoice.status)} class="h-3 w-3 mr-1" />
-				</Badge>
+				<StatusBadge
+					status={invoiceData.invoice.status}
+					label={invoiceData.invoice.status.toUpperCase()}
+				/>
 				{#if isPaperInvoice}
 					<Badge variant="outline" class="border-blue-300 text-blue-700" value="Paper Invoice" />
 				{/if}
