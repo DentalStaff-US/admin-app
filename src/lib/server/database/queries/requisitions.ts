@@ -42,7 +42,8 @@ import {
 	type InvoiceStatus,
 	type InvoiceSourceType,
 	type Invoice,
-	type UpdateTimeSheet
+	type UpdateTimeSheet,
+	paperInvoiceTransactionTable
 } from '../schemas/requisition';
 import { userTable, type User } from '../schemas/auth';
 import {
@@ -111,13 +112,13 @@ export interface Timesheet {
 	// workdayId removed
 	status: string;
 	candidate:
-		| (CandidateProfileSelect & {
-				email?: string;
-				firstName?: string;
-				lastName?: string;
-				avatarUrl?: string | null;
-		  })
-		| null;
+	| (CandidateProfileSelect & {
+		email?: string;
+		firstName?: string;
+		lastName?: string;
+		avatarUrl?: string | null;
+	})
+	| null;
 }
 
 export type RequisitionDetailsRaw = {
@@ -1114,11 +1115,11 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 			.where(
 				searchTerm
 					? or(
-							ilike(requisitionTable.title, `%${searchTerm}%`),
-							ilike(clientCompanyTable.companyName, `%${searchTerm}%`),
-							ilike(userTable.firstName, `%${searchTerm}%`),
-							ilike(userTable.lastName, `%${searchTerm}%`)
-						)
+						ilike(requisitionTable.title, `%${searchTerm}%`),
+						ilike(clientCompanyTable.companyName, `%${searchTerm}%`),
+						ilike(userTable.firstName, `%${searchTerm}%`),
+						ilike(userTable.lastName, `%${searchTerm}%`)
+					)
 					: undefined
 			)
 			.orderBy(desc(timeSheetTable.createdAt))
@@ -1161,11 +1162,11 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 					eq(timeSheetTable.associatedClientId, clientId),
 					searchTerm
 						? or(
-								ilike(requisitionTable.title, `%${searchTerm}%`),
-								ilike(clientCompanyTable.companyName, `%${searchTerm}%`),
-								ilike(userTable.firstName, `%${searchTerm}%`),
-								ilike(userTable.lastName, `%${searchTerm}%`)
-							)
+							ilike(requisitionTable.title, `%${searchTerm}%`),
+							ilike(clientCompanyTable.companyName, `%${searchTerm}%`),
+							ilike(userTable.firstName, `%${searchTerm}%`),
+							ilike(userTable.lastName, `%${searchTerm}%`)
+						)
 						: undefined
 				)
 			);
@@ -2210,6 +2211,7 @@ export async function getInvoiceByIdAdmin(invoiceId: string): Promise<InvoiceWit
 	const result = await db
 		.select({
 			invoice: invoiceTable,
+			paperInvoice: paperInvoiceTransactionTable,
 			candidateProfile: candidateProfileTable,
 			candidateUser: {
 				id: sql<string>`candidate_user
@@ -2255,34 +2257,36 @@ export async function getInvoiceByIdAdmin(invoiceId: string): Promise<InvoiceWit
 		)
 		.leftJoin(timeSheetTable, eq(invoiceTable.timesheetId, timeSheetTable.id))
 		.leftJoin(requisitionTable, eq(invoiceTable.requisitionId, requisitionTable.id))
+		.leftJoin(paperInvoiceTransactionTable, eq(invoiceTable.id, paperInvoiceTransactionTable.invoiceId))
 		.innerJoin(clientProfileTable, eq(invoiceTable.clientId, clientProfileTable.id))
 		.innerJoin(clientCompanyTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
-
 		.innerJoin(
 			sql`${userTable}
 		as client_user`,
 			sql`${clientProfileTable.userId}
 		= client_user.id`
 		)
-		.limit(1);
+		// .limit(1);
 
 	if (!result.length) {
 		return null;
 	}
 
 	const row = result[0];
+	console.log(row)
 	return {
 		invoice: row.invoice,
 		candidate:
-			row.candidateProfile && row.candidateUser
-				? { profile: row.candidateProfile, user: row.candidateUser }
-				: null,
+		row.candidateProfile && row.candidateUser
+		? { profile: row.candidateProfile, user: row.candidateUser }
+		: null,
 		timesheet: row.timesheet,
 		requisition: row.requisition,
 		lineItems: (row.invoice.lineItems as InvoiceLineItem[]) || [],
 		client: row.client,
 		clientUser: row.clientUser,
-		company: row.clientCompany
+		company: row.clientCompany,
+		paperInvoice: row.paperInvoice
 	};
 }
 

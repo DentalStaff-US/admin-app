@@ -17,7 +17,8 @@
 		AlertCircle,
 		CheckCircle,
 		XCircle,
-		Pause
+		Pause,
+		ReceiptIcon
 	} from 'lucide-svelte';
 	import { USER_ROLES } from '$lib/config/constants';
 	import type { InvoiceWithRelations } from '$lib/server/database/schemas/requisition';
@@ -382,6 +383,27 @@
 										</div>
 										<p class="font-medium text-green-600">
 											{formatCurrency(parseFloat(String(invoiceData.invoice.amountPaid)))}
+										</p>
+									</div>
+									<!-- Paper Data -->
+									<div class="flex items-center justify-between p-3 border rounded-lg">
+										<div class="flex items-center gap-3">
+											<ReceiptIcon class="h-5 w-5 text-green-600" />
+											<div>
+												<p class="font-medium">
+													{invoiceData.paperInvoice?.transactionType.charAt(0) +
+														invoiceData.paperInvoice?.transactionType.slice(1).toLowerCase()}
+													- {formatDateTime(invoiceData.paperInvoice?.createdAt.toString())}
+												</p>
+												{#if invoiceData.paperInvoice?.details}
+													<p class="text-sm text-muted-foreground">
+														{invoiceData.paperInvoice.details.notes}
+													</p>
+												{/if}
+											</div>
+										</div>
+										<p class="font-medium text-green-600">
+											{formatCurrency(parseFloat(String(invoiceData.paperInvoice?.amount)))}
 										</p>
 									</div>
 									{#if amountRemaining > 0}

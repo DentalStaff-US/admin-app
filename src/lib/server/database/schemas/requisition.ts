@@ -476,6 +476,7 @@ export type UpdateCandidateRequisitionSave = Partial<
 export type RequisitionSelect = typeof requisitionTable.$inferSelect;
 export type RecurrenceDaySelect = typeof recurrenceDayTable.$inferSelect;
 export type InvoiceSelect = typeof invoiceTable.$inferSelect;
+export type paperInvoiceSelect = typeof paperInvoiceTransactionTable.$inferSelect
 export type TimeSheetSelect = typeof timeSheetTable.$inferSelect;
 export type WorkdaySelect = typeof workdayTable.$inferSelect;
 export type RequisitionApplicationSelect = typeof requisitionApplicationTable.$inferSelect;
@@ -504,6 +505,7 @@ export type TimesheetWithRelations = {
 
 export type InvoiceWithRelations = {
 	invoice: InvoiceSelect;
+	paperInvoice?: paperInvoiceSelect
 	candidate: {
 		profile: CandidateProfileSelect;
 		user: {
