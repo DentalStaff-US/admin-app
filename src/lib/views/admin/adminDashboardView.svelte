@@ -404,7 +404,8 @@
 														req.requisition.status === 'UNFULFILLED' &&
 															'bg-orange-400 hover:bg-orange-500',
 														req.requisition.status === 'CANCELED' && 'bg-red-500 hover:bg-red-600',
-														'text-white'
+														req.requisition.status === 'CLOSED' && 'bg-gray-950 hover:bg-gray-300 hover:text-black',
+														'text-white',
 													)}
 												/>
 											</Table.Cell>
