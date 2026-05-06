@@ -174,6 +174,7 @@
 				<CardHeader class="flex flex-row items-center justify-between">
 					<CardTitle>Professional:</CardTitle>
 					<!-- Reassign / Unassign menu (replaces the Assign button when someone is assigned) -->
+					{#if isAdmin}
 					<DropdownMenu>
 						<DropdownMenuTrigger>
 							<Button variant="outline" size="sm" class="gap-1">
@@ -193,6 +194,7 @@
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
+					{/if}
 				</CardHeader>
 				<CardContent>
 					<div class="flex items-center gap-4 mb-4">
@@ -226,7 +228,7 @@
 			<Card>
 				<CardHeader class="flex flex-row justify-between items-center">
 					<CardTitle>Professional:</CardTitle>
-					{#if !candidate && recurrenceDay?.recurrenceDay?.status === 'OPEN'}
+					{#if !candidate && recurrenceDay?.recurrenceDay?.status === 'OPEN' && isAdmin}
 						<Button
 							class="gap-2 bg-[#2a93d1] hover:bg-blue-500"
 							on:click={() => (assignDialogOpen = true)}

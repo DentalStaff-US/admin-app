@@ -52,16 +52,24 @@ const emailService = new EmailService();
 
 type SendResult = { success?: boolean; error?: string; sid?: string; id?: string };
 
-async function safeEmail(label: string, run: () => Promise<SendResult>): Promise<boolean> {
+async function safeEmail(
+	label: string,
+	to: string | null | undefined,
+	run: () => Promise<SendResult>
+): Promise<boolean> {
+	if (!to) {
+		console.warn(`[transactional:${label}] email skipped: no recipient address`);
+		return false;
+	}
 	try {
 		const r = await run();
 		if (r && r.success === false) {
-			console.error(`[transactional:${label}] email failed:`, r.error);
+			console.error(`[transactional:${label}] email failed (to=${to}):`, r.error);
 			return false;
 		}
 		return true;
 	} catch (e) {
-		console.error(`[transactional:${label}] email threw:`, e);
+		console.error(`[transactional:${label}] email threw (to=${to}):`, e);
 		return false;
 	}
 }
@@ -71,20 +79,25 @@ async function safeSms(
 	to: string | null | undefined,
 	run: (phone: string) => Promise<SendResult>
 ): Promise<boolean> {
-	if (!to) return false;
+	if (!to) {
+		console.warn(`[transactional:${label}] sms skipped: no phone on recipient`);
+		return false;
+	}
 	if (!sms.isValidUSPhone(to)) {
-		console.warn(`[transactional:${label}] sms skipped: invalid phone`, to);
+		console.warn(
+			`[transactional:${label}] sms skipped: phone failed normalization (got "${to}")`
+		);
 		return false;
 	}
 	try {
 		const r = await run(to);
 		if (r && r.success === false) {
-			console.error(`[transactional:${label}] sms failed:`, r.error);
+			console.error(`[transactional:${label}] sms failed (to=${to}):`, r.error);
 			return false;
 		}
 		return true;
 	} catch (e) {
-		console.error(`[transactional:${label}] sms threw:`, e);
+		console.error(`[transactional:${label}] sms threw (to=${to}):`, e);
 		return false;
 	}
 }
@@ -92,6 +105,7 @@ async function safeSms(
 async function dispatch(label: string, sends: Promise<boolean>[]): Promise<void> {
 	const results = await Promise.allSettled(sends);
 	const ok = results.filter((r) => r.status === 'fulfilled' && r.value === true).length;
+	console.log(`[transactional:${label}] dispatched (${ok}/${results.length} channels ok)`);
 	if (ok === 0 && results.length > 0) {
 		console.error(`[transactional:${label}] all channels failed`);
 	}
@@ -122,19 +136,32 @@ async function getDisciplineById(disciplineId: string) {
  * Email: recurrenceDayFilledEmail. SMS: workdayFilledNotification.
  */
 export async function notifyWorkdayClaimed(workdayId: string): Promise<void> {
+	const label = 'workdayClaimed';
 	try {
 		const workday = await getWorkdayById(workdayId);
-		if (!workday) return;
+		if (!workday) {
+			console.warn(`[transactional:${label}] aborted: workday ${workdayId} not found`);
+			return;
+		}
 		const requisition = await getRequisitionByWorkdayId(workdayId);
-		if (!requisition) return;
+		if (!requisition) {
+			console.warn(`[transactional:${label}] aborted: requisition for workday ${workdayId} not found`);
+			return;
+		}
 		const recurrenceDay = await getRecurrenceDayByWorkdayId(workdayId);
-		if (!recurrenceDay) return;
+		if (!recurrenceDay) {
+			console.warn(`[transactional:${label}] aborted: recurrence day for workday ${workdayId} not found`);
+			return;
+		}
 
 		const candidateUser = await getCandidateUserById(workday.candidateId);
 		const clientId = await getClientIdByCompanyId(requisition.companyId);
 		const company = await getClientCompanyByClientId(clientId);
 		const client = await getClientProfileById(clientId);
-		if (!client) return;
+		if (!client) {
+			console.warn(`[transactional:${label}] aborted: client profile ${clientId} not found`);
+			return;
+		}
 		const location = await getLocationByIdForCompany(requisition.locationId, requisition.companyId);
 		const discipline = await getDisciplineById(requisition.disciplineId);
 
@@ -144,7 +171,7 @@ export async function notifyWorkdayClaimed(workdayId: string): Promise<void> {
 		const url = `${BASE_URL}/requisitions/${requisition.id}/workday/${recurrenceDay.id}`;
 
 		await dispatch('workdayClaimed', [
-			safeEmail('workdayClaimed', () =>
+			safeEmail('workdayClaimed', recipientEmail, () =>
 				emailService.sendRecurrenceDayClaimedEmail(
 					recipientEmail,
 					{
@@ -184,21 +211,31 @@ export async function notifyWorkdayReposted(args: {
 	requisitionId: number;
 	recurrenceDayId: string;
 }): Promise<void> {
+	const label = 'workdayReposted';
 	try {
 		const requisition = await getRequisitionById(args.requisitionId);
-		if (!requisition) return;
+		if (!requisition) {
+			console.warn(`[transactional:${label}] aborted: requisition ${args.requisitionId} not found`);
+			return;
+		}
 		const [recurrenceDay] = await db
 			.select()
 			.from(recurrenceDayTable)
 			.where(eq(recurrenceDayTable.id, args.recurrenceDayId))
 			.limit(1);
-		if (!recurrenceDay) return;
+		if (!recurrenceDay) {
+			console.warn(`[transactional:${label}] aborted: recurrence day ${args.recurrenceDayId} not found`);
+			return;
+		}
 
 		const candidateUser = await getCandidateUserById(args.candidateId);
 		const clientId = await getClientIdByCompanyId(requisition.companyId);
 		const company = await getClientCompanyByClientId(clientId);
 		const client = await getClientProfileById(clientId);
-		if (!client) return;
+		if (!client) {
+			console.warn(`[transactional:${label}] aborted: client profile ${clientId} not found`);
+			return;
+		}
 		const location = await getLocationByIdForCompany(requisition.locationId, requisition.companyId);
 		const discipline = await getDisciplineById(requisition.disciplineId);
 
@@ -209,7 +246,7 @@ export async function notifyWorkdayReposted(args: {
 		const url = `${BASE_URL}/requisitions/${requisition.id}/workday/${recurrenceDay.id}`;
 
 		await dispatch('workdayReposted', [
-			safeEmail('workdayReposted', () => {
+			safeEmail('workdayReposted', recipientEmail, () => {
 				const t = EMAIL_TEMPLATES.workdayRepostedNotificationEmail({
 					clientName,
 					companyName: (company?.companyName as string) ?? '',
@@ -361,7 +398,7 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
 				const sends: Promise<boolean>[] = [];
 				if (c.email) {
 					sends.push(
-						safeEmail('qualifiedCandidatesNewWorkdays', () => {
+						safeEmail('qualifiedCandidatesNewWorkdays', c.email, () => {
 							const t = EMAIL_TEMPLATES.qualifiedCandidateNotificationEmail(
 								{ firstName: c.firstName, lastName: c.lastName },
 								workdayDetails
@@ -446,7 +483,7 @@ export async function notifyWorkdayDeleted(args: {
 		const location = await getLocationByIdForCompany(requisition.locationId, requisition.companyId);
 
 		await dispatch('workdayDeleted', [
-			safeEmail('workdayDeleted', () =>
+			safeEmail('workdayDeleted', candidateUser.email, () =>
 				emailService.sendWorkdayCancelledEmail(candidateUser.email, {
 					companyName: (company?.companyName as string) ?? '',
 					location: location?.completeAddress ?? 'Not Specified',
@@ -483,7 +520,7 @@ export async function notifyWorkday48HrReminder(args: {
 		const endStr = fmtTime(args.dayEnd);
 
 		await dispatch('workday48HrReminder', [
-			safeEmail('workday48HrReminder', () =>
+			safeEmail('workday48HrReminder', args.candidateUserEmail, () =>
 				emailService.sendWorkdayReminderEmail(args.candidateUserEmail, {
 					companyName: args.companyName,
 					location: args.location,
@@ -553,7 +590,7 @@ export async function notifyTimesheetSubmitted(timesheetId: string): Promise<voi
 		const timesheetUrl = `${BASE_URL}/timesheets/${timesheetId}`;
 
 		await dispatch('timesheetSubmitted', [
-			safeEmail('timesheetSubmitted', () => {
+			safeEmail('timesheetSubmitted', row.clientUser.email, () => {
 				const t = EMAIL_TEMPLATES.timesheetVerificationNotificationEmail(
 					{ firstName: cand?.firstName ?? '', lastName: cand?.lastName ?? '' },
 					{
@@ -627,7 +664,7 @@ export async function notifyInvoicePaymentProcessed(invoiceId: string): Promise<
 		if (!client) return;
 
 		await dispatch('invoicePaymentProcessed', [
-			safeEmail('invoicePaymentProcessed', () => {
+			safeEmail('invoicePaymentProcessed', client.email, () => {
 				const t = EMAIL_TEMPLATES.invoicePaymentProcessedNotificationEmail({
 					clientName: `${client.firstName} ${client.lastName}`,
 					requisitionNumber: invRow.requisitionId ? String(invRow.requisitionId) : 'N/A',
@@ -662,7 +699,7 @@ export async function notifyMiscellaneousTransaction(args: {
 		if (!client) return;
 
 		await dispatch('miscellaneousTransaction', [
-			safeEmail('miscellaneousTransaction', () => {
+			safeEmail('miscellaneousTransaction', client.email, () => {
 				const t = EMAIL_TEMPLATES.miscelaneousTransactionNotificationEmail({
 					clientName: `${client.firstName} ${client.lastName}`,
 					transactionAmount: `$${args.amount.toFixed(2)}`,
@@ -693,7 +730,7 @@ export async function notifyOverdueInvoice(invoice: Invoice): Promise<void> {
 			return;
 		}
 		await dispatch('overdueInvoice', [
-			safeEmail('overdueInvoice', () =>
+			safeEmail('overdueInvoice', recipient, () =>
 				emailService.sendOverdueInvoiceReminderEmail(recipient, invoice)
 			)
 		]);
@@ -722,7 +759,7 @@ export async function notifySupportTicketCreated(): Promise<void> {
 		await dispatch(
 			'supportTicketCreated',
 			recipients.map((a) =>
-				safeEmail('supportTicketCreated', () =>
+				safeEmail('supportTicketCreated', a.email, () =>
 					emailService.sendEmail({
 						to: [{ email: a.email }],
 						subject: t.subject,

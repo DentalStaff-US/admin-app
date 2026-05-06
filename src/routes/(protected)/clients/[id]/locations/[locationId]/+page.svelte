@@ -5,6 +5,7 @@
 	import { Card, CardHeader, CardTitle, CardContent } from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
+	import PhoneInput from '$lib/components/PhoneInput.svelte';
 	import { Label } from '$lib/components/ui/label';
 	import { Separator } from '$lib/components/ui/separator';
 	import { Avatar } from '$lib/components/ui/avatar';
@@ -439,7 +440,7 @@
 								>
 									<div class="space-y-2">
 										<Label for="companyPhone">Office Phone</Label>
-										<Input
+										<PhoneInput
 											id="companyPhone"
 											name="companyPhone"
 											bind:value={$contactForm.companyPhone}

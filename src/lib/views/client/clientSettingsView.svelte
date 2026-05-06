@@ -25,6 +25,7 @@
 	} from 'lucide-svelte';
 	import { Label } from '$lib/components/ui/label';
 	import { Input } from '$lib/components/ui/input';
+	import PhoneInput from '$lib/components/PhoneInput.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { getLocalTimeZone } from '@internationalized/date';
@@ -487,7 +488,7 @@
 					</div>
 					<div class="col-span-2 md:col-span-1">
 						<Label for="cell_phone">Phone number</Label>
-						<Input name="cell_phone" bind:value={$profileFormObj.cell_phone} />
+						<PhoneInput name="cell_phone" bind:value={$profileFormObj.cell_phone} />
 					</div>
 				</div>
 				<div class="mt-8">

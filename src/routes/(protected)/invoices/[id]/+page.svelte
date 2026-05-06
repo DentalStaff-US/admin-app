@@ -38,7 +38,16 @@
 	export let data: PageData;
 	let recordTransactionOpen = false;
 	let transactionAmount = '';
-	let transactionType: 'PAYMENT' | 'REFUND' | 'ADJUSTMENT' = 'PAYMENT';
+	type TransactionType = 'PAYMENT' | 'REFUND' | 'ADJUSTMENT';
+	const transactionTypeLabels: Record<TransactionType, string> = {
+		PAYMENT: 'Payment',
+		REFUND: 'Refund',
+		ADJUSTMENT: 'Adjustment'
+	};
+	let transactionType: TransactionType | '' = '';
+	function setTransactionType(value: string) {
+		transactionType = value as TransactionType;
+	}
 	let batchNumber = '';
 	let transactionNotes = '';
 	let recordingTransaction = false;
@@ -107,7 +116,6 @@
 		}
 	}
 
-	$: console.log(user.role, 'isAdmin:', isAdmin);
 	$: isOverdue = invoiceData.invoice.dueDate
 		? new Date(invoiceData.invoice.dueDate) < new Date() && invoiceData.invoice.status !== 'paid'
 		: false;
@@ -136,40 +144,6 @@
 			hour: '2-digit',
 			minute: '2-digit'
 		});
-	}
-
-	function getStatusIcon(status: string) {
-		switch (status) {
-			case 'PAID':
-				return CheckCircle;
-			case 'PENDING':
-				return Clock;
-			case 'OVERDUE':
-				return AlertCircle;
-			case 'CANCELLED':
-				return XCircle;
-			case 'DRAFT':
-				return Pause;
-			default:
-				return FileText;
-		}
-	}
-
-	function getStatusVariant(status: string) {
-		switch (status) {
-			case 'PAID':
-				return 'default';
-			case 'PENDING':
-				return 'secondary';
-			case 'OVERDUE':
-				return 'destructive';
-			case 'CANCELLED':
-				return 'outline';
-			case 'DRAFT':
-				return 'outline';
-			default:
-				return 'secondary';
-		}
 	}
 
 	function calculateSubtotal() {
@@ -700,6 +674,7 @@
 						if (result.type === 'success') {
 							recordTransactionOpen = false;
 							transactionAmount = '';
+							transactionType = '';
 							batchNumber = '';
 							transactionNotes = '';
 							await invalidateAll();
@@ -722,9 +697,11 @@
 					<div class="space-y-2">
 						<Label for="transactionType">Transaction Type</Label>
 						<Select.Root
-							selected={{ value: transactionType, label: transactionType }}
+							selected={transactionType
+								? { value: transactionType, label: transactionTypeLabels[transactionType] }
+								: undefined}
 							onSelectedChange={(v) => {
-								if (v) transactionType = v.value;
+								if (v) setTransactionType(v.value);
 							}}
 						>
 							<Select.Trigger>
@@ -799,7 +776,10 @@
 					>
 						Cancel
 					</Button>
-					<Button type="submit" disabled={recordingTransaction || !transactionAmount}>
+					<Button
+						type="submit"
+						disabled={recordingTransaction || !transactionAmount || !transactionType}
+					>
 						{#if recordingTransaction}
 							<Loader2 class="mr-2 h-4 w-4 animate-spin" />
 						{/if}

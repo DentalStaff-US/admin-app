@@ -2,6 +2,7 @@
     import ViewLink from './../../../../lib/components/tables/ViewLink.svelte';
     import {Tabs, TabsContent, TabsList, TabsTrigger} from '$lib/components/ui/tabs/index.js';
     import {Input} from '$lib/components/ui/input';
+    import PhoneInput from '$lib/components/PhoneInput.svelte';
     import {Label} from '$lib/components/ui/label';
     import * as Select from '$lib/components/ui/select';
     import {STATES} from '$lib/config/constants';
@@ -390,7 +391,7 @@
 
                                         <div class="space-y-2">
                                             <Label for="companyPhone">Office Phone</Label>
-                                            <Input
+                                            <PhoneInput
                                                     id="companyPhone"
                                                     name="companyPhone"
                                                     bind:value={$locationForm.companyPhone}

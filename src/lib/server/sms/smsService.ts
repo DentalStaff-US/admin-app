@@ -2,6 +2,7 @@ import twilio from 'twilio';
 import { TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER } from '$env/static/private';
 import { env } from '$env/dynamic/private';
 import { SMS_TEMPLATES, type TemplateName, type TemplateVariables } from './templates';
+import { normalizeUSPhone, isValidUSPhone } from '$lib/_helpers/phone';
 
 export class TwilioService {
 	private client: twilio.Twilio;
@@ -17,14 +18,16 @@ export class TwilioService {
 		this.messagingServiceSid = env.TWILIO_MESSAGING_SERVICE_SID || undefined;
 	}
 
-	formatPhoneNumber(phone: string): string {
-		const digits = phone.replace(/\D/g, '');
-		return `+1${digits}`;
+	// Thin instance methods so existing callers (e.g. the dispatcher's safeSms)
+	// keep working. The actual normalization rules live in $lib/_helpers/phone
+	// so the SMS sender, the zod form schemas, and any UI display formatter all
+	// agree on what counts as a valid US number.
+	formatPhoneNumber(phone: string | null | undefined): string | null {
+		return normalizeUSPhone(phone);
 	}
 
-	isValidUSPhone(phone: string): boolean {
-		const digits = phone.replace(/\D/g, '');
-		return /^\d{10}$/.test(digits);
+	isValidUSPhone(phone: string | null | undefined): boolean {
+		return isValidUSPhone(phone);
 	}
 
 	async send({
@@ -34,11 +37,10 @@ export class TwilioService {
 		to: string;
 		body: string;
 	}): Promise<{ success: boolean; sid?: string; error?: string }> {
-		if (!this.isValidUSPhone(to)) {
+		const formattedTo = this.formatPhoneNumber(to);
+		if (!formattedTo) {
 			return { success: false, error: `Invalid US phone number: ${to}` };
 		}
-
-		const formattedTo = this.formatPhoneNumber(to);
 
 		try {
 			const message = await this.client.messages.create({

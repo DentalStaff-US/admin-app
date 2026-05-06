@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { usPhoneField } from '$lib/_helpers/phone';
 
 export type Primitive = string | number | boolean | null;
 
@@ -47,14 +48,7 @@ export const userSchema = z.object({
 
 export const clientProfileSchema = z.object({
 	birthday: z.coerce.date().nullable().optional(),
-	cell_phone: z
-		.string()
-		.regex(
-			/^(\+\d{1,2}\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}$/gm,
-			'The phone number entered is not valid.'
-		)
-		.nullable()
-		.optional()
+	cell_phone: usPhoneField().nullable().optional()
 });
 
 export type UserSchema = typeof userSchema;
@@ -110,10 +104,10 @@ export const clientCompanyLocationSchema = z.object({
 	city: z.string().optional(),
 	state: z.string().optional(),
 	zipcode: z.string().optional(),
-	companyPhone: z.string().optional(),
+	companyPhone: usPhoneField().nullable().optional(),
 	hoursOfOperation: z.string().optional(),
 	email: z.string().optional(),
-	phoneNumber: z.string().optional(),
+	phoneNumber: usPhoneField().nullable().optional(),
 	phoneNumberType: z.union([z.literal('cell'), z.literal('office')]).optional(),
 	timezone: z.string().optional(),
 	lat: z.number().optional(),
@@ -124,7 +118,7 @@ export const clientCompanyLocationSchema = z.object({
 export const newClientCompanyLocationSchema = z.object({
 	companyId: z.string(),
 	name: z.string(),
-	companyPhone: z.string().optional(),
+	companyPhone: usPhoneField().nullable().optional(),
 	hoursOfOperation: z.string().optional(),
 	streetOne: z.string().optional(),
 	streetTwo: z.string().optional(),
@@ -132,7 +126,7 @@ export const newClientCompanyLocationSchema = z.object({
 	state: z.string().optional(),
 	zipcode: z.string().optional(),
 	email: z.string().optional(),
-	phoneNumber: z.string().optional(),
+	phoneNumber: usPhoneField().nullable().optional(),
 	phoneNumberType: z.union([z.literal('cell'), z.literal('office')]).optional(),
 	timezone: z.string().optional(),
 	lat: z.number(),
@@ -285,7 +279,7 @@ export type NewSupportTicketSchema = typeof newSupportTicketSchema;
 export const newCandidateProfileSchema = z.object({
 	hourlyRateMin: z.number().optional(),
 	hourlyRateMax: z.number().optional(),
-	cellPhone: z.string().optional(),
+	cellPhone: usPhoneField().nullable().optional(),
 	citizenship: z.string().optional(),
 	birthday: z.string().optional(),
 	completeAddress: z.string().optional(),
@@ -300,7 +294,7 @@ export const updateCandidateProfileSchema = z.object({
 	email: z.string().email('Invalid email address').optional(),
 	hourlyRateMin: z.number().optional(),
 	hourlyRateMax: z.number().optional(),
-	cellPhone: z.string().optional(),
+	cellPhone: usPhoneField().nullable().optional(),
 	citizenship: z.string().optional(),
 	birthday: z.string().optional(),
 	completeAddress: z.string().optional(),
@@ -360,7 +354,7 @@ export const NewAddressSchema = z.object({
 });
 
 export const ContactSchema = z.object({
-	companyPhone: z.string().optional(),
+	companyPhone: usPhoneField().nullable().optional(),
 	email: z.string().email('Invalid email address').optional()
 });
 
@@ -431,7 +425,7 @@ export const updateClientSchema = z
 		email: z.string().email('Invalid email address').optional(),
 		companyName: z.string().min(1, 'Company name is required').optional(),
 		baseLocation: z.string().optional().nullable(),
-		cellPhone: z.string().optional().nullable(),
+		cellPhone: usPhoneField().nullable().optional(),
 		invoiceMethod: z.enum(['STRIPE', 'PAPER']).optional()
 	})
 	.refine(

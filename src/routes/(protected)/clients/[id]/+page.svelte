@@ -29,6 +29,7 @@
 	} from '$lib/components/ui/dropdown-menu';
 	import { Label } from '$lib/components/ui/label';
 	import { Input } from '$lib/components/ui/input';
+	import PhoneInput from '$lib/components/PhoneInput.svelte';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Badge } from '$lib/components/ui/badge';
 	import {
@@ -972,7 +973,7 @@
 											</div>
 											<div>
 												<Label for="base-location">Cell Phone</Label>
-												<Input
+												<PhoneInput
 													id="cell-phone"
 													name="cellPhone"
 													bind:value={$updateForm.cellPhone}
