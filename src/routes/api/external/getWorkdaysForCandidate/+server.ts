@@ -30,51 +30,60 @@ export const OPTIONS: RequestHandler = async () => {
 };
 
 export const GET: RequestHandler = async ({ request }) => {
-	// Authenticate user
-	const user = await authenticateUser(request);
-	// console.log('User attempting to claim shift:', { userId: user.id });
-	if (!user) {
-		return json({ success: false, message: 'Unauthorized' }, { status: 401, headers: corsHeaders });
-	}
+	try {
+		const user = await authenticateUser(request);
+		if (!user) {
+			return json(
+				{ success: false, message: 'Unauthorized' },
+				{ status: 401, headers: corsHeaders }
+			);
+		}
 
-	const [candidateProfile] = await db
-		.select()
-		.from(candidateProfileTable)
-		.where(eq(candidateProfileTable.userId, user.id));
+		const [candidateProfile] = await db
+			.select()
+			.from(candidateProfileTable)
+			.where(eq(candidateProfileTable.userId, user.id));
 
-	if (!candidateProfile) {
+		if (!candidateProfile) {
+			return json(
+				{ success: false, message: 'Candidate profile not found' },
+				{ status: 404, headers: corsHeaders }
+			);
+		}
+
+		const workdays = await db
+			.select({
+				workday: { ...workdayTable },
+				recurrenceDay: { ...recurrenceDayTable },
+				requisition: {
+					...requisitionTable,
+					companyName: clientCompanyTable.companyName,
+					discipline: disciplineTable.name
+				},
+				location: {
+					name: companyOfficeLocationTable.name,
+					completeAddress: companyOfficeLocationTable.completeAddress
+				},
+				timesheet: { ...timeSheetTable }
+			})
+			.from(workdayTable)
+			.innerJoin(recurrenceDayTable, eq(recurrenceDayTable.id, workdayTable.recurrenceDayId))
+			.innerJoin(requisitionTable, eq(requisitionTable.id, workdayTable.requisitionId))
+			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
+			.innerJoin(
+				companyOfficeLocationTable,
+				eq(requisitionTable.locationId, companyOfficeLocationTable.id)
+			)
+			.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
+			.leftJoin(timeSheetTable, eq(timeSheetTable.id, workdayTable.timesheetId))
+			.where(eq(workdayTable.candidateId, candidateProfile.id));
+
+		return json({ success: true, data: workdays }, { headers: corsHeaders });
+	} catch (err) {
+		console.error('Error in GET /api/external/getWorkdaysForCandidate:', err);
 		return json(
-			{ success: false, message: 'Candidate profile not found' },
-			{ status: 404, headers: corsHeaders }
+			{ success: false, message: 'An unexpected error occurred while loading shifts.' },
+			{ status: 500, headers: corsHeaders }
 		);
 	}
-
-	const workdays = await db
-		.select({
-			workday: { ...workdayTable },
-			recurrenceDay: { ...recurrenceDayTable },
-			requisition: {
-				...requisitionTable,
-				companyName: clientCompanyTable.companyName,
-				discipline: disciplineTable.name
-			},
-			location: {
-				name: companyOfficeLocationTable.name,
-				completeAddress: companyOfficeLocationTable.completeAddress
-			},
-			timesheet: { ...timeSheetTable }
-		})
-		.from(workdayTable)
-		.innerJoin(recurrenceDayTable, eq(recurrenceDayTable.id, workdayTable.recurrenceDayId))
-		.innerJoin(requisitionTable, eq(requisitionTable.id, workdayTable.requisitionId))
-		.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
-		.innerJoin(
-			companyOfficeLocationTable,
-			eq(requisitionTable.locationId, companyOfficeLocationTable.id)
-		)
-		.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
-		.leftJoin(workdayTable, eq(workdayTable.timesheetId, timeSheetTable.id))
-		.where(eq(workdayTable.candidateId, candidateProfile.id));
-
-	return json({ success: true, data: workdays }, { headers: corsHeaders });
 };

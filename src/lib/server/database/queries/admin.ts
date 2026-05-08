@@ -315,11 +315,15 @@ export async function getSupportTicketsPreview(limit: number) {
 }
 
 const getWagesDueCount = async () => {
+	// Use the canonical `wages_status` column on the timesheet — same source
+	// of truth the /timesheets page's "Wages Due" tab counts against. The
+	// previous implementation joined invoice status, which excluded any
+	// timesheet whose invoice hadn't been created yet (or was in a non-'open'
+	// state) and produced an undercount.
 	const [result] = await db
 		.select({ count: count() })
 		.from(timeSheetTable)
-		.innerJoin(invoiceTable, eq(invoiceTable.timesheetId, timeSheetTable.id))
-		.where(and(eq(timeSheetTable.status, 'APPROVED'), eq(invoiceTable.status, 'open')));
+		.where(eq(timeSheetTable.wagesStatus, 'WAGES_DUE'));
 
 	return result.count;
 };
@@ -450,10 +454,14 @@ export async function getNewCandidateSignupsPreview(limit: number) {
 }
 
 export async function getTimesheetsDueCount() {
+	// "Timesheets Due" = anything not yet finalized that needs attention.
+	// DISCREPANCY has its own dashboard widget (see getDiscrepanciesForAdminDashboard);
+	// APPROVED/REJECTED/VOID are terminal. That leaves DRAFT (candidate hasn't
+	// submitted yet) and PENDING (submitted, awaiting admin review).
 	const [result] = await db
 		.select({ count: count() })
 		.from(timeSheetTable)
-		.where(eq(timeSheetTable.status, 'PENDING'));
+		.where(inArray(timeSheetTable.status, ['DRAFT', 'PENDING']));
 
 	return result.count;
 }
