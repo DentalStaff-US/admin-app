@@ -48,6 +48,7 @@ export const GET: RequestHandler = async ({ request }) => {
 					id: requisitionTable.id,
 					title: requisitionTable.title,
 					status: requisitionTable.status,
+					referenceTimezone: requisitionTable.referenceTimezone,
 					disciplineName: disciplineTable.name
 				},
 				company: {

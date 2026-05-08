@@ -11,11 +11,13 @@ import {
 	recurrenceDayTable,
 	timeSheetTable
 } from '$lib/server/database/schemas/requisition';
+import { experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { and, eq } from 'drizzle-orm';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { notifyWorkdayClaimed } from '$lib/server/notifications/transactional';
 import { getClientIdByCompanyId } from '$lib/server/database/queries/clients';
+import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': CANDIDATE_APP_DOMAIN,
@@ -89,14 +91,20 @@ export const POST: RequestHandler = async ({ request }) => {
 					};
 				}
 
-				// Verify requisition exists and is active
+				// Verify requisition exists and is active. LeftJoin experience_levels
+				// so we can read the required order for the qualification check.
 				const [recurrenceDay] = await tx
 					.select({
 						requisition: { ...requisitionTable },
-						recurrenceDay: { ...recurrenceDayTable }
+						recurrenceDay: { ...recurrenceDayTable },
+						experienceLevelOrder: experienceLevelTable.order
 					})
 					.from(recurrenceDayTable)
 					.innerJoin(requisitionTable, eq(recurrenceDayTable.requisitionId, requisitionTable.id))
+					.leftJoin(
+						experienceLevelTable,
+						eq(experienceLevelTable.id, requisitionTable.experienceLevelId)
+					)
 					.where(
 						and(eq(recurrenceDayTable.id, recurrenceDayId), eq(requisitionTable.status, 'OPEN'))
 					)
@@ -140,23 +148,35 @@ export const POST: RequestHandler = async ({ request }) => {
 					};
 				}
 
+				// Defense-in-depth qualification gate: discipline + experience +
+				// rate, mirroring the listing post-filter and the matching engine.
 				const disciplines = await tx
-					.select()
+					.select({
+						disciplineId: candidateDisciplineExperienceTable.disciplineId,
+						experienceLevelOrder: experienceLevelTable.order,
+						preferredHourlyMin: candidateDisciplineExperienceTable.preferredHourlyMin,
+						preferredHourlyMax: candidateDisciplineExperienceTable.preferredHourlyMax
+					})
 					.from(candidateDisciplineExperienceTable)
+					.leftJoin(
+						experienceLevelTable,
+						eq(experienceLevelTable.id, candidateDisciplineExperienceTable.experienceLevelId)
+					)
 					.where(eq(candidateDisciplineExperienceTable.candidateId, candidateProfile.id));
 
-				// Check if Candidate is qualified for this workday
-				if (
-					!disciplines.some(
-						(disc) => disc.disciplineId === recurrenceDay.requisition.disciplineId
-					)
-				) {
+				const qualification = checkCandidateQualified(disciplines, {
+					disciplineId: recurrenceDay.requisition.disciplineId,
+					experienceLevelOrder: recurrenceDay.experienceLevelOrder,
+					hourlyRate: recurrenceDay.requisition.hourlyRate
+				});
+				if (!qualification.qualified) {
 					return {
 						kind: 'response',
 						response: json(
 							{
 								success: false,
-								message: 'You do not have the required discipline experience for this position'
+								message: qualification.message,
+								reason: qualification.reason
 							},
 							{ status: 403, headers: corsHeaders }
 						)

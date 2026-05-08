@@ -212,35 +212,19 @@
 				const dateKey = entry.date;
 
 				const startTime = entry.startTime
-					? new Date(entry.startTime).toLocaleTimeString('en-US', {
-							hour12: false,
-							hour: '2-digit',
-							minute: '2-digit'
-						})
+					? formatInTimeZone(new Date(entry.startTime), reqTimezone, 'HH:mm')
 					: '';
 
 				const endTime = entry.endTime
-					? new Date(entry.endTime).toLocaleTimeString('en-US', {
-							hour12: false,
-							hour: '2-digit',
-							minute: '2-digit'
-						})
+					? formatInTimeZone(new Date(entry.endTime), reqTimezone, 'HH:mm')
 					: '';
 
 				const lunchStartTime = entry.lunchStartTime
-					? new Date(entry.lunchStartTime).toLocaleTimeString('en-US', {
-							hour12: false,
-							hour: '2-digit',
-							minute: '2-digit'
-						})
+					? formatInTimeZone(new Date(entry.lunchStartTime), reqTimezone, 'HH:mm')
 					: '';
 
 				const lunchEndTime = entry.lunchEndTime
-					? new Date(entry.lunchEndTime).toLocaleTimeString('en-US', {
-							hour12: false,
-							hour: '2-digit',
-							minute: '2-digit'
-						})
+					? formatInTimeZone(new Date(entry.lunchEndTime), reqTimezone, 'HH:mm')
 					: '';
 
 				if (timeEntries[dateKey]) {

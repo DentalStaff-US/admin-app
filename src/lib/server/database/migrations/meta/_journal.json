@@ -232,6 +232,13 @@
       "when": 1777673592740,
       "tag": "0032_military_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1778457600000,
+      "tag": "0033_sync_geom_and_backfill_puid",
+      "breakpoints": true
     }
   ]
 }

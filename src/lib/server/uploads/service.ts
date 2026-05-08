@@ -8,8 +8,15 @@ export type FileType = {
 	buffer: Buffer;
 };
 
+// Replace characters that have semantic meaning in URLs (#, ?, &, %) with `_`
+// so the resulting public URL doesn't get truncated at a fragment/query
+// boundary. S3 accepts these characters in keys, but browsers will not send
+// anything after `#` to the server, so a download link breaks silently.
+const sanitizeFileName = (name: string) => name.replace(/[#?&%]/g, '_');
+
 export const uploadFile = async ({ file, location }: { file: FileType; location?: string }) => {
-	const key = `${location ? `${location}/` : ''}${file.fileName}`;
+	const safeName = sanitizeFileName(file.fileName);
+	const key = `${location ? `${location}/` : ''}${safeName}`;
 	const uploadParams: PutObjectCommandInput = {
 		Bucket: BUCKET_NAME,
 		Key: key,
@@ -35,7 +42,8 @@ export const uploadPrivateFile = async ({
 	file: FileType;
 	location?: string;
 }) => {
-	const key = `${location ? `${location}/` : ''}${file.fileName}`;
+	const safeName = sanitizeFileName(file.fileName);
+	const key = `${location ? `${location}/` : ''}${safeName}`;
 	const uploadParams: PutObjectCommandInput = {
 		Bucket: BUCKET_NAME,
 		Key: key,

@@ -38,9 +38,12 @@ export const GET: RequestHandler = async ({ request }) => {
 			);
 		}
 
-		// Fetch candidate's disciplines
+		// Fetch candidate's disciplines. Permanent listings are exploratory
+		// (job-board style) — we only filter by discipline (and location/status
+		// in the SQL below). Experience level + rate are NOT enforced for
+		// permanent; admins review applicants individually.
 		const candidateDisciplines = await db
-			.select()
+			.select({ disciplineId: candidateDisciplineExperienceTable.disciplineId })
 			.from(candidateDisciplineExperienceTable)
 			.where(eq(candidateDisciplineExperienceTable.candidateId, candidate.id));
 
@@ -86,9 +89,11 @@ export const GET: RequestHandler = async ({ request }) => {
 			});
 		}
 
-		// Fetch requisitions for nearby office locations
-		const requisitions = await // Order by distance (closest first)
-		db
+		// Fetch requisitions for nearby office locations. Filters: location
+		// (within radius), status OPEN, not archived, permanent only,
+		// discipline matches one of the candidate's. Experience level and
+		// rate range are intentionally NOT applied here — see comment above.
+		const requisitions = await db
 			.select({
 				id: requisitionTable.id,
 				title: requisitionTable.title,
@@ -128,7 +133,8 @@ export const GET: RequestHandler = async ({ request }) => {
 						candidateDisciplines.map((d) => d.disciplineId)
 					)
 				)
-			).orderBy(sql`ST_Distance(
+			)
+			.orderBy(sql`ST_Distance(
         ${companyOfficeLocationTable.geom}::geography,
         ST_SetSRID(ST_MakePoint(${candidate.lon}::float, ${candidate.lat}::float), 4326)::geography
       )`);

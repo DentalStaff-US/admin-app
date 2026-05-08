@@ -17,6 +17,7 @@ import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { eq, and, inArray, notInArray, or, isNull, isNotNull, sql, gte, lte } from 'drizzle-orm';
 import { METERS_PER_MILE, RADIUS_METERS, RADIUS_MILES } from '$lib/config/constants';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
+import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const user = await authenticateUser(request);
@@ -156,6 +157,7 @@ export const GET: RequestHandler = async ({ request }) => {
 					disciplineId: requisitionTable.disciplineId,
 					experienceLevelId: requisitionTable.experienceLevelId,
 					permanentPosition: requisitionTable.permanentPosition,
+					referenceTimezone: requisitionTable.referenceTimezone,
 					disciplineName: disciplineTable.name,
 					experienceLevelName: experienceLevelTable.value,
 					experienceLevelOrder: experienceLevelTable.order
@@ -202,8 +204,8 @@ export const GET: RequestHandler = async ({ request }) => {
 			.where(
 				and(
 					inArray(requisitionTable.locationId, officeLocationIds),
-					notInArray(recurrenceDayTable.status, ['CANCELED']),
-					notInArray(requisitionTable.status, ['CANCELED']),
+					notInArray(recurrenceDayTable.status, ['CANCELED', 'UNFULFILLED', 'FILLED']),
+					eq(requisitionTable.status, 'OPEN'),
 					eq(requisitionTable.archived, false),
 					eq(requisitionTable.permanentPosition, false),
 					// Filter by candidate's disciplines
@@ -224,30 +226,19 @@ export const GET: RequestHandler = async ({ request }) => {
 				recurrenceDayTable.date
 			);
 
-		// In-memory filter: reductive experience-level + per-discipline hourly rate.
-		// A shift with NULL experienceLevelId ("No Preference") matches any candidate
-		// who has the required discipline. Otherwise the candidate's experience level
-		// for that discipline must have an order >= the requisition's required order.
-		const filteredRecurrenceDays = recurrenceDays.filter((shift) => {
-			const requiredOrder = shift.requisition.experienceLevelOrder;
-
-			const matchingDiscipline = candidateDisciplines.find((d) => {
-				if (d.disciplineId !== shift.requisition.disciplineId) return false;
-				if (requiredOrder === null || requiredOrder === undefined) return true;
-				return d.experienceLevelOrder >= requiredOrder;
-			});
-
-			if (!matchingDiscipline) {
-				return false;
-			}
-
-			// Check if the shift's hourly rate falls within the candidate's preferred range
-			const shiftRate = shift.requisition.hourlyRate || 0;
-			return (
-				shiftRate >= matchingDiscipline.preferredHourlyMin &&
-				shiftRate <= matchingDiscipline.preferredHourlyMax
-			);
-		});
+		// In-memory filter via the shared qualification predicate. Coerce a
+		// null `hourlyRate` to 0 to preserve the prior behavior of this
+		// endpoint (a malformed shift with no rate would still match a
+		// candidate whose preferred minimum is 0). The apply gates use the
+		// helper without coercion and reject null rates outright.
+		const filteredRecurrenceDays = recurrenceDays.filter(
+			(shift) =>
+				checkCandidateQualified(candidateDisciplines, {
+					disciplineId: shift.requisition.disciplineId,
+					experienceLevelOrder: shift.requisition.experienceLevelOrder,
+					hourlyRate: shift.requisition.hourlyRate ?? 0
+				}).qualified
+		);
 
 		return json({
 			candidateLocation: {

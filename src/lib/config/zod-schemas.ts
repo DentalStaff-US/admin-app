@@ -277,8 +277,8 @@ export const newSupportTicketSchema = z.object({
 export type NewSupportTicketSchema = typeof newSupportTicketSchema;
 
 export const newCandidateProfileSchema = z.object({
-	hourlyRateMin: z.number().optional(),
-	hourlyRateMax: z.number().optional(),
+	hourlyRateMin: z.number().nullable().optional(),
+	hourlyRateMax: z.number().nullable().optional(),
 	cellPhone: usPhoneField().nullable().optional(),
 	citizenship: z.string().optional(),
 	birthday: z.string().optional(),
@@ -292,8 +292,8 @@ export const updateCandidateProfileSchema = z.object({
 	firstName: z.string().optional(),
 	lastName: z.string().optional(),
 	email: z.string().email('Invalid email address').optional(),
-	hourlyRateMin: z.number().optional(),
-	hourlyRateMax: z.number().optional(),
+	hourlyRateMin: z.number().nullable().optional(),
+	hourlyRateMax: z.number().nullable().optional(),
 	cellPhone: usPhoneField().nullable().optional(),
 	citizenship: z.string().optional(),
 	birthday: z.string().optional(),
