@@ -1317,7 +1317,14 @@ export async function getRecurrenceDaysForTimesheet(
 		})
 		.from(recurrenceDayTable)
 		.innerJoin(workdayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
-		.where(eq(workdayTable.timesheetId, timesheetId))
+		.where(
+			and(
+				eq(workdayTable.timesheetId, timesheetId),
+				// Cancelled workdays are kept in the DB for visibility on the
+				// candidate calendar but must not count toward timesheet hours.
+				isNull(workdayTable.cancelledAt)
+			)
+		)
 		.orderBy(asc(recurrenceDayTable.date));
 }
 
@@ -1471,7 +1478,14 @@ export async function getWorkdaysForTimesheet(timesheet: any) {
 		})
 		.from(workdayTable)
 		.innerJoin(recurrenceDayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
-		.where(eq(workdayTable.timesheetId, timesheet.timeSheetId))
+		.where(
+			and(
+				eq(workdayTable.timesheetId, timesheet.timeSheetId),
+				// Skip cancelled workdays — they remain visible on the candidate
+				// calendar but should not surface as hour entries.
+				isNull(workdayTable.cancelledAt)
+			)
+		)
 		.orderBy(recurrenceDayTable.date);
 
 	return workdays;

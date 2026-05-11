@@ -341,8 +341,60 @@ export const workdayTable = pgTable('workdays', {
 		onDelete: 'cascade',
 		onUpdate: 'cascade'
 	}),
-	timesheetId: text('timesheet_id').references(() => timeSheetTable.id, { onDelete: 'set null' })
+	timesheetId: text('timesheet_id').references(() => timeSheetTable.id, { onDelete: 'set null' }),
+	// Non-null when an admin/client cancelled this workday. Candidate cancellations
+	// delete the workday row instead (their recurrence day goes back to OPEN); this
+	// column flags admin-side cancellations so the candidate calendar can still
+	// surface "your shift was cancelled" days, and so timesheet reads can exclude
+	// cancelled rows from hour totals.
+	cancelledAt: timestamp('cancelled_at', { withTimezone: true, mode: 'date' })
 });
+
+// Audit log for every cancellation of a recurrence-day-level shift, regardless
+// of who cancelled it. Lets us answer "how many times has this candidate
+// cancelled in the last 30 days?" and "how close to shift start was it?" for
+// future penalty rules.
+export const recurrenceDayCancellationByRoleEnum = pgEnum('recurrence_day_cancellation_by_role', [
+	'SUPERADMIN',
+	'CLIENT',
+	'CLIENT_STAFF',
+	'CANDIDATE'
+]);
+
+export const recurrenceDayCancellationTable = pgTable(
+	'recurrence_day_cancellations',
+	{
+		id: text('id').notNull().primaryKey(),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+		recurrenceDayId: text('recurrence_day_id')
+			.notNull()
+			.references(() => recurrenceDayTable.id, { onDelete: 'cascade' }),
+		requisitionId: integer('requisition_id')
+			.notNull()
+			.references(() => requisitionTable.id, { onDelete: 'cascade' }),
+		// Who pressed the cancel button.
+		cancelledByUserId: text('cancelled_by_user_id').notNull(),
+		cancelledByRole: recurrenceDayCancellationByRoleEnum('cancelled_by_role').notNull(),
+		// The candidate who lost (or gave up) the shift. Same as cancelledByUserId
+		// for candidate-initiated cancels; the assigned candidate for admin/client-
+		// initiated cancels; null when the shift was never claimed.
+		candidateId: text('candidate_id').references(() => candidateProfileTable.id, {
+			onDelete: 'set null'
+		}),
+		// Snapshots so penalty rules can read these without re-deriving from a
+		// recurrence-day row that may have been edited or cleared after the fact.
+		shiftStart: timestamp('shift_start', { withTimezone: true, mode: 'date' }).notNull(),
+		hoursBeforeShift: decimal('hours_before_shift'),
+		reason: text('reason')
+	},
+	(table) => [
+		index('rdc_candidate_idx').on(table.candidateId, table.createdAt),
+		index('rdc_recurrence_day_idx').on(table.recurrenceDayId)
+	]
+);
+
+export type RecurrenceDayCancellation = typeof recurrenceDayCancellationTable.$inferInsert;
+export type RecurrenceDayCancellationSelect = typeof recurrenceDayCancellationTable.$inferSelect;
 
 export const timesheetStatusEnum = pgEnum('timesheet_status', [
 	'DRAFT',

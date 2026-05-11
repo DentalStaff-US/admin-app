@@ -10,7 +10,7 @@ import {
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 
 export const GET: RequestHandler = async ({ params, request }) => {
 	const { id } = params;
@@ -72,7 +72,13 @@ export const GET: RequestHandler = async ({ params, request }) => {
 			.from(timeSheetTable)
 			.leftJoin(requisitionTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
 			.leftJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
-			.leftJoin(workdayTable, eq(workdayTable.timesheetId, timeSheetTable.id))
+			.leftJoin(
+				workdayTable,
+				and(
+					eq(workdayTable.timesheetId, timeSheetTable.id),
+					isNull(workdayTable.cancelledAt)
+				)
+			)
 			.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
 			.where(
 				and(

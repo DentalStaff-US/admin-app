@@ -23,6 +23,10 @@ import {
 	workdayTable,
 	timeSheetTable as timesheetTable
 } from '$lib/server/database/schemas/requisition';
+import {
+	maybeCleanupOrphanTimesheet,
+	recordRecurrenceDayCancellation
+} from '$lib/server/cancellations';
 import { and, eq } from 'drizzle-orm';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { editRecurrenceDaySchema } from '$lib/config/zod-schemas';
@@ -609,8 +613,8 @@ export const actions = {
 
 			const cancelledSnapshot = await db.transaction(async (tx) => {
 				// Capture the assigned candidate (if any) and the recurrence day
-				// times BEFORE we mark the day cancelled and drop the workday row,
-				// so the candidate-side notification has the data it needs.
+				// times BEFORE we change anything so the candidate-side
+				// notification has the data it needs.
 				const recurrenceDay = await tx
 					.select()
 					.from(recurrenceDayTable)
@@ -630,7 +634,36 @@ export const actions = {
 					.set({ status: 'CANCELED', updatedAt: new Date() })
 					.where(eq(recurrenceDayTable.id, recurrenceDayId));
 
-				await tx.delete(workdayTable).where(eq(workdayTable.recurrenceDayId, recurrenceDayId));
+				// Keep the workday row around (don't delete it). Marking it
+				// cancelled lets the candidate calendar surface the cancelled
+				// shift, while timesheet reads filter on `cancelledAt IS NULL`
+				// so the cancelled day won't count toward hours.
+				if (workday) {
+					await tx
+						.update(workdayTable)
+						.set({ cancelledAt: new Date(), updatedAt: new Date() })
+						.where(eq(workdayTable.id, workday.id));
+				}
+
+				// Audit row. Records WHO cancelled and WHEN, plus a snapshot of
+				// shift start + hours-before-shift for future penalty rules.
+				await recordRecurrenceDayCancellation(tx, {
+					recurrenceDayId,
+					requisitionId: recurrenceDay?.requisitionId ?? workday?.requisitionId ?? 0,
+					cancelledByUserId: user.id,
+					cancelledByRole: user.role as 'SUPERADMIN' | 'CLIENT' | 'CLIENT_STAFF',
+					candidateId: workday?.candidateId ?? null
+				});
+
+				// If this cancellation lands on Sunday (the last day of the
+				// Mon→Sun work week) and the timesheet has no other active
+				// workdays attached, sweep the now-empty DRAFT timesheet.
+				if (workday?.timesheetId && recurrenceDay?.date) {
+					await maybeCleanupOrphanTimesheet(tx, {
+						timesheetId: workday.timesheetId,
+						recurrenceDate: recurrenceDay.date
+					});
+				}
 
 				return { recurrenceDay: recurrenceDay ?? null, workday: workday ?? null };
 			});

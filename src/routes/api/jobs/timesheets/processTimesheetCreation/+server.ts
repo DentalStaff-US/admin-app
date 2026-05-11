@@ -28,6 +28,9 @@ export const GET: RequestHandler = async ({ request }) => {
 		// Find all workdays where:
 		// - timesheetId is null (not yet linked)
 		// - recurrenceDay.dayStart has passed
+		// - the workday hasn't been cancelled (admin/client-cancelled workdays
+		//   stay in the table for calendar visibility but must not get a
+		//   timesheet created against them)
 		const eligibleWorkdays = await db
 			.select({
 				workday: workdayTable,
@@ -39,7 +42,13 @@ export const GET: RequestHandler = async ({ request }) => {
 			.innerJoin(recurrenceDayTable, eq(recurrenceDayTable.id, workdayTable.recurrenceDayId))
 			.innerJoin(requisitionTable, eq(requisitionTable.id, workdayTable.requisitionId))
 			.innerJoin(candidateProfileTable, eq(candidateProfileTable.id, workdayTable.candidateId))
-			.where(and(isNull(workdayTable.timesheetId), lte(recurrenceDayTable.dayStart, now)));
+			.where(
+				and(
+					isNull(workdayTable.timesheetId),
+					isNull(workdayTable.cancelledAt),
+					lte(recurrenceDayTable.dayStart, now)
+				)
+			);
 
 		if (eligibleWorkdays.length === 0) {
 			return json({

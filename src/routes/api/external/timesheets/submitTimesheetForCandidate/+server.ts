@@ -167,32 +167,20 @@ export const POST: RequestHandler = async ({ request }) => {
 				afterState: result
 			});
 		} else {
-			console.log('No existing timesheet found, creating new one.');
-			// ✅ FALLBACK: Create new timesheet if draft doesn't exist
-			const timesheetData = {
-				id: crypto.randomUUID(),
-				createdAt: new Date(),
-				updatedAt: new Date(),
-				workdayId,
-				associatedCandidateId: candidateProfile.id,
-				associatedClientId: clientId,
-				requisitionId: requisition?.id,
-				weekBeginDate: weekStart,
-				totalHoursWorked: parsedBody.data.totalHours.toString(),
-				hoursRaw: formattedEntries,
-				status: 'PENDING' as const
-			};
-
-			[result] = await db.insert(timeSheetTable).values(timesheetData).returning();
-
-			await writeActionHistory({
-				action: 'CREATE',
-				userId: user.id,
-				entityId: result.id,
-				table: 'TIMESHEETS',
-				beforeState: {},
-				afterState: result
-			});
+			// Timesheet creation is owned exclusively by the
+			// processTimesheetCreation cron job. If there's no DRAFT/DISCREPANCY
+			// timesheet for this week, the cron either hasn't run yet (shift may
+			// still be upcoming) or this submission is for a shift that doesn't
+			// belong to the candidate. Either way, we refuse to create one here
+			// — surfaces a clear error rather than papering over a deeper bug.
+			return json(
+				{
+					success: false,
+					message:
+						'No timesheet is available to submit for this shift yet. Please try again after the shift has started.'
+				},
+				{ status: 409, headers: corsHeaders }
+			);
 		}
 
 		await writeActionHistory({

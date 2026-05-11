@@ -2,16 +2,15 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from '../$types';
 import db from '$lib/server/database/drizzle';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
-import {
-	requisitionTable,
-	workdayTable,
-	recurrenceDayTable,
-	timeSheetTable
-} from '$lib/server/database/schemas/requisition';
+import { workdayTable, recurrenceDayTable } from '$lib/server/database/schemas/requisition';
 import { authenticateUser } from '$lib/server/serverUtils';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import { notifyWorkdayReposted } from '$lib/server/notifications/transactional';
+import {
+	maybeCleanupOrphanTimesheet,
+	recordRecurrenceDayCancellation
+} from '$lib/server/cancellations';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -78,21 +77,51 @@ export const POST: RequestHandler = async ({ request, params }) => {
 						)
 					};
 				}
+
+				if (!existingWorkday.recurrenceDayId) {
+					return {
+						kind: 'response',
+						response: json(
+							{ success: false, message: 'Workday has no recurrence day attached' },
+							{ status: 409, headers: corsHeaders }
+						)
+					};
+				}
+
 				const timesheetId = existingWorkday.timesheetId;
 
+				// Audit row BEFORE we delete the workday — the helper needs to
+				// look up the recurrence day's shift start to snapshot it, and
+				// once the workday is gone we lose the only association.
+				await recordRecurrenceDayCancellation(tx, {
+					recurrenceDayId: existingWorkday.recurrenceDayId,
+					requisitionId: existingWorkday.requisitionId,
+					cancelledByUserId: user.id,
+					cancelledByRole: 'CANDIDATE',
+					candidateId: existingWorkday.candidateId
+				});
+
+				// Candidate cancels release the slot back to the pool, so the
+				// workday itself is deleted (vs the admin path which keeps it
+				// with a `cancelledAt` flag so the cancelled day stays visible).
 				await tx.delete(workdayTable).where(eq(workdayTable.id, existingWorkday.id));
 
+				// Empty-timesheet cleanup runs only on Sunday (last day of the
+				// Mon→Sun work week) so mid-week cancellations don't prematurely
+				// remove a timesheet other workdays could still attach to. Pull
+				// the recurrence day's date for the day-of-week check.
 				if (timesheetId) {
-					const remainingWorkdays = await tx
-						.select()
-						.from(workdayTable)
-						.where(eq(workdayTable.timesheetId, timesheetId))
+					const [recurrenceDay] = await tx
+						.select({ date: recurrenceDayTable.date })
+						.from(recurrenceDayTable)
+						.where(eq(recurrenceDayTable.id, existingWorkday.recurrenceDayId))
 						.limit(1);
 
-					if (remainingWorkdays.length === 0) {
-						await tx
-							.delete(timeSheetTable)
-							.where(and(eq(timeSheetTable.id, timesheetId), eq(timeSheetTable.status, 'DRAFT')));
+					if (recurrenceDay?.date) {
+						await maybeCleanupOrphanTimesheet(tx, {
+							timesheetId,
+							recurrenceDate: recurrenceDay.date
+						});
 					}
 				}
 
@@ -100,7 +129,7 @@ export const POST: RequestHandler = async ({ request, params }) => {
 				const [updatedRecurrenceDay] = await tx
 					.update(recurrenceDayTable)
 					.set({ status: 'OPEN' })
-					.where(eq(recurrenceDayTable.id, existingWorkday.recurrenceDayId as string))
+					.where(eq(recurrenceDayTable.id, existingWorkday.recurrenceDayId))
 					.returning();
 
 				return {

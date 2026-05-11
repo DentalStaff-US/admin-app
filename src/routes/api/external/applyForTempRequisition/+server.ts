@@ -8,15 +8,13 @@ import {
 import {
 	requisitionTable,
 	workdayTable,
-	recurrenceDayTable,
-	timeSheetTable
+	recurrenceDayTable
 } from '$lib/server/database/schemas/requisition';
 import { experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { and, eq } from 'drizzle-orm';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { notifyWorkdayClaimed } from '$lib/server/notifications/transactional';
-import { getClientIdByCompanyId } from '$lib/server/database/queries/clients';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
 
 const corsHeaders = {
@@ -120,8 +118,6 @@ export const POST: RequestHandler = async ({ request }) => {
 					};
 				}
 
-				const clientId = await getClientIdByCompanyId(recurrenceDay.requisition.companyId);
-
 				// Check if workday exists for this candidate and this recurrence day/requisition
 				const [existingWorkday] = await tx
 					.select()
@@ -196,42 +192,10 @@ export const POST: RequestHandler = async ({ request }) => {
 					})
 					.returning();
 
-				const weekStart = new Date(recurrenceDay.recurrenceDay.date);
-				// Set to beginning of week (Sunday)
-				const dayOfWeek = weekStart.getDay();
-				weekStart.setDate(weekStart.getDate() - dayOfWeek);
-				const weekStartStr = weekStart.toISOString().split('T')[0];
-
-				// Check if a draft timesheet already exists for this week
-				const [existingTimesheet] = await tx
-					.select()
-					.from(timeSheetTable)
-					.where(
-						and(
-							eq(timeSheetTable.associatedCandidateId, candidateProfile.id),
-							eq(timeSheetTable.weekBeginDate, weekStartStr),
-							eq(timeSheetTable.requisitionId, recurrenceDay.requisition.id)
-						)
-					)
-					.limit(1);
-
-				if (!existingTimesheet) {
-					// Create a new DRAFT timesheet for this week
-					await tx.insert(timeSheetTable).values({
-						id: crypto.randomUUID(),
-						createdAt: new Date(),
-						updatedAt: new Date(),
-						associatedCandidateId: candidateProfile.id,
-						associatedClientId: clientId,
-						requisitionId: recurrenceDay.requisition.id,
-						weekBeginDate: weekStartStr,
-						totalHoursWorked: '0',
-						hoursRaw: [],
-						status: 'DRAFT',
-						validated: false,
-						awaitingClientSignature: false
-					});
-				}
+				// Timesheet creation is owned exclusively by the
+				// processTimesheetCreation cron job. The old Sunday-based
+				// week calculation here was the source of week-boundary drift
+				// vs the cron (which uses Monday in the requisition's tz).
 
 				// Change Status of the recurrence day
 				await tx
