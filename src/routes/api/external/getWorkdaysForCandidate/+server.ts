@@ -58,7 +58,19 @@ export const GET: RequestHandler = async ({ request }) => {
 				requisition: {
 					...requisitionTable,
 					companyName: clientCompanyTable.companyName,
-					discipline: disciplineTable.name
+					// `discipline` is the legacy alias; `disciplineName` matches the
+					// pattern used by every other requisition-returning endpoint.
+					// Both are populated so existing consumers don't break.
+					discipline: disciplineTable.name,
+					disciplineName: disciplineTable.name
+				},
+				// Expose the company at the top level so consumers (e.g. the
+				// calendar event factory) can render the logo/name without
+				// having to also call getCompanyDetails.
+				company: {
+					id: clientCompanyTable.id,
+					name: clientCompanyTable.companyName,
+					logo: clientCompanyTable.companyLogo
 				},
 				location: {
 					name: companyOfficeLocationTable.name,

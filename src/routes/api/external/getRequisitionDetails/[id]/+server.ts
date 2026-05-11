@@ -4,6 +4,7 @@ import {
 	clientCompanyTable
 } from '$lib/server/database/schemas/client';
 import { requisitionTable } from '$lib/server/database/schemas/requisition';
+import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { eq, and } from 'drizzle-orm';
 
@@ -20,7 +21,11 @@ export const GET: RequestHandler = async ({ params }) => {
 		const requisition = await db
 			.select({
 				id: requisitionTable.id,
+				// `title` is a deprecated column; new code should display
+				// `disciplineName` instead. Kept here for any downstream
+				// consumer still reading it.
 				title: requisitionTable.title,
+				disciplineName: disciplineTable.name,
 				status: requisitionTable.status,
 				jobDescription: requisitionTable.jobDescription,
 				specialInstructions: requisitionTable.specialInstructions,
@@ -42,6 +47,7 @@ export const GET: RequestHandler = async ({ params }) => {
 				companyOfficeLocationTable,
 				eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 			)
+			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
 			.where(
 				and(
 					eq(requisitionTable.id, numId),
