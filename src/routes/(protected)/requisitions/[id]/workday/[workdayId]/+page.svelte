@@ -9,6 +9,7 @@
 	} from '$lib/components/ui/card';
 	import { Separator } from '$lib/components/ui/separator';
 	import { Badge } from '$lib/components/ui/badge';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import {
 		Dialog,
 		DialogContent,
@@ -89,17 +90,6 @@
 		}
 	});
 
-	const getStatusColor = (status: string | undefined) => {
-		if (!status) return 'bg-gray-500';
-		const statusColors: Record<string, string> = {
-			OPEN: 'bg-blue-500',
-			FILLED: 'bg-green-500',
-			UNFULFILLED: 'bg-yellow-500',
-			CANCELED: 'bg-red-500',
-			PENDING: 'bg-purple-500'
-		};
-		return statusColors[status] || 'bg-gray-500';
-	};
 </script>
 
 <section class="grow h-screen overflow-y-auto p-6 flex flex-col gap-6 container mx-auto">
@@ -184,6 +174,7 @@
 				<CardHeader class="flex flex-row items-center justify-between">
 					<CardTitle>Professional:</CardTitle>
 					<!-- Reassign / Unassign menu (replaces the Assign button when someone is assigned) -->
+					{#if isAdmin}
 					<DropdownMenu>
 						<DropdownMenuTrigger>
 							<Button variant="outline" size="sm" class="gap-1">
@@ -203,6 +194,7 @@
 							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
+					{/if}
 				</CardHeader>
 				<CardContent>
 					<div class="flex items-center gap-4 mb-4">
@@ -236,7 +228,7 @@
 			<Card>
 				<CardHeader class="flex flex-row justify-between items-center">
 					<CardTitle>Professional:</CardTitle>
-					{#if !candidate && recurrenceDay?.recurrenceDay?.status === 'OPEN'}
+					{#if !candidate && recurrenceDay?.recurrenceDay?.status === 'OPEN' && isAdmin}
 						<Button
 							class="gap-2 bg-[#2a93d1] hover:bg-blue-500"
 							on:click={() => (assignDialogOpen = true)}
@@ -426,10 +418,7 @@
 
 						<div class="flex items-center justify-between mt-4">
 							<span class="font-medium">Status:</span>
-							<Badge
-								class={getStatusColor(recurrenceDay?.recurrenceDay?.status)}
-								value={recurrenceDay?.recurrenceDay?.status}
-							/>
+							<StatusBadge status={recurrenceDay?.recurrenceDay?.status} />
 						</div>
 					</div>
 				{/if}
@@ -464,7 +453,7 @@
 						</div>
 						<div class="flex justify-between">
 							<span class="font-medium">Experience Level:</span>
-							<span>{recurrenceDay?.requisition.experienceLevelName}</span>
+							<span>{recurrenceDay?.requisition.experienceLevelName ?? 'No Preference'}</span>
 						</div>
 						<div class="flex justify-between items-center">
 							<span class="font-medium">Hourly Rate:</span>
@@ -495,10 +484,7 @@
 					{/if}
 					<div class="flex items-center justify-between mt-4">
 						<span class="font-medium">Status:</span>
-						<Badge
-							class={getStatusColor(recurrenceDay?.requisition.status)}
-							value={recurrenceDay?.requisition.status}
-						/>
+						<StatusBadge status={recurrenceDay?.requisition.status} />
 					</div>
 				</div>
 			</CardContent>

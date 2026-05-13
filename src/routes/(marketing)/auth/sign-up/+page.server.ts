@@ -19,6 +19,7 @@ import { getClientIdByCompanyId } from '$lib/server/database/queries/clients.js'
 import type { PageServerLoad, RequestEvent } from './$types';
 import { getUserTimezone } from '$lib/_helpers/UTCTimezoneUtils';
 import { USER_ROLES } from '$lib/config/constants';
+import { getPostHogClient } from '$lib/server/posthog';
 
 const signUpSchema = userSchema.pick({
 	firstName: true,
@@ -185,6 +186,18 @@ export const actions = {
 				if (adminInviteCookie) {
 					event.cookies.delete('admin_invite', { path: '/' });
 				}
+
+				const posthog = getPostHogClient();
+				posthog.capture({
+					distinctId: newUser.id,
+					event: 'user_signed_up',
+					properties: {
+						role: user.role,
+						via_invite: Boolean(inviteData),
+						invited_role: inviteData?.invitedRole ?? null,
+						$set: { role: user.role }
+					}
+				});
 
 				// Set appropriate flash message
 				if (inviteData) {

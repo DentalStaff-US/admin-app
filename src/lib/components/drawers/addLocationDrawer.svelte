@@ -2,6 +2,7 @@
 	import * as Sheet from '$lib/components/ui/sheet/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
+	import PhoneInput from '$lib/components/PhoneInput.svelte';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import * as Select from '$lib/components/ui/select/index.js';
 	import { Checkbox } from '../ui/checkbox';
@@ -101,7 +102,7 @@
 					</div>
 					<div>
 						<Label>Office Phone Number</Label>
-						<Input name="companyPhone" bind:value={$formData.companyPhone} />
+						<PhoneInput name="companyPhone" bind:value={$formData.companyPhone} />
 					</div>
 					<div>
 						<Label>Office Email Address</Label>

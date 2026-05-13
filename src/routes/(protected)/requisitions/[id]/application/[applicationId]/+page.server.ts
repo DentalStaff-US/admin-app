@@ -15,6 +15,7 @@ import {
 	getClientProfilebyUserId
 } from '$lib/server/database/queries/clients';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
+import { getPostHogClient } from '$lib/server/posthog';
 
 export const load: PageServerLoad = async (event) => {
 	const { id, applicationId } = event.params;
@@ -108,6 +109,16 @@ export const actions = {
 		});
 		if (conversationId) {
 			setFlash({ type: 'success', message: 'Starting new conversation.' }, event);
+			const posthog = getPostHogClient();
+			posthog.capture({
+				distinctId: user!.id,
+				event: 'application_conversation_started',
+				properties: {
+					application_id: applicationId,
+					requisition_id: id,
+					conversation_id: conversationId
+				}
+			});
 			return redirect(302, `/inbox/${conversationId}`);
 		}
 	},
@@ -122,6 +133,15 @@ export const actions = {
 		try {
 			await approveApplication(applicationId, user.id);
 			setFlash({ type: 'success', message: 'Application approved successfully.' }, event);
+			const posthog = getPostHogClient();
+			posthog.capture({
+				distinctId: user.id,
+				event: 'application_approved',
+				properties: {
+					application_id: applicationId,
+					requisition_id: id
+				}
+			});
 		} catch (error) {
 			console.error('Error approving application:', error);
 			setFlash({ type: 'error', message: 'Error approving application. Please try again.' }, event);

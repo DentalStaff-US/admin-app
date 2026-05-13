@@ -9,11 +9,13 @@ import {
 	primaryKey,
 	uuid,
 	decimal,
-	customType
+	customType,
+	integer
 } from 'drizzle-orm/pg-core';
 import { userTable } from './auth';
 import { disciplineTable, experienceLevelTable } from './skill';
 import { clientCompanyTable } from './client';
+import { sql } from 'drizzle-orm';
 
 export const candidateStatusEnum = pgEnum('candidate_status', ['INACTIVE', 'PENDING', 'ACTIVE']);
 const geometry = customType<{ data: string; notNull: false; default: false }>({
@@ -55,7 +57,11 @@ export const candidateProfileTable = pgTable('candidate_profiles', {
 	completeAddress: text('complete_address'),
 	lat: decimal('lat'),
 	lon: decimal('lon'),
-	geom: geometry('geom')
+	geom: geometry('geom'),
+	puid: integer('puid')
+		.notNull()
+		.unique()
+		.default(sql`nextval('puid_seq')`)
 });
 
 export const candidateRatingTable = pgTable('candidate_ratings', {

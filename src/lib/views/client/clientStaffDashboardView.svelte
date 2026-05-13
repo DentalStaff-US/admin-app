@@ -7,6 +7,7 @@
 	import { formatCurrency, formatDate, formatTicketDate } from '$lib/_helpers';
 	import NewSupportTicketDialog from '$lib/components/dialogs/newSupportTicketDialog.svelte';
 	import { Badge } from '$lib/components/ui/badge';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import { cn } from '$lib/utils';
 
 	export let user;
@@ -104,16 +105,7 @@
 									<Table.Cell>{req.title}</Table.Cell>
 									<Table.Cell>{formatDate(req.createdAt)}</Table.Cell>
 									<Table.Cell>
-										<Badge
-											class={cn(
-												req.status === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-												req.status === 'OPEN' && 'bg-blue-500 hover:bg-blue-600',
-												req.status === 'FILLED' && 'bg-green-400 hover:bg-bg-green-500',
-												req.status === 'UNFULFILLED' && 'bg-orange-400 hover:bg-orange-500',
-												req.status === 'CANCELED' && 'bg-red-500 hover:bg-red-600'
-											)}
-											value={req.status}
-										/>
+										<StatusBadge status={req.status} />
 									</Table.Cell>
 									<Table.Cell class="text-right">{formatCurrency(req.hourlyRate)}</Table.Cell>
 									<Table.Cell>
@@ -157,14 +149,7 @@
 									</Table.Cell>
 
 									<Table.Cell>
-										<Badge
-											value={supportTicket.status}
-											class={cn(
-												supportTicket.status === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-												supportTicket.status === 'NEW' && 'bg-green-400 hover:bg-bg-green-500',
-												supportTicket.status === 'CLOSED' && 'bg-red-500 hover:bg-red-600'
-											)}
-										/>
+										<StatusBadge status={supportTicket.status} />
 									</Table.Cell>
 									<Table.Cell>
 										<span class="text-gray-500">
@@ -214,14 +199,7 @@
 										<p>{user.firstName} {user.lastName}</p>
 									</Table.Cell>
 									<Table.Cell>
-										<Badge
-											value={timesheet.status}
-											class={cn(
-												timesheet.status === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-												timesheet.status === 'NEW' && 'bg-green-400 hover:bg-bg-green-500',
-												timesheet.status === 'CLOSED' && 'bg-red-500 hover:bg-red-600'
-											)}
-										/>
+										<StatusBadge status={timesheet.status} />
 									</Table.Cell>
 									<Table.Cell>
 										<span class="text-gray-500">
@@ -267,14 +245,7 @@
 										<p>{user.firstName} {user.lastName}</p>
 									</Table.Cell>
 									<Table.Cell>
-										<Badge
-											value={application.status}
-											class={cn(
-												application.status === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-												application.status === 'NEW' && 'bg-green-400 hover:bg-bg-green-500',
-												application.status === 'CLOSED' && 'bg-red-500 hover:bg-red-600'
-											)}
-										/>
+										<StatusBadge status={application.status} />
 									</Table.Cell>
 									<Table.Cell>
 										<span class="text-gray-500">

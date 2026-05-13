@@ -3,9 +3,7 @@ import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { clientCompanyTable } from '$lib/server/database/schemas/client';
 import {
 	timeSheetTable,
-	requisitionTable,
-	workdayTable,
-	recurrenceDayTable
+	requisitionTable
 } from '$lib/server/database/schemas/requisition';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
@@ -48,6 +46,7 @@ export const GET: RequestHandler = async ({ request }) => {
 					id: requisitionTable.id,
 					title: requisitionTable.title,
 					status: requisitionTable.status,
+					referenceTimezone: requisitionTable.referenceTimezone,
 					disciplineName: disciplineTable.name
 				},
 				company: {

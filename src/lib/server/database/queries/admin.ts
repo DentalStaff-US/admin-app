@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { sql, count, eq, desc, lt, and, ne, ilike, or } from 'drizzle-orm';
+import { sql, count, eq, desc, lt, and, ne, ilike, or, sum } from 'drizzle-orm';
 import db from '../drizzle';
 import { userTable, type UpdateUser, type User } from '$lib/server/database/schemas/auth';
 import { DEFAULT_MAX_RECORD_LIMIT, USER_ROLES } from '$lib/config/constants';
@@ -314,6 +314,20 @@ export async function getSupportTicketsPreview(limit: number) {
 	return result;
 }
 
+const getWagesDueCount = async () => {
+	// Use the canonical `wages_status` column on the timesheet — same source
+	// of truth the /timesheets page's "Wages Due" tab counts against. The
+	// previous implementation joined invoice status, which excluded any
+	// timesheet whose invoice hadn't been created yet (or was in a non-'open'
+	// state) and produced an undercount.
+	const [result] = await db
+		.select({ count: count() })
+		.from(timeSheetTable)
+		.where(eq(timeSheetTable.wagesStatus, 'WAGES_DUE'));
+
+	return result.count;
+};
+
 export async function getRequisitionsPreviewAdmin(limit: number, offset: number = 0) {
 	// First: get paginated requisition IDs only
 	const paginatedRequisitions = await db
@@ -440,10 +454,14 @@ export async function getNewCandidateSignupsPreview(limit: number) {
 }
 
 export async function getTimesheetsDueCount() {
+	// "Timesheets Due" = anything not yet finalized that needs attention.
+	// DISCREPANCY has its own dashboard widget (see getDiscrepanciesForAdminDashboard);
+	// APPROVED/REJECTED/VOID are terminal. That leaves DRAFT (candidate hasn't
+	// submitted yet) and PENDING (submitted, awaiting admin review).
 	const [result] = await db
 		.select({ count: count() })
 		.from(timeSheetTable)
-		.where(eq(timeSheetTable.status, 'PENDING'));
+		.where(inArray(timeSheetTable.status, ['DRAFT', 'PENDING']));
 
 	return result.count;
 }
@@ -452,7 +470,7 @@ export async function getInvoicesDueCount() {
 	const [result] = await db
 		.select({ count: count() })
 		.from(invoiceTable)
-		.where(lt(invoiceTable.dueDate, new Date()));
+		.where(and(lt(invoiceTable.dueDate, new Date()), eq(invoiceTable.status, 'open')));
 
 	return result.count;
 }
@@ -544,7 +562,8 @@ export async function getAdminDashboardData() {
 		newClientSignups,
 		invoicesDueCount,
 		invoicesDue,
-		requisitions
+		requisitions,
+		wagesDueCount
 	] = await Promise.all([
 		getTimesheetsDueCount().catch((e) => {
 			console.error('❌ getTimesheetsDueCount failed:', e.message);
@@ -581,6 +600,10 @@ export async function getAdminDashboardData() {
 		getRequisitionsPreviewAdmin(10).catch((e) => {
 			console.error('❌ getRequisitionsPreviewAdmin failed:', e.message);
 			return [];
+		}),
+		getWagesDueCount().catch((e) => {
+			console.error('❌ getWagesDueCount failed:', e.message);
+			return 0;
 		})
 	]);
 
@@ -593,7 +616,8 @@ export async function getAdminDashboardData() {
 		newClientSignups,
 		invoicesDueCount,
 		invoicesDue,
-		requisitions
+		requisitions,
+		wagesDueCount
 	};
 }
 

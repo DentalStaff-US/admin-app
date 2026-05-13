@@ -38,6 +38,7 @@
 	} from '@tanstack/svelte-table';
 	import ViewLink from '$lib/components/tables/ViewLink.svelte';
 	import { Badge } from '$lib/components/ui/badge';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import type {
 		ApplicationResults,
 		TimeSheetResults
@@ -110,19 +111,9 @@
 	$: {
 		recurrenceDaysOptions.update((o) => ({ ...o, data: filteredRecurrenceDays }));
 	}
-	$: sortedExperienceLevels = [...experienceLevels].sort((a, b) => {
-		const priorityMap = {
-			'No Preference': 1,
-			'0-2 Years': 2,
-			'3-9 Years': 4,
-			'10 years and Over': 5
-		};
-
-		const priorityA = priorityMap[a.value] || 999;
-		const priorityB = priorityMap[b.value] || 999;
-
-		return priorityA - priorityB;
-	});
+	$: sortedExperienceLevels = [...experienceLevels].sort(
+		(a, b) => (a.order ?? 0) - (b.order ?? 0)
+	);
 
 	const recurrenceDaysColumns: ColumnDef<RecurrenceDaySelect>[] = [
 		{
@@ -148,15 +139,7 @@
 			header: 'Status',
 			accessorKey: 'status',
 			cell: (original) =>
-				flexRender(Badge, {
-					value: original.getValue(),
-					class: cn(
-						original.getValue() === 'OPEN' && 'bg-blue-400 hover:bg-blue-500',
-						original.getValue() === 'FILLED' && 'bg-green-400 hover:bg-green-500',
-						original.getValue() === 'UNFULFILLED' && 'bg-orange-400 hover:bg-orange-500',
-						original.getValue() === 'CANCELLED' && 'bg-red-500 hover:bg-red-600'
-					)
-				})
+				flexRender(StatusBadge, { status: original.getValue() as string })
 		},
 		{
 			header: 'Actions',
@@ -191,14 +174,7 @@
 			id: 'status',
 			accessorFn: (original) => original.application.status,
 			cell: (original) =>
-				flexRender(Badge, {
-					value: original.getValue(),
-					class: cn(
-						original.getValue() === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-						original.getValue() === 'APPROVED' && 'bg-green-400 hover:bg-green-500',
-						original.getValue() === 'DENIED' && 'bg-red-500 hover:bg-red-600'
-					)
-				})
+				flexRender(StatusBadge, { status: original.getValue() as string })
 		}
 	];
 
@@ -235,14 +211,7 @@
 			id: 'status',
 			accessorFn: (original) => original.timeSheet.status,
 			cell: (original) =>
-				flexRender(Badge, {
-					value: original.getValue(),
-					class: cn(
-						original.getValue() === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-						original.getValue() === 'APPROVED' && 'bg-green-400 hover:bg-green-500',
-						original.getValue() === 'DISCREPANCY' && 'bg-red-500 hover:bg-red-600'
-					)
-				})
+				flexRender(StatusBadge, { status: original.getValue() as string })
 		},
 		{
 			header: 'Actions',
@@ -289,14 +258,6 @@
 
 	const { enhance: deleteEnhance } = superForm(deleteRecurrenceDayForm);
 	const { enhance: statusEnhance, submitting: statusSubmitting } = superForm(changeStatusForm);
-
-	function getStatusColor(s: string) {
-		return cn(
-			s === 'OPEN' && 'bg-blue-100 text-blue-800',
-			s === 'CANCELED' && 'bg-red-100 text-red-800',
-			s === 'CLOSED' && 'bg-gray-100 text-gray-800'
-		);
-	}
 </script>
 
 {#if requisition}
@@ -323,11 +284,7 @@
 						<div class="flex flex-wrap items-center gap-2">
 							<h1 class="text-2xl font-bold text-gray-900">{requisition.discipline.name}</h1>
 							<span class="text-sm text-gray-400 font-normal">Req# {requisition.id}</span>
-							<span
-								class={cn('text-xs font-medium px-2.5 py-1 rounded-full', getStatusColor(status))}
-							>
-								{status}
-							</span>
+							<StatusBadge {status} />
 						</div>
 						<a
 							href={`/clients/${requisition.company.clientId}`}
@@ -405,7 +362,7 @@
 				<div class="bg-gray-50 rounded-md p-3">
 					<p class="text-xs text-gray-500 mb-1">Experience</p>
 					<p class="text-sm font-semibold text-gray-900">
-						{requisition.experienceLevel?.value ?? '—'}
+						{requisition.experienceLevel?.value ?? 'No Preference'}
 					</p>
 				</div>
 				<div class="bg-gray-50 rounded-md p-3">
@@ -502,7 +459,7 @@
 											name="experienceLevelId"
 											class="mt-1 w-full p-2 border rounded text-sm"
 										>
-											<option value="">None</option>
+											<option value="">No Preference</option>
 											{#each sortedExperienceLevels as l}
 												<option value={l.id} selected={l.id === requisition.experienceLevelId}
 													>{l.value}</option

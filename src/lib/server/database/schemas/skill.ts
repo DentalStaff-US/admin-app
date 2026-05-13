@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, integer } from 'drizzle-orm/pg-core';
 
 export const skillTable = pgTable('skills', {
 	id: text('id').notNull().primaryKey(),
@@ -54,7 +54,8 @@ export const experienceLevelTable = pgTable('experience_levels', {
 		withTimezone: true,
 		mode: 'date'
 	}).notNull(),
-	value: text('value').notNull()
+	value: text('value').notNull(),
+	order: integer('order').notNull().default(0)
 });
 
 export type Skill = typeof skillTable.$inferInsert;

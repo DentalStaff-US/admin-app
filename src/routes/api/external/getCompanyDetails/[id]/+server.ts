@@ -4,6 +4,7 @@ import {
 	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
 import { requisitionTable } from '$lib/server/database/schemas/requisition';
+import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { and, eq } from 'drizzle-orm';
 
@@ -29,7 +30,9 @@ export const GET: RequestHandler = async ({ params }) => {
 		const requisitions = await db
 			.select({
 				id: requisitionTable.id,
+				// `title` is deprecated — use `disciplineName` for display.
 				title: requisitionTable.title,
+				disciplineName: disciplineTable.name,
 				status: requisitionTable.status,
 				// jobDescription: requisitionTable.jobDescription,
 				hourlyRate: requisitionTable.hourlyRate,
@@ -46,6 +49,7 @@ export const GET: RequestHandler = async ({ params }) => {
 				companyOfficeLocationTable,
 				eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 			)
+			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
 			.where(
 				and(
 					eq(requisitionTable.companyId, id),

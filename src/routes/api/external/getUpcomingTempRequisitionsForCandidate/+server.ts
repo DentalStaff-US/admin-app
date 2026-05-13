@@ -17,6 +17,7 @@ import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { eq, and, inArray, notInArray, or, isNull, isNotNull, sql, gte, lte } from 'drizzle-orm';
 import { METERS_PER_MILE, RADIUS_METERS, RADIUS_MILES } from '$lib/config/constants';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
+import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const user = await authenticateUser(request);
@@ -41,15 +42,22 @@ export const GET: RequestHandler = async ({ request }) => {
 			);
 		}
 
-		// Fetch candidate's disciplines with their preferred rates
+		// Fetch candidate's disciplines with their preferred rates and the
+		// `order` of their experience level (used for reductive matching:
+		// candidate level >= required level).
 		const candidateDisciplines = await db
 			.select({
 				disciplineId: candidateDisciplineExperienceTable.disciplineId,
 				experienceLevelId: candidateDisciplineExperienceTable.experienceLevelId,
+				experienceLevelOrder: experienceLevelTable.order,
 				preferredHourlyMin: candidateDisciplineExperienceTable.preferredHourlyMin,
 				preferredHourlyMax: candidateDisciplineExperienceTable.preferredHourlyMax
 			})
 			.from(candidateDisciplineExperienceTable)
+			.innerJoin(
+				experienceLevelTable,
+				eq(candidateDisciplineExperienceTable.experienceLevelId, experienceLevelTable.id)
+			)
 			.where(eq(candidateDisciplineExperienceTable.candidateId, candidateProfile.id));
 
 		if (candidateDisciplines.length === 0) {
@@ -66,9 +74,10 @@ export const GET: RequestHandler = async ({ request }) => {
 			});
 		}
 
-		// Extract discipline IDs and experience level IDs
+		// Extract discipline IDs (experience level filtering happens in-memory below
+		// since it's reductive: candidate level order must be >= required level order,
+		// or required level may be NULL which means "no preference" — match anyone).
 		const disciplineIds = candidateDisciplines.map((d) => d.disciplineId);
-		const experienceLevelIds = candidateDisciplines.map((d) => d.experienceLevelId);
 
 		// Fetch office locations within the radius using PostGIS
 		const nearbyOfficeLocations = await db
@@ -148,8 +157,9 @@ export const GET: RequestHandler = async ({ request }) => {
 					disciplineId: requisitionTable.disciplineId,
 					experienceLevelId: requisitionTable.experienceLevelId,
 					permanentPosition: requisitionTable.permanentPosition,
-					disciplineName: disciplineTable.name, // Add this
-					experienceLevelName: experienceLevelTable.value // Add this
+					disciplineName: disciplineTable.name,
+					experienceLevelName: experienceLevelTable.value,
+					experienceLevelOrder: experienceLevelTable.order
 				},
 				company: {
 					id: clientCompanyTable.id,
@@ -182,8 +192,10 @@ export const GET: RequestHandler = async ({ request }) => {
 				companyOfficeLocationTable,
 				eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 			)
-			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id)) // Add this join
-			.innerJoin(
+			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
+			// Left join so requisitions with NULL experienceLevelId ("No Preference")
+			// are still returned. Reductive level filtering happens in-memory below.
+			.leftJoin(
 				experienceLevelTable,
 				eq(requisitionTable.experienceLevelId, experienceLevelTable.id)
 			)
@@ -197,8 +209,6 @@ export const GET: RequestHandler = async ({ request }) => {
 					eq(requisitionTable.permanentPosition, false),
 					// Filter by candidate's disciplines
 					inArray(requisitionTable.disciplineId, disciplineIds),
-					// Filter by candidate's experience levels
-					inArray(requisitionTable.experienceLevelId, experienceLevelIds),
 					// Only show shifts that:
 					// 1. Have no workday assigned (available to claim) OR
 					// 2. Are already assigned to THIS candidate (their bookings)
@@ -216,26 +226,19 @@ export const GET: RequestHandler = async ({ request }) => {
 				recurrenceDayTable.date
 			);
 
-		// Filter by hourly rate in-memory (since rate requirements vary by discipline)
-		const filteredRecurrenceDays = recurrenceDays.filter((shift) => {
-			// Find the candidate's discipline experience that matches this shift
-			const matchingDiscipline = candidateDisciplines.find(
-				(d) =>
-					d.disciplineId === shift.requisition.disciplineId &&
-					d.experienceLevelId === shift.requisition.experienceLevelId
-			);
-
-			if (!matchingDiscipline) {
-				return false;
-			}
-
-			// Check if the shift's hourly rate falls within the candidate's preferred range
-			const shiftRate = shift.requisition.hourlyRate || 0;
-			return (
-				shiftRate >= matchingDiscipline.preferredHourlyMin &&
-				shiftRate <= matchingDiscipline.preferredHourlyMax
-			);
-		});
+		// In-memory filter via the shared qualification predicate. Coerce a
+		// null `hourlyRate` to 0 to preserve the prior behavior of this
+		// endpoint (a malformed shift with no rate would still match a
+		// candidate whose preferred minimum is 0). The apply gates use the
+		// helper without coercion and reject null rates outright.
+		const filteredRecurrenceDays = recurrenceDays.filter(
+			(shift) =>
+				checkCandidateQualified(candidateDisciplines, {
+					disciplineId: shift.requisition.disciplineId,
+					experienceLevelOrder: shift.requisition.experienceLevelOrder,
+					hourlyRate: shift.requisition.hourlyRate ?? 0
+				}).qualified
+		);
 
 		return json({
 			candidateLocation: {

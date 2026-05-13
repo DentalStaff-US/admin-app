@@ -89,15 +89,16 @@ export const actions = {
 				);
 				return fail(400, { form });
 			}
-			// Send invite
-			const token = crypto.randomUUID().toString();
+			// Send invite. The email must carry the same token that we stored
+			// on the invite row — otherwise the lookup at /auth/invite/[token]
+			// returns nothing and the link reads as "Invalid Invitation".
 			await db.transaction(async (tx) => {
 				// Insert invite into database
 				await tx.insert(userInviteTable).values(invite);
 
 				// Send the invite email
 				try {
-					await emailService.sendAdminUserInviteEmail(email, token);
+					await emailService.sendAdminUserInviteEmail(email, invite.token);
 				} catch (emailError) {
 					console.error('Error sending invite email:', emailError);
 					// Optionally, you could throw here to rollback the transaction

@@ -12,6 +12,7 @@
 	import * as Table from '$lib/components/ui/table';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import { Input } from '$lib/components/ui/input';
 	import {
 		ArrowUpDown,
@@ -145,20 +146,7 @@
 			id: 'status',
 			accessorKey: 'profile.status',
 			enableSorting: true,
-			cell: ({ getValue }) => {
-				const status = getValue() as string;
-				return flexRender(Badge, {
-					value: status,
-					class: cn(
-						'text-xs',
-						status === 'APPROVED'
-							? 'bg-green-100 text-green-800'
-							: status === 'PENDING'
-								? 'bg-yellow-100 text-yellow-800'
-								: 'bg-gray-100 text-gray-800'
-					)
-				});
-			}
+			cell: ({ getValue }) => flexRender(StatusBadge, { status: getValue() as string })
 		},
 		{
 			header: 'Created',

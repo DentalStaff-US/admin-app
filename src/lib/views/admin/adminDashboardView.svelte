@@ -19,6 +19,7 @@
 	import { goto } from '$app/navigation';
 	import { formatCurrency, formatDate, formatTicketDate } from '$lib/_helpers';
 	import { Badge } from '$lib/components/ui/badge';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import { cn } from '$lib/utils';
 	import { format } from 'date-fns';
 	import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
@@ -50,6 +51,8 @@
 	$: newClientSignups = data.newClientSignups || [];
 	$: invoicesDue = data.invoicesDue || [];
 	$: requisitions = data.requisitions || [];
+	$: wagesDueCount = data.wagesDueCount;
+	$: console.log('Wages due count:', wagesDueCount);
 	// Calculate the % change in timesheets due from previous period (placeholder - you'll need to implement actual trend calculation)
 	// const timesheetsTrendPercent = 12; // This should be calculated based on historical data
 	// const supportTicketsTrendPercent = -5;
@@ -156,7 +159,7 @@
 		</div>
 
 		<!-- Stat cards row -->
-		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
 			<!-- Timesheets due -->
 			<Card.Root>
 				<Card.Content class="p-6">
@@ -217,7 +220,11 @@
 						</div>
 					</div>
 					<div class="mt-4">
-						<Button variant="link" class="text-orange-600 p-0 h-auto" href="/timesheets">
+						<Button
+							variant="link"
+							class="text-orange-600 p-0 h-auto"
+							href="/timesheets?tab=discrepancy"
+						>
 							Review discrepancies
 							<ArrowRight size={16} class="ml-1" />
 						</Button>
@@ -292,6 +299,32 @@
 					</div>
 				</Card.Content>
 			</Card.Root>
+			<!-- Add to the stat cards row in the dashboard, after the Invoices Due card -->
+			<Card.Root>
+				<Card.Content class="p-6">
+					<div class="flex justify-between items-start">
+						<div>
+							<p class="text-gray-500 text-sm font-medium">Wages Due</p>
+							<div class="flex items-baseline mt-1">
+								<p class="text-4xl font-bold text-gray-900">{wagesDueCount}</p>
+							</div>
+						</div>
+						<div class="bg-yellow-100 p-3 rounded-full">
+							<DollarSign size={24} class="text-yellow-600" />
+						</div>
+					</div>
+					<div class="mt-4">
+						<Button
+							variant="link"
+							class="text-yellow-600 p-0 h-auto"
+							href="/timesheets?tab=wages-due"
+						>
+							View wages due
+							<ArrowRight size={16} class="ml-1" />
+						</Button>
+					</div>
+				</Card.Content>
+			</Card.Root>
 		</div>
 
 		<!-- Main grid -->
@@ -360,21 +393,7 @@
 											</Table.Cell>
 											<Table.Cell>
 												<!-- Status 3rd -->
-												<Badge
-													variant="secondary"
-													value={req.requisition.status}
-													class={cn(
-														req.requisition.status === 'PENDING' &&
-															'bg-yellow-300 hover:bg-yellow-400',
-														req.requisition.status === 'OPEN' && 'bg-blue-500 hover:bg-blue-600',
-														req.requisition.status === 'FILLED' &&
-															'bg-green-400 hover:bg-bg-green-500',
-														req.requisition.status === 'UNFULFILLED' &&
-															'bg-orange-400 hover:bg-orange-500',
-														req.requisition.status === 'CANCELED' && 'bg-red-500 hover:bg-red-600',
-														'text-white'
-													)}
-												/>
+												<StatusBadge status={req.requisition.status} />
 											</Table.Cell>
 											<Table.Cell>
 												<!-- Type 4th -->
@@ -538,10 +557,7 @@
 													</div>
 												</Table.Cell>
 												<Table.Cell class="text-right">
-													<Badge
-														value={ticket.supportTicket.status}
-														class={getStatusColorClass(ticket.supportTicket.status)}
-													/>
+													<StatusBadge status={ticket.supportTicket.status} />
 												</Table.Cell>
 											</Table.Row>
 										{/each}
@@ -596,11 +612,11 @@
 													</div>
 												</Table.Cell>
 												<Table.Cell class="text-right">
-													<Badge
-														value={invoiceData.invoice.status}
-														class={invoiceData.invoice.status === 'overdue'
-															? 'bg-red-100 text-red-800'
-															: getStatusColorClass(invoiceData.invoice.status)}
+													<StatusBadge
+														status={invoiceData.invoice.status === 'overdue'
+															? 'REJECTED'
+															: invoiceData.invoice.status}
+														label={invoiceData.invoice.status}
 													/>
 												</Table.Cell>
 											</Table.Row>
@@ -662,10 +678,7 @@
 														{profileData.profile.desiredPosition || 'Position not specified'}
 													</p>
 												</div>
-												<Badge
-													class="bg-yellow-100 text-yellow-800"
-													value={profileData.profile.status || 'PENDING'}
-												></Badge>
+												<StatusBadge status={profileData.profile.status || 'PENDING'} />
 											</a>
 										</li>
 									{/each}

@@ -14,7 +14,10 @@ import {
 	ilike,
 	inArray,
 	gt,
-	like
+	like,
+	ne,
+	notInArray,
+	isNull
 } from 'drizzle-orm';
 import db from '../drizzle';
 import {
@@ -30,6 +33,7 @@ import {
 	type RecurrenceDaySelect,
 	workdayTable,
 	invoiceTable,
+	paperInvoiceTransactionTable,
 	type Workday,
 	type InvoiceWithRelations,
 	type TimesheetWithRelations,
@@ -154,6 +158,22 @@ export type TimeSheetResults = {
 	timeSheet: TimeSheetSelect;
 	candidateProfile: CandidateProfile;
 };
+
+export type PaperInvoiceLineItem = {
+	id: string;
+	description: string | null;
+	quantity: number;
+	rate: number; // rate in cents - mirrors Stripe
+	unit_amount: number; // rate in cents - mirrors Stripe
+	unit_amount_excluding_tax: number;
+	amount: number; // total in cents - mirrors Stripe
+	currency: string;
+	type: 'paper'; // discriminator
+};
+
+export type InvoiceLineItem = Stripe.InvoiceLineItem | PaperInvoiceLineItem;
+
+export type WagesStatus = 'WAGES_DUE' | 'WAGES_PAID' | null;
 
 export async function getAllRequisitions() {
 	return await db.select().from(requisitionTable).where(eq(requisitionTable.archived, false));
@@ -622,11 +642,16 @@ export async function updateRequisition(
 export async function changeRequisitionStatus(
 	values: UpdateRequisition,
 	id: number,
-	userId: string
+	userId: string,
+	tx?: any
 ) {
-	const [original] = await db.select().from(requisitionTable).where(eq(requisitionTable.id, id));
+	const exec = tx || db;
+	const [original] = await exec
+		.select()
+		.from(requisitionTable)
+		.where(eq(requisitionTable.id, id));
 	if (original) {
-		const [update] = await db
+		const [update] = await exec
 			.update(requisitionTable)
 			.set(values)
 			.where(eq(requisitionTable.id, original.id))
@@ -1037,7 +1062,7 @@ export async function getRecentTimesheetsDueForClient(clientId: string) {
 		const result = await db
 			.select({
 				timesheet: { ...timeSheetTable },
-				requisition: { ...requisitionTable },
+				requisition: { ...requisitionTable, disciplineName: disciplineTable.name },
 				candidate: {
 					...candidateProfileTable,
 					firstName: userTable.firstName,
@@ -1046,6 +1071,7 @@ export async function getRecentTimesheetsDueForClient(clientId: string) {
 			})
 			.from(timeSheetTable)
 			.leftJoin(requisitionTable, eq(requisitionTable.id, timeSheetTable.requisitionId))
+			.innerJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
 			.innerJoin(
 				candidateProfileTable,
 				eq(candidateProfileTable.id, timeSheetTable.associatedCandidateId)
@@ -1054,7 +1080,8 @@ export async function getRecentTimesheetsDueForClient(clientId: string) {
 			.where(
 				and(
 					eq(timeSheetTable.associatedClientId, clientId),
-					eq(timeSheetTable.awaitingClientSignature, true)
+					eq(timeSheetTable.status, 'PENDING'),
+					isNull(timeSheetTable.wagesStatus)
 				)
 			);
 
@@ -1071,7 +1098,7 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 			.select({
 				timesheet: {
 					...timeSheetTable,
-					hourlyRate: requisitionTable.hourlyRate // ✅ Add this
+					hourlyRate: requisitionTable.hourlyRate
 				},
 				requisition: { ...requisitionTable, disciplineName: disciplineTable.name },
 				clientCompany: { ...clientCompanyTable },
@@ -1117,9 +1144,9 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 			.select({
 				timesheet: {
 					...timeSheetTable,
-					hourlyRate: requisitionTable.hourlyRate // ✅ Add this
+					hourlyRate: requisitionTable.hourlyRate
 				},
-				requisition: { ...requisitionTable },
+				requisition: { ...requisitionTable, disciplineName: disciplineTable.name },
 				candidate: {
 					...candidateProfileTable,
 					firstName: userTable.firstName,
@@ -1128,6 +1155,7 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 			})
 			.from(timeSheetTable)
 			.leftJoin(requisitionTable, eq(requisitionTable.id, timeSheetTable.requisitionId))
+			.leftJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
 			.innerJoin(
 				candidateProfileTable,
 				eq(candidateProfileTable.id, timeSheetTable.associatedCandidateId)
@@ -1148,7 +1176,7 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 				)
 			);
 
-		return result;
+		return result || [];
 	} catch (err) {
 		console.log(err);
 		return error(500, 'Error fetching timesheets');
@@ -1265,8 +1293,13 @@ export async function getWorkdaysForRecurrenceDays(recurrenceDayIds: string[]) {
 }
 
 export async function getRecurrenceDaysForTimesheet(
-	timesheet: TimeSheetSelect
+	timesheet: TimeSheetSelect | { timeSheetId: string; [key: string]: any }
 ): Promise<RecurrenceDaySelect[]> {
+	const timesheetId =
+		'timeSheetId' in timesheet && timesheet.timeSheetId
+			? timesheet.timeSheetId
+			: (timesheet as TimeSheetSelect).id;
+
 	return await db
 		.select({
 			id: recurrenceDayTable.id,
@@ -1284,7 +1317,14 @@ export async function getRecurrenceDaysForTimesheet(
 		})
 		.from(recurrenceDayTable)
 		.innerJoin(workdayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
-		.where(eq(workdayTable.timesheetId, timesheet.id))
+		.where(
+			and(
+				eq(workdayTable.timesheetId, timesheetId),
+				// Cancelled workdays are kept in the DB for visibility on the
+				// candidate calendar but must not count toward timesheet hours.
+				isNull(workdayTable.cancelledAt)
+			)
+		)
 		.orderBy(asc(recurrenceDayTable.date));
 }
 
@@ -1320,6 +1360,7 @@ export async function getTimesheetDetailsAdmin(timesheetId: string) {
 			status: timeSheetTable.status,
 			discrepancyNote: timeSheetTable.discrepancyNote,
 			adjustedHourlyRate: timeSheetTable.adjustedHourlyRate,
+			wagesStatus: timeSheetTable.wagesStatus,
 			candidate: {
 				...candidateProfileTable,
 				firstName: userTable.firstName,
@@ -1346,21 +1387,24 @@ export async function getTimesheetDetailsAdmin(timesheetId: string) {
 
 export async function closeAllUpcomingRecurrenceDays(
 	requisitionId: number | undefined,
-	userId: string
+	userId: string,
+	tx?: any
 ) {
+	const exec = tx || db;
 	const beginningOfDay = new Date();
 	beginningOfDay.setHours(0, 0, 0, 0); // Set to the start of the day
 	const beginningOfDayString = beginningOfDay.toISOString().split('T')[0]; // Format as YYYY-MM-DD
 
 	if (!requisitionId) throw error(400, 'Requisition ID is required');
 	try {
-		const result = await db
+		const result = await exec
 			.update(recurrenceDayTable)
 			.set({ status: 'CANCELED', updatedAt: new Date() })
 			.where(
 				and(
 					eq(recurrenceDayTable.requisitionId, requisitionId),
-					gt(recurrenceDayTable.date, beginningOfDayString)
+					gt(recurrenceDayTable.date, beginningOfDayString),
+					eq(recurrenceDayTable.status, 'OPEN')
 				)
 			)
 			.returning();
@@ -1434,7 +1478,14 @@ export async function getWorkdaysForTimesheet(timesheet: any) {
 		})
 		.from(workdayTable)
 		.innerJoin(recurrenceDayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
-		.where(eq(workdayTable.timesheetId, timesheet.timeSheetId))
+		.where(
+			and(
+				eq(workdayTable.timesheetId, timesheet.timeSheetId),
+				// Skip cancelled workdays — they remain visible on the candidate
+				// calendar but should not surface as hour entries.
+				isNull(workdayTable.cancelledAt)
+			)
+		)
 		.orderBy(recurrenceDayTable.date);
 
 	return workdays;
@@ -1908,7 +1959,7 @@ export async function getClientInvoices(
 				: null,
 		timesheet: row.timesheet,
 		requisition: row.requisition,
-		lineItems: (row.invoice.lineItems as Stripe.InvoiceLineItem[]) || [],
+		lineItems: (row.invoice.lineItems as InvoiceLineItem[]) || [],
 		client: row.client,
 		clientUser: row.clientUser,
 		company: row.clientCompany
@@ -2009,7 +2060,7 @@ export async function getAllInvoicesAdmin(searchTerm?: string): Promise<InvoiceW
 					: null,
 			timesheet: row.timesheet,
 			requisition: row.requisition,
-			lineItems: (row.invoice.lineItems as Stripe.InvoiceLineItem[]) || [],
+			lineItems: (row.invoice.lineItems as InvoiceLineItem[]) || [],
 			client: row.client,
 			clientUser: row.clientUser,
 			company: row.clientCompany
@@ -2105,7 +2156,7 @@ export async function getTimesheetInvoices(
 		candidate: { profile: row.candidateProfile, user: row.candidateUser },
 		timesheet: row.timesheet,
 		requisition: row.requisition,
-		lineItems: (row.invoice.lineItems as Stripe.InvoiceLineItem[]) || [],
+		lineItems: (row.invoice.lineItems as InvoiceLineItem[]) || [],
 		client: row.client,
 		clientUser: row.clientUser,
 		company: row.clientCompany
@@ -2170,7 +2221,7 @@ export async function getManualInvoices(
 		client: row.client,
 		clientUser: row.clientUser,
 		company: row.clientCompany,
-		lineItems: (row.invoice.lineItems as Stripe.InvoiceLineItem[]) || [],
+		lineItems: (row.invoice.lineItems as InvoiceLineItem[]) || [],
 		// These will be null for manual invoices
 		candidate: null,
 		timesheet: null,
@@ -2251,7 +2302,7 @@ export async function getInvoiceByIdAdmin(invoiceId: string): Promise<InvoiceWit
 				: null,
 		timesheet: row.timesheet,
 		requisition: row.requisition,
-		lineItems: (row.invoice.lineItems as Stripe.InvoiceLineItem[]) || [],
+		lineItems: (row.invoice.lineItems as InvoiceLineItem[]) || [],
 		client: row.client,
 		clientUser: row.clientUser,
 		company: row.clientCompany
@@ -2335,11 +2386,28 @@ export async function getInvoiceById(
 				: null,
 		timesheet: row.timesheet,
 		requisition: row.requisition,
-		lineItems: (row.invoice.lineItems as Stripe.InvoiceLineItem[]) || [],
+		lineItems: (row.invoice.lineItems as InvoiceLineItem[]) || [],
 		client: row.client,
 		clientUser: row.clientUser,
 		company: row.clientCompany
 	};
+}
+
+/**
+ * Returns every paper-invoice transaction recorded against an invoice, oldest
+ * first so the caller can render a top-to-bottom timeline.
+ */
+export async function getPaperTransactionsByInvoiceId(invoiceId: string) {
+	try {
+		return await db
+			.select()
+			.from(paperInvoiceTransactionTable)
+			.where(eq(paperInvoiceTransactionTable.invoiceId, invoiceId))
+			.orderBy(asc(paperInvoiceTransactionTable.createdAt));
+	} catch (err) {
+		console.error('Error fetching paper transactions:', err);
+		return [];
+	}
 }
 
 export async function getInvoicesWithStripeData(
@@ -2615,7 +2683,11 @@ export async function approveTimesheet(timesheetId: string, userId: string) {
 		// Update timesheet status to APPROVED
 		const [result] = await db
 			.update(timeSheetTable)
-			.set({ status: 'APPROVED', totalHoursBilled: original.totalHoursWorked })
+			.set({
+				status: 'APPROVED',
+				totalHoursBilled: original.totalHoursWorked,
+				wagesStatus: 'WAGES_DUE'
+			})
 			.where(eq(timeSheetTable.id, timesheetId))
 			.returning();
 
@@ -2712,8 +2784,9 @@ export const adminOverrideTimesheet = async (
 
 		const updatedValues: UpdateTimeSheet = {
 			...values,
-			totalHoursBilled: original.totalHoursWorked, // Preserve total hours worked
-			status: 'APPROVED' // Force status to APPROVED
+			totalHoursBilled: original.totalHoursWorked,
+			status: 'APPROVED',
+			wagesStatus: 'WAGES_DUE' // add this
 		};
 
 		const [result] = await db
@@ -2877,16 +2950,22 @@ export async function createPaperInvoiceRecord(
 		lineItems,
 		customerEmail,
 		customerName,
-		invoiceType = 'PAPER'
+		timesheetId,
+		requisitionId,
+		candidateId,
+		sourceType = 'manual'
 	}: {
 		clientId: string;
 		amountInDollars: string;
 		dueDate?: string;
 		description?: string;
-		lineItems: { description?: string; quantity: number; rate: number; amount: number }[];
+		lineItems: PaperInvoiceLineItem[];
 		customerEmail?: string;
 		customerName?: string;
-		invoiceType?: 'PAPER' | 'STRIPE';
+		timesheetId?: string;
+		requisitionId?: number;
+		candidateId?: string;
+		sourceType?: 'manual' | 'timesheet' | 'recurring' | 'other';
 	},
 	userId: string
 ): Promise<Invoice> {
@@ -2915,7 +2994,7 @@ export async function createPaperInvoiceRecord(
 				clientId,
 				invoiceNumber,
 				status: 'open',
-				sourceType: 'manual',
+				sourceType, // now dynamic
 				invoiceType: 'PAPER',
 				currency: 'usd',
 				amountDue: amountInDollars,
@@ -2925,9 +3004,10 @@ export async function createPaperInvoiceRecord(
 				amountPaid: '0',
 				customerEmail,
 				customerName,
-				dueDate: dueDate
-					? new Date(dueDate + 'T00:00:00')
-					: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+				timesheetId: timesheetId ?? null,
+				requisitionId: requisitionId ?? null,
+				candidateId: candidateId ?? null,
+				dueDate: dueDate ? new Date(dueDate + 'T00:00:00') : new Date(Date.now()), // due upon receipt if no date is provided
 				description,
 				lineItems: JSON.stringify(lineItems)
 			})

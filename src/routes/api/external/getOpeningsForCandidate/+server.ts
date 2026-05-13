@@ -8,6 +8,7 @@ import {
 	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
 import { requisitionTable } from '$lib/server/database/schemas/requisition';
+import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { eq, and, inArray, isNotNull, sql } from 'drizzle-orm';
@@ -38,9 +39,12 @@ export const GET: RequestHandler = async ({ request }) => {
 			);
 		}
 
-		// Fetch candidate's disciplines
+		// Fetch candidate's disciplines. Permanent listings are exploratory
+		// (job-board style) — we only filter by discipline (and location/status
+		// in the SQL below). Experience level + rate are NOT enforced for
+		// permanent; admins review applicants individually.
 		const candidateDisciplines = await db
-			.select()
+			.select({ disciplineId: candidateDisciplineExperienceTable.disciplineId })
 			.from(candidateDisciplineExperienceTable)
 			.where(eq(candidateDisciplineExperienceTable.candidateId, candidate.id));
 
@@ -86,12 +90,16 @@ export const GET: RequestHandler = async ({ request }) => {
 			});
 		}
 
-		// Fetch requisitions for nearby office locations
-		const requisitions = await // Order by distance (closest first)
-		db
+		// Fetch requisitions for nearby office locations. Filters: location
+		// (within radius), status OPEN, not archived, permanent only,
+		// discipline matches one of the candidate's. Experience level and
+		// rate range are intentionally NOT applied here — see comment above.
+		const requisitions = await db
 			.select({
 				id: requisitionTable.id,
+				// `title` is deprecated — use `disciplineName` for display.
 				title: requisitionTable.title,
+				disciplineName: disciplineTable.name,
 				status: requisitionTable.status,
 				hourlyRate: requisitionTable.hourlyRate,
 				disciplineId: requisitionTable.disciplineId,
@@ -116,6 +124,7 @@ export const GET: RequestHandler = async ({ request }) => {
 				companyOfficeLocationTable,
 				eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 			)
+			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
 			.where(
 				and(
 					inArray(requisitionTable.locationId, nearbyOfficeLocationIds),
@@ -128,7 +137,8 @@ export const GET: RequestHandler = async ({ request }) => {
 						candidateDisciplines.map((d) => d.disciplineId)
 					)
 				)
-			).orderBy(sql`ST_Distance(
+			)
+			.orderBy(sql`ST_Distance(
         ${companyOfficeLocationTable.geom}::geography,
         ST_SetSRID(ST_MakePoint(${candidate.lon}::float, ${candidate.lat}::float), 4326)::geography
       )`);

@@ -18,6 +18,8 @@ import { z } from 'zod';
 import { getRequisitionByWorkdayId } from '$lib/server/database/queries/requisitions';
 import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
+import { getPostHogClient } from '$lib/server/posthog';
+import { notifyTimesheetSubmitted } from '$lib/server/notifications/transactional';
 
 const newTimesheetSchema = z.object({
 	userId: z.string().min(1, 'User ID is required'),
@@ -165,32 +167,20 @@ export const POST: RequestHandler = async ({ request }) => {
 				afterState: result
 			});
 		} else {
-			console.log('No existing timesheet found, creating new one.');
-			// ✅ FALLBACK: Create new timesheet if draft doesn't exist
-			const timesheetData = {
-				id: crypto.randomUUID(),
-				createdAt: new Date(),
-				updatedAt: new Date(),
-				workdayId,
-				associatedCandidateId: candidateProfile.id,
-				associatedClientId: clientId,
-				requisitionId: requisition?.id,
-				weekBeginDate: weekStart,
-				totalHoursWorked: parsedBody.data.totalHours.toString(),
-				hoursRaw: formattedEntries,
-				status: 'PENDING' as const
-			};
-
-			[result] = await db.insert(timeSheetTable).values(timesheetData).returning();
-
-			await writeActionHistory({
-				action: 'CREATE',
-				userId: user.id,
-				entityId: result.id,
-				table: 'TIMESHEETS',
-				beforeState: {},
-				afterState: result
-			});
+			// Timesheet creation is owned exclusively by the
+			// processTimesheetCreation cron job. If there's no DRAFT/DISCREPANCY
+			// timesheet for this week, the cron either hasn't run yet (shift may
+			// still be upcoming) or this submission is for a shift that doesn't
+			// belong to the candidate. Either way, we refuse to create one here
+			// — surfaces a clear error rather than papering over a deeper bug.
+			return json(
+				{
+					success: false,
+					message:
+						'No timesheet is available to submit for this shift yet. Please try again after the shift has started.'
+				},
+				{ status: 409, headers: corsHeaders }
+			);
 		}
 
 		await writeActionHistory({
@@ -201,6 +191,23 @@ export const POST: RequestHandler = async ({ request }) => {
 			beforeState: {},
 			afterState: result
 		});
+
+		const posthog = getPostHogClient();
+		posthog.capture({
+			distinctId: user.id,
+			event: 'timesheet_submitted',
+			properties: {
+				timesheet_id: result.id,
+				requisition_id: requisition?.id,
+				company_id: companyId,
+				week_start: weekStart,
+				total_hours: parsedBody.data.totalHours,
+				entry_count: entries.length
+			}
+		});
+
+		// Notify the client that a timesheet is awaiting their approval.
+		await notifyTimesheetSubmitted(result.id);
 
 		return json(
 			{ success: true, message: 'Timesheet submitted successfully', data: result },

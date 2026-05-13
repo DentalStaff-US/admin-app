@@ -23,12 +23,21 @@ import {
 	workdayTable,
 	timeSheetTable as timesheetTable
 } from '$lib/server/database/schemas/requisition';
+import {
+	maybeCleanupOrphanTimesheet,
+	recordRecurrenceDayCancellation
+} from '$lib/server/cancellations';
 import { and, eq } from 'drizzle-orm';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { editRecurrenceDaySchema } from '$lib/config/zod-schemas';
 import { superValidate, message, setError } from 'sveltekit-superforms/server';
 import { convertRecurrenceDayToUTC } from '$lib/_helpers/UTCTimezoneUtils';
 import { z } from 'zod';
+import {
+	notifyWorkdayClaimed,
+	notifyWorkdayReposted,
+	notifyWorkdayDeleted
+} from '$lib/server/notifications/transactional';
 
 const adjustedHourlyRateSchema = z.object({
 	timesheetId: z.string().min(1),
@@ -243,7 +252,7 @@ export const actions = {
 		}
 
 		try {
-			await db.transaction(async (tx) => {
+			const newWorkdayId = await db.transaction(async (tx) => {
 				const existingWorkday = await tx
 					.select()
 					.from(workdayTable)
@@ -286,7 +295,14 @@ export const actions = {
 					.update(recurrenceDayTable)
 					.set({ status: 'FILLED', updatedAt: new Date() })
 					.where(eq(recurrenceDayTable.id, recurrenceDayId));
+
+				return workdayId;
 			});
+
+			// Same notification as a candidate self-claim — client gets the
+			// "workday filled" email + SMS. Fires after tx commits so a notify
+			// failure doesn't roll back the assignment.
+			await notifyWorkdayClaimed(newWorkdayId);
 
 			setFlash(
 				{ type: 'success', message: 'Professional successfully assigned to workday' },
@@ -330,7 +346,7 @@ export const actions = {
 		}
 
 		try {
-			await db.transaction(async (tx) => {
+			const snapshot = await db.transaction(async (tx) => {
 				// Find the workday for this recurrence day
 				const workday = await tx
 					.select()
@@ -342,6 +358,15 @@ export const actions = {
 				if (!workday) throw new Error('No workday found for this recurrence day');
 
 				const timesheetId = workday.timesheetId;
+
+				// Snapshot the recurrence day for the candidate-side notification
+				// (the row stays in place but the workday link is gone afterwards).
+				const recurrenceDay = await tx
+					.select()
+					.from(recurrenceDayTable)
+					.where(eq(recurrenceDayTable.id, recurrenceDayId))
+					.limit(1)
+					.then((rows) => rows[0]);
 
 				await tx.delete(workdayTable).where(eq(workdayTable.id, workday.id));
 
@@ -361,7 +386,36 @@ export const actions = {
 					.update(recurrenceDayTable)
 					.set({ status: 'OPEN', updatedAt: new Date() })
 					.where(eq(recurrenceDayTable.id, recurrenceDayId));
+
+				return {
+					candidateId: workday.candidateId,
+					requisitionId: workday.requisitionId,
+					recurrenceDayId,
+					recurrenceDay: recurrenceDay ?? null
+				};
 			});
+
+			// Two notifications fan out after the tx commits:
+			// 1. Client gets the "workday reposted" message (same as if the
+			//    candidate had cancelled themselves).
+			// 2. The candidate gets the "your workday was cancelled" email so
+			//    they aren't blindsided when the day disappears from their view.
+			await notifyWorkdayReposted({
+				candidateId: snapshot.candidateId,
+				requisitionId: snapshot.requisitionId,
+				recurrenceDayId: snapshot.recurrenceDayId
+			});
+			if (snapshot.recurrenceDay) {
+				await notifyWorkdayDeleted({
+					candidateId: snapshot.candidateId,
+					requisitionId: snapshot.requisitionId,
+					recurrenceDay: {
+						date: snapshot.recurrenceDay.date,
+						dayStart: snapshot.recurrenceDay.dayStart,
+						dayEnd: snapshot.recurrenceDay.dayEnd
+					}
+				});
+			}
 
 			setFlash({ type: 'success', message: 'Professional successfully unassigned' }, event);
 			return { success: true };
@@ -394,7 +448,7 @@ export const actions = {
 		}
 
 		try {
-			await db.transaction(async (tx) => {
+			const reassignSnapshot = await db.transaction(async (tx) => {
 				// Find existing workday
 				const existingWorkday = await tx
 					.select()
@@ -405,6 +459,7 @@ export const actions = {
 
 				if (!existingWorkday) throw new Error('No workday found to reassign');
 
+				const oldCandidateId = existingWorkday.candidateId;
 				const oldTimesheetId = existingWorkday.timesheetId;
 
 				// Delete old workday
@@ -505,7 +560,27 @@ export const actions = {
 					.update(recurrenceDayTable)
 					.set({ status: 'FILLED', updatedAt: new Date() })
 					.where(eq(recurrenceDayTable.id, recurrenceDayId));
+
+				return {
+					oldCandidateId,
+					recurrenceDay,
+					newWorkdayId
+				};
 			});
+
+			// Notify the candidate who lost their assignment (workday cancelled
+			// from their POV), then notify the client that the day is filled
+			// again with the new candidate.
+			await notifyWorkdayDeleted({
+				candidateId: reassignSnapshot.oldCandidateId,
+				requisitionId,
+				recurrenceDay: {
+					date: reassignSnapshot.recurrenceDay.date,
+					dayStart: reassignSnapshot.recurrenceDay.dayStart,
+					dayEnd: reassignSnapshot.recurrenceDay.dayEnd
+				}
+			});
+			await notifyWorkdayClaimed(reassignSnapshot.newWorkdayId);
 
 			setFlash({ type: 'success', message: 'Professional successfully reassigned' }, event);
 			return { success: true };
@@ -536,14 +611,75 @@ export const actions = {
 				return fail(400, { error: 'Missing required fields' });
 			}
 
-			await db.transaction(async (tx) => {
+			const cancelledSnapshot = await db.transaction(async (tx) => {
+				// Capture the assigned candidate (if any) and the recurrence day
+				// times BEFORE we change anything so the candidate-side
+				// notification has the data it needs.
+				const recurrenceDay = await tx
+					.select()
+					.from(recurrenceDayTable)
+					.where(eq(recurrenceDayTable.id, recurrenceDayId))
+					.limit(1)
+					.then((rows) => rows[0]);
+
+				const workday = await tx
+					.select()
+					.from(workdayTable)
+					.where(eq(workdayTable.recurrenceDayId, recurrenceDayId))
+					.limit(1)
+					.then((rows) => rows[0]);
+
 				await tx
 					.update(recurrenceDayTable)
 					.set({ status: 'CANCELED', updatedAt: new Date() })
 					.where(eq(recurrenceDayTable.id, recurrenceDayId));
 
-				await tx.delete(workdayTable).where(eq(workdayTable.recurrenceDayId, recurrenceDayId));
+				// Keep the workday row around (don't delete it). Marking it
+				// cancelled lets the candidate calendar surface the cancelled
+				// shift, while timesheet reads filter on `cancelledAt IS NULL`
+				// so the cancelled day won't count toward hours.
+				if (workday) {
+					await tx
+						.update(workdayTable)
+						.set({ cancelledAt: new Date(), updatedAt: new Date() })
+						.where(eq(workdayTable.id, workday.id));
+				}
+
+				// Audit row. Records WHO cancelled and WHEN, plus a snapshot of
+				// shift start + hours-before-shift for future penalty rules.
+				await recordRecurrenceDayCancellation(tx, {
+					recurrenceDayId,
+					requisitionId: recurrenceDay?.requisitionId ?? workday?.requisitionId ?? 0,
+					cancelledByUserId: user.id,
+					cancelledByRole: user.role as 'SUPERADMIN' | 'CLIENT' | 'CLIENT_STAFF',
+					candidateId: workday?.candidateId ?? null
+				});
+
+				// If this cancellation lands on Sunday (the last day of the
+				// Mon→Sun work week) and the timesheet has no other active
+				// workdays attached, sweep the now-empty DRAFT timesheet.
+				if (workday?.timesheetId && recurrenceDay?.date) {
+					await maybeCleanupOrphanTimesheet(tx, {
+						timesheetId: workday.timesheetId,
+						recurrenceDate: recurrenceDay.date
+					});
+				}
+
+				return { recurrenceDay: recurrenceDay ?? null, workday: workday ?? null };
 			});
+
+			// If a candidate was on the day, let them know it was cancelled.
+			if (cancelledSnapshot.workday && cancelledSnapshot.recurrenceDay) {
+				await notifyWorkdayDeleted({
+					candidateId: cancelledSnapshot.workday.candidateId,
+					requisitionId: cancelledSnapshot.workday.requisitionId,
+					recurrenceDay: {
+						date: cancelledSnapshot.recurrenceDay.date,
+						dayStart: cancelledSnapshot.recurrenceDay.dayStart,
+						dayEnd: cancelledSnapshot.recurrenceDay.dayEnd
+					}
+				});
+			}
 
 			setFlash({ type: 'success', message: 'Workday successfully cancelled' }, event);
 			return { success: true };

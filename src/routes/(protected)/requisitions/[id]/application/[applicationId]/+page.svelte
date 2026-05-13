@@ -33,6 +33,7 @@
 	import { format } from 'date-fns';
 	import { superForm } from 'sveltekit-superforms/client';
 	import { Badge } from '$lib/components/ui/badge';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 
 	export let data: PageData;
 	$: application = data.application;
@@ -145,14 +146,7 @@
 
 				<!-- Application status badge -->
 				<div class="mt-6 flex items-center gap-2">
-					<Badge
-						class={application.application.status === 'APPROVED'
-							? 'bg-green-100 text-green-800 hover:bg-green-100'
-							: application.application.status === 'DENIED'
-								? 'bg-red-100 text-red-800 hover:bg-red-100'
-								: 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'}
-						value={application.application.status}
-					/>
+					<StatusBadge status={application.application.status} />
 
 					<span class="text-sm text-muted-foreground">
 						Applied on {format(application.application.createdAt, 'PPP')}

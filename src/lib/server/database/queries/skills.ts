@@ -214,7 +214,7 @@ export async function getAllExperienceLevels(searchTerm?: string) {
 			.select()
 			.from(experienceLevelTable)
 			.where(searchTerm ? ilike(experienceLevelTable.value, `%${searchTerm}%`) : undefined)
-			.orderBy(asc(experienceLevelTable.value))
+			.orderBy(asc(experienceLevelTable.order), asc(experienceLevelTable.value))
 			.limit(DEFAULT_MAX_RECORD_LIMIT);
 
 		return results;

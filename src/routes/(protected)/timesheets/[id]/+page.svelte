@@ -9,6 +9,7 @@
 	} from '$lib/components/ui/card';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import { Separator } from '$lib/components/ui/separator';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import {
@@ -19,6 +20,14 @@
 		DialogHeader,
 		DialogTitle
 	} from '$lib/components/ui/dialog';
+	import {
+		DropdownMenu,
+		DropdownMenuContent,
+		DropdownMenuItem,
+		DropdownMenuSeparator,
+		DropdownMenuTrigger
+	} from '$lib/components/ui/dropdown-menu';
+	import { ChevronDown } from 'lucide-svelte';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from '$lib/components/ui/tabs';
 	import {
@@ -81,6 +90,8 @@
 	$: primaryWorkday = data.workdays?.[0] ?? null;
 	$: adjustedHourlyRate = data?.timesheet?.adjustedHourlyRate ?? null;
 	$: effectiveHourlyRate = adjustedHourlyRate ?? data?.timesheet?.hourlyRate ?? 0;
+	$: invoice = data.invoice;
+	$: wagesStatus = data.timesheet?.wagesStatus ?? null;
 
 	function startEditingRate() {
 		rateInputValue = adjustedHourlyRate;
@@ -201,35 +212,19 @@
 				const dateKey = entry.date;
 
 				const startTime = entry.startTime
-					? new Date(entry.startTime).toLocaleTimeString('en-US', {
-							hour12: false,
-							hour: '2-digit',
-							minute: '2-digit'
-						})
+					? formatInTimeZone(new Date(entry.startTime), reqTimezone, 'HH:mm')
 					: '';
 
 				const endTime = entry.endTime
-					? new Date(entry.endTime).toLocaleTimeString('en-US', {
-							hour12: false,
-							hour: '2-digit',
-							minute: '2-digit'
-						})
+					? formatInTimeZone(new Date(entry.endTime), reqTimezone, 'HH:mm')
 					: '';
 
 				const lunchStartTime = entry.lunchStartTime
-					? new Date(entry.lunchStartTime).toLocaleTimeString('en-US', {
-							hour12: false,
-							hour: '2-digit',
-							minute: '2-digit'
-						})
+					? formatInTimeZone(new Date(entry.lunchStartTime), reqTimezone, 'HH:mm')
 					: '';
 
 				const lunchEndTime = entry.lunchEndTime
-					? new Date(entry.lunchEndTime).toLocaleTimeString('en-US', {
-							hour12: false,
-							hour: '2-digit',
-							minute: '2-digit'
-						})
+					? formatInTimeZone(new Date(entry.lunchEndTime), reqTimezone, 'HH:mm')
 					: '';
 
 				if (timeEntries[dateKey]) {
@@ -335,21 +330,6 @@
 		loadTimeEntries();
 	}
 
-	function getTimesheetStatusBadge() {
-		const badges = {
-			DRAFT: { text: 'DRAFT', icon: Edit, class: 'bg-gray-300 hover:bg-gray-400' },
-			PENDING: { text: 'PENDING', icon: AlertCircle, class: 'bg-yellow-300 hover:bg-yellow-400' },
-			DISCREPANCY: {
-				text: 'DISCREPANCY',
-				icon: AlertTriangle,
-				class: 'bg-orange-400 hover:bg-orange-500'
-			},
-			APPROVED: { text: 'APPROVED', icon: CheckCircle2, class: 'bg-green-400 hover:bg-green-600' },
-			VOID: { text: 'VOID', icon: X, class: 'bg-gray-200 hover:bg-gray-300' },
-			REJECTED: { text: 'REJECTED', icon: X, class: 'bg-red-500 hover:bg-red-600' }
-		};
-		return badges[data?.timesheet?.status] || badges.DRAFT;
-	}
 
 	function getCostEstimate() {
 		const hours = parseFloat(data?.timesheet?.totalHoursWorked || '0');
@@ -387,7 +367,6 @@
 		return data?.timesheet?.status === 'DISCREPANCY';
 	}
 
-	const statusBadge = getTimesheetStatusBadge();
 </script>
 
 {#if user.role === USER_ROLES.SUPERADMIN}
@@ -395,10 +374,12 @@
 		<!-- Admin Header -->
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<div>
-				<div class="flex items-center gap-3">
+				<div class="flex items-center gap-3 flex-wrap">
 					<h1 class="text-2xl font-bold">Timesheet Details</h1>
-					<Badge class={cn(statusBadge.class, 'gap-1')} variant="default" value={statusBadge.text}
-					></Badge>
+					<StatusBadge status={data?.timesheet?.status} />
+					{#if wagesStatus}
+						<StatusBadge status={wagesStatus} />
+					{/if}
 				</div>
 				<p class="text-gray-600 flex items-center mt-1">
 					<Calendar class="h-4 w-4 mr-1" />
@@ -415,10 +396,55 @@
 					<ArrowLeft class="h-4 w-4" />
 					Back to List
 				</Button>
-				<Button href={`/requisitions/${data.requisition.id}`} variant="outline" class="gap-1">
-					<Eye class="h-4 w-4" />
-					View Requisition
-				</Button>
+				<DropdownMenu>
+					<DropdownMenuTrigger>
+						<Button variant="outline" class="gap-1">
+							Actions
+							<ChevronDown class="h-4 w-4" />
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end">
+						<DropdownMenuItem>
+							<a
+								href={`/requisitions/${data.requisition.id}`}
+								class="flex items-center gap-2 w-full"
+							>
+								<Eye class="h-4 w-4" />
+								View Requisition
+							</a>
+						</DropdownMenuItem>
+						{#if data.invoice}
+							<DropdownMenuItem>
+								<a href={`/invoices/${data.invoice.id}`} class="flex items-center gap-2 w-full">
+									<FileText class="h-4 w-4" />
+									View Invoice
+								</a>
+							</DropdownMenuItem>
+						{/if}
+						{#if isApproved && wagesStatus === 'WAGES_PAID'}
+							<DropdownMenuSeparator />
+							<DropdownMenuItem>
+								<form method="POST" action="?/markWagesDue" use:enhance class="w-full">
+									<button type="submit" class="flex items-center gap-2 w-full text-orange-600">
+										<AlertCircle class="h-4 w-4" />
+										Mark Wages Due
+									</button>
+								</form>
+							</DropdownMenuItem>
+						{/if}
+						{#if isApproved && wagesStatus === 'WAGES_DUE'}
+							<DropdownMenuSeparator />
+							<DropdownMenuItem>
+								<form method="POST" action="?/markWagesPaid" use:enhance class="w-full">
+									<button type="submit" class="flex items-center gap-2 w-full text-green-700">
+										<CheckCircle2 class="h-4 w-4" />
+										Mark Wages Paid
+									</button>
+								</form>
+							</DropdownMenuItem>
+						{/if}
+					</DropdownMenuContent>
+				</DropdownMenu>
 			</div>
 		</div>
 
@@ -435,6 +461,7 @@
 									<p>
 										• Candidate: {data?.timesheet?.candidate?.firstName}
 										{data?.timesheet?.candidate?.lastName}
+										<span>#{data?.timesheet?.candidate?.puid}</span>
 									</p>
 									<p>• Client: {data?.timesheet?.clientCompanyName}</p>
 									<p>
@@ -1022,113 +1049,6 @@
 				</Card>
 			</div>
 		</div>
-
-		<!-- Dialogs -->
-		<Dialog bind:open={approvalDialogOpen}>
-			<DialogContent>
-				<DialogHeader>
-					<DialogTitle>Approve Timesheet</DialogTitle>
-					<DialogDescription>
-						Approving this timesheet will confirm that the hours and work details are accurate.
-					</DialogDescription>
-				</DialogHeader>
-				<DialogFooter class="mt-4">
-					<form method="POST" action="?/approveTimesheet" use:enhance>
-						<Button type="button" variant="outline" on:click={() => (approvalDialogOpen = false)}>
-							Cancel
-						</Button>
-						<Button
-							type="submit"
-							variant="default"
-							class="bg-green-500 hover:bg-green-600 text-white"
-							on:click={() => (approvalDialogOpen = false)}
-						>
-							Approve Timesheet
-						</Button>
-					</form>
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
-
-		<Dialog bind:open={rejectionDialogOpen}>
-			<DialogContent>
-				<form
-					method="POST"
-					action="?/rejectTimesheet"
-					use:enhance={() => {
-						return async ({ result }) => {
-							if (result.type === 'success') {
-								rejectionDialogOpen = false;
-								rejectionNote = '';
-								window.location.reload();
-							}
-						};
-					}}
-				>
-					<DialogHeader>
-						<DialogTitle>Reject Timesheet</DialogTitle>
-						<DialogDescription>
-							Please provide a reason for rejecting this timesheet. This will be sent to the
-							candidate so they can correct the issues.
-						</DialogDescription>
-					</DialogHeader>
-
-					<div class="py-4">
-						<Label for="discrepancyNote" class="text-sm font-medium">
-							Reason for Rejection <span class="text-red-500">*</span>
-						</Label>
-						<Textarea
-							id="discrepancyNote"
-							name="discrepancyNote"
-							bind:value={rejectionNote}
-							placeholder="Explain what needs to be corrected..."
-							class="mt-2 min-h-[100px]"
-							required
-						/>
-					</div>
-
-					<DialogFooter>
-						<Button
-							type="button"
-							variant="outline"
-							on:click={() => {
-								rejectionDialogOpen = false;
-								rejectionNote = '';
-							}}
-						>
-							Cancel
-						</Button>
-						<Button type="submit" variant="destructive" disabled={!rejectionNote.trim()}>
-							Reject Timesheet
-						</Button>
-					</DialogFooter>
-				</form>
-			</DialogContent>
-		</Dialog>
-
-		<Dialog bind:open={overrideDialogOpen}>
-			<DialogContent>
-				<DialogHeader>
-					<DialogTitle>Override Discrepancies</DialogTitle>
-					<DialogDescription>
-						You're about to approve this timesheet despite having unresolved discrepancies.
-					</DialogDescription>
-				</DialogHeader>
-				<DialogFooter class="mt-4">
-					<form method="POST" use:enhance action="?/adminOverrideTimesheet">
-						<Button type="button" variant="outline">Cancel</Button>
-						<Button
-							on:click={() => (overrideDialogOpen = false)}
-							type="submit"
-							variant="default"
-							class="bg-amber-600 hover:bg-amber-700"
-						>
-							Override & Approve
-						</Button>
-					</form>
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
 	</section>
 {:else}
 	<!-- CLIENT VIEW -->
@@ -1137,16 +1057,7 @@
 			<div>
 				<div class="flex flex-wrap items-center gap-3">
 					<h1 class="text-2xl font-bold">Timesheet Review</h1>
-					<Badge
-						class={cn(
-							data?.timesheet?.status === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-							data?.timesheet?.status === 'DISCREPANCY' && 'bg-orange-400 hover:bg-bg-orange-500',
-							data?.timesheet?.status === 'APPROVED' && 'bg-green-400 hover:bg-green-600',
-							data?.timesheet?.status === 'VOID' && 'bg-gray-200 hover:bg-gray-300',
-							data?.timesheet?.status === 'REJECTED' && 'bg-red-500 hover:bg-red-500'
-						)}
-						value={data?.timesheet?.status}
-					/>
+					<StatusBadge status={data?.timesheet?.status} />
 				</div>
 				<p class="text-gray-600 flex items-center mt-1">
 					<Calendar class="h-4 w-4 mr-1" />
@@ -1154,10 +1065,33 @@
 				</p>
 			</div>
 			<div class="flex gap-2">
-				<Button href={`/requisitions/${data.requisition.id}`} variant="outline" class="gap-1">
-					<Eye class="h-4 w-4" />
-					View Requisition
-				</Button>
+				<DropdownMenu>
+					<DropdownMenuTrigger>
+						<Button variant="outline" class="gap-1">
+							Actions
+							<ChevronDown class="h-4 w-4" />
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent align="end">
+						<DropdownMenuItem>
+							<a
+								href={`/requisitions/${data.requisition.id}`}
+								class="flex items-center gap-2 w-full"
+							>
+								<Eye class="h-4 w-4" />
+								View Requisition
+							</a>
+						</DropdownMenuItem>
+						{#if data.invoice}
+							<DropdownMenuItem>
+								<a href={`/invoices/${data.invoice.id}`} class="flex items-center gap-2 w-full">
+									<FileText class="h-4 w-4" />
+									View Invoice
+								</a>
+							</DropdownMenuItem>
+						{/if}
+					</DropdownMenuContent>
+				</DropdownMenu>
 			</div>
 		</div>
 
@@ -1260,9 +1194,10 @@
 										<div class="col-span-2 text-right">Hours</div>
 									</div>
 									{#each data?.timesheet?.hoursRaw || [] as entry}
-										{@const recurrenceDay = data?.recurrenceDays.find(
-											(day) => day.date === entry.date
-										)}
+										{@const recurrenceDay = data?.recurrenceDays.find((day) => {
+											console.log(day.date, entry.date);
+											return day.date === entry.date;
+										})}
 										<div class="py-3 grid grid-cols-12 items-center">
 											<div class="col-span-4">
 												<p class="font-medium">
@@ -1271,15 +1206,14 @@
 											</div>
 											<div class="col-span-3">
 												<p class="text-sm text-gray-600">
-													{format(entry.startTime, 'hh:mm a')} -{' '}
-													{format(entry.endTime, 'hh:mm a')}
+													{formatTimeInReqZone(entry.startTime)} -{' '}
+													{formatTimeInReqZone(entry.endTime)}
 												</p>
 											</div>
 											<div class="col-span-3">
 												<p class="text-sm text-gray-600">
-													{format(recurrenceDay?.dayStart, 'hh:mm a')} - {format(
-														recurrenceDay.dayEnd,
-														'hh:mm a'
+													{formatTimeInReqZone(recurrenceDay.dayStart)} - {formatTimeInReqZone(
+														recurrenceDay.dayEnd
 													)}
 												</p>
 											</div>
@@ -1407,4 +1341,113 @@
 			</div>
 		</div>
 	</section>
+{/if}
+
+<!-- Shared Dialogs (admin + client + client-staff) -->
+<Dialog bind:open={approvalDialogOpen}>
+	<DialogContent>
+		<DialogHeader>
+			<DialogTitle>Approve Timesheet</DialogTitle>
+			<DialogDescription>
+				Approving this timesheet will confirm that the hours and work details are accurate.
+			</DialogDescription>
+		</DialogHeader>
+		<DialogFooter class="mt-4">
+			<form method="POST" action="?/approveTimesheet" use:enhance>
+				<Button type="button" variant="outline" on:click={() => (approvalDialogOpen = false)}>
+					Cancel
+				</Button>
+				<Button
+					type="submit"
+					variant="default"
+					class="bg-green-500 hover:bg-green-600 text-white"
+					on:click={() => (approvalDialogOpen = false)}
+				>
+					Approve Timesheet
+				</Button>
+			</form>
+		</DialogFooter>
+	</DialogContent>
+</Dialog>
+
+<Dialog bind:open={rejectionDialogOpen}>
+	<DialogContent>
+		<form
+			method="POST"
+			action="?/rejectTimesheet"
+			use:enhance={() => {
+				return async ({ result }) => {
+					if (result.type === 'success') {
+						rejectionDialogOpen = false;
+						rejectionNote = '';
+						window.location.reload();
+					}
+				};
+			}}
+		>
+			<DialogHeader>
+				<DialogTitle>Reject Timesheet</DialogTitle>
+				<DialogDescription>
+					Please provide a reason for rejecting this timesheet. This will be sent to the
+					candidate so they can correct the issues.
+				</DialogDescription>
+			</DialogHeader>
+
+			<div class="py-4">
+				<Label for="discrepancyNote" class="text-sm font-medium">
+					Reason for Rejection <span class="text-red-500">*</span>
+				</Label>
+				<Textarea
+					id="discrepancyNote"
+					name="discrepancyNote"
+					bind:value={rejectionNote}
+					placeholder="Explain what needs to be corrected..."
+					class="mt-2 min-h-[100px]"
+					required
+				/>
+			</div>
+
+			<DialogFooter>
+				<Button
+					type="button"
+					variant="outline"
+					on:click={() => {
+						rejectionDialogOpen = false;
+						rejectionNote = '';
+					}}
+				>
+					Cancel
+				</Button>
+				<Button type="submit" variant="destructive" disabled={!rejectionNote.trim()}>
+					Reject Timesheet
+				</Button>
+			</DialogFooter>
+		</form>
+	</DialogContent>
+</Dialog>
+
+{#if user?.role === USER_ROLES.SUPERADMIN}
+	<Dialog bind:open={overrideDialogOpen}>
+		<DialogContent>
+			<DialogHeader>
+				<DialogTitle>Override Discrepancies</DialogTitle>
+				<DialogDescription>
+					You're about to approve this timesheet despite having unresolved discrepancies.
+				</DialogDescription>
+			</DialogHeader>
+			<DialogFooter class="mt-4">
+				<form method="POST" use:enhance action="?/adminOverrideTimesheet">
+					<Button type="button" variant="outline">Cancel</Button>
+					<Button
+						on:click={() => (overrideDialogOpen = false)}
+						type="submit"
+						variant="default"
+						class="bg-amber-600 hover:bg-amber-700"
+					>
+						Override & Approve
+					</Button>
+				</form>
+			</DialogFooter>
+		</DialogContent>
+	</Dialog>
 {/if}

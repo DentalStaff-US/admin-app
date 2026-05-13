@@ -8,7 +8,11 @@ const config = {
 	preprocess: [vitePreprocess({})],
 
 	kit: {
-		adapter: adapter()
+		adapter: adapter(),
+		// Required for PostHog session replay to work correctly with SSR
+		paths: {
+			relative: false
+		}
 	}
 };
 

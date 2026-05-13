@@ -59,7 +59,12 @@ export const GET: RequestHandler = async ({ request }) => {
 			requisition: {
 				...requisitionTable,
 				companyName: clientCompanyTable.companyName,
-				discipline: disciplineTable.name
+				// `discipline` is the legacy alias; `disciplineName` matches the
+				// pattern used by every other requisition-returning endpoint.
+				// Both are populated so existing consumers don't break while
+				// the rename rolls forward.
+				discipline: disciplineTable.name,
+				disciplineName: disciplineTable.name
 			},
 			location: {
 				name: companyOfficeLocationTable.name,
@@ -80,7 +85,7 @@ export const GET: RequestHandler = async ({ request }) => {
 			eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 		)
 		.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
-		.leftJoin(workdayTable, eq(workdayTable.timesheetId, timeSheetTable.id))
+		.leftJoin(timeSheetTable, eq(timeSheetTable.id, workdayTable.timesheetId))
 		.where(
 			and(
 				eq(workdayTable.candidateId, candidateProfile.id),

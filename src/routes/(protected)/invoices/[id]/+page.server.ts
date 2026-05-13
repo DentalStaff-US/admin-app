@@ -3,7 +3,11 @@ import { stripe } from '$lib/server/stripe';
 import { redirect, error } from '@sveltejs/kit';
 import type { PageServerLoad, RequestEvent } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
-import { getInvoiceById, getInvoiceByIdAdmin } from '$lib/server/database/queries/requisitions';
+import {
+	getInvoiceById,
+	getInvoiceByIdAdmin,
+	getPaperTransactionsByInvoiceId
+} from '$lib/server/database/queries/requisitions';
 import { getClientProfilebyUserId } from '$lib/server/database/queries/clients';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { z } from 'zod';
@@ -13,6 +17,10 @@ import {
 	paperInvoiceTransactionTable
 } from '$lib/server/database/schemas/requisition';
 import { eq } from 'drizzle-orm';
+import {
+	notifyInvoicePaymentProcessed,
+	notifyMiscellaneousTransaction
+} from '$lib/server/notifications/transactional';
 
 const RecordTransactionSchema = z.object({
 	invoiceId: z.string().min(1),
@@ -33,17 +41,19 @@ export const load: PageServerLoad = async (event) => {
 	if (user.role === USER_ROLES.SUPERADMIN) {
 		const invoiceDetails = await getInvoiceByIdAdmin(event.params.id);
 		const transactionForm = await superValidate(RecordTransactionSchema);
-		return { user, invoice: invoiceDetails, transactionForm };
+		const paperTransactions = await getPaperTransactionsByInvoiceId(event.params.id);
+		return { user, invoice: invoiceDetails, transactionForm, paperTransactions };
 	}
 
 	if (user.role === USER_ROLES.CLIENT) {
 		if (!user.completedOnboarding) redirect(302, '/onboarding/client/company');
 		const client = await getClientProfilebyUserId(user.id);
 		const invoiceDetails = await getInvoiceById(event.params.id, client.id);
-		return { user, invoice: invoiceDetails, transactionForm: null };
+		const paperTransactions = await getPaperTransactionsByInvoiceId(event.params.id);
+		return { user, invoice: invoiceDetails, transactionForm: null, paperTransactions };
 	}
 
-	return { user, invoice: null, transactionForm: null };
+	return { user, invoice: null, transactionForm: null, paperTransactions: [] };
 };
 
 export const actions = {
@@ -59,6 +69,7 @@ export const actions = {
 			if (invoice.invoice.stripeInvoiceId) {
 				const result = await stripe.invoices.pay(invoice.invoice.stripeInvoiceId);
 				console.log('Invoice payment result:', result);
+				await notifyInvoicePaymentProcessed(id);
 				setFlash({ type: 'success', message: 'Invoice processed successfully' }, event);
 				return { success: true };
 			}
@@ -142,6 +153,13 @@ export const actions = {
 					updatedAt: new Date()
 				})
 				.where(eq(invoiceTable.id, invoiceId));
+
+			await notifyMiscellaneousTransaction({
+				invoiceId,
+				transactionType,
+				amount,
+				notes: notes ?? null
+			});
 
 			setFlash({ type: 'success', message: 'Transaction recorded successfully' }, event);
 			return message(form, 'Transaction recorded successfully');

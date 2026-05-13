@@ -10,6 +10,8 @@
 	// import { formatRecurrenceDayTimeString } from '$lib/_helpers/formatRecurrenceDayTimeString';
 	// import { Avatar } from '$lib/components/ui/avatar';
 	import { CalendarDays, Clock } from 'lucide-svelte';
+	import { formatInTimeZone } from 'date-fns-tz';
+	import { formatTimezoneName } from '$lib/_helpers/UTCTimezoneUtils';
 
 	export let mounted = false;
 	export let data: PageData;
@@ -54,18 +56,23 @@
 			</Dialog.Header>
 
 			{#if selectedEvent?.extendedProps.type === 'RECURRENCE_DAY'}
+				{@const tz =
+					selectedEvent.extendedProps.requisition?.referenceTimezone || 'America/New_York'}
+				{@const dayStart = selectedEvent.extendedProps.recurrenceDay?.dayStart}
+				{@const dayEnd = selectedEvent.extendedProps.recurrenceDay?.dayEnd}
 				<p class="font-semibold">Date & Time</p>
 				<div class="flex items-center gap-2 text-gray-500">
 					<CalendarDays size={18} />
-					{new Date(selectedEvent.start).toLocaleDateString()}
+					{dayStart ? formatInTimeZone(new Date(dayStart), tz, 'EEEE, MMM d, yyyy') : ''}
 				</div>
 				<div class="flex items-center gap-2 text-gray-500">
 					<Clock size={18} />
-					<span
-						>{new Date(selectedEvent.start).toLocaleTimeString()} - {new Date(
-							selectedEvent.end
-						).toLocaleTimeString()}</span
-					>
+					<span>
+						{dayStart ? formatInTimeZone(new Date(dayStart), tz, 'p') : ''} - {dayEnd
+							? formatInTimeZone(new Date(dayEnd), tz, 'p')
+							: ''}
+						<span class="text-xs">({formatTimezoneName(tz)})</span>
+					</span>
 				</div>
 				<Dialog.Footer>
 					<a href={`/requisitions/${selectedEvent?.resourceIds?.[0]}`}>

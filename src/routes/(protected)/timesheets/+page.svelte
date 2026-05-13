@@ -32,12 +32,15 @@
 	import { cn } from '$lib/utils';
 	import { USER_ROLES } from '$lib/config/constants';
 	import ViewLink from '$lib/components/tables/ViewLink.svelte';
+	import RequisitionCell from '$lib/components/tables/RequisitionCell.svelte';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import type { TimesheetWithRelations } from '$lib/server/database/schemas/requisition';
+	import { page } from '$app/stores';
 
 	export let data: PageData;
 
 	let searchTerm = data.searchTerm || '';
-	let activeTab = 'all';
+	let activeTab = $page.url.searchParams.get('tab') || 'all';
 
 	$: user = data.user;
 	$: timesheets = (data.timesheets as TimesheetWithRelations[]) || [];
@@ -88,7 +91,12 @@
 				const titleA = rowA.original.requisition?.disciplineName?.toLowerCase() || '';
 				const titleB = rowB.original.requisition?.disciplineName?.toLowerCase() || '';
 				return titleA.localeCompare(titleB);
-			}
+			},
+			cell: ({ row }) =>
+				flexRender(RequisitionCell, {
+					disciplineName: row.original.requisition?.disciplineName,
+					requisitionId: row.original.requisition?.id
+				})
 		},
 		{
 			header: 'Candidate',
@@ -108,23 +116,8 @@
 			id: 'status',
 			accessorKey: 'timesheet.status',
 			enableSorting: true,
-			cell: ({ getValue, row }) => {
-				const status = getValue() as string;
-				const timesheet = row.original;
-
-				// Show validation warning if there are discrepancies beyond just status
-				const displayStatus = status;
-
-				return flexRender(Badge, {
-					value: displayStatus,
-					class: cn(
-						'text-xs',
-						status === 'DISCREPANCY' && 'bg-red-500',
-						status === 'APPROVED' && 'bg-green-400',
-						status === 'PENDING' && 'bg-yellow-500',
-						status === 'REJECTED' && 'bg-gray-200'
-					)
-				});
+			cell: ({ getValue }) => {
+				return flexRender(StatusBadge, { status: getValue() as string });
 			}
 		},
 		{
@@ -187,11 +180,15 @@
 		createTableOptions([])
 	);
 	const discrepancyOptions = writable<TableOptions<TimesheetWithRelations>>(createTableOptions([]));
+	const wagesDueOptions = writable<TableOptions<TimesheetWithRelations>>(createTableOptions([]));
+	const wagesPaidOptions = writable<TableOptions<TimesheetWithRelations>>(createTableOptions([]));
 
 	// Create table instances
 	const allTable = createSvelteTable(allOptions);
 	const noDiscrepancyTable = createSvelteTable(noDiscrepancyOptions);
 	const discrepancyTable = createSvelteTable(discrepancyOptions);
+	const wagesDueTable = createSvelteTable(wagesDueOptions);
+	const wagesPaidTable = createSvelteTable(wagesPaidOptions);
 
 	// Get current active table
 	$: currentTable =
@@ -199,34 +196,67 @@
 			? allTable
 			: activeTab === 'no-discrepancy'
 				? noDiscrepancyTable
-				: discrepancyTable;
+				: activeTab === 'discrepancy'
+					? discrepancyTable
+					: activeTab === 'wages-due'
+						? wagesDueTable
+						: wagesPaidTable;
 
 	// Update table data when timesheets change
 	$: {
 		const allData = timesheets;
 		const noDiscrepancyData = filterByDiscrepancy(timesheets, false);
 		const discrepancyData = filterByDiscrepancy(timesheets, true);
+		const wagesDueData = filterByWagesStatus(timesheets, 'WAGES_DUE');
+		const wagesPaidData = filterByWagesStatus(timesheets, 'WAGES_PAID');
 
 		allOptions.update((opts) => ({ ...opts, data: allData, columns }));
 		noDiscrepancyOptions.update((opts) => ({ ...opts, data: noDiscrepancyData, columns }));
 		discrepancyOptions.update((opts) => ({ ...opts, data: discrepancyData, columns }));
+		wagesDueOptions.update((opts) => ({
+			...opts,
+			data: filterByWagesStatus(timesheets, 'WAGES_DUE'),
+			columns
+		}));
+		wagesPaidOptions.update((opts) => ({
+			...opts,
+			data: filterByWagesStatus(timesheets, 'WAGES_PAID'),
+			columns
+		}));
 	}
 
 	onMount(() => {
 		const allData = timesheets;
 		const noDiscrepancyData = filterByDiscrepancy(timesheets, false);
 		const discrepancyData = filterByDiscrepancy(timesheets, true);
+		const wagesDueData = filterByWagesStatus(timesheets, 'WAGES_DUE');
+		const wagesPaidData = filterByWagesStatus(timesheets, 'WAGES_PAID');
 
 		allOptions.update((opts) => ({ ...opts, data: allData, columns }));
 		noDiscrepancyOptions.update((opts) => ({ ...opts, data: noDiscrepancyData, columns }));
 		discrepancyOptions.update((opts) => ({ ...opts, data: discrepancyData, columns }));
+		wagesDueOptions.update((opts) => ({
+			...opts,
+			data: filterByWagesStatus(timesheets, 'WAGES_DUE'),
+			columns
+		}));
+		wagesPaidOptions.update((opts) => ({
+			...opts,
+			data: filterByWagesStatus(timesheets, 'WAGES_PAID'),
+			columns
+		}));
 	});
 
-	// Get tab counts
+	const filterByWagesStatus = (timesheets: any[], status: 'WAGES_DUE' | 'WAGES_PAID') =>
+		timesheets.filter((ts) => ts.timesheet.wagesStatus === status);
+
+	// Add to tabCounts
 	$: tabCounts = {
 		all: timesheets.length,
 		noDiscrepancy: filterByDiscrepancy(timesheets, false).length,
-		discrepancy: filterByDiscrepancy(timesheets, true).length
+		discrepancy: filterByDiscrepancy(timesheets, true).length,
+		wagesDue: filterByWagesStatus(timesheets, 'WAGES_DUE').length,
+		wagesPaid: filterByWagesStatus(timesheets, 'WAGES_PAID').length
 	};
 
 	function getSortingIcon(header: any) {
@@ -303,7 +333,7 @@
 	{:else}
 		<!-- Tabs with Tables -->
 		<Tabs.Root bind:value={activeTab} class="">
-			<Tabs.List class="grid w-full grid-cols-3">
+			<Tabs.List class="grid w-full grid-cols-4">
 				<Tabs.Trigger value="all" class="relative">
 					All Timesheets
 					{#if tabCounts.all > 0}
@@ -332,10 +362,16 @@
 						></Badge>
 					{/if}
 				</Tabs.Trigger>
+				<Tabs.Trigger value="wages-due" class="relative">
+					Wages Due
+					{#if tabCounts.wagesDue > 0}
+						<Badge class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.wagesDue}></Badge>
+					{/if}
+				</Tabs.Trigger>
 			</Tabs.List>
 
 			<!-- Tab Contents -->
-			{#each ['all', 'no-discrepancy', 'discrepancy'] as tabValue}
+			{#each ['all', 'no-discrepancy', 'discrepancy', 'wages-due', 'wages-paid'] as tabValue}
 				<Tabs.Content value={tabValue} class="">
 					{#if activeTab === tabValue}
 						<div class="bg-white rounded-lg shadow-sm">

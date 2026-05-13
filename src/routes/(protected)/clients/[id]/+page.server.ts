@@ -203,7 +203,17 @@ export const actions = {
 						amountInDollars: form.data.amount.toFixed(2),
 						dueDate: dateString,
 						description: form.data.description,
-						lineItems,
+						lineItems: lineItems.map((item) => ({
+							id: crypto.randomUUID(),
+							description: item.description,
+							quantity: item.quantity,
+							rate: item.rate,
+							unit_amount: Math.round(item.rate * 100),
+							unit_amount_excluding_tax: Math.round(item.rate * 100),
+							amount: Math.round(item.amount * 100),
+							currency: 'usd',
+							type: 'paper'
+						})),
 						customerEmail,
 						customerName
 					},
@@ -224,7 +234,7 @@ export const actions = {
 							quantity: item.quantity || 1,
 							currency: 'usd'
 						})),
-						{ clientId },
+						{ clientId, userId: clientResult.user.id },
 						form.data.description,
 						utcDate
 					);

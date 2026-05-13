@@ -29,6 +29,7 @@
 	} from '$lib/components/ui/dropdown-menu';
 	import { Label } from '$lib/components/ui/label';
 	import { Input } from '$lib/components/ui/input';
+	import PhoneInput from '$lib/components/PhoneInput.svelte';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Badge } from '$lib/components/ui/badge';
 	import {
@@ -86,6 +87,8 @@
 	import Calendar from '$lib/components/calendar/calendar.svelte';
 	import { cn } from '$lib/utils';
 	import type { CalendarEvent } from '$lib/types';
+	import { formatInTimeZone } from 'date-fns-tz';
+	import { formatTimezoneName } from '$lib/_helpers/UTCTimezoneUtils';
 	import { goto, invalidateAll } from '$app/navigation';
 	import type {
 		InvoiceSelect,
@@ -130,21 +133,19 @@
 		errors: invoiceFormError
 	} = superForm(data.invoiceForm, {
 		resetForm: true,
+		onSubmit: ({ formData }) => {
+			// Force sync items into the form data at submit time
+			formData.set('items', JSON.stringify(items));
+			formData.set('amount', String(items.reduce((t, i) => t + i.amount, 0)));
+		},
 		onResult: ({ result }) => {
 			if (result.type === 'success') {
 				showInvoiceDialog = false;
-				// Reset form to initial state
-				$invoiceForm = {
-					amount: 0,
-					dueDate: '',
-					description: '',
-					items: [{ description: '', quantity: 1, rate: 0, amount: 0 }],
-
-					invoiceMethod: 'STRIPE'
-				};
+				items = [{ description: '', quantity: 1, rate: 0, amount: 0 }];
 			}
 		}
 	});
+
 	$: $invoiceForm.invoiceMethod = selectedInvoiceMethod;
 
 	const {
@@ -822,7 +823,7 @@
 														<Input
 															type="number"
 															bind:value={item.quantity}
-															on:change={() => updateItemAmount(i)}
+															on:input={() => updateItemAmount(i)}
 															min="1"
 														/>
 													</TableCell>
@@ -830,7 +831,7 @@
 														<Input
 															type="number"
 															bind:value={item.rate}
-															on:change={() => updateItemAmount(i)}
+															on:input={() => updateItemAmount(i)}
 															min="0"
 															step="0.01"
 														/>
@@ -974,7 +975,7 @@
 											</div>
 											<div>
 												<Label for="base-location">Cell Phone</Label>
-												<Input
+												<PhoneInput
 													id="cell-phone"
 													name="cellPhone"
 													bind:value={$updateForm.cellPhone}
@@ -2011,18 +2012,23 @@
 			</DialogHeader>
 
 			{#if selectedEvent?.extendedProps.type === 'RECURRENCE_DAY'}
+				{@const tz =
+					selectedEvent.extendedProps.requisition?.referenceTimezone || 'America/New_York'}
+				{@const dayStart = selectedEvent.extendedProps.recurrenceDay?.dayStart}
+				{@const dayEnd = selectedEvent.extendedProps.recurrenceDay?.dayEnd}
 				<p class="font-semibold">Date & Time</p>
 				<div class="flex items-center gap-2 text-gray-500">
 					<CalendarDays size={18} />
-					{new Date(selectedEvent.start).toLocaleDateString()}
+					{dayStart ? formatInTimeZone(new Date(dayStart), tz, 'EEEE, MMM d, yyyy') : ''}
 				</div>
 				<div class="flex items-center gap-2 text-gray-500">
 					<Clock size={18} />
-					<span
-						>{new Date(selectedEvent.start).toLocaleTimeString()} - {new Date(
-							selectedEvent.end
-						).toLocaleTimeString()}</span
-					>
+					<span>
+						{dayStart ? formatInTimeZone(new Date(dayStart), tz, 'p') : ''} - {dayEnd
+							? formatInTimeZone(new Date(dayEnd), tz, 'p')
+							: ''}
+						<span class="text-xs">({formatTimezoneName(tz)})</span>
+					</span>
 				</div>
 				<DialogFooter>
 					<a href={`/requisitions/${selectedEvent?.resourceIds?.[0]}`}>

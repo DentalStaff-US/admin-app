@@ -59,8 +59,16 @@ export const POST: RequestHandler = async ({ request }) => {
 			);
 		}
 
-		console.log('updating profile', existingProfile.id);
-		const profile = parsedProfile.data;
+		// Strip fields whose values arrived as the literal string "undefined" —
+		// caused by Svelte rendering `value={x}` where `x` is `undefined`; the
+		// browser submits the attribute as the string "undefined", which Zod's
+		// `z.string().optional()` accepts but the DB rejects on numeric columns
+		// (lat, lon). Empty strings are left alone — they may be a legitimate
+		// "clear this field" signal from the form.
+		const profile = Object.fromEntries(
+			Object.entries(parsedProfile.data).filter(([, v]) => v !== 'undefined')
+		) as typeof parsedProfile.data;
+
 		const updatedData = {
 			...profile,
 			updatedAt: new Date(),

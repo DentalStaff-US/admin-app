@@ -1,6 +1,7 @@
 import type { RequestHandler } from './$types';
 import { stripe } from '$lib/server/stripe';
 import { json } from '@sveltejs/kit';
+import { getPostHogClient } from '$lib/server/posthog';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const { priceId } = await request.json();
@@ -21,6 +22,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			customer_email: user?.email,
 			client_reference_id: user?.id
 		});
+
+		if (user?.id) {
+			const posthog = getPostHogClient();
+			posthog.capture({
+				distinctId: user.id,
+				event: 'subscription_checkout_started',
+				properties: {
+					price_id: priceId,
+					stripe_session_id: session.id
+				}
+			});
+		}
 
 		return json({ url: session.url });
 	} catch (err) {

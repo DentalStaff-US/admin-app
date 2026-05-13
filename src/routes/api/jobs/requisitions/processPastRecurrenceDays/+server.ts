@@ -2,24 +2,13 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import db from '$lib/server/database/drizzle';
 import { recurrenceDayTable } from '$lib/server/database/schemas/requisition';
 import { and, eq, inArray, lt, or } from 'drizzle-orm';
-import crypto from 'crypto';
 import { CRON_SECRET } from '$env/static/private';
+import { verifyJobRequest } from '$lib/server/jobs/sign';
 
-export const GET: RequestHandler = async ({ request }) => {
-	// const timestamp = request.headers.get('x-timestamp');
-	const signature = request.headers.get('x-signature');
-
-	// Check if timestamp is recent (prevent replay attacks)
-	// const nowTs = Date.now();
-	// if (!timestamp || nowTs - parseInt(timestamp) > 5 * 60 * 1000) {
-	// 	// 5 minute window
-	// 	return new Response('Expired request', { status: 401 });
-	// }
-
-	const expectedSignature = crypto.createHmac('sha256', CRON_SECRET).digest('hex');
-
-	if (signature !== expectedSignature) {
-		return new Response('Invalid signature', { status: 401 });
+export const POST: RequestHandler = async ({ request }) => {
+	const verified = verifyJobRequest(request.headers, 'processPastRecurrenceDays', CRON_SECRET);
+	if (!verified.ok) {
+		return new Response(`Unauthorized: ${verified.reason}`, { status: 401 });
 	}
 
 	try {

@@ -14,6 +14,7 @@
 	import { goto } from '$app/navigation';
 	import { formatCurrency, formatDate, formatTicketDate } from '$lib/_helpers';
 	import { Badge } from '$lib/components/ui/badge';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import { cn } from '$lib/utils';
 	import { format, parse } from 'date-fns';
 	import { USER_ROLES } from '$lib/config/constants';
@@ -233,19 +234,7 @@
 									</Table.Cell>
 									<Table.Cell>
 										<!-- Status 3rd -->
-										<Badge
-											variant="secondary"
-											value={req.requisition.status}
-											class={cn(
-												req.requisition.status === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-												req.requisition.status === 'OPEN' && 'bg-blue-500 hover:bg-blue-600',
-												req.requisition.status === 'FILLED' && 'bg-green-400 hover:bg-bg-green-500',
-												req.requisition.status === 'UNFULFILLED' &&
-													'bg-orange-400 hover:bg-orange-500',
-												req.requisition.status === 'CANCELED' && 'bg-red-500 hover:bg-red-600',
-												'text-white'
-											)}
-										/>
+										<StatusBadge status={req.requisition.status} />
 									</Table.Cell>
 									<Table.Cell>
 										<!-- Type 4th -->
@@ -351,16 +340,9 @@
 										{/if}
 									</Table.Cell>
 									<Table.Cell>
-										<Badge
-											class={cn(
-												invoiceData.invoice.status === 'draft' && 'bg-gray-400 hover:bg-gray-500',
-												invoiceData.invoice.status === 'open' && 'bg-blue-500 hover:bg-blue-600',
-												invoiceData.invoice.status === 'paid' && 'bg-green-500 hover:bg-green-600',
-												invoiceData.invoice.status === 'uncollectible' &&
-													'bg-orange-500 hover:bg-orange-600',
-												invoiceData.invoice.status === 'void' && 'bg-gray-600 hover:bg-gray-700'
-											)}
-											value={invoiceData.invoice.status.toUpperCase()}
+										<StatusBadge
+											status={invoiceData.invoice.status}
+											label={invoiceData.invoice.status.toUpperCase()}
 										/>
 									</Table.Cell>
 									<Table.Cell class="text-right font-semibold">
@@ -408,7 +390,10 @@
 									<Table.Cell>
 										<div class="flex flex-col">
 											<span class="font-medium truncate max-w-[150px]"
-												>{timesheet.requisition.title}</span
+												>{timesheet.requisition.disciplineName}
+												<span class="text-xs text-muted-foreground"
+													>#{timesheet.requisition.id}</span
+												></span
 											>
 											<span class="text-xs text-gray-500">
 												{timesheet.candidate?.firstName}
@@ -417,20 +402,7 @@
 										</div>
 									</Table.Cell>
 									<Table.Cell>
-										<Badge
-											variant="secondary"
-											class={cn(
-												timesheet.timesheet.status === 'PENDING' &&
-													'bg-yellow-300 hover:bg-yellow-400',
-												timesheet.timesheet.status === 'DISCREPANCY' &&
-													'bg-orange-400 hover:bg-bg-orange-500',
-												timesheet.timesheet.status === 'APPROVED' &&
-													'bg-green-400 hover:bg-green-600',
-												timesheet.timesheet.status === 'VOID' && 'bg-gray-200 hover:bg-gray-300',
-												timesheet.timesheet.status === 'REJECTED' && 'bg-red-500 hover:bg-red-500'
-											)}
-											value={timesheet.timesheet.status}
-										/>
+										<StatusBadge status={timesheet.timesheet.status} />
 									</Table.Cell>
 									<Table.Cell>
 										<span class="text-gray-500">
@@ -483,14 +455,7 @@
 										<p>{user.firstName} {user.lastName}</p>
 									</Table.Cell>
 									<Table.Cell>
-										<Badge
-											value={application.status}
-											class={cn(
-												application.status === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-												application.status === 'NEW' && 'bg-green-400 hover:bg-bg-green-500',
-												application.status === 'CLOSED' && 'bg-red-500 hover:bg-red-600'
-											)}
-										/>
+										<StatusBadge status={application.status} />
 									</Table.Cell>
 									<Table.Cell>
 										<span class="text-gray-500">

@@ -17,6 +17,7 @@
 	import { onMount } from 'svelte';
 	import ViewLink from '$lib/components/tables/ViewLink.svelte';
 	import { Badge } from '$lib/components/ui/badge';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import { Button } from '$lib/components/ui/button';
 	import { cn } from '$lib/utils';
 	import * as Table from '$lib/components/ui/table';
@@ -91,15 +92,7 @@
 			id: 'status',
 			accessorFn: (original) => original.supportTicket.status,
 			cell: (original) =>
-				flexRender(Badge, {
-					value: original.getValue(),
-					class: cn(
-						'text-white',
-						original.getValue() === 'PENDING' && 'bg-yellow-400 hover:bg-yellow-500',
-						original.getValue() === 'NEW' && 'bg-green-500 hover:bg-green-600',
-						original.getValue() === 'CLOSED' && 'bg-gray-500 hover:bg-gray-600'
-					)
-				})
+				flexRender(StatusBadge, { status: original.getValue() as string })
 		}
 	];
 
@@ -125,15 +118,7 @@
 			id: 'status',
 			accessorFn: (original) => original.supportTicket.status,
 			cell: (original) =>
-				flexRender(Badge, {
-					value: original.getValue(),
-					class: cn(
-						'text-white',
-						original.getValue() === 'PENDING' && 'bg-yellow-400 hover:bg-yellow-500',
-						original.getValue() === 'NEW' && 'bg-green-500 hover:bg-green-600',
-						original.getValue() === 'CLOSED' && 'bg-gray-500 hover:bg-gray-600'
-					)
-				})
+				flexRender(StatusBadge, { status: original.getValue() as string })
 		}
 	];
 

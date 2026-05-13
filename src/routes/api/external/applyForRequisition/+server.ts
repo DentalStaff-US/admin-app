@@ -1,7 +1,10 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import db from '$lib/server/database/drizzle';
-import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
+import {
+	candidateDisciplineExperienceTable,
+	candidateProfileTable
+} from '$lib/server/database/schemas/candidate';
 import {
 	requisitionTable,
 	requisitionApplicationTable
@@ -10,6 +13,7 @@ import { authenticateUser } from '$lib/server/serverUtils';
 import { and, eq } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import { getClientIdByCompanyId } from '$lib/server/database/queries/clients';
+import { getPostHogClient } from '$lib/server/posthog';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -71,7 +75,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				);
 			}
 
-			// Verify requisition exists and is active
+			// Verify requisition exists and is active.
 			const requisition = await tx
 				.select()
 				.from(requisitionTable)
@@ -83,6 +87,34 @@ export const POST: RequestHandler = async ({ request }) => {
 				return json(
 					{ success: false, message: 'Requisition not found or not active' },
 					{ status: 404, headers: corsHeaders }
+				);
+			}
+
+			// Light discipline-only gate. Permanent positions are exploratory
+			// (job-board style) — admins review applicants individually for
+			// experience + rate fit, so we only enforce that the candidate at
+			// least practices the field. Temp claims are gated more strictly
+			// in applyForTempRequisition.
+			const candidateHasDiscipline = await tx
+				.select({ disciplineId: candidateDisciplineExperienceTable.disciplineId })
+				.from(candidateDisciplineExperienceTable)
+				.where(
+					and(
+						eq(candidateDisciplineExperienceTable.candidateId, candidateProfile.id),
+						eq(candidateDisciplineExperienceTable.disciplineId, requisition.disciplineId)
+					)
+				)
+				.limit(1)
+				.then((rows) => rows[0]);
+
+			if (!candidateHasDiscipline) {
+				return json(
+					{
+						success: false,
+						message: 'You do not have the required discipline for this position.',
+						reason: 'discipline'
+					},
+					{ status: 403, headers: corsHeaders }
 				);
 			}
 
@@ -124,6 +156,18 @@ export const POST: RequestHandler = async ({ request }) => {
 
 			// Log successful application
 			console.log(`New application created: ${application.id} for requisition: ${requisitionId}`);
+
+			const posthog = getPostHogClient();
+			posthog.capture({
+				distinctId: user.id,
+				event: 'candidate_applied',
+				properties: {
+					application_id: application.id,
+					requisition_id: requisitionId,
+					company_id: requisition.companyId,
+					client_id: clientId
+				}
+			});
 
 			return json(
 				{

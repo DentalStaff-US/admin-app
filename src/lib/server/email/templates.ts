@@ -1,4 +1,4 @@
-import { APP_NAME } from '$lib/config/constants';
+import { APP_NAME, USER_ROLES } from '$lib/config/constants';
 import { BASE_URL } from '$env/static/private';
 import { env } from '$env/dynamic/private';
 import type { Invoice } from '../database/schemas/requisition';
@@ -294,6 +294,38 @@ export const EMAIL_TEMPLATES: Record<
 			subject: `Workday Shift Cancelled | ${APP_NAME}`
 		};
 	},
+	workdayRepostedNotificationEmail: (workdayDetails: {
+		clientName: string;
+		companyName: string;
+		location: string;
+		date: string;
+		workdayStart: string;
+		workdayEnd: string;
+		candidateName: string;
+		discipline: string;
+		url: string;
+	}) => {
+		return {
+			textEmail: `
+            Dear ${workdayDetails.clientName},
+
+            Unfortunately ${workdayDetails.candidateName} had to repost (${workdayDetails.date}) on ${workdayDetails.discipline}. We are working on re-filling this day.
+
+            Thanks,
+            DTSS Management.`.trim(),
+			htmlEmail: `
+            <p>Dear ${workdayDetails.clientName},</p>
+
+            <p>Unfortunately ${workdayDetails.candidateName} had to repost (${workdayDetails.date}) on ${workdayDetails.discipline}. We are working on re-filling this day.</p>
+
+            <p>
+                Thanks,<br>
+                DTSS Management.
+            </p>
+        `.trim(),
+			subject: `Workday Shift Reposted | ${APP_NAME}`
+		};
+	},
 	newSupportTicketEmail: (ticketDetails: { reportedBy: string; createdAt: string; id: string }) => {
 		return { textEmail: '', htmlEmail: '', subject: '' };
 	},
@@ -303,5 +335,218 @@ export const EMAIL_TEMPLATES: Record<
 		createdAt: string;
 	}) => {
 		return { textEmail: '', htmlEmail: '', subject: '' };
+	},
+	adminUserRequestNotificationEmail: (userDetails: {
+		firstName: string;
+		lastName: string;
+		email: string;
+		role: keyof typeof USER_ROLES;
+	}) => {
+		return {
+			textEmail: `
+            Dear Admin,
+            
+            ${userDetails.firstName} ${userDetails.lastName} has requested a ${userDetails.role
+							.split('_')
+							.map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+							.join(
+								' '
+							)} account. Log in to Accept or Reject their request by marking them Active or Inactive.
+            `,
+			htmlEmail: `
+            <p>Dear Admin,</p>
+            <p>${userDetails.firstName} ${userDetails.lastName} has requested a ${userDetails.role
+							.split('_')
+							.map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+							.join(
+								' '
+							)} account. Log in to Accept or Reject their request by marking them Active or Inactive.</p>
+        `.trim(),
+			subject: `New User Request | ${APP_NAME}`
+		};
+	},
+	userRequestApprovedNotificationEmail: (userDetails: {
+		firstName: string;
+		lastName: string;
+		email: string;
+		role: keyof typeof USER_ROLES;
+	}) => {
+		return {
+			textEmail: `
+            Hello ${userDetails.firstName} ${userDetails.lastName},
+
+            Your request for a ${userDetails.role
+							.split('_')
+							.map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+							.join(
+								' '
+							)} account has been approved. You can now log in and start using your account.
+            `,
+			htmlEmail: `
+            <p>Hello ${userDetails.firstName} ${userDetails.lastName},</p>
+            <p>Your request for a ${userDetails.role
+							.split('_')
+							.map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+							.join(
+								' '
+							)} account has been approved. You can now log in and start using your account.</p>
+        `.trim(),
+			subject: `User Request Approved | ${APP_NAME}`
+		};
+	},
+	qualifiedCandidateNotificationEmail: (
+		candidateDetails: { firstName: string; lastName: string },
+		workdayDetails: {
+			companyName: string;
+			discipline: string;
+			location: string;
+			date: string;
+			workdayStart: string;
+			workdayEnd: string;
+			experience: string;
+			address: string;
+		}
+	) => {
+		return {
+			textEmail: `
+            Hello ${candidateDetails.firstName} ${candidateDetails.lastName},
+
+            A new job has been created that matches your: ${workdayDetails.discipline} credentials and availability.
+
+            More info on the Requisition:
+            Date: ${workdayDetails.date} 
+            Desired Experience: ${workdayDetails.experience}
+            Assignment Duration: ${workdayDetails.workdayStart} - ${workdayDetails.workdayEnd}
+            Location: ${workdayDetails.location} - ${workdayDetails.address}
+
+            Log in to your personal account or call us at (888) 653-1657 to accept this position.
+            `,
+			htmlEmail: `
+            <p>Hello ${candidateDetails.firstName} ${candidateDetails.lastName},</p>
+
+            <p>A new job has been created that matches your: <strong>${workdayDetails.discipline}</strong> credentials and availability.</p>
+
+            <p>More info on the Requisition:</p>
+            <ul>
+                <li><strong>Date:</strong> ${workdayDetails.date}</li>
+                <li><strong>Desired Experience:</strong> ${workdayDetails.experience}</li>
+                <li><strong>Assignment Duration:</strong> ${workdayDetails.workdayStart} - ${workdayDetails.workdayEnd}</li>
+                <li><strong>Location:</strong> ${workdayDetails.location} - ${workdayDetails.address}</li>
+            </ul>
+
+            <p>Log in to your personal account or call us at (888) 653-1657 to accept this position.</p>
+            `.trim(),
+			subject: `New Requisition Available | ${APP_NAME}`
+		};
+	},
+	timesheetVerificationNotificationEmail: (
+		candidateDetails: { firstName: string; lastName: string },
+		workdayDetails: {
+			timesheetUrl: string;
+			clientName: string;
+			discipline: string;
+			location: string;
+			date: string;
+			workdayStart: string;
+			workdayEnd: string;
+			requisitionNumber: string;
+		}
+	) => {
+		return {
+			textEmail: `
+            Hello ${workdayDetails.clientName},
+
+            A timesheet has been completed for Requisition Number: ${workdayDetails.requisitionNumber}. You can access and review the associated timesheet at ${workdayDetails.timesheetUrl}.
+            
+            Please accept or dispute by clicking "Approve" or "Reject". Any discrepancies will be addressed by a system administrator, prior to processing of any payments. 
+            
+            Note: If you have not validated and signed the stated invoice within 24 hours, the amount due may be charged to your form of payment currently on file.
+
+            Thank you,
+            Dental Temps Staffing Solutions`.trim(),
+			htmlEmail: '',
+			subject: `Timesheet Verification Needed | ${APP_NAME}`
+		};
+	},
+	invoicePaymentProcessedNotificationEmail: (paymentDetails: {
+		clientName: string;
+		requisitionNumber: string;
+		transactionAmount: string;
+	}) => {
+		return {
+			textEmail: `
+            Hello ${paymentDetails.clientName},
+
+            A payment was processed for your Requisition with the Requisition Number: ${paymentDetails.requisitionNumber} with an amount of ${paymentDetails.transactionAmount}.
+
+            For any questions about this payment, please contact us at ${env.COMPANY_REPLY_TO_EMAIL} or call us at ${env.COMPANY_PHONE_NUMBER}.
+
+            Thank you,
+
+            Dental Temps Staffing Solutions`,
+			htmlEmail: `
+            <p>Hello ${paymentDetails.clientName},</p>
+
+            <p>A payment was processed for your Requisition with the Requisition Number: <strong>${paymentDetails.requisitionNumber}</strong> with an amount of <strong>${paymentDetails.transactionAmount}</strong>.</p>
+
+            <p>For any questions about this payment, please contact us at <a href="mailto:${env.COMPANY_REPLY_TO_EMAIL}">${env.COMPANY_REPLY_TO_EMAIL}</a> or call us at ${env.COMPANY_PHONE_NUMBER}.</p>
+
+            <p>Thank you,</p>
+            <p>Dental Temps Staffing Solutions</p>
+            `.trim(),
+			subject: `Invoice Payment Processed | ${APP_NAME}`
+		};
+	},
+	miscelaneousTransactionNotificationEmail: (transactionDetails: {
+		clientName: string;
+		transactionAmount: string;
+		transactionType: string;
+		transactionReason: string;
+	}) => {
+		return {
+			textEmail: `
+            Hello ${transactionDetails.clientName},
+
+            A ${transactionDetails.transactionType} was processed with an amount of ${transactionDetails.transactionAmount}.
+
+            The following reason was given for the ${transactionDetails.transactionType}:
+
+            ${transactionDetails.transactionReason}
+
+            For any questions about this charge, please contact us at ${env.COMPANY_REPLY_TO_EMAIL} or call us at ${env.COMPANY_PHONE_NUMBER}.
+
+            Thank you,
+            Dental Temps Staffing Solutions`,
+			htmlEmail: `
+            <p>Hello ${transactionDetails.clientName},</p>
+
+            <p>A ${transactionDetails.transactionType} was processed with an amount of ${transactionDetails.transactionAmount}.</p>
+
+            <p>The following reason was given for the ${transactionDetails.transactionType}:</p>
+
+            <p>${transactionDetails.transactionReason}</p>
+
+            <p>For any questions about this charge, please contact us at <a href="mailto:${env.COMPANY_REPLY_TO_EMAIL}">${env.COMPANY_REPLY_TO_EMAIL}</a> or call us at ${env.COMPANY_PHONE_NUMBER}.</p>
+
+            <p>Thank you,</p>
+            <p>Dental Temps Staffing Solutions</p>
+            `.trim(),
+			subject: `Miscellaneous Transaction Processed | ${APP_NAME}`
+		};
+	},
+	supportTicketSubmissionNotificationEmail: () => {
+		return {
+			textEmail: `
+            Dear Admin User,
+
+            A new Support Ticket has been submitted in the system. Login to the application to see the new ticket.
+            `.trim(),
+			htmlEmail: `
+            <p>Dear Admin User,</p>
+
+            <p>A new Support Ticket has been submitted in the system. Login to the application to see the new ticket.</p>
+            `.trim(),
+			subject: `New Support Ticket Submitted | ${APP_NAME}`
+		};
 	}
 };

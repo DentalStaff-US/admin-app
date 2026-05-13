@@ -9,6 +9,7 @@
 	import Calendar from '$lib/components/calendar/calendar.svelte';
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from '$lib/components/ui/tabs/index.js';
 	import { Input } from '$lib/components/ui/input';
+	import PhoneInput from '$lib/components/PhoneInput.svelte';
 	import { Label } from '$lib/components/ui/label';
 	import * as Select from '$lib/components/ui/select';
 	import AdminProfileComments from '$lib/views/admin/adminProfileComments.svelte';
@@ -39,6 +40,7 @@
 	import { superForm } from 'sveltekit-superforms/client';
 	import { format } from 'date-fns';
 	import { CardHeader, CardTitle, CardContent } from '$lib/components/ui/card';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import { Card } from 'flowbite-svelte';
 	import { enhance } from '$app/forms';
 	import { CandidateStatusSchema } from '$lib/config/zod-schemas';
@@ -63,12 +65,6 @@
 		filename: string;
 		url: string;
 	}
-
-	const statusStyles: Record<keyof typeof CANDIDATE_STATUS, string> = {
-		INACTIVE: 'bg-gray-200 text-gray-800 border-gray-800',
-		PENDING: 'bg-yellow-100 text-yellow-600 border-yellow-600',
-		ACTIVE: 'bg-green-200 text-green-600 border-green-600'
-	};
 
 	export let data: PageData;
 	let initials: string = '';
@@ -403,18 +399,20 @@
 							<h1 class="text-2xl font-bold">
 								{candidate.user.firstName}
 								{candidate.user.lastName}
+								{#if user.role === USER_ROLES.SUPERADMIN}
+									<span class="text-xs text-muted-foreground">#{candidate.profile.puid}</span>
+								{/if}
 							</h1>
 							<p class="text-sm text-gray-500">Professional Member</p>
 							<div class="flex items-center gap-2 mt-1">
-								<span
-									class={cn(statusStyles[candidate.profile.status], 'px-2 py-1 rounded text-xs')}
-								>
-									{candidate.profile.status === 'ACTIVE'
+								<StatusBadge
+									status={candidate.profile.status}
+									label={candidate.profile.status === 'ACTIVE'
 										? 'Approved'
 										: candidate.profile.status === 'INACTIVE'
 											? 'Disapproved'
 											: 'Pending Review'}
-								</span>
+								/>
 							</div>
 						</div>
 					</div>
@@ -546,7 +544,7 @@
 
 										<div class="space-y-2">
 											<Label for="cellPhone">Cell Phone</Label>
-											<Input
+											<PhoneInput
 												id="cellPhone"
 												name="cellPhone"
 												value={candidate.profile.cellPhone}

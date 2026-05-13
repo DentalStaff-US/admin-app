@@ -12,6 +12,7 @@ import { getUserById } from '../database/queries/users';
 import { userTable } from '../database/schemas/auth';
 import { requisitionApplicationTable, requisitionTable } from '../database/schemas/requisition';
 import { clientCompanyTable } from '../database/schemas/client';
+import { disciplineTable } from '../database/schemas/skill';
 import { error } from '@sveltejs/kit';
 
 export class InboxService {
@@ -123,12 +124,14 @@ export class InboxService {
 						.then((rows) => rows[0]);
 
 					if (application) {
-						// Get requisition with company data
+						// Get requisition with company + discipline data. `title` is a
+						// deprecated column on requisitions — use `disciplineName` for display.
 						const requisitionWithCompany = await db
 							.select({
 								requisition: {
 									id: requisitionTable.id,
 									title: requisitionTable.title,
+									disciplineName: disciplineTable.name,
 									status: requisitionTable.status,
 									companyId: requisitionTable.companyId
 								},
@@ -140,6 +143,7 @@ export class InboxService {
 							})
 							.from(requisitionTable)
 							.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
+							.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
 							.where(eq(requisitionTable.id, application.requisitionId))
 							.limit(1)
 							.then((rows) => rows[0]);
@@ -372,11 +376,13 @@ export class InboxService {
 				.then((rows) => rows[0]);
 
 			if (application) {
-				// Get requisition with company data
+				// Get requisition with company + discipline data. `title` is a
+				// deprecated column on requisitions — use `disciplineName` for display.
 				const requisitionWithCompany = await db
 					.select({
 						requisition: {
-							...requisitionTable
+							...requisitionTable,
+							disciplineName: disciplineTable.name
 						},
 						company: {
 							...clientCompanyTable
@@ -384,6 +390,7 @@ export class InboxService {
 					})
 					.from(requisitionTable)
 					.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
+					.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
 					.where(eq(requisitionTable.id, application.requisitionId))
 					.limit(1)
 					.then((rows) => rows[0]);

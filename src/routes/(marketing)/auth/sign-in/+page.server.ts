@@ -5,6 +5,7 @@ import { lucia } from '$lib/server/lucia';
 import { Argon2id } from 'oslo/password';
 import { userSchema } from '$lib/config/zod-schemas';
 import { getUserByEmail } from '$lib/server/database/queries/users';
+import { getPostHogClient } from '$lib/server/posthog';
 
 const signInSchema = userSchema.pick({
 	email: true,
@@ -58,6 +59,15 @@ export const actions = {
 						...sessionCookie.attributes
 					});
 					setFlash({ type: 'success', message: 'Sign in successful.' }, event);
+					const posthog = getPostHogClient();
+					posthog.capture({
+						distinctId: existingUser.id,
+						event: 'user_signed_in',
+						properties: {
+							role: existingUser.role,
+							$set: { role: existingUser.role }
+						}
+					});
 				}
 			}
 		} catch (e) {

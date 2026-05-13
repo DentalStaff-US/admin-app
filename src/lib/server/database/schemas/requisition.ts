@@ -27,6 +27,7 @@ import { candidateProfileTable, type CandidateProfileSelect } from './candidate'
 import { disciplineTable, experienceLevelTable } from './skill';
 import { sql } from 'drizzle-orm/sql';
 import type Stripe from 'stripe';
+import type { InvoiceLineItem } from '../queries/requisitions';
 
 export type RawTimesheetHours = {
 	date: string;
@@ -84,7 +85,9 @@ export const requisitionTable = pgTable('requisitions', {
 		.references(() => disciplineTable.id),
 	jobDescription: text('job_description').notNull(),
 	specialInstructions: text('special_instructions'),
-	experienceLevelId: text('experience_level_id').references(() => experienceLevelTable.id),
+	experienceLevelId: text('experience_level_id').references(() => experienceLevelTable.id, {
+		onDelete: 'set null'
+	}),
 	archived: boolean('archived').default(false),
 	archivedDate: timestamp('archived_at', {
 		withTimezone: true,
@@ -338,8 +341,60 @@ export const workdayTable = pgTable('workdays', {
 		onDelete: 'cascade',
 		onUpdate: 'cascade'
 	}),
-	timesheetId: text('timesheet_id').references(() => timeSheetTable.id, { onDelete: 'set null' })
+	timesheetId: text('timesheet_id').references(() => timeSheetTable.id, { onDelete: 'set null' }),
+	// Non-null when an admin/client cancelled this workday. Candidate cancellations
+	// delete the workday row instead (their recurrence day goes back to OPEN); this
+	// column flags admin-side cancellations so the candidate calendar can still
+	// surface "your shift was cancelled" days, and so timesheet reads can exclude
+	// cancelled rows from hour totals.
+	cancelledAt: timestamp('cancelled_at', { withTimezone: true, mode: 'date' })
 });
+
+// Audit log for every cancellation of a recurrence-day-level shift, regardless
+// of who cancelled it. Lets us answer "how many times has this candidate
+// cancelled in the last 30 days?" and "how close to shift start was it?" for
+// future penalty rules.
+export const recurrenceDayCancellationByRoleEnum = pgEnum('recurrence_day_cancellation_by_role', [
+	'SUPERADMIN',
+	'CLIENT',
+	'CLIENT_STAFF',
+	'CANDIDATE'
+]);
+
+export const recurrenceDayCancellationTable = pgTable(
+	'recurrence_day_cancellations',
+	{
+		id: text('id').notNull().primaryKey(),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
+		recurrenceDayId: text('recurrence_day_id')
+			.notNull()
+			.references(() => recurrenceDayTable.id, { onDelete: 'cascade' }),
+		requisitionId: integer('requisition_id')
+			.notNull()
+			.references(() => requisitionTable.id, { onDelete: 'cascade' }),
+		// Who pressed the cancel button.
+		cancelledByUserId: text('cancelled_by_user_id').notNull(),
+		cancelledByRole: recurrenceDayCancellationByRoleEnum('cancelled_by_role').notNull(),
+		// The candidate who lost (or gave up) the shift. Same as cancelledByUserId
+		// for candidate-initiated cancels; the assigned candidate for admin/client-
+		// initiated cancels; null when the shift was never claimed.
+		candidateId: text('candidate_id').references(() => candidateProfileTable.id, {
+			onDelete: 'set null'
+		}),
+		// Snapshots so penalty rules can read these without re-deriving from a
+		// recurrence-day row that may have been edited or cleared after the fact.
+		shiftStart: timestamp('shift_start', { withTimezone: true, mode: 'date' }).notNull(),
+		hoursBeforeShift: decimal('hours_before_shift'),
+		reason: text('reason')
+	},
+	(table) => [
+		index('rdc_candidate_idx').on(table.candidateId, table.createdAt),
+		index('rdc_recurrence_day_idx').on(table.recurrenceDayId)
+	]
+);
+
+export type RecurrenceDayCancellation = typeof recurrenceDayCancellationTable.$inferInsert;
+export type RecurrenceDayCancellationSelect = typeof recurrenceDayCancellationTable.$inferSelect;
 
 export const timesheetStatusEnum = pgEnum('timesheet_status', [
 	'DRAFT',
@@ -349,6 +404,8 @@ export const timesheetStatusEnum = pgEnum('timesheet_status', [
 	'REJECTED',
 	'VOID'
 ]);
+
+export const wagesStatusEnum = pgEnum('wages_status', ['WAGES_DUE', 'WAGES_PAID']);
 
 export const timeSheetTable = pgTable(
 	'timesheets',
@@ -379,7 +436,8 @@ export const timeSheetTable = pgTable(
 		hoursRaw: json('hours_raw').$type<RawTimesheetHours[]>().default([]),
 		status: timesheetStatusEnum('status').default('DRAFT').notNull(),
 		discrepancyNote: text('discrepancy_note'),
-		adjustedHourlyRate: smallint('adjusted_hourly_rate')
+		adjustedHourlyRate: smallint('adjusted_hourly_rate'),
+		wagesStatus: wagesStatusEnum('wages_status')
 	},
 	(table) => [
 		index('timesheet_candidate_idx').on(table.associatedCandidateId),
@@ -492,7 +550,8 @@ export type TimesheetWithRelations = {
 	candidate: CandidateProfileSelect;
 	clientCompany?: ClientCompanySelect;
 	user: Partial<UserSelect>;
-	requisition: RequisitionSelect | null; // null because of leftJoin
+	requisition: RequisitionSelect | null;
+	wagesStatus?: 'WAGES_DUE' | 'WAGES_PAID' | null;
 };
 
 export type InvoiceWithRelations = {
@@ -508,7 +567,7 @@ export type InvoiceWithRelations = {
 	} | null;
 	timesheet: TimeSheetSelect | null;
 	requisition: RequisitionSelect | null;
-	lineItems: Stripe.InvoiceLineItem[];
+	lineItems: InvoiceLineItem[];
 	client: ClientProfileSelect;
 	company: ClientCompanySelect | null;
 	clientUser: {

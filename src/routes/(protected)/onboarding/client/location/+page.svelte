@@ -37,6 +37,17 @@
         selectedAddress = null;
     }
 
+    // Same display rules as $lib/components/PhoneInput.svelte.
+    function maskPhone(e: Event) {
+        const target = e.currentTarget as HTMLInputElement;
+        const digits = target.value.replace(/\D/g, '');
+        const local = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+        const trimmed = local.slice(0, 10);
+        if (trimmed.length === 0) target.value = '';
+        else if (trimmed.length <= 3) target.value = `(${trimmed}`;
+        else if (trimmed.length <= 6) target.value = `(${trimmed.slice(0, 3)}) ${trimmed.slice(3)}`;
+        else target.value = `(${trimmed.slice(0, 3)}) ${trimmed.slice(3, 6)}-${trimmed.slice(6)}`;
+    }
 </script>
 
 <section class="flex flex-col items-center justify-center min-h-screen">
@@ -129,7 +140,12 @@
                             <Form.Field {config} name="phoneNumber">
                                 <Form.Item>
                                     <Form.Label>Phone Number</Form.Label>
-                                    <Form.Input type="tel"/>
+                                    <Form.Input
+                                        type="tel"
+                                        inputmode="numeric"
+                                        placeholder="(555) 555-5555"
+                                        on:input={maskPhone}
+                                    />
                                     <Form.Validation/>
                                 </Form.Item>
                             </Form.Field>
