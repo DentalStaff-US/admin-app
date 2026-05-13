@@ -2,43 +2,21 @@
 import { lucia } from '$lib/server/lucia';
 import { redirect, type Handle } from '@sveltejs/kit';
 import type { HandleServerError } from '@sveltejs/kit';
-import {
-	processPastRecurrenceDaysJob,
-	processOutdatedRequisitionsJob,
-	processInvoiceRemindersJob,
-	processWorkday48HrReminderJob
-} from '$lib/server/jobs';
 
-import log from '$lib/server/log';
 import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 import { USER_ROLES } from '$lib/config/constants';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
-import { processTimesheetCreationJob } from '$lib/server/jobs/timesheets';
-import { getPostHogClient } from '$lib/server/posthog';
-import { dev } from '$app/environment';
+import { logger } from '$lib/server/logger';
 
 export const handleError: HandleServerError = async ({ error, event }) => {
 	const errorId = crypto.randomUUID();
-
-	event.locals.error = error?.toString() || '';
-	if (error instanceof Error) {
-		event.locals.errorStackTrace = error.stack || '';
-	} else {
-		event.locals.errorStackTrace = '';
-	}
-	event.locals.errorId = errorId;
-	if (dev) log(500, event);
-
-	const posthog = getPostHogClient();
-	posthog.capture({
-		distinctId: 'server',
-		event: 'server_error',
-		properties: {
-			error: error instanceof Error ? error.message : String(error),
-			errorId
-		}
+	logger.error('uncaught server error', {
+		error,
+		errorId,
+		path: event.url.pathname,
+		method: event.request.method,
+		distinctId: event.locals.user?.id
 	});
-
 	return {
 		message: 'An unexpected error occurred.',
 		errorId
@@ -140,13 +118,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 	}
 
 	const response = await resolve(event);
-	if (dev) log(response.status, event);
 	return response;
 };
 
-// Sheduled CRON Jobs
-processPastRecurrenceDaysJob();
-processInvoiceRemindersJob();
-processWorkday48HrReminderJob();
-processTimesheetCreationJob();
-// processOutdatedRequisitionsJob();
+// Scheduled cron jobs are now run by the dedicated cron service (src/cron/index.ts),
+// deployed as a separate Railway service with replicas: 1.

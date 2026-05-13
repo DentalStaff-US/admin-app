@@ -3,15 +3,13 @@ import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { clientCompanyTable } from '$lib/server/database/schemas/client';
 import {
 	timeSheetTable,
-	requisitionTable,
-	workdayTable,
-	recurrenceDayTable
+	requisitionTable
 } from '$lib/server/database/schemas/requisition';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { desc } from 'drizzle-orm';
-import { eq, and, ne, asc } from 'drizzle-orm';
+import { eq, and, ne } from 'drizzle-orm';
 
 export const GET: RequestHandler = async ({ request }) => {
 	// Authenticate the user
@@ -29,7 +27,12 @@ export const GET: RequestHandler = async ({ request }) => {
 			throw error(404, 'Candidate profile not found');
 		}
 
-		// Fetch timesheets with related data
+		// Fetch timesheets with related data. We deliberately do NOT join
+		// `workdays` here: a timesheet with N linked workdays would fan out to
+		// N duplicate rows, which is why the candidate dashboard's
+		// "pending timesheets" widget was showing the same draft three times
+		// (one row per workday in the week). The dashboard only renders
+		// timesheet/requisition/company fields — no workday id is needed.
 		const timesheets = await db
 			.select({
 				timesheet: {
@@ -55,15 +58,11 @@ export const GET: RequestHandler = async ({ request }) => {
 					id: clientCompanyTable.id,
 					name: clientCompanyTable.companyName,
 					logo: clientCompanyTable.companyLogo
-				},
-				workday: {
-					id: workdayTable.id
 				}
 			})
 			.from(timeSheetTable)
 			.leftJoin(requisitionTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
 			.leftJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
-			.leftJoin(workdayTable, eq(workdayTable.timesheetId, timeSheetTable.id))
 			.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
 			.where(
 				and(

@@ -2,16 +2,14 @@ import db from '$lib/server/database/drizzle';
 import { eq, and, lt } from 'drizzle-orm';
 import { invoiceTable } from '$lib/server/database/schemas/requisition';
 import { json, type RequestHandler } from '@sveltejs/kit';
-import crypto from 'crypto';
 import { CRON_SECRET } from '$env/static/private';
 import { notifyOverdueInvoice } from '$lib/server/notifications/transactional';
+import { verifyJobRequest } from '$lib/server/jobs/sign';
 
-export const GET: RequestHandler = async ({ request }) => {
-	const signature = request.headers.get('x-signature');
-	const expectedSignature = crypto.createHmac('sha256', CRON_SECRET).digest('hex');
-
-	if (signature !== expectedSignature) {
-		return new Response('Invalid signature', { status: 401 });
+export const POST: RequestHandler = async ({ request }) => {
+	const verified = verifyJobRequest(request.headers, 'processInvoiceReminders', CRON_SECRET);
+	if (!verified.ok) {
+		return new Response(`Unauthorized: ${verified.reason}`, { status: 401 });
 	}
 	try {
 		console.log('Starting processInvoiceRemindersJob');

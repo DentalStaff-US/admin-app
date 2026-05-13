@@ -6,7 +6,6 @@ import {
 	workdayTable
 } from '$lib/server/database/schemas/requisition';
 import { and, eq, lt, gt } from 'drizzle-orm';
-import crypto from 'crypto';
 import { CRON_SECRET } from '$env/static/private';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { userTable } from '$lib/server/database/schemas/auth';
@@ -16,13 +15,12 @@ import {
 } from '$lib/server/database/schemas/client';
 import { notifyWorkday48HrReminder } from '$lib/server/notifications/transactional';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
+import { verifyJobRequest } from '$lib/server/jobs/sign';
 
-export const GET: RequestHandler = async ({ request }) => {
-	const signature = request.headers.get('x-signature');
-	const expectedSignature = crypto.createHmac('sha256', CRON_SECRET).digest('hex');
-
-	if (signature !== expectedSignature) {
-		return new Response('Invalid signature', { status: 401 });
+export const POST: RequestHandler = async ({ request }) => {
+	const verified = verifyJobRequest(request.headers, 'processWorkday48HrReminder', CRON_SECRET);
+	if (!verified.ok) {
+		return new Response(`Unauthorized: ${verified.reason}`, { status: 401 });
 	}
 
 	try {
