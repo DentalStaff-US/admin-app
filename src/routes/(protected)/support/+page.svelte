@@ -108,6 +108,16 @@
 					: 'Unknown'
 		},
 		{
+			header: 'Role',
+			id: 'reporterRole',
+			accessorFn: (original) => original.reportedBy?.role ?? '',
+			cell: (original) =>
+				flexRender(Badge, {
+					variant: 'outline',
+					value: ((original.getValue() as string) || '').replace('_', ' ')
+				})
+		},
+		{
 			header: 'Date Created',
 			id: 'createdAt',
 			accessorFn: (original) => original.supportTicket.createdAt,
