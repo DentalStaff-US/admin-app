@@ -42,9 +42,19 @@ export async function executeJob(
 		}
 		return { ok: res.ok, status: res.status, body, durationMs: Date.now() - startedAt };
 	} catch (err) {
+		// undici's `fetch failed` is a useless top-level message — the actual
+		// reason (ECONNREFUSED, ENOTFOUND, certificate errors, etc.) lives in
+		// `error.cause`. Surface both so PostHog has enough to diagnose.
+		const baseMessage = err instanceof Error ? err.message : String(err);
+		const cause =
+			err instanceof Error && err.cause
+				? err.cause instanceof Error
+					? `${err.cause.name}: ${err.cause.message}`
+					: String(err.cause)
+				: undefined;
 		return {
 			ok: false,
-			error: err instanceof Error ? err.message : String(err),
+			error: cause ? `${baseMessage} (cause: ${cause})` : baseMessage,
 			durationMs: Date.now() - startedAt
 		};
 	} finally {
