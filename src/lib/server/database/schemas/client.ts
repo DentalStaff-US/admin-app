@@ -228,6 +228,32 @@ export const companyOfficeLocationTable = pgTable('company_office_locations', {
 	geom: geometry('geom')
 });
 
+export const locationContactDestinationTypeEnum = pgEnum('location_contact_destination_type', [
+	'EMAIL',
+	'SMS'
+]);
+
+export const locationContactDestinationTable = pgTable('location_contact_destinations', {
+	id: uuid('id').notNull().defaultRandom().primaryKey(),
+	locationId: text('location_id')
+		.notNull()
+		.references(() => companyOfficeLocationTable.id, { onDelete: 'cascade' }),
+	type: locationContactDestinationTypeEnum('type').notNull(),
+	value: text('value').notNull(),
+	createdAt: timestamp('created_at', {
+		withTimezone: true,
+		mode: 'date'
+	})
+		.notNull()
+		.defaultNow(),
+	updatedAt: timestamp('updated_at', {
+		withTimezone: true,
+		mode: 'date'
+	})
+		.notNull()
+		.defaultNow()
+});
+
 export const staffRoleEnum = pgEnum('staff_roles', [
 	'CLIENT_ADMIN',
 	'CLIENT_MANAGER',
@@ -353,6 +379,8 @@ export type ClientCompanyStaffLocation = typeof clientStaffLocationTable.$inferS
 export type NewClientCompanyStaffLocation = typeof clientStaffLocationTable.$inferInsert;
 export type ClientRating = typeof clientRatingTable.$inferInsert;
 export type ClientDocumentUpload = typeof clientDocumentUploadsTable.$inferInsert;
+export type LocationContactDestination = typeof locationContactDestinationTable.$inferInsert;
+export type LocationContactDestinationSelect = typeof locationContactDestinationTable.$inferSelect;
 
 export type UpdateClientProfile = Partial<typeof clientProfileTable.$inferInsert>;
 export type UpdateClientCompany = Partial<typeof clientCompanyTable.$inferInsert>;

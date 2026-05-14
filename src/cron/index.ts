@@ -55,7 +55,11 @@ function register(def: JobDefinition) {
 					status: res.status,
 					durationMs: res.durationMs,
 					error: res.error,
-					body: res.body === undefined ? undefined : JSON.stringify(res.body).slice(0, 500)
+					// 4000 leaves headroom for Drizzle's verbose "Failed query: ..."
+					// errors that include the full SELECT statement before the
+					// actual Postgres reason — 500 was truncating before the
+					// diagnostic part.
+					body: res.body === undefined ? undefined : JSON.stringify(res.body).slice(0, 4000)
 				});
 				logger.event('cron_job_failed', {
 					jobName: def.name,
