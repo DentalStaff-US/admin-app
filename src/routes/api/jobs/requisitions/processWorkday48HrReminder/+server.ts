@@ -84,7 +84,8 @@ export const POST: RequestHandler = async ({ request }) => {
 				date: row.recurrenceDay.date,
 				dayStart: row.recurrenceDay.dayStart,
 				dayEnd: row.recurrenceDay.dayEnd,
-				requisitionName: row.discipline.name
+				requisitionName: row.discipline.name,
+				referenceTimezone: row.requisition.referenceTimezone
 			});
 		}
 		return json({ success: true });

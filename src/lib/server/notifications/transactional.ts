@@ -7,8 +7,9 @@
 // notifyXxx(...)` without try/catch; the calling action's success state is
 // independent of notification delivery.
 
-import { format } from 'date-fns';
-import { eq } from 'drizzle-orm';
+import { format, parseISO } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
+import { eq, inArray } from 'drizzle-orm';
 import { BASE_URL } from '$env/static/private';
 import db from '$lib/server/database/drizzle';
 import { sms } from '$lib/server/sms/smsService';
@@ -41,7 +42,7 @@ import {
 	workdayTable,
 	type Invoice
 } from '$lib/server/database/schemas/requisition';
-import { disciplineTable } from '$lib/server/database/schemas/skill';
+import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
 import {
 	clientCompanyTable,
 	clientProfileTable,
@@ -112,10 +113,21 @@ async function dispatch(label: string, sends: Promise<boolean>[]): Promise<void>
 	}
 }
 
-function fmtTime(d: Date | string | null | undefined): string {
+function fmtTime(d: Date | string | null | undefined, tz: string): string {
 	if (!d) return 'N/A';
 	try {
-		return format(new Date(d), 'h:mm a');
+		return formatInTimeZone(new Date(d), tz, 'h:mm a');
+	} catch {
+		return 'N/A';
+	}
+}
+
+// Date-only strings ('2026-05-15') represent a calendar date in the requisition's
+// timezone, not a UTC instant — format with plain date-fns to avoid tz drift.
+function fmtDate(d: string | null | undefined): string {
+	if (!d) return 'N/A';
+	try {
+		return format(parseISO(d), 'EEEE, MMM d, yyyy');
 	} catch {
 		return 'N/A';
 	}
@@ -223,6 +235,7 @@ export async function notifyWorkdayClaimed(workdayId: string): Promise<void> {
 		const location = await getLocationByIdForCompany(requisition.locationId, requisition.companyId);
 		const discipline = await getDisciplineById(requisition.disciplineId);
 		const { emails, phones } = await getLocationNotificationTargets(requisition.locationId, label);
+		const tz = requisition.referenceTimezone;
 
 		const candidateName = `${candidateUser.firstName} ${candidateUser.lastName}`;
 		const url = `${BASE_URL}/requisitions/${requisition.id}/workday/${recurrenceDay.id}`;
@@ -236,9 +249,9 @@ export async function notifyWorkdayClaimed(workdayId: string): Promise<void> {
 							url,
 							companyName: (company?.companyName as string) ?? 'your company',
 							location: location?.completeAddress ?? 'Not Specified',
-							date: recurrenceDay.date,
-							workdayStart: fmtTime(recurrenceDay.dayStart),
-							workdayEnd: fmtTime(recurrenceDay.dayEnd),
+							date: fmtDate(recurrenceDay.date),
+							workdayStart: fmtTime(recurrenceDay.dayStart, tz),
+							workdayEnd: fmtTime(recurrenceDay.dayEnd, tz),
 							discipline: discipline?.name ?? `Req #${requisition.id}`
 						},
 						{ firstName: candidateUser.firstName, lastName: candidateUser.lastName }
@@ -302,6 +315,7 @@ export async function notifyWorkdayReposted(args: {
 		const location = await getLocationByIdForCompany(requisition.locationId, requisition.companyId);
 		const discipline = await getDisciplineById(requisition.disciplineId);
 		const { emails, phones } = await getLocationNotificationTargets(requisition.locationId, label);
+		const tz = requisition.referenceTimezone;
 
 		const candidateName = `${candidateUser.firstName} ${candidateUser.lastName}`;
 		const clientName = `${client.user.firstName} ${client.user.lastName}`;
@@ -314,9 +328,9 @@ export async function notifyWorkdayReposted(args: {
 						clientName,
 						companyName: (company?.companyName as string) ?? '',
 						location: location?.completeAddress ?? 'Not Specified',
-						date: recurrenceDay.date,
-						workdayStart: fmtTime(recurrenceDay.dayStart),
-						workdayEnd: fmtTime(recurrenceDay.dayEnd),
+						date: fmtDate(recurrenceDay.date),
+						workdayStart: fmtTime(recurrenceDay.dayStart, tz),
+						workdayEnd: fmtTime(recurrenceDay.dayEnd, tz),
 						candidateName,
 						discipline: discipline?.name ?? `Req #${requisition.id}`,
 						url
@@ -417,16 +431,47 @@ export async function notifyRequisitionChanged(requisitionId: number): Promise<v
  * candidates near the location with the matching discipline.
  * Email: qualifiedCandidateNotificationEmail. SMS: newRequisitionNotification.
  */
-export async function notifyQualifiedCandidatesOfNewWorkdays(requisitionId: number): Promise<void> {
+export async function notifyQualifiedCandidatesOfNewWorkdays(
+	requisitionId: number,
+	newRecurrenceDayIds: string[]
+): Promise<void> {
 	try {
 		const requisition = await getRequisitionById(requisitionId);
 		if (!requisition) return;
 		const location = await getLocationByIdForCompany(requisition.locationId, requisition.companyId);
 		if (!location) return;
 		const discipline = await getDisciplineById(requisition.disciplineId);
+		const tz = requisition.referenceTimezone;
 
-		// Inline qualified-candidate match (mirrors getQualifiedProfessionalsForRequisition
-		// without the geo radius filter — keep this simple; we only need contacts).
+		const newDays =
+			newRecurrenceDayIds.length === 0
+				? []
+				: await db
+						.select({
+							date: recurrenceDayTable.date,
+							dayStart: recurrenceDayTable.dayStart,
+							dayEnd: recurrenceDayTable.dayEnd
+						})
+						.from(recurrenceDayTable)
+						.where(inArray(recurrenceDayTable.id, newRecurrenceDayIds))
+						.orderBy(recurrenceDayTable.dayStart);
+
+		const formattedDays = newDays.map((d) => ({
+			date: fmtDate(d.date),
+			workdayStart: fmtTime(d.dayStart, tz),
+			workdayEnd: fmtTime(d.dayEnd, tz)
+		}));
+
+		let experience = '';
+		if (requisition.experienceLevelId) {
+			const [exp] = await db
+				.select({ value: experienceLevelTable.value })
+				.from(experienceLevelTable)
+				.where(eq(experienceLevelTable.id, requisition.experienceLevelId))
+				.limit(1);
+			experience = exp?.value ?? '';
+		}
+
 		const candidates = await db
 			.selectDistinct({
 				phone: candidateProfileTable.cellPhone,
@@ -444,16 +489,12 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(requisitionId: numb
 
 		if (candidates.length === 0) return;
 
-		// Build the email payload once
 		const workdayDetails = {
-			companyName: '', // not in scope for this template per existing usage
 			discipline: discipline?.name ?? '',
 			location: location.name ?? '',
-			date: 'soon',
-			workdayStart: '',
-			workdayEnd: '',
-			experience: '',
-			address: location.completeAddress ?? ''
+			address: location.completeAddress ?? '',
+			experience,
+			days: formattedDays
 		};
 
 		await dispatch(
@@ -546,14 +587,15 @@ export async function notifyWorkdayDeleted(args: {
 		const company = await getClientCompanyByClientId(clientId);
 		const location = await getLocationByIdForCompany(requisition.locationId, requisition.companyId);
 
+		const tz = requisition.referenceTimezone;
 		await dispatch('workdayDeleted', [
 			safeEmail('workdayDeleted', candidateUser.email, () =>
 				emailService.sendWorkdayCancelledEmail(candidateUser.email, {
 					companyName: (company?.companyName as string) ?? '',
 					location: location?.completeAddress ?? 'Not Specified',
-					date: args.recurrenceDay.date,
-					workdayStart: fmtTime(args.recurrenceDay.dayStart),
-					workdayEnd: fmtTime(args.recurrenceDay.dayEnd)
+					date: fmtDate(args.recurrenceDay.date),
+					workdayStart: fmtTime(args.recurrenceDay.dayStart, tz),
+					workdayEnd: fmtTime(args.recurrenceDay.dayEnd, tz)
 				})
 			)
 		]);
@@ -578,17 +620,20 @@ export async function notifyWorkday48HrReminder(args: {
 	dayStart: Date | string;
 	dayEnd: Date | string;
 	requisitionName: string;
+	referenceTimezone: string;
 }): Promise<void> {
 	try {
-		const startStr = fmtTime(args.dayStart);
-		const endStr = fmtTime(args.dayEnd);
+		const tz = args.referenceTimezone;
+		const startStr = fmtTime(args.dayStart, tz);
+		const endStr = fmtTime(args.dayEnd, tz);
+		const dateStr = fmtDate(args.date);
 
 		await dispatch('workday48HrReminder', [
 			safeEmail('workday48HrReminder', args.candidateUserEmail, () =>
 				emailService.sendWorkdayReminderEmail(args.candidateUserEmail, {
 					companyName: args.companyName,
 					location: args.location,
-					date: args.date,
+					date: dateStr,
 					workdayStart: startStr,
 					workdayEnd: endStr
 				})
@@ -596,7 +641,7 @@ export async function notifyWorkday48HrReminder(args: {
 			safeSms('workday48HrReminder', args.candidatePhone, (phone) =>
 				sms.sendTemplated(phone, 'workday48HrReminderNotification', {
 					assignedCandidate: `${args.candidateFirstName} ${args.candidateLastName}`,
-					scheduledDate: args.date,
+					scheduledDate: dateStr,
 					requisitionName: args.requisitionName
 				})
 			)
