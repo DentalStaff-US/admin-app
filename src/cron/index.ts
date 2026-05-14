@@ -55,7 +55,7 @@ function register(def: JobDefinition) {
 					status: res.status,
 					durationMs: res.durationMs,
 					error: res.error,
-					body: JSON.stringify(res.body).slice(0, 500)
+					body: res.body === undefined ? undefined : JSON.stringify(res.body).slice(0, 500)
 				});
 				logger.event('cron_job_failed', {
 					jobName: def.name,
@@ -89,17 +89,31 @@ for (const def of jobs) register(def);
 
 logger.info(`${Object.keys(schedule.scheduledJobs).length} job(s) scheduled`, { apiUrl: API_URL });
 
+// Emit one PostHog event per process boot so deploys / unexpected restarts
+// show up in dashboards alongside per-tick events. Filter on
+// `event = cron_started` to see the deploy timeline.
+logger.event('cron_started', {
+	jobCount: Object.keys(schedule.scheduledJobs).length,
+	enabledJobs: jobs.filter((j) => j.enabled !== false).map((j) => j.name),
+	disabledJobs: jobs.filter((j) => j.enabled === false).map((j) => j.name)
+});
+
 let shuttingDown = false;
 async function shutdown(signal: string) {
 	if (shuttingDown) return;
 	shuttingDown = true;
 	logger.info(`received ${signal}, draining in-flight jobs...`);
+	let drainedOk = true;
 	try {
 		await gracefulShutdown();
 		logger.info('drained cleanly');
 	} catch (error) {
+		drainedOk = false;
 		logger.error('gracefulShutdown error', { error });
 	}
+	// Capture the shutdown event before flushing PostHog — gives a "did the
+	// service exit cleanly or get hard-killed?" signal in dashboards.
+	logger.event('cron_shutdown', { signal, drainedOk });
 	try {
 		await shutdownPostHog();
 	} catch (error) {
