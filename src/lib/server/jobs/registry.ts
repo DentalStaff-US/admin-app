@@ -29,8 +29,8 @@ export const jobs: JobDefinition[] = [
 	{
 		name: 'processWorkday48HrReminder',
 		endpoint: '/jobs/requisitions/processWorkday48HrReminder',
-		schedule: 'daily at 6:00 AM ET',
-		rule: () => ny({ hour: 6, minute: 0, second: 0 })
+		schedule: 'hourly on the hour',
+		rule: () => ny({ minute: 0, second: 0 })
 	},
 	{
 		name: 'processTimesheetCreation',

@@ -5,7 +5,7 @@ import {
 	requisitionTable,
 	workdayTable
 } from '$lib/server/database/schemas/requisition';
-import { and, eq, lt, gt } from 'drizzle-orm';
+import { and, eq, gte, lt } from 'drizzle-orm';
 import { CRON_SECRET } from '$env/static/private';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { userTable } from '$lib/server/database/schemas/auth';
@@ -25,10 +25,10 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	try {
 		const now = new Date();
-		// Window is [now+24h, now+48h) so each shift enters the window on exactly
-		// one daily run — preventing a duplicate reminder the day after, since the
-		// cron fires daily at 6am ET with no send-once flag.
-		const twentyFourHoursLater = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+		// Hourly cron with a 1-hour forward window so each shift lands in exactly
+		// one run's window — no send-once flag needed. Reminder fires 47–48h
+		// before the shift (drift bounded by cron firing time, not shift time).
+		const fortySevenHoursLater = new Date(now.getTime() + 47 * 60 * 60 * 1000);
 		const fortyEightHoursLater = new Date(now.getTime() + 48 * 60 * 60 * 1000);
 
 		const upcomingWorkdays = await db
@@ -63,7 +63,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			.where(
 				and(
 					eq(recurrenceDayTable.status, 'FILLED'),
-					gt(recurrenceDayTable.dayStart, twentyFourHoursLater),
+					gte(recurrenceDayTable.dayStart, fortySevenHoursLater),
 					lt(recurrenceDayTable.dayStart, fortyEightHoursLater)
 				)
 			);
