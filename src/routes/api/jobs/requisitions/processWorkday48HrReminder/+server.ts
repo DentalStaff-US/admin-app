@@ -25,7 +25,11 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	try {
 		const now = new Date();
-		const fortyEightHoursLater = new Date(now.getTime() + 48 * 60 * 60 * 1000); // Add 48 hours to the current time
+		// Window is [now+24h, now+48h) so each shift enters the window on exactly
+		// one daily run — preventing a duplicate reminder the day after, since the
+		// cron fires daily at 6am ET with no send-once flag.
+		const twentyFourHoursLater = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+		const fortyEightHoursLater = new Date(now.getTime() + 48 * 60 * 60 * 1000);
 
 		const upcomingWorkdays = await db
 			.select({
@@ -51,16 +55,16 @@ export const POST: RequestHandler = async ({ request }) => {
 			.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
 			.innerJoin(
 				companyOfficeLocationTable,
-				eq(requisitionTable.companyId, companyOfficeLocationTable.companyId)
+				eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 			)
 			.innerJoin(candidateProfileTable, eq(workdayTable.candidateId, candidateProfileTable.id))
 			.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
 			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
 			.where(
 				and(
-					eq(recurrenceDayTable.status, 'OPEN'),
-					lt(recurrenceDayTable.date, fortyEightHoursLater.toISOString()), // Filter recurrence days less than 48 hours away
-					gt(recurrenceDayTable.date, now.toISOString()) // Ensure the date is in the future
+					eq(recurrenceDayTable.status, 'FILLED'),
+					gt(recurrenceDayTable.dayStart, twentyFourHoursLater),
+					lt(recurrenceDayTable.dayStart, fortyEightHoursLater)
 				)
 			);
 
