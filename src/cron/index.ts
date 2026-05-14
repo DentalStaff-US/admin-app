@@ -68,15 +68,23 @@ function register(def: JobDefinition) {
 					error: res.error
 				});
 			} else {
-				logger.info(`${def.name} ok`, {
+				// Endpoints can return `{ noop: true }` to signal a tick that did
+				// no work (e.g. no upcoming workdays in the window). When they do,
+				// suppress the PostHog `cron_job_completed` event so frequent crons
+				// (hourly, 5-min) don't flood the events stream with empty runs.
+				// Local dev info log still fires.
+				const noop = (res.body as { noop?: boolean } | null | undefined)?.noop === true;
+				logger.info(`${def.name} ok${noop ? ' (noop)' : ''}`, {
 					status: res.status,
 					durationMs: res.durationMs
 				});
-				logger.event('cron_job_completed', {
-					jobName: def.name,
-					status: res.status,
-					durationMs: res.durationMs
-				});
+				if (!noop) {
+					logger.event('cron_job_completed', {
+						jobName: def.name,
+						status: res.status,
+						durationMs: res.durationMs
+					});
+				}
 			}
 		} catch (error) {
 			logger.error(`${def.name} threw`, { error, jobName: def.name });

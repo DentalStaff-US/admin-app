@@ -69,10 +69,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			);
 
 		if (upcomingWorkdays.length === 0) {
-			console.log('No upcoming workdays found within the next 48 hours.');
-			return json({ success: true, message: 'No upcoming workdays found.' });
+			return json({ success: true, noop: true });
 		}
-		console.log(`Found ${upcomingWorkdays.length} upcoming workdays within the next 48 hours.`);
 		for (const row of upcomingWorkdays) {
 			await notifyWorkday48HrReminder({
 				candidateUserEmail: row.user.email,
@@ -88,7 +86,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				referenceTimezone: row.requisition.referenceTimezone
 			});
 		}
-		return json({ success: true });
+		return json({ success: true, dispatched: upcomingWorkdays.length });
 	} catch (error) {
 		return json(
 			{
