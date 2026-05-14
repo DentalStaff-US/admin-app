@@ -447,6 +447,47 @@ export const timeSheetTable = pgTable(
 	]
 );
 
+export const timesheetExpenseStatusEnum = pgEnum('timesheet_expense_status', [
+	'PENDING',
+	'APPROVED',
+	'REJECTED'
+]);
+
+export const timesheetExpenseTable = pgTable(
+	'timesheet_expenses',
+	{
+		id: text('id').notNull().primaryKey(),
+		createdAt: timestamp('created_at', {
+			withTimezone: true,
+			mode: 'date'
+		}).notNull(),
+		updatedAt: timestamp('updated_at', {
+			withTimezone: true,
+			mode: 'date'
+		}).notNull(),
+		timesheetId: text('timesheet_id')
+			.references(() => timeSheetTable.id, { onDelete: 'cascade' })
+			.notNull(),
+		candidateId: text('candidate_id')
+			.references(() => candidateProfileTable.id, { onDelete: 'cascade' })
+			.notNull(),
+		description: text('description').notNull(),
+		amountCents: integer('amount_cents').notNull(),
+		status: timesheetExpenseStatusEnum('status').default('PENDING').notNull(),
+		createdByUserId: text('created_by_user_id').notNull(),
+		approvedByUserId: text('approved_by_user_id'),
+		approvedAt: timestamp('approved_at', { withTimezone: true, mode: 'date' }),
+		rejectionReason: text('rejection_reason')
+	},
+	(table) => [
+		index('timesheet_expense_timesheet_idx').on(table.timesheetId),
+		index('timesheet_expense_status_idx').on(table.status)
+	]
+);
+
+export type TimesheetExpense = typeof timesheetExpenseTable.$inferInsert;
+export type TimesheetExpenseSelect = typeof timesheetExpenseTable.$inferSelect;
+
 export const requisitionApplicationStatusEnum = pgEnum('requisition_application_status', [
 	'PENDING',
 	'APPROVED',

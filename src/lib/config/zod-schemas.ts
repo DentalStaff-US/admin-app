@@ -439,3 +439,9 @@ export const updateClientSchema = z
 	);
 
 export type UpdateClientSchema = typeof updateClientSchema;
+
+export const addExpenseSchema = z.object({
+	description: z.string().min(1, 'Description is required').max(500),
+	amountDollars: z.number({ invalid_type_error: 'Amount must be a number' }).positive()
+});
+export type AddExpenseSchema = typeof addExpenseSchema;

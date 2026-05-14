@@ -52,13 +52,19 @@
 		Clipboard,
 		Undo2,
 		Trash2,
-		Eye
+		Eye,
+		Plus,
+		Receipt,
+		ThumbsUp,
+		ThumbsDown
 	} from 'lucide-svelte';
 	import { format, parseISO, addDays, isValid, eachDayOfInterval, endOfWeek } from 'date-fns';
 	import { formatInTimeZone, toZonedTime } from 'date-fns-tz';
 	import { cn } from '$lib/utils';
 	import type { PageData } from './$types';
 	import { enhance } from '$app/forms';
+	import { superForm } from 'sveltekit-superforms/client';
+	import { Loader2 } from 'lucide-svelte';
 	import { USER_ROLES } from '$lib/config/constants';
 	import { Label } from '$lib/components/ui/label';
 	import { Input } from '$lib/components/ui/input';
@@ -92,6 +98,51 @@
 	$: effectiveHourlyRate = adjustedHourlyRate ?? data?.timesheet?.hourlyRate ?? 0;
 	$: invoice = data.invoice;
 	$: wagesStatus = data.timesheet?.wagesStatus ?? null;
+	$: adminFeeSettings = data?.adminFeeSettings ?? { amount: 0, type: 'PERCENTAGE' as const };
+	$: expenses = (data?.expenses ?? []) as Array<{
+		id: string;
+		description: string;
+		amountCents: number;
+		status: 'PENDING' | 'APPROVED' | 'REJECTED';
+		createdByUserId: string;
+		approvedByUserId: string | null;
+		rejectionReason: string | null;
+		createdAt: Date | string;
+	}>;
+	$: pendingExpenses = expenses.filter((e) => e.status === 'PENDING');
+	$: approvedExpenses = expenses.filter((e) => e.status === 'APPROVED');
+	$: rejectedExpenses = expenses.filter((e) => e.status === 'REJECTED');
+	$: approvedExpensesTotal = approvedExpenses.reduce((s, e) => s + e.amountCents / 100, 0);
+	$: billableSubtotal =
+		Number(effectiveHourlyRate) *
+		parseFloat(canEdit ? totalHours.toFixed(2) : data?.timesheet?.totalHoursWorked || '0');
+	$: adminFeeAmount =
+		adminFeeSettings.amount > 0
+			? adminFeeSettings.type === 'PERCENTAGE'
+				? (billableSubtotal * adminFeeSettings.amount) / 100
+				: adminFeeSettings.amount
+			: 0;
+	$: invoiceTotal = billableSubtotal + approvedExpensesTotal + adminFeeAmount;
+	$: adminFeeLabel =
+		adminFeeSettings.amount > 0
+			? adminFeeSettings.type === 'PERCENTAGE'
+				? `Admin Fee (${adminFeeSettings.amount}%)`
+				: `Admin Fee ($${adminFeeSettings.amount} flat)`
+			: 'Admin Fee';
+
+	// Add-expense form — superForm so we get $submitting for free
+	const addExpenseSF = superForm(data.addExpenseForm, {
+		resetForm: true,
+		taintedMessage: null
+	});
+	const {
+		enhance: addExpenseEnhance,
+		form: addExpenseFormData,
+		submitting: addExpenseSubmitting
+	} = addExpenseSF;
+
+	let rejectExpenseId: string | null = null;
+	let rejectExpenseReason = '';
 
 	function startEditingRate() {
 		rateInputValue = adjustedHourlyRate;
@@ -558,15 +609,42 @@
 							</div>
 
 							<div class="p-3 bg-gray-50 rounded-lg">
-								<p class="text-sm text-gray-600">Est. Cost</p>
-								<p class="text-xl font-bold">
-									${(
-										Number(effectiveHourlyRate) *
-										parseFloat(
-											canEdit ? totalHours.toFixed(2) : data?.timesheet?.totalHoursWorked || '0'
-										)
-									).toFixed(2)}
-								</p>
+								<p class="text-sm text-gray-600">Billable (Hours × Rate)</p>
+								<p class="text-xl font-bold">${billableSubtotal.toFixed(2)}</p>
+							</div>
+						</div>
+
+						<div class="rounded-lg border bg-gray-50 p-4">
+							<p class="mb-3 text-sm font-medium text-gray-700">Billing Summary</p>
+							<div class="space-y-1.5 text-sm">
+								<div class="flex justify-between">
+									<span class="text-gray-600">Billable Hours Total</span>
+									<span class="font-medium">${billableSubtotal.toFixed(2)}</span>
+								</div>
+								{#if approvedExpenses.length > 0}
+									<div class="flex justify-between">
+										<span class="text-gray-600"
+											>Approved Expenses ({approvedExpenses.length})</span
+										>
+										<span class="font-medium">${approvedExpensesTotal.toFixed(2)}</span>
+									</div>
+								{/if}
+								<div class="flex justify-between">
+									<span class="text-gray-600">{adminFeeLabel}</span>
+									<span class="font-medium">${adminFeeAmount.toFixed(2)}</span>
+								</div>
+								<Separator class="my-2" />
+								<div class="flex justify-between text-base font-semibold">
+									<span>Invoice Total</span>
+									<span>${invoiceTotal.toFixed(2)}</span>
+								</div>
+								{#if pendingExpenses.length > 0}
+									<p class="pt-1 text-xs text-amber-700">
+										{pendingExpenses.length} pending expense{pendingExpenses.length === 1
+											? ''
+											: 's'} must be resolved before this timesheet can be approved.
+									</p>
+								{/if}
 							</div>
 						</div>
 
@@ -582,6 +660,154 @@
 									</p>
 								</AlertDescription>
 							</Alert>
+						{/if}
+					</CardContent>
+				</Card>
+
+				<!-- Expenses / Incidentals -->
+				<Card>
+					<CardHeader>
+						<div class="flex items-center justify-between">
+							<div>
+								<CardTitle class="flex items-center gap-2">
+									<Receipt class="h-5 w-5" />
+									Expenses & Incidentals
+								</CardTitle>
+								<CardDescription>
+									Submitted reimbursements. Approved expenses are added to the invoice as separate
+									line items.
+								</CardDescription>
+							</div>
+						</div>
+					</CardHeader>
+					<CardContent class="space-y-4">
+						{#if !isApproved && !isVoid}
+							<form
+								method="POST"
+								action="?/addExpense"
+								use:addExpenseEnhance
+								class="flex flex-col gap-2 rounded-md border border-dashed p-3 sm:flex-row sm:items-end"
+							>
+								<div class="flex-1">
+									<Label for="addExpenseDescription" class="text-xs">Description</Label>
+									<Input
+										id="addExpenseDescription"
+										name="description"
+										bind:value={$addExpenseFormData.description}
+										placeholder="e.g. Parking, supplies, mileage"
+										disabled={$addExpenseSubmitting}
+										required
+									/>
+								</div>
+								<div class="w-full sm:w-32">
+									<Label for="addExpenseAmount" class="text-xs">Amount ($)</Label>
+									<Input
+										id="addExpenseAmount"
+										name="amountDollars"
+										type="number"
+										step="0.01"
+										min="0.01"
+										bind:value={$addExpenseFormData.amountDollars}
+										placeholder="0.00"
+										disabled={$addExpenseSubmitting}
+										required
+									/>
+								</div>
+								<Button
+									type="submit"
+									size="sm"
+									class="bg-[#2a93d1] hover:bg-blue-500 sm:w-auto"
+									disabled={$addExpenseSubmitting}
+								>
+									{#if $addExpenseSubmitting}
+										<Loader2 class="h-4 w-4 animate-spin" />
+										Adding…
+									{:else}
+										<Plus class="h-4 w-4" />
+										Add Expense
+									{/if}
+								</Button>
+							</form>
+						{/if}
+
+						{#if expenses.length === 0}
+							<p class="text-sm text-gray-500">No expenses submitted for this timesheet.</p>
+						{:else}
+							<div class="space-y-2">
+								{#each expenses as expense (expense.id)}
+									<div
+										class="flex flex-wrap items-center gap-3 rounded-md border p-3 text-sm"
+										class:bg-amber-50={expense.status === 'PENDING'}
+										class:bg-green-50={expense.status === 'APPROVED'}
+										class:bg-red-50={expense.status === 'REJECTED'}
+									>
+										<div class="min-w-0 flex-1">
+											<p class="truncate font-medium">{expense.description}</p>
+											{#if expense.status === 'REJECTED' && expense.rejectionReason}
+												<p class="text-xs text-red-700">Rejected: {expense.rejectionReason}</p>
+											{/if}
+										</div>
+										<div class="font-mono text-sm font-semibold">
+											${(expense.amountCents / 100).toFixed(2)}
+										</div>
+										<Badge
+											variant={expense.status === 'APPROVED'
+												? 'default'
+												: expense.status === 'REJECTED'
+													? 'destructive'
+													: 'secondary'}
+											value={expense.status}
+										/>
+										{#if expense.status === 'PENDING' && !isApproved && !isVoid}
+											<div class="flex gap-1">
+												<form method="POST" action="?/approveExpense" use:enhance>
+													<input type="hidden" name="expenseId" value={expense.id} />
+													<Button
+														type="submit"
+														size="sm"
+														variant="outline"
+														class="text-green-700"
+														title="Approve"
+													>
+														<ThumbsUp class="h-4 w-4" />
+													</Button>
+												</form>
+												<Button
+													type="button"
+													size="sm"
+													variant="outline"
+													class="text-red-700"
+													title="Reject"
+													on:click={() => {
+														rejectExpenseId = expense.id;
+														rejectExpenseReason = '';
+													}}
+												>
+													<ThumbsDown class="h-4 w-4" />
+												</Button>
+												<form
+													method="POST"
+													action="?/deleteExpense"
+													use:enhance
+													on:submit={(e) => {
+														if (!confirm('Delete this expense?')) e.preventDefault();
+													}}
+												>
+													<input type="hidden" name="expenseId" value={expense.id} />
+													<Button
+														type="submit"
+														size="sm"
+														variant="ghost"
+														title="Delete"
+													>
+														<Trash2 class="h-4 w-4 text-red-700" />
+													</Button>
+												</form>
+											</div>
+										{/if}
+									</div>
+								{/each}
+							</div>
 						{/if}
 					</CardContent>
 				</Card>
@@ -1135,8 +1361,40 @@
 								<p class="text-xl font-bold">${effectiveHourlyRate}</p>
 							</div>
 							<div class="p-3 bg-gray-50 rounded-lg">
-								<p class="text-sm text-gray-600">Est. Cost</p>
+								<p class="text-sm text-gray-600">Billable (Hours × Rate)</p>
 								<p class="text-xl font-bold">${getCostEstimate()}</p>
+							</div>
+						</div>
+
+						<div class="rounded-lg border bg-gray-50 p-4">
+							<p class="mb-3 text-sm font-medium text-gray-700">Billing Summary</p>
+							<div class="space-y-1.5 text-sm">
+								<div class="flex justify-between">
+									<span class="text-gray-600">Billable Hours Total</span>
+									<span class="font-medium">${getCostEstimate()}</span>
+								</div>
+								{#if approvedExpenses.length > 0}
+									<div class="flex justify-between">
+										<span class="text-gray-600">Approved Expenses ({approvedExpenses.length})</span>
+										<span class="font-medium">${approvedExpensesTotal.toFixed(2)}</span>
+									</div>
+								{/if}
+								<div class="flex justify-between">
+									<span class="text-gray-600">{adminFeeLabel}</span>
+									<span class="font-medium">${adminFeeAmount.toFixed(2)}</span>
+								</div>
+								<Separator class="my-2" />
+								<div class="flex justify-between text-base font-semibold">
+									<span>Invoice Total</span>
+									<span>${invoiceTotal.toFixed(2)}</span>
+								</div>
+								{#if pendingExpenses.length > 0}
+									<p class="pt-1 text-xs text-amber-700">
+										{pendingExpenses.length} pending expense{pendingExpenses.length === 1
+											? ''
+											: 's'} awaiting review.
+									</p>
+								{/if}
 							</div>
 						</div>
 
@@ -1169,6 +1427,80 @@
 								</div>
 							</div>
 						</div>
+					</CardContent>
+				</Card>
+
+				<Card>
+					<CardHeader>
+						<CardTitle class="flex items-center gap-2">
+							<Receipt class="h-5 w-5" />
+							Expenses & Incidentals
+						</CardTitle>
+						<CardDescription>
+							Submitted by the candidate. Approved items will be added to the invoice as separate
+							line items.
+						</CardDescription>
+					</CardHeader>
+					<CardContent class="space-y-2">
+						{#if expenses.length === 0}
+							<p class="text-sm text-gray-500">No expenses submitted for this timesheet.</p>
+						{:else}
+							{#each expenses as expense (expense.id)}
+								<div
+									class="flex flex-wrap items-center gap-3 rounded-md border p-3 text-sm"
+									class:bg-amber-50={expense.status === 'PENDING'}
+									class:bg-green-50={expense.status === 'APPROVED'}
+									class:bg-red-50={expense.status === 'REJECTED'}
+								>
+									<div class="min-w-0 flex-1">
+										<p class="truncate font-medium">{expense.description}</p>
+										{#if expense.status === 'REJECTED' && expense.rejectionReason}
+											<p class="text-xs text-red-700">Rejected: {expense.rejectionReason}</p>
+										{/if}
+									</div>
+									<div class="font-mono text-sm font-semibold">
+										${(expense.amountCents / 100).toFixed(2)}
+									</div>
+									<Badge
+										variant={expense.status === 'APPROVED'
+											? 'default'
+											: expense.status === 'REJECTED'
+												? 'destructive'
+												: 'secondary'}
+										value={expense.status}
+									/>
+									{#if expense.status === 'PENDING' && !isApproved && !isVoid}
+										<div class="flex gap-1">
+											<form method="POST" action="?/approveExpense" use:enhance>
+												<input type="hidden" name="expenseId" value={expense.id} />
+												<Button
+													type="submit"
+													size="sm"
+													variant="outline"
+													class="text-green-700"
+													title="Approve"
+												>
+													<ThumbsUp class="h-4 w-4" />
+												</Button>
+											</form>
+											<Button
+												type="button"
+												size="sm"
+												variant="outline"
+												class="text-red-700"
+												title="Reject"
+												on:click={() => {
+													rejectExpenseId = expense.id;
+													rejectExpenseReason = '';
+												}}
+											>
+												<ThumbsDown class="h-4 w-4" />
+											</Button>
+										</div>
+									{/if}
+								</div>
+							{/each}
+						{/if}
 					</CardContent>
 				</Card>
 
@@ -1420,6 +1752,70 @@
 				</Button>
 				<Button type="submit" variant="destructive" disabled={!rejectionNote.trim()}>
 					Reject Timesheet
+				</Button>
+			</DialogFooter>
+		</form>
+	</DialogContent>
+</Dialog>
+
+<Dialog
+	open={rejectExpenseId !== null}
+	onOpenChange={(open) => {
+		if (!open) {
+			rejectExpenseId = null;
+			rejectExpenseReason = '';
+		}
+	}}
+>
+	<DialogContent>
+		<form
+			method="POST"
+			action="?/rejectExpense"
+			use:enhance={() => {
+				return async ({ result, update }) => {
+					if (result.type === 'success') {
+						rejectExpenseId = null;
+						rejectExpenseReason = '';
+					}
+					await update();
+				};
+			}}
+		>
+			<DialogHeader>
+				<DialogTitle>Reject Expense</DialogTitle>
+				<DialogDescription>
+					Provide a reason so the candidate can understand why this expense was rejected.
+				</DialogDescription>
+			</DialogHeader>
+
+			<input type="hidden" name="expenseId" value={rejectExpenseId ?? ''} />
+			<div class="py-4">
+				<Label for="rejectExpenseReason" class="text-sm font-medium">
+					Reason <span class="text-red-500">*</span>
+				</Label>
+				<Textarea
+					id="rejectExpenseReason"
+					name="reason"
+					bind:value={rejectExpenseReason}
+					placeholder="Explain why this expense is being rejected..."
+					class="mt-2 min-h-[100px]"
+					required
+				/>
+			</div>
+
+			<DialogFooter>
+				<Button
+					type="button"
+					variant="outline"
+					on:click={() => {
+						rejectExpenseId = null;
+						rejectExpenseReason = '';
+					}}
+				>
+					Cancel
+				</Button>
+				<Button type="submit" variant="destructive" disabled={!rejectExpenseReason.trim()}>
+					Reject Expense
 				</Button>
 			</DialogFooter>
 		</form>

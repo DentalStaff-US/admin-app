@@ -9,8 +9,11 @@ import {
 import {
 	adminOverrideTimesheet,
 	approveTimesheet,
+	approveTimesheetExpense,
 	convertToStripeAmount,
 	createInvoiceRecord,
+	createTimesheetExpense,
+	deleteTimesheetExpense,
 	getInvoiceByTimesheetId,
 	getRecurrenceDaysForTimesheet,
 	getRequisitionById,
@@ -19,13 +22,18 @@ import {
 	getTimesheetById,
 	getTimesheetDetails,
 	getTimesheetDetailsAdmin,
+	getTimesheetExpenseById,
 	getWorkdaysForTimesheet,
+	listTimesheetExpenses,
 	rejectTimesheet,
+	rejectTimesheetExpense,
 	revertTimesheetToPending,
+	updateTimesheetExpense,
 	updateTimesheetHours,
 	voidTimesheet,
 	createPaperInvoiceRecord
 } from '$lib/server/database/queries/requisitions';
+import type { TimesheetExpenseSelect } from '$lib/server/database/schemas/requisition';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from './$types';
 import { setFlash } from 'sveltekit-flash-message/server';
@@ -43,6 +51,106 @@ import type { RawTimesheetHours } from '$lib/server/database/schemas/requisition
 import { writeActionHistory } from '$lib/server/database/queries/admin';
 import { clientProfileTable } from '$lib/server/database/schemas/client';
 import { notifyTimesheetSubmitted } from '$lib/server/notifications/transactional';
+import { superValidate } from 'sveltekit-superforms/server';
+import { addExpenseSchema } from '$lib/config/zod-schemas';
+
+const ADMIN_FEE_LINE_DESCRIPTION = 'Administration Fees';
+
+function calculateAdminFeeCents(
+	billableCents: number,
+	adminFee: number,
+	adminFeeType: 'PERCENTAGE' | 'FIXED'
+): number {
+	if (!adminFee || adminFee <= 0) return 0;
+	if (adminFeeType === 'PERCENTAGE') {
+		return Math.round((billableCents * adminFee) / 100);
+	}
+	return Math.round(adminFee * 100);
+}
+
+function buildStripeLineItems({
+	billableCents,
+	adminFeeCents,
+	hoursDescription,
+	expenses
+}: {
+	billableCents: number;
+	adminFeeCents: number;
+	hoursDescription: string;
+	expenses: TimesheetExpenseSelect[];
+}) {
+	const lineItems: Array<{ amountInCents: number; description: string }> = [
+		{ amountInCents: billableCents, description: hoursDescription }
+	];
+	for (const expense of expenses) {
+		lineItems.push({
+			amountInCents: expense.amountCents,
+			description: `Expense: ${expense.description}`
+		});
+	}
+	if (adminFeeCents > 0) {
+		lineItems.push({ amountInCents: adminFeeCents, description: ADMIN_FEE_LINE_DESCRIPTION });
+	}
+	return lineItems;
+}
+
+function buildPaperLineItems({
+	hoursWorked,
+	effectiveRateDollars,
+	billableCents,
+	adminFeeCents,
+	hoursDescription,
+	expenses
+}: {
+	hoursWorked: number;
+	effectiveRateDollars: number;
+	billableCents: number;
+	adminFeeCents: number;
+	hoursDescription: string;
+	expenses: TimesheetExpenseSelect[];
+}) {
+	const rateCents = Math.round(effectiveRateDollars * 100);
+	const items = [
+		{
+			id: crypto.randomUUID(),
+			description: hoursDescription,
+			quantity: hoursWorked,
+			rate: rateCents,
+			unit_amount: rateCents,
+			unit_amount_excluding_tax: rateCents,
+			amount: billableCents,
+			currency: 'usd',
+			type: 'paper' as const
+		}
+	];
+	for (const expense of expenses) {
+		items.push({
+			id: crypto.randomUUID(),
+			description: `Expense: ${expense.description}`,
+			quantity: 1,
+			rate: expense.amountCents,
+			unit_amount: expense.amountCents,
+			unit_amount_excluding_tax: expense.amountCents,
+			amount: expense.amountCents,
+			currency: 'usd',
+			type: 'paper' as const
+		});
+	}
+	if (adminFeeCents > 0) {
+		items.push({
+			id: crypto.randomUUID(),
+			description: ADMIN_FEE_LINE_DESCRIPTION,
+			quantity: 1,
+			rate: adminFeeCents,
+			unit_amount: adminFeeCents,
+			unit_amount_excluding_tax: adminFeeCents,
+			amount: adminFeeCents,
+			currency: 'usd',
+			type: 'paper' as const
+		});
+	}
+	return items;
+}
 
 export const load = async (event: RequestEvent) => {
 	const user = event.locals.user;
@@ -52,12 +160,21 @@ export const load = async (event: RequestEvent) => {
 
 	const { id } = event.params;
 
+	const [adminConfig] = await db.select().from(adminConfigTable).limit(1);
+	const adminFeeSettings = {
+		amount: adminConfig?.adminPaymentFee ?? 0,
+		type: (adminConfig?.adminPaymentFeeType ?? 'PERCENTAGE') as 'PERCENTAGE' | 'FIXED'
+	};
+
+	const addExpenseForm = await superValidate(addExpenseSchema);
+
 	if (user.role === USER_ROLES.SUPERADMIN) {
 		const timesheet = await getTimesheetDetailsAdmin(id);
 		const requisition = await getRequisitionDetailsByIdAdmin(timesheet.requisitionId);
 		const recurrenceDays = await getRecurrenceDaysForTimesheet(timesheet);
 		const workdays = await getWorkdaysForTimesheet(timesheet);
 		const invoice = await getInvoiceByTimesheetId(id);
+		const expenses = await listTimesheetExpenses(id);
 		const auditHistoryRaw = await db
 			.select()
 			.from(actionHistoryTable)
@@ -80,9 +197,13 @@ export const load = async (event: RequestEvent) => {
 			recurrenceDays,
 			requisition: requisition.requisition,
 			invoice,
+			expenses,
+			adminFeeSettings,
+			addExpenseForm,
 			auditHistory: auditHistory.map((h) => h.status === 'fulfilled' && h.value)
 		};
 	}
+
 
 	if (user.role === USER_ROLES.CLIENT) {
 		if (!user.completedOnboarding) {
@@ -96,6 +217,7 @@ export const load = async (event: RequestEvent) => {
 		const recurrenceDays = await getRecurrenceDaysForTimesheet(timesheet);
 		const workdays = await getWorkdaysForTimesheet(timesheet);
 		const invoice = await getInvoiceByTimesheetId(id);
+		const expenses = await listTimesheetExpenses(id);
 
 		return {
 			user,
@@ -103,7 +225,10 @@ export const load = async (event: RequestEvent) => {
 			workdays,
 			recurrenceDays,
 			requisition: requisition.requisition,
-			invoice
+			invoice,
+			expenses,
+			adminFeeSettings,
+			addExpenseForm
 		};
 	}
 
@@ -116,6 +241,7 @@ export const load = async (event: RequestEvent) => {
 		const recurrenceDays = await getRecurrenceDaysForTimesheet(timesheet);
 		const workdays = await getWorkdaysForTimesheet(timesheet);
 		const invoice = await getInvoiceByTimesheetId(id);
+		const expenses = await listTimesheetExpenses(id);
 
 		return {
 			user,
@@ -123,11 +249,23 @@ export const load = async (event: RequestEvent) => {
 			workdays,
 			recurrenceDays,
 			requisition: requisition.requisition,
-			invoice
+			invoice,
+			expenses,
+			adminFeeSettings,
+			addExpenseForm
 		};
 	}
 
-	return { user, timesheet: null, workdays: [], recurrenceDays: [], discrepancies: [] };
+	return {
+		user,
+		timesheet: null,
+		workdays: [],
+		recurrenceDays: [],
+		discrepancies: [],
+		expenses: [] as TimesheetExpenseSelect[],
+		adminFeeSettings,
+		addExpenseForm
+	};
 };
 
 export const actions = {
@@ -369,6 +507,19 @@ export const actions = {
 		try {
 			const [adminConfig] = await db.select().from(adminConfigTable).limit(1);
 
+			const existingExpenses = await listTimesheetExpenses(id);
+			const pendingExpenses = existingExpenses.filter((e) => e.status === 'PENDING');
+			if (pendingExpenses.length > 0) {
+				setFlash(
+					{
+						type: 'error',
+						message: `Cannot approve timesheet: ${pendingExpenses.length} expense${pendingExpenses.length === 1 ? ' is' : 's are'} still pending review.`
+					},
+					event
+				);
+				return fail(400, { error: 'Resolve all pending expenses before approving' });
+			}
+
 			const timesheet = await approveTimesheet(id, user.id);
 			const requisition = timesheet.requisitionId
 				? await getRequisitionById(timesheet.requisitionId)
@@ -376,6 +527,9 @@ export const actions = {
 			if (!requisition) {
 				throw new Error('Requisition not found for timesheet');
 			}
+
+			const approvedExpenses = existingExpenses.filter((e) => e.status === 'APPROVED');
+			const expensesTotalCents = approvedExpenses.reduce((sum, e) => sum + e.amountCents, 0);
 
 			const effectiveRate = timesheet.adjustedHourlyRate ?? requisition.hourlyRate;
 
@@ -385,17 +539,13 @@ export const actions = {
 				effectiveRate && effectiveRate * 1.5
 			);
 
-			const adminFee = adminConfig.adminPaymentFee;
-			const adminFeeType = adminConfig.adminPaymentFeeType;
-			let finalAmt = amountInCents;
+			const adminFeeCents = calculateAdminFeeCents(
+				amountInCents,
+				adminConfig.adminPaymentFee,
+				adminConfig.adminPaymentFeeType
+			);
 
-			if (adminFeeType === 'PERCENTAGE') {
-				finalAmt += Math.round((amountInCents * adminFee) / 100);
-			} else if (adminFeeType === 'FIXED') {
-				finalAmt += Math.round(adminFee * 100);
-			}
-
-			finalAmt = Math.round(finalAmt);
+			const finalAmt = Math.round(amountInCents + expensesTotalCents + adminFeeCents);
 
 			if (finalAmt <= 0) {
 				setFlash(
@@ -416,32 +566,26 @@ export const actions = {
 			console.log({ clientProfile, isPaperBilling });
 
 			if (isPaperBilling) {
-				const amountInDollars = (finalAmt / 100).toFixed(2);
 				const hoursWorked = parseFloat(String(timesheet.totalHoursWorked ?? 0));
 				const effectiveRateDollars = effectiveRate ?? 0;
 
 				await createPaperInvoiceRecord(
 					{
 						clientId: timesheet.associatedClientId,
-						amountInDollars,
+						amountInDollars: (finalAmt / 100).toFixed(2),
 						sourceType: 'timesheet',
 						timesheetId: timesheet.id,
 						requisitionId: timesheet.requisitionId ?? undefined,
 						candidateId: timesheet.associatedCandidateId,
 						description: `Dental Temp Staffing Solutions invoice: Hours worked for timesheet ${id}`,
-						lineItems: [
-							{
-								id: crypto.randomUUID(),
-								description: `Hours worked for timesheet ${id}`,
-								quantity: hoursWorked,
-								rate: Math.round(effectiveRateDollars * 100),
-								unit_amount: Math.round(effectiveRateDollars * 100),
-								unit_amount_excluding_tax: Math.round(effectiveRateDollars * 100),
-								amount: Math.round(parseFloat(amountInDollars) * 100),
-								currency: 'usd',
-								type: 'paper'
-							}
-						]
+						lineItems: buildPaperLineItems({
+							hoursWorked,
+							effectiveRateDollars,
+							billableCents: amountInCents,
+							adminFeeCents,
+							hoursDescription: `Hours worked for timesheet ${id}`,
+							expenses: approvedExpenses
+						})
 					},
 					user.id
 				);
@@ -451,7 +595,12 @@ export const actions = {
 
 				const stripeInvoice = await createStripeInvoice(
 					stripeCustomerId,
-					[{ amountInCents: finalAmt, description: `Invoice for timesheet ${id}` }],
+					buildStripeLineItems({
+						billableCents: amountInCents,
+						adminFeeCents,
+						hoursDescription: `Invoice for timesheet ${id}`,
+						expenses: approvedExpenses
+					}),
 					{ userId: user.id, timesheetId: timesheet.id, clientId: timesheet.associatedClientId },
 					`Dental Temp Staffing Solutions invoice: Hours worked for ${user.firstName} ${user.lastName} for timesheet ${id}`
 				);
@@ -520,6 +669,21 @@ export const actions = {
 
 			const [adminConfig] = await db.select().from(adminConfigTable).limit(1);
 
+			const existingExpenses = await listTimesheetExpenses(id);
+			const pendingExpenses = existingExpenses.filter((e) => e.status === 'PENDING');
+			if (pendingExpenses.length > 0) {
+				setFlash(
+					{
+						type: 'error',
+						message: `Cannot approve timesheet: ${pendingExpenses.length} expense${pendingExpenses.length === 1 ? ' is' : 's are'} still pending review.`
+					},
+					event
+				);
+				return fail(400, { error: 'Resolve all pending expenses before approving' });
+			}
+			const approvedExpenses = existingExpenses.filter((e) => e.status === 'APPROVED');
+			const expensesTotalCents = approvedExpenses.reduce((sum, e) => sum + e.amountCents, 0);
+
 			const effectiveRate = overridden.adjustedHourlyRate ?? requisition.hourlyRate;
 
 			const amountInCents = convertToStripeAmount(
@@ -528,17 +692,13 @@ export const actions = {
 				effectiveRate && effectiveRate * 1.5
 			);
 
-			const adminFee = adminConfig.adminPaymentFee;
-			const adminFeeType = adminConfig.adminPaymentFeeType;
-			let finalAmt = amountInCents;
+			const adminFeeCents = calculateAdminFeeCents(
+				amountInCents,
+				adminConfig.adminPaymentFee,
+				adminConfig.adminPaymentFeeType
+			);
 
-			if (adminFeeType === 'PERCENTAGE') {
-				finalAmt += Math.round((amountInCents * adminFee) / 100);
-			} else if (adminFeeType === 'FIXED') {
-				finalAmt += Math.round(adminFee * 100);
-			}
-
-			finalAmt = Math.round(finalAmt);
+			const finalAmt = Math.round(amountInCents + expensesTotalCents + adminFeeCents);
 			if (finalAmt <= 0) {
 				setFlash(
 					{
@@ -556,32 +716,26 @@ export const actions = {
 			const isPaperBilling = clientProfile?.profile.clientInvoiceMethod === 'PAPER';
 
 			if (isPaperBilling) {
-				const amountInDollars = (finalAmt / 100).toFixed(2);
 				const hoursWorked = parseFloat(String(overridden.totalHoursWorked ?? 0));
 				const effectiveRateDollars = effectiveRate ?? 0;
 
 				await createPaperInvoiceRecord(
 					{
 						clientId: overridden.associatedClientId,
-						amountInDollars,
+						amountInDollars: (finalAmt / 100).toFixed(2),
 						sourceType: 'timesheet',
 						timesheetId: overridden.id,
 						requisitionId: overridden.requisitionId ?? undefined,
 						candidateId: overridden.associatedCandidateId,
 						description: `Dental Temp Staffing Solutions invoice: Hours worked for timesheet ${id}`,
-						lineItems: [
-							{
-								id: crypto.randomUUID(),
-								description: `Hours worked for timesheet ${id}`,
-								quantity: hoursWorked,
-								rate: Math.round(effectiveRateDollars * 100),
-								unit_amount: Math.round(effectiveRateDollars * 100),
-								unit_amount_excluding_tax: Math.round(effectiveRateDollars * 100),
-								amount: Math.round(parseFloat(amountInDollars) * 100),
-								currency: 'usd',
-								type: 'paper'
-							}
-						]
+						lineItems: buildPaperLineItems({
+							hoursWorked,
+							effectiveRateDollars,
+							billableCents: amountInCents,
+							adminFeeCents,
+							hoursDescription: `Hours worked for timesheet ${id}`,
+							expenses: approvedExpenses
+						})
 					},
 					user.id
 				);
@@ -594,7 +748,12 @@ export const actions = {
 
 				const stripeInvoice = await createStripeInvoice(
 					stripeCustomerId,
-					[{ amountInCents: finalAmt, description: `Invoice for timesheet ${id}` }],
+					buildStripeLineItems({
+						billableCents: amountInCents,
+						adminFeeCents,
+						hoursDescription: `Invoice for timesheet ${id}`,
+						expenses: approvedExpenses
+					}),
 					{ userId: user.id, timesheetId: overridden.id, clientId: overridden.associatedClientId },
 					`Dental Temp Staffing Solutions invoice: Hours worked for ${user.firstName} ${user.lastName} for timesheet ${id}`
 				);
@@ -704,6 +863,190 @@ export const actions = {
 			console.error('Error marking wages due:', err);
 			setFlash({ type: 'error', message: 'Failed to mark wages as due' }, event);
 			return fail(500, { error: 'Failed to mark wages as due' });
+		}
+	},
+
+	addExpense: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id: timesheetId } = event.params;
+		if (!user) redirect(302, '/auth/sign-in');
+
+		const form = await superValidate(event, addExpenseSchema);
+		if (!form.valid) {
+			setFlash({ type: 'error', message: 'Please correct the expense form.' }, event);
+			return fail(400, { form });
+		}
+
+		const timesheet = await getTimesheetById(timesheetId);
+		if (!timesheet) {
+			setFlash({ type: 'error', message: 'Timesheet not found' }, event);
+			return fail(404, { form });
+		}
+		if (timesheet.status === 'APPROVED' || timesheet.status === 'VOID') {
+			setFlash(
+				{
+					type: 'error',
+					message: 'Cannot add expenses to an approved or voided timesheet'
+				},
+				event
+			);
+			return fail(400, { form });
+		}
+
+		// Only admin and the assigned candidate may add via this server action.
+		// Clients/staff don't add expenses — they approve/reject.
+		if (
+			user.role !== USER_ROLES.SUPERADMIN &&
+			!(user.role === USER_ROLES.CANDIDATE && timesheet.associatedCandidateId)
+		) {
+			return fail(403, { form });
+		}
+
+		try {
+			await createTimesheetExpense(
+				{
+					timesheetId,
+					candidateId: timesheet.associatedCandidateId,
+					description: form.data.description,
+					amountCents: Math.round(form.data.amountDollars * 100),
+					createdByUserId: user.id
+				},
+				user.id
+			);
+			setFlash({ type: 'success', message: 'Expense added' }, event);
+			return { form };
+		} catch (err) {
+			console.error('Error adding expense:', err);
+			setFlash({ type: 'error', message: 'Failed to add expense' }, event);
+			return fail(500, { form });
+		}
+	},
+
+	updateExpense: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) redirect(302, '/auth/sign-in');
+
+		const formData = await event.request.formData();
+		const expenseId = String(formData.get('expenseId') ?? '');
+		const description = String(formData.get('description') ?? '').trim();
+		const amountDollarsRaw = String(formData.get('amountDollars') ?? '').trim();
+		const amountDollars = parseFloat(amountDollarsRaw);
+
+		if (!expenseId) return fail(400, { error: 'Missing expense id' });
+
+		const existing = await getTimesheetExpenseById(expenseId);
+		if (!existing) return fail(404, { error: 'Expense not found' });
+
+		// Admin can edit any pending expense. Candidate can edit only their own.
+		const isOwnerCandidate =
+			user.role === USER_ROLES.CANDIDATE && existing.createdByUserId === user.id;
+		if (user.role !== USER_ROLES.SUPERADMIN && !isOwnerCandidate) {
+			return fail(403, { error: 'Forbidden' });
+		}
+
+		try {
+			await updateTimesheetExpense(
+				expenseId,
+				{
+					description: description || undefined,
+					amountCents: isFinite(amountDollars) ? Math.round(amountDollars * 100) : undefined
+				},
+				user.id
+			);
+			setFlash({ type: 'success', message: 'Expense updated' }, event);
+			return { success: true };
+		} catch (err: any) {
+			console.error('Error updating expense:', err);
+			setFlash({ type: 'error', message: err?.body?.message ?? 'Failed to update expense' }, event);
+			return fail(500, { error: 'Failed to update expense' });
+		}
+	},
+
+	deleteExpense: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) redirect(302, '/auth/sign-in');
+
+		const formData = await event.request.formData();
+		const expenseId = String(formData.get('expenseId') ?? '');
+		if (!expenseId) return fail(400, { error: 'Missing expense id' });
+
+		const existing = await getTimesheetExpenseById(expenseId);
+		if (!existing) return fail(404, { error: 'Expense not found' });
+
+		const isOwnerCandidate =
+			user.role === USER_ROLES.CANDIDATE && existing.createdByUserId === user.id;
+		if (user.role !== USER_ROLES.SUPERADMIN && !isOwnerCandidate) {
+			return fail(403, { error: 'Forbidden' });
+		}
+
+		try {
+			await deleteTimesheetExpense(expenseId, user.id);
+			setFlash({ type: 'success', message: 'Expense deleted' }, event);
+			return { success: true };
+		} catch (err: any) {
+			console.error('Error deleting expense:', err);
+			setFlash({ type: 'error', message: err?.body?.message ?? 'Failed to delete expense' }, event);
+			return fail(500, { error: 'Failed to delete expense' });
+		}
+	},
+
+	approveExpense: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) redirect(302, '/auth/sign-in');
+
+		// Only admin, client, or client-staff may approve.
+		if (
+			user.role !== USER_ROLES.SUPERADMIN &&
+			user.role !== USER_ROLES.CLIENT &&
+			user.role !== USER_ROLES.CLIENT_STAFF
+		) {
+			return fail(403, { error: 'Forbidden' });
+		}
+
+		const formData = await event.request.formData();
+		const expenseId = String(formData.get('expenseId') ?? '');
+		if (!expenseId) return fail(400, { error: 'Missing expense id' });
+
+		try {
+			await approveTimesheetExpense(expenseId, user.id);
+			setFlash({ type: 'success', message: 'Expense approved' }, event);
+			return { success: true };
+		} catch (err: any) {
+			console.error('Error approving expense:', err);
+			setFlash({ type: 'error', message: 'Failed to approve expense' }, event);
+			return fail(500, { error: 'Failed to approve expense' });
+		}
+	},
+
+	rejectExpense: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) redirect(302, '/auth/sign-in');
+
+		if (
+			user.role !== USER_ROLES.SUPERADMIN &&
+			user.role !== USER_ROLES.CLIENT &&
+			user.role !== USER_ROLES.CLIENT_STAFF
+		) {
+			return fail(403, { error: 'Forbidden' });
+		}
+
+		const formData = await event.request.formData();
+		const expenseId = String(formData.get('expenseId') ?? '');
+		const reason = String(formData.get('reason') ?? '').trim();
+		if (!expenseId) return fail(400, { error: 'Missing expense id' });
+		if (!reason) {
+			setFlash({ type: 'error', message: 'A rejection reason is required' }, event);
+			return fail(400, { error: 'Reason required' });
+		}
+
+		try {
+			await rejectTimesheetExpense(expenseId, user.id, reason);
+			setFlash({ type: 'success', message: 'Expense rejected' }, event);
+			return { success: true };
+		} catch (err: any) {
+			console.error('Error rejecting expense:', err);
+			setFlash({ type: 'error', message: 'Failed to reject expense' }, event);
+			return fail(500, { error: 'Failed to reject expense' });
 		}
 	}
 };
