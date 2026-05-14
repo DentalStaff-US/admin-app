@@ -736,10 +736,7 @@
 							<div class="space-y-2">
 								{#each expenses as expense (expense.id)}
 									<div
-										class="flex flex-wrap items-center gap-3 rounded-md border p-3 text-sm"
-										class:bg-amber-50={expense.status === 'PENDING'}
-										class:bg-green-50={expense.status === 'APPROVED'}
-										class:bg-red-50={expense.status === 'REJECTED'}
+										class="flex flex-wrap items-center gap-3 rounded-md border p-3 text-sm bg-gray-50"
 									>
 										<div class="min-w-0 flex-1">
 											<p class="truncate font-medium">{expense.description}</p>
@@ -750,14 +747,7 @@
 										<div class="font-mono text-sm font-semibold">
 											${(expense.amountCents / 100).toFixed(2)}
 										</div>
-										<Badge
-											variant={expense.status === 'APPROVED'
-												? 'default'
-												: expense.status === 'REJECTED'
-													? 'destructive'
-													: 'secondary'}
-											value={expense.status}
-										/>
+										<StatusBadge status={expense.status} />
 										{#if expense.status === 'PENDING' && !isApproved && !isVoid}
 											<div class="flex gap-1">
 												<form method="POST" action="?/approveExpense" use:enhance>
@@ -1461,14 +1451,7 @@
 									<div class="font-mono text-sm font-semibold">
 										${(expense.amountCents / 100).toFixed(2)}
 									</div>
-									<Badge
-										variant={expense.status === 'APPROVED'
-											? 'default'
-											: expense.status === 'REJECTED'
-												? 'destructive'
-												: 'secondary'}
-										value={expense.status}
-									/>
+									<StatusBadge status={expense.status} />
 									{#if expense.status === 'PENDING' && !isApproved && !isVoid}
 										<div class="flex gap-1">
 											<form method="POST" action="?/approveExpense" use:enhance>
