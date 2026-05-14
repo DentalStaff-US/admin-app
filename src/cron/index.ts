@@ -55,7 +55,11 @@ function register(def: JobDefinition) {
 					status: res.status,
 					durationMs: res.durationMs,
 					error: res.error,
-					body: JSON.stringify(res.body).slice(0, 500)
+					// 4000 leaves headroom for Drizzle's verbose "Failed query: ..."
+					// errors that include the full SELECT statement before the
+					// actual Postgres reason — 500 was truncating before the
+					// diagnostic part.
+					body: res.body === undefined ? undefined : JSON.stringify(res.body).slice(0, 4000)
 				});
 				logger.event('cron_job_failed', {
 					jobName: def.name,
@@ -64,15 +68,23 @@ function register(def: JobDefinition) {
 					error: res.error
 				});
 			} else {
-				logger.info(`${def.name} ok`, {
+				// Endpoints can return `{ noop: true }` to signal a tick that did
+				// no work (e.g. no upcoming workdays in the window). When they do,
+				// suppress the PostHog `cron_job_completed` event so frequent crons
+				// (hourly, 5-min) don't flood the events stream with empty runs.
+				// Local dev info log still fires.
+				const noop = (res.body as { noop?: boolean } | null | undefined)?.noop === true;
+				logger.info(`${def.name} ok${noop ? ' (noop)' : ''}`, {
 					status: res.status,
 					durationMs: res.durationMs
 				});
-				logger.event('cron_job_completed', {
-					jobName: def.name,
-					status: res.status,
-					durationMs: res.durationMs
-				});
+				if (!noop) {
+					logger.event('cron_job_completed', {
+						jobName: def.name,
+						status: res.status,
+						durationMs: res.durationMs
+					});
+				}
 			}
 		} catch (error) {
 			logger.error(`${def.name} threw`, { error, jobName: def.name });
@@ -89,17 +101,31 @@ for (const def of jobs) register(def);
 
 logger.info(`${Object.keys(schedule.scheduledJobs).length} job(s) scheduled`, { apiUrl: API_URL });
 
+// Emit one PostHog event per process boot so deploys / unexpected restarts
+// show up in dashboards alongside per-tick events. Filter on
+// `event = cron_started` to see the deploy timeline.
+logger.event('cron_started', {
+	jobCount: Object.keys(schedule.scheduledJobs).length,
+	enabledJobs: jobs.filter((j) => j.enabled !== false).map((j) => j.name),
+	disabledJobs: jobs.filter((j) => j.enabled === false).map((j) => j.name)
+});
+
 let shuttingDown = false;
 async function shutdown(signal: string) {
 	if (shuttingDown) return;
 	shuttingDown = true;
 	logger.info(`received ${signal}, draining in-flight jobs...`);
+	let drainedOk = true;
 	try {
 		await gracefulShutdown();
 		logger.info('drained cleanly');
 	} catch (error) {
+		drainedOk = false;
 		logger.error('gracefulShutdown error', { error });
 	}
+	// Capture the shutdown event before flushing PostHog — gives a "did the
+	// service exit cleanly or get hard-killed?" signal in dashboards.
+	logger.event('cron_shutdown', { signal, drainedOk });
 	try {
 		await shutdownPostHog();
 	} catch (error) {

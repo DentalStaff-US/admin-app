@@ -253,11 +253,14 @@ export const actions = {
 			const daysToAdd = form.data.recurrenceDays;
 			console.log('Received recurrence days:', daysToAdd);
 			// Parse the recurrence days from the form data
-			await Promise.all(
+			const created = await Promise.all(
 				Array.isArray(daysToAdd) ? daysToAdd.map(processDay) : [processDay(daysToAdd)]
 			);
+			const newDayIds = created
+				.map((row) => row?.id)
+				.filter((id): id is string => typeof id === 'string');
 
-			await notifyQualifiedCandidatesOfNewWorkdays(idAsNum);
+			await notifyQualifiedCandidatesOfNewWorkdays(idAsNum, newDayIds);
 
 			setFlash(
 				{

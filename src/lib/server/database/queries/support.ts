@@ -22,6 +22,7 @@ export interface SupportTicketResult {
 		lastName: string;
 		email: string;
 		avatarUrl: string;
+		role: string;
 	};
 }
 
@@ -48,7 +49,8 @@ export async function getAllSupportTickets(searchTerm?: string) {
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				email: userTable.email,
-				avatraUrl: userTable.avatarUrl
+				avatarUrl: userTable.avatarUrl,
+				role: userTable.role
 			}
 		})
 		.from(supportTicketTable)
@@ -97,7 +99,8 @@ export async function getSupportTicketsForUser(userID?: string, searchTerm?: str
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				email: userTable.email,
-				avatarUrl: userTable.avatarUrl
+				avatarUrl: userTable.avatarUrl,
+				role: userTable.role
 			}
 		})
 		.from(supportTicketTable)
@@ -126,7 +129,8 @@ export async function getSupportTicketsForUserWithLimit(userID: string, count: n
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				email: userTable.email,
-				avatarUrl: userTable.avatarUrl
+				avatarUrl: userTable.avatarUrl,
+				role: userTable.role
 			}
 		})
 		.from(supportTicketTable)

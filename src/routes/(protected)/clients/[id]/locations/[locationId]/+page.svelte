@@ -40,6 +40,9 @@
 
 	$: client = data.client;
 	$: location = data.location;
+	$: contactDestinations = data.contactDestinations ?? [];
+	$: emailDestinations = contactDestinations.filter((d) => d.type === 'EMAIL');
+	$: smsDestinations = contactDestinations.filter((d) => d.type === 'SMS');
 
 	const {
 		form: addressForm,
@@ -89,6 +92,16 @@
 				editingLocation = false;
 			}
 		}
+	});
+
+	const {
+		form: destinationForm,
+		enhance: destinationEnhance,
+		submitting: isDestinationSubmitting,
+		errors: destinationErrors
+	} = superForm(data.destinationForm, {
+		resetForm: true,
+		taintedMessage: null
 	});
 
 	// Edit state tracking
@@ -524,6 +537,146 @@
 									{/if}
 								</div>
 							{/if}
+						</CardContent>
+					</Card>
+
+					<!-- Notification Destinations -->
+					<Card>
+						<CardHeader>
+							<CardTitle class="flex items-center gap-2">
+								<Mail class="h-5 w-5 text-indigo-600" />
+								Notification Destinations
+							</CardTitle>
+							<p class="text-sm text-muted-foreground mt-1">
+								Where notifications for this location should be sent. If none are listed,
+								notifications fall back to the location's office email and phone above.
+							</p>
+						</CardHeader>
+						<CardContent>
+							<div class="space-y-6">
+								<!-- Email destinations -->
+								<div>
+									<div class="flex items-center gap-2 mb-2">
+										<Mail class="h-4 w-4 text-muted-foreground" />
+										<h3 class="text-sm font-medium">Email</h3>
+									</div>
+									{#if emailDestinations.length === 0}
+										<p class="text-sm text-muted-foreground">No email destinations.</p>
+									{:else}
+										<ul class="space-y-2">
+											{#each emailDestinations as dest (dest.id)}
+												<li
+													class="flex items-center justify-between rounded border bg-gray-50 px-3 py-2"
+												>
+													<span class="text-sm">{dest.value}</span>
+													<form method="POST" action="?/removeContactDestination" use:enhance>
+														<input type="hidden" name="id" value={dest.id} />
+														<Button
+															type="submit"
+															variant="ghost"
+															size="icon"
+															class="h-7 w-7 text-red-500 hover:bg-red-50 hover:text-red-600"
+														>
+															<X class="h-4 w-4" />
+														</Button>
+													</form>
+												</li>
+											{/each}
+										</ul>
+									{/if}
+								</div>
+
+								<!-- SMS destinations -->
+								<div>
+									<div class="flex items-center gap-2 mb-2">
+										<Smartphone class="h-4 w-4 text-muted-foreground" />
+										<h3 class="text-sm font-medium">SMS</h3>
+									</div>
+									{#if smsDestinations.length === 0}
+										<p class="text-sm text-muted-foreground">No SMS destinations.</p>
+									{:else}
+										<ul class="space-y-2">
+											{#each smsDestinations as dest (dest.id)}
+												<li
+													class="flex items-center justify-between rounded border bg-gray-50 px-3 py-2"
+												>
+													<span class="text-sm">{dest.value}</span>
+													<form method="POST" action="?/removeContactDestination" use:enhance>
+														<input type="hidden" name="id" value={dest.id} />
+														<Button
+															type="submit"
+															variant="ghost"
+															size="icon"
+															class="h-7 w-7 text-red-500 hover:bg-red-50 hover:text-red-600"
+														>
+															<X class="h-4 w-4" />
+														</Button>
+													</form>
+												</li>
+											{/each}
+										</ul>
+									{/if}
+								</div>
+
+								<!-- Add destination -->
+								<form
+									method="POST"
+									action="?/addContactDestination"
+									use:destinationEnhance
+									class="pt-4 border-t space-y-3"
+								>
+									<div class="grid grid-cols-1 sm:grid-cols-[1fr_140px_auto] gap-2 items-end">
+										<div class="space-y-1">
+											<Label for="dest-value">
+												{$destinationForm.type === 'SMS' ? 'Mobile number' : 'Email address'}
+											</Label>
+											{#if $destinationForm.type === 'SMS'}
+												<PhoneInput
+													id="dest-value"
+													name="value"
+													bind:value={$destinationForm.value}
+													placeholder="(555) 555-5555"
+												/>
+											{:else}
+												<Input
+													id="dest-value"
+													name="value"
+													type="email"
+													bind:value={$destinationForm.value}
+													placeholder="alerts@example.com"
+												/>
+											{/if}
+										</div>
+										<div class="space-y-1">
+											<Label for="dest-type">Type</Label>
+											<select
+												id="dest-type"
+												name="type"
+												bind:value={$destinationForm.type}
+												class="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+											>
+												<option value="EMAIL">Email</option>
+												<option value="SMS">SMS</option>
+											</select>
+										</div>
+										<Button
+											type="submit"
+											size="sm"
+											class="gap-2 bg-green-400 hover:bg-green-500"
+											disabled={$isDestinationSubmitting}
+										>
+											<Plus class="h-4 w-4" />
+											{$isDestinationSubmitting ? 'Adding...' : 'Add'}
+										</Button>
+									</div>
+									{#if $destinationErrors.value}
+										<p class="text-red-500 text-sm">{$destinationErrors.value}</p>
+									{/if}
+									{#if $destinationErrors.type}
+										<p class="text-red-500 text-sm">{$destinationErrors.type}</p>
+									{/if}
+								</form>
+							</div>
 						</CardContent>
 					</Card>
 

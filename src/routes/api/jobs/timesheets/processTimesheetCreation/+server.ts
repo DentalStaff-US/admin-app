@@ -52,12 +52,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				);
 
 			if (eligibleWorkdays.length === 0) {
-				return json({
-					success: true,
-					message: 'No workdays to process',
-					created: 0,
-					linked: 0
-				});
+				return json({ success: true, noop: true });
 			}
 
 			// Group workdays by (candidateId, requisitionId, weekBeginDate)
@@ -175,11 +170,15 @@ export const POST: RequestHandler = async ({ request }) => {
 				}
 			}
 
+			// "Noop" from a notifications-emitted standpoint: we only fire
+			// notifyTimesheetCreated when a NEW timesheet is created. If we only
+			// linked workdays onto an existing draft, no notification went out.
 			return json({
 				success: true,
 				message: `Processed ${groups.size} groups`,
 				created,
-				linked
+				linked,
+				noop: created === 0
 			});
 		} catch (error) {
 			console.error('Error in processTimesheetCreation job:', error);

@@ -8,10 +8,13 @@ import {
 	clientStaffProfileTable,
 	clientSubscriptionTable,
 	companyOfficeLocationTable,
+	locationContactDestinationTable,
 	type ClientCompany,
 	type ClientCompanyLocation,
 	type ClientCompanyLocationSelect,
 	type ClientProfile,
+	type LocationContactDestination,
+	type LocationContactDestinationSelect,
 	type NewClientCompanyStaffLocation,
 	type OperatingHours,
 	type UpdateClientProfile
@@ -606,6 +609,39 @@ export async function createCompanyLocation(values: ClientCompanyLocation) {
 	} else {
 		return result[0];
 	}
+}
+
+export async function getLocationContactDestinations(
+	locationId: string
+): Promise<LocationContactDestinationSelect[]> {
+	return await db
+		.select()
+		.from(locationContactDestinationTable)
+		.where(eq(locationContactDestinationTable.locationId, locationId))
+		.orderBy(locationContactDestinationTable.type, locationContactDestinationTable.createdAt);
+}
+
+export async function createLocationContactDestination(
+	values: LocationContactDestination
+): Promise<LocationContactDestinationSelect> {
+	const [row] = await db.insert(locationContactDestinationTable).values(values).returning();
+	return row;
+}
+
+export async function deleteLocationContactDestination(
+	id: string,
+	locationId: string
+): Promise<boolean> {
+	const result = await db
+		.delete(locationContactDestinationTable)
+		.where(
+			and(
+				eq(locationContactDestinationTable.id, id),
+				eq(locationContactDestinationTable.locationId, locationId)
+			)
+		)
+		.returning({ id: locationContactDestinationTable.id });
+	return result.length > 0;
 }
 
 export async function updateCompanyLocation(

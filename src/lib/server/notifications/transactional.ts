@@ -7,8 +7,9 @@
 // notifyXxx(...)` without try/catch; the calling action's success state is
 // independent of notification delivery.
 
-import { format } from 'date-fns';
-import { eq } from 'drizzle-orm';
+import { format, parseISO } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
+import { eq, inArray } from 'drizzle-orm';
 import { BASE_URL } from '$env/static/private';
 import db from '$lib/server/database/drizzle';
 import { sms } from '$lib/server/sms/smsService';
@@ -24,8 +25,10 @@ import {
 	getClientCompanyByClientId,
 	getClientIdByCompanyId,
 	getClientProfileById,
-	getLocationByIdForCompany
+	getLocationByIdForCompany,
+	getLocationContactDestinations
 } from '$lib/server/database/queries/clients';
+import { logger } from '$lib/server/logger';
 import { getCandidateUserById } from '$lib/server/database/queries/candidates';
 import { userTable } from '$lib/server/database/schemas/auth';
 import {
@@ -39,10 +42,11 @@ import {
 	workdayTable,
 	type Invoice
 } from '$lib/server/database/schemas/requisition';
-import { disciplineTable } from '$lib/server/database/schemas/skill';
+import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
 import {
 	clientCompanyTable,
-	clientProfileTable
+	clientProfileTable,
+	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
 import { USER_ROLES } from '$lib/config/constants';
 
@@ -84,9 +88,7 @@ async function safeSms(
 		return false;
 	}
 	if (!sms.isValidUSPhone(to)) {
-		console.warn(
-			`[transactional:${label}] sms skipped: phone failed normalization (got "${to}")`
-		);
+		console.warn(`[transactional:${label}] sms skipped: phone failed normalization (got "${to}")`);
 		return false;
 	}
 	try {
@@ -111,13 +113,77 @@ async function dispatch(label: string, sends: Promise<boolean>[]): Promise<void>
 	}
 }
 
-function fmtTime(d: Date | string | null | undefined): string {
+function fmtTime(d: Date | string | null | undefined, tz: string): string {
 	if (!d) return 'N/A';
 	try {
-		return format(new Date(d), 'h:mm a');
+		return formatInTimeZone(new Date(d), tz, 'h:mm a');
 	} catch {
 		return 'N/A';
 	}
+}
+
+// Date-only strings ('2026-05-15') represent a calendar date in the requisition's
+// timezone, not a UTC instant — format with plain date-fns to avoid tz drift.
+function fmtDate(d: string | null | undefined): string {
+	if (!d) return 'N/A';
+	try {
+		return format(parseISO(d), 'EEEE, MMM d, yyyy');
+	} catch {
+		return 'N/A';
+	}
+}
+
+/**
+ * Resolve the recipients for a location-scoped notification.
+ *
+ * Order of precedence per channel:
+ *   1. Per-location contact destinations of that channel's type (fan out to all).
+ *   2. The location's default email / cellPhone or companyPhone.
+ *   3. None — caller silently drops the channel; we log to PostHog so missing
+ *      configurations are visible in prod.
+ */
+async function getLocationNotificationTargets(
+	locationId: string | null | undefined,
+	label: string
+): Promise<{ emails: string[]; phones: string[] }> {
+	if (!locationId) {
+		logger.event('notification.location.no_location', { label });
+		return { emails: [], phones: [] };
+	}
+
+	const [locationRow, destinations] = await Promise.all([
+		db
+			.select({
+				email: companyOfficeLocationTable.email,
+				cellPhone: companyOfficeLocationTable.cellPhone,
+				companyPhone: companyOfficeLocationTable.companyPhone
+			})
+			.from(companyOfficeLocationTable)
+			.where(eq(companyOfficeLocationTable.id, locationId))
+			.limit(1)
+			.then((r) => r[0] ?? null),
+		getLocationContactDestinations(locationId)
+	]);
+
+	let emails = destinations.filter((d) => d.type === 'EMAIL').map((d) => d.value);
+	let phones = destinations.filter((d) => d.type === 'SMS').map((d) => d.value);
+
+	if (emails.length === 0 && locationRow?.email) {
+		emails = [locationRow.email];
+	}
+	if (phones.length === 0) {
+		const fallback = locationRow?.cellPhone || locationRow?.companyPhone;
+		if (fallback) phones = [fallback];
+	}
+
+	if (emails.length === 0) {
+		logger.event('notification.location.no_email_destination', { label, locationId });
+	}
+	if (phones.length === 0) {
+		logger.event('notification.location.no_sms_destination', { label, locationId });
+	}
+
+	return { emails, phones };
 }
 
 async function getDisciplineById(disciplineId: string) {
@@ -145,12 +211,16 @@ export async function notifyWorkdayClaimed(workdayId: string): Promise<void> {
 		}
 		const requisition = await getRequisitionByWorkdayId(workdayId);
 		if (!requisition) {
-			console.warn(`[transactional:${label}] aborted: requisition for workday ${workdayId} not found`);
+			console.warn(
+				`[transactional:${label}] aborted: requisition for workday ${workdayId} not found`
+			);
 			return;
 		}
 		const recurrenceDay = await getRecurrenceDayByWorkdayId(workdayId);
 		if (!recurrenceDay) {
-			console.warn(`[transactional:${label}] aborted: recurrence day for workday ${workdayId} not found`);
+			console.warn(
+				`[transactional:${label}] aborted: recurrence day for workday ${workdayId} not found`
+			);
 			return;
 		}
 
@@ -164,34 +234,38 @@ export async function notifyWorkdayClaimed(workdayId: string): Promise<void> {
 		}
 		const location = await getLocationByIdForCompany(requisition.locationId, requisition.companyId);
 		const discipline = await getDisciplineById(requisition.disciplineId);
+		const { emails, phones } = await getLocationNotificationTargets(requisition.locationId, label);
+		const tz = requisition.referenceTimezone;
 
-		const recipientEmail = location?.email || client.user.email;
-		const recipientPhone = client.profile.cellPhone;
 		const candidateName = `${candidateUser.firstName} ${candidateUser.lastName}`;
 		const url = `${BASE_URL}/requisitions/${requisition.id}/workday/${recurrenceDay.id}`;
 
 		await dispatch('workdayClaimed', [
-			safeEmail('workdayClaimed', recipientEmail, () =>
-				emailService.sendRecurrenceDayClaimedEmail(
-					recipientEmail,
-					{
-						url,
-						companyName: (company?.companyName as string) ?? 'your company',
-						location: location?.completeAddress ?? 'Not Specified',
-						date: recurrenceDay.date,
-						workdayStart: fmtTime(recurrenceDay.dayStart),
-						workdayEnd: fmtTime(recurrenceDay.dayEnd),
-						discipline: discipline?.name ?? `Req #${requisition.id}`
-					},
-					{ firstName: candidateUser.firstName, lastName: candidateUser.lastName }
+			...emails.map((to) =>
+				safeEmail('workdayClaimed', to, () =>
+					emailService.sendRecurrenceDayClaimedEmail(
+						to,
+						{
+							url,
+							companyName: (company?.companyName as string) ?? 'your company',
+							location: location?.completeAddress ?? 'Not Specified',
+							date: fmtDate(recurrenceDay.date),
+							workdayStart: fmtTime(recurrenceDay.dayStart, tz),
+							workdayEnd: fmtTime(recurrenceDay.dayEnd, tz),
+							discipline: discipline?.name ?? `Req #${requisition.id}`
+						},
+						{ firstName: candidateUser.firstName, lastName: candidateUser.lastName }
+					)
 				)
 			),
-			safeSms('workdayClaimed', recipientPhone, (phone) =>
-				sms.sendTemplated(phone, 'workdayFilledNotification', {
-					assignedCandidate: candidateName,
-					requisitionName: discipline?.name ?? `Req #${requisition.id}`,
-					scheduledDate: recurrenceDay.date
-				})
+			...phones.map((phone) =>
+				safeSms('workdayClaimed', phone, (p) =>
+					sms.sendTemplated(p, 'workdayFilledNotification', {
+						assignedCandidate: candidateName,
+						requisitionName: discipline?.name ?? `Req #${requisition.id}`,
+						scheduledDate: recurrenceDay.date
+					})
+				)
 			)
 		]);
 	} catch (e) {
@@ -224,7 +298,9 @@ export async function notifyWorkdayReposted(args: {
 			.where(eq(recurrenceDayTable.id, args.recurrenceDayId))
 			.limit(1);
 		if (!recurrenceDay) {
-			console.warn(`[transactional:${label}] aborted: recurrence day ${args.recurrenceDayId} not found`);
+			console.warn(
+				`[transactional:${label}] aborted: recurrence day ${args.recurrenceDayId} not found`
+			);
 			return;
 		}
 
@@ -238,40 +314,44 @@ export async function notifyWorkdayReposted(args: {
 		}
 		const location = await getLocationByIdForCompany(requisition.locationId, requisition.companyId);
 		const discipline = await getDisciplineById(requisition.disciplineId);
+		const { emails, phones } = await getLocationNotificationTargets(requisition.locationId, label);
+		const tz = requisition.referenceTimezone;
 
-		const recipientEmail = location?.email || client.user.email;
-		const recipientPhone = client.profile.cellPhone;
 		const candidateName = `${candidateUser.firstName} ${candidateUser.lastName}`;
 		const clientName = `${client.user.firstName} ${client.user.lastName}`;
 		const url = `${BASE_URL}/requisitions/${requisition.id}/workday/${recurrenceDay.id}`;
 
 		await dispatch('workdayReposted', [
-			safeEmail('workdayReposted', recipientEmail, () => {
-				const t = EMAIL_TEMPLATES.workdayRepostedNotificationEmail({
-					clientName,
-					companyName: (company?.companyName as string) ?? '',
-					location: location?.completeAddress ?? 'Not Specified',
-					date: recurrenceDay.date,
-					workdayStart: fmtTime(recurrenceDay.dayStart),
-					workdayEnd: fmtTime(recurrenceDay.dayEnd),
-					candidateName,
-					discipline: discipline?.name ?? `Req #${requisition.id}`,
-					url
-				});
-				return emailService.sendEmail({
-					to: [{ email: recipientEmail }],
-					subject: t.subject,
-					html: t.htmlEmail,
-					text: t.textEmail
-				});
-			}),
-			safeSms('workdayReposted', recipientPhone, (phone) =>
-				sms.sendTemplated(phone, 'workdayRepostedNotification', {
-					assignedCandidate: candidateName,
-					scheduledDate: recurrenceDay.date,
-					requisitionNumber: requisition.id,
-					clientName
+			...emails.map((to) =>
+				safeEmail('workdayReposted', to, () => {
+					const t = EMAIL_TEMPLATES.workdayRepostedNotificationEmail({
+						clientName,
+						companyName: (company?.companyName as string) ?? '',
+						location: location?.completeAddress ?? 'Not Specified',
+						date: fmtDate(recurrenceDay.date),
+						workdayStart: fmtTime(recurrenceDay.dayStart, tz),
+						workdayEnd: fmtTime(recurrenceDay.dayEnd, tz),
+						candidateName,
+						discipline: discipline?.name ?? `Req #${requisition.id}`,
+						url
+					});
+					return emailService.sendEmail({
+						to: [{ email: to }],
+						subject: t.subject,
+						html: t.htmlEmail,
+						text: t.textEmail
+					});
 				})
+			),
+			...phones.map((phone) =>
+				safeSms('workdayReposted', phone, (p) =>
+					sms.sendTemplated(p, 'workdayRepostedNotification', {
+						assignedCandidate: candidateName,
+						scheduledDate: recurrenceDay.date,
+						requisitionNumber: requisition.id,
+						clientName
+					})
+				)
 			)
 		]);
 	} catch (e) {
@@ -352,7 +432,8 @@ export async function notifyRequisitionChanged(requisitionId: number): Promise<v
  * Email: qualifiedCandidateNotificationEmail. SMS: newRequisitionNotification.
  */
 export async function notifyQualifiedCandidatesOfNewWorkdays(
-	requisitionId: number
+	requisitionId: number,
+	newRecurrenceDayIds: string[]
 ): Promise<void> {
 	try {
 		const requisition = await getRequisitionById(requisitionId);
@@ -360,9 +441,37 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
 		const location = await getLocationByIdForCompany(requisition.locationId, requisition.companyId);
 		if (!location) return;
 		const discipline = await getDisciplineById(requisition.disciplineId);
+		const tz = requisition.referenceTimezone;
 
-		// Inline qualified-candidate match (mirrors getQualifiedProfessionalsForRequisition
-		// without the geo radius filter — keep this simple; we only need contacts).
+		const newDays =
+			newRecurrenceDayIds.length === 0
+				? []
+				: await db
+						.select({
+							date: recurrenceDayTable.date,
+							dayStart: recurrenceDayTable.dayStart,
+							dayEnd: recurrenceDayTable.dayEnd
+						})
+						.from(recurrenceDayTable)
+						.where(inArray(recurrenceDayTable.id, newRecurrenceDayIds))
+						.orderBy(recurrenceDayTable.dayStart);
+
+		const formattedDays = newDays.map((d) => ({
+			date: fmtDate(d.date),
+			workdayStart: fmtTime(d.dayStart, tz),
+			workdayEnd: fmtTime(d.dayEnd, tz)
+		}));
+
+		let experience = '';
+		if (requisition.experienceLevelId) {
+			const [exp] = await db
+				.select({ value: experienceLevelTable.value })
+				.from(experienceLevelTable)
+				.where(eq(experienceLevelTable.id, requisition.experienceLevelId))
+				.limit(1);
+			experience = exp?.value ?? '';
+		}
+
 		const candidates = await db
 			.selectDistinct({
 				phone: candidateProfileTable.cellPhone,
@@ -380,16 +489,12 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
 
 		if (candidates.length === 0) return;
 
-		// Build the email payload once
 		const workdayDetails = {
-			companyName: '', // not in scope for this template per existing usage
 			discipline: discipline?.name ?? '',
 			location: location.name ?? '',
-			date: 'soon',
-			workdayStart: '',
-			workdayEnd: '',
-			experience: '',
-			address: location.completeAddress ?? ''
+			address: location.completeAddress ?? '',
+			experience,
+			days: formattedDays
 		};
 
 		await dispatch(
@@ -482,14 +587,15 @@ export async function notifyWorkdayDeleted(args: {
 		const company = await getClientCompanyByClientId(clientId);
 		const location = await getLocationByIdForCompany(requisition.locationId, requisition.companyId);
 
+		const tz = requisition.referenceTimezone;
 		await dispatch('workdayDeleted', [
 			safeEmail('workdayDeleted', candidateUser.email, () =>
 				emailService.sendWorkdayCancelledEmail(candidateUser.email, {
 					companyName: (company?.companyName as string) ?? '',
 					location: location?.completeAddress ?? 'Not Specified',
-					date: args.recurrenceDay.date,
-					workdayStart: fmtTime(args.recurrenceDay.dayStart),
-					workdayEnd: fmtTime(args.recurrenceDay.dayEnd)
+					date: fmtDate(args.recurrenceDay.date),
+					workdayStart: fmtTime(args.recurrenceDay.dayStart, tz),
+					workdayEnd: fmtTime(args.recurrenceDay.dayEnd, tz)
 				})
 			)
 		]);
@@ -514,17 +620,20 @@ export async function notifyWorkday48HrReminder(args: {
 	dayStart: Date | string;
 	dayEnd: Date | string;
 	requisitionName: string;
+	referenceTimezone: string;
 }): Promise<void> {
 	try {
-		const startStr = fmtTime(args.dayStart);
-		const endStr = fmtTime(args.dayEnd);
+		const tz = args.referenceTimezone;
+		const startStr = fmtTime(args.dayStart, tz);
+		const endStr = fmtTime(args.dayEnd, tz);
+		const dateStr = fmtDate(args.date);
 
 		await dispatch('workday48HrReminder', [
 			safeEmail('workday48HrReminder', args.candidateUserEmail, () =>
 				emailService.sendWorkdayReminderEmail(args.candidateUserEmail, {
 					companyName: args.companyName,
 					location: args.location,
-					date: args.date,
+					date: dateStr,
 					workdayStart: startStr,
 					workdayEnd: endStr
 				})
@@ -532,7 +641,7 @@ export async function notifyWorkday48HrReminder(args: {
 			safeSms('workday48HrReminder', args.candidatePhone, (phone) =>
 				sms.sendTemplated(phone, 'workday48HrReminderNotification', {
 					assignedCandidate: `${args.candidateFirstName} ${args.candidateLastName}`,
-					scheduledDate: args.date,
+					scheduledDate: dateStr,
 					requisitionName: args.requisitionName
 				})
 			)

@@ -5,7 +5,7 @@ import {
 	requisitionTable,
 	workdayTable
 } from '$lib/server/database/schemas/requisition';
-import { and, eq, lt, gt } from 'drizzle-orm';
+import { and, eq, gte, lt } from 'drizzle-orm';
 import { CRON_SECRET } from '$env/static/private';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { userTable } from '$lib/server/database/schemas/auth';
@@ -25,7 +25,11 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	try {
 		const now = new Date();
-		const fortyEightHoursLater = new Date(now.getTime() + 48 * 60 * 60 * 1000); // Add 48 hours to the current time
+		// Hourly cron with a 1-hour forward window so each shift lands in exactly
+		// one run's window — no send-once flag needed. Reminder fires 47–48h
+		// before the shift (drift bounded by cron firing time, not shift time).
+		const fortySevenHoursLater = new Date(now.getTime() + 47 * 60 * 60 * 1000);
+		const fortyEightHoursLater = new Date(now.getTime() + 48 * 60 * 60 * 1000);
 
 		const upcomingWorkdays = await db
 			.select({
@@ -51,24 +55,22 @@ export const POST: RequestHandler = async ({ request }) => {
 			.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
 			.innerJoin(
 				companyOfficeLocationTable,
-				eq(requisitionTable.companyId, companyOfficeLocationTable.companyId)
+				eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 			)
 			.innerJoin(candidateProfileTable, eq(workdayTable.candidateId, candidateProfileTable.id))
 			.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
 			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
 			.where(
 				and(
-					eq(recurrenceDayTable.status, 'OPEN'),
-					lt(recurrenceDayTable.date, fortyEightHoursLater.toISOString()), // Filter recurrence days less than 48 hours away
-					gt(recurrenceDayTable.date, now.toISOString()) // Ensure the date is in the future
+					eq(recurrenceDayTable.status, 'FILLED'),
+					gte(recurrenceDayTable.dayStart, fortySevenHoursLater),
+					lt(recurrenceDayTable.dayStart, fortyEightHoursLater)
 				)
 			);
 
 		if (upcomingWorkdays.length === 0) {
-			console.log('No upcoming workdays found within the next 48 hours.');
-			return json({ success: true, message: 'No upcoming workdays found.' });
+			return json({ success: true, noop: true });
 		}
-		console.log(`Found ${upcomingWorkdays.length} upcoming workdays within the next 48 hours.`);
 		for (const row of upcomingWorkdays) {
 			await notifyWorkday48HrReminder({
 				candidateUserEmail: row.user.email,
@@ -80,10 +82,11 @@ export const POST: RequestHandler = async ({ request }) => {
 				date: row.recurrenceDay.date,
 				dayStart: row.recurrenceDay.dayStart,
 				dayEnd: row.recurrenceDay.dayEnd,
-				requisitionName: row.discipline.name
+				requisitionName: row.discipline.name,
+				referenceTimezone: row.requisition.referenceTimezone
 			});
 		}
-		return json({ success: true });
+		return json({ success: true, dispatched: upcomingWorkdays.length });
 	} catch (error) {
 		return json(
 			{

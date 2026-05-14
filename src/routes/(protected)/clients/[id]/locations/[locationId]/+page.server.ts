@@ -1,6 +1,9 @@
 import {
+	createLocationContactDestination,
+	deleteLocationContactDestination,
 	getClientProfileById,
 	getLocationByIdForCompany,
+	getLocationContactDestinations,
 	updateCompanyLocation
 } from '$lib/server/database/queries/clients';
 import { fail, redirect } from '@sveltejs/kit';
@@ -9,14 +12,17 @@ import type { PageServerLoad } from './$types';
 import { setFlash } from 'sveltekit-flash-message/server';
 import {
 	ContactSchema,
+	LocationContactDestinationSchema,
 	LocationSchema,
 	NewAddressSchema,
-	OperatingHoursSchema
+	OperatingHoursSchema,
+	RemoveLocationContactDestinationSchema
 } from '$lib/config/zod-schemas';
 import { geocodingQueue } from '$lib/server/geocode-queue';
 import { companyOfficeLocationTable } from '$lib/server/database/schemas/client';
 import db from '$lib/server/database/drizzle';
 import { eq } from 'drizzle-orm';
+import { normalizeUSPhone } from '$lib/_helpers/phone';
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
@@ -30,11 +36,12 @@ export const load: PageServerLoad = async (event) => {
 
 	const client = await getClientProfileById(id);
 	const location = await getLocationByIdForCompany(locationId, client?.company?.id);
-	console.log(location);
+	const contactDestinations = location ? await getLocationContactDestinations(location.id) : [];
 	const addressForm = await superValidate(event, NewAddressSchema);
 	const contactForm = await superValidate(event, ContactSchema);
 	const operatingHoursForm = await superValidate(event, OperatingHoursSchema);
 	const locationForm = await superValidate(event, LocationSchema);
+	const destinationForm = await superValidate(event, LocationContactDestinationSchema);
 
 	addressForm.data = {
 		completeAddress: location.completeAddress || '',
@@ -59,10 +66,12 @@ export const load: PageServerLoad = async (event) => {
 		user,
 		client,
 		location,
+		contactDestinations,
 		addressForm,
 		contactForm,
 		operatingHoursForm,
-		locationForm
+		locationForm,
+		destinationForm
 	};
 };
 
@@ -233,6 +242,77 @@ export const actions = {
 				event
 			);
 			return { form };
+		}
+	},
+	addContactDestination: async (event) => {
+		const user = event.locals.user;
+		if (!user) {
+			redirect(302, '/auth/sign-in');
+		}
+		const form = await superValidate(event, LocationContactDestinationSchema);
+		if (!form.valid) {
+			return fail(400, { destinationForm: form });
+		}
+		const { id, locationId } = event.params;
+		const client = await getClientProfileById(id);
+		const location = await getLocationByIdForCompany(locationId, client?.company?.id);
+		if (!location) {
+			setFlash({ type: 'error', message: 'Location not found' }, event);
+			return fail(404, { destinationForm: form });
+		}
+
+		const value =
+			form.data.type === 'SMS'
+				? (normalizeUSPhone(form.data.value) ?? form.data.value)
+				: form.data.value.trim().toLowerCase();
+
+		try {
+			await createLocationContactDestination({
+				locationId: location.id,
+				type: form.data.type,
+				value
+			});
+			setFlash({ type: 'success', message: 'Notification destination added' }, event);
+			form.data = { type: 'EMAIL', value: '' };
+			return { destinationForm: form };
+		} catch (err) {
+			console.error('Error adding contact destination:', err);
+			setFlash({ type: 'error', message: 'Failed to add destination. Please try again.' }, event);
+			return fail(500, { destinationForm: form });
+		}
+	},
+	removeContactDestination: async (event) => {
+		const user = event.locals.user;
+		if (!user) {
+			redirect(302, '/auth/sign-in');
+		}
+		const form = await superValidate(event, RemoveLocationContactDestinationSchema);
+		if (!form.valid) {
+			return fail(400, { form });
+		}
+		const { id, locationId } = event.params;
+		const client = await getClientProfileById(id);
+		const location = await getLocationByIdForCompany(locationId, client?.company?.id);
+		if (!location) {
+			setFlash({ type: 'error', message: 'Location not found' }, event);
+			return fail(404, { form });
+		}
+
+		try {
+			const removed = await deleteLocationContactDestination(form.data.id, location.id);
+			if (!removed) {
+				setFlash({ type: 'error', message: 'Destination not found' }, event);
+				return fail(404, { form });
+			}
+			setFlash({ type: 'success', message: 'Notification destination removed' }, event);
+			return { form };
+		} catch (err) {
+			console.error('Error removing contact destination:', err);
+			setFlash(
+				{ type: 'error', message: 'Failed to remove destination. Please try again.' },
+				event
+			);
+			return fail(500, { form });
 		}
 	},
 	geocodeLocation: async (event) => {

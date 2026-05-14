@@ -397,16 +397,24 @@ export const EMAIL_TEMPLATES: Record<
 	qualifiedCandidateNotificationEmail: (
 		candidateDetails: { firstName: string; lastName: string },
 		workdayDetails: {
-			companyName: string;
 			discipline: string;
 			location: string;
-			date: string;
-			workdayStart: string;
-			workdayEnd: string;
-			experience: string;
 			address: string;
+			experience: string;
+			days: Array<{ date: string; workdayStart: string; workdayEnd: string }>;
 		}
 	) => {
+		const daysText = workdayDetails.days.length
+			? workdayDetails.days
+					.map((d) => `              - ${d.date}: ${d.workdayStart} - ${d.workdayEnd}`)
+					.join('\n')
+			: '              (See requisition for details)';
+		const daysHtml = workdayDetails.days.length
+			? workdayDetails.days
+					.map((d) => `<li><strong>${d.date}:</strong> ${d.workdayStart} - ${d.workdayEnd}</li>`)
+					.join('')
+			: '<li>(See requisition for details)</li>';
+
 		return {
 			textEmail: `
             Hello ${candidateDetails.firstName} ${candidateDetails.lastName},
@@ -414,10 +422,11 @@ export const EMAIL_TEMPLATES: Record<
             A new job has been created that matches your: ${workdayDetails.discipline} credentials and availability.
 
             More info on the Requisition:
-            Date: ${workdayDetails.date} 
             Desired Experience: ${workdayDetails.experience}
-            Assignment Duration: ${workdayDetails.workdayStart} - ${workdayDetails.workdayEnd}
             Location: ${workdayDetails.location} - ${workdayDetails.address}
+
+            Assignment Dates and Times:
+${daysText}
 
             Log in to your personal account or call us at (888) 653-1657 to accept this position.
             `,
@@ -428,11 +437,12 @@ export const EMAIL_TEMPLATES: Record<
 
             <p>More info on the Requisition:</p>
             <ul>
-                <li><strong>Date:</strong> ${workdayDetails.date}</li>
                 <li><strong>Desired Experience:</strong> ${workdayDetails.experience}</li>
-                <li><strong>Assignment Duration:</strong> ${workdayDetails.workdayStart} - ${workdayDetails.workdayEnd}</li>
                 <li><strong>Location:</strong> ${workdayDetails.location} - ${workdayDetails.address}</li>
             </ul>
+
+            <p><strong>Assignment Dates and Times:</strong></p>
+            <ul>${daysHtml}</ul>
 
             <p>Log in to your personal account or call us at (888) 653-1657 to accept this position.</p>
             `.trim(),

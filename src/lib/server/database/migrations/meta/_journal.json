@@ -246,6 +246,20 @@
       "when": 1778536155906,
       "tag": "0034_flat_orphan",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1778721529345,
+      "tag": "0035_white_green_goblin",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1778795429157,
+      "tag": "0036_strange_thanos",
+      "breakpoints": true
     }
   ]
 }

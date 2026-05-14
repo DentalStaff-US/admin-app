@@ -29,6 +29,7 @@ import {
 	type UpdateRequisition,
 	requisitionApplicationTable,
 	timeSheetTable,
+	timesheetExpenseTable,
 	type RequisitionApplication,
 	type RecurrenceDaySelect,
 	workdayTable,
@@ -38,6 +39,8 @@ import {
 	type InvoiceWithRelations,
 	type TimesheetWithRelations,
 	type TimeSheetSelect,
+	type TimesheetExpense,
+	type TimesheetExpenseSelect,
 	type WorkdaySelect,
 	type RequisitionSelect,
 	type InvoiceStatus,
@@ -3098,4 +3101,203 @@ export async function getCompanyByRequisitionIdAdmin(id: number) {
 	} catch (err) {
 		throw error(500, `Error fetching company: ${error}`);
 	}
+}
+
+// ── Timesheet expenses ──────────────────────────────────────────────
+
+export async function listTimesheetExpenses(
+	timesheetId: string
+): Promise<TimesheetExpenseSelect[]> {
+	return db
+		.select()
+		.from(timesheetExpenseTable)
+		.where(eq(timesheetExpenseTable.timesheetId, timesheetId))
+		.orderBy(asc(timesheetExpenseTable.createdAt));
+}
+
+export async function getTimesheetExpenseById(
+	expenseId: string
+): Promise<TimesheetExpenseSelect | null> {
+	const [row] = await db
+		.select()
+		.from(timesheetExpenseTable)
+		.where(eq(timesheetExpenseTable.id, expenseId))
+		.limit(1);
+	return row ?? null;
+}
+
+export async function createTimesheetExpense(
+	{
+		timesheetId,
+		candidateId,
+		description,
+		amountCents,
+		createdByUserId
+	}: {
+		timesheetId: string;
+		candidateId: string;
+		description: string;
+		amountCents: number;
+		createdByUserId: string;
+	},
+	actorUserId: string
+): Promise<TimesheetExpenseSelect> {
+	if (amountCents <= 0) throw error(400, 'Expense amount must be greater than zero');
+	if (!description?.trim()) throw error(400, 'Expense description is required');
+
+	const now = new Date();
+	const [row] = await db
+		.insert(timesheetExpenseTable)
+		.values({
+			id: crypto.randomUUID(),
+			createdAt: now,
+			updatedAt: now,
+			timesheetId,
+			candidateId,
+			description: description.trim(),
+			amountCents,
+			status: 'PENDING',
+			createdByUserId
+		})
+		.returning();
+
+	await writeActionHistory({
+		table: 'TIMESHEETS',
+		action: 'CREATE',
+		userId: actorUserId,
+		entityId: row.id,
+		afterState: row,
+		metadata: { kind: 'TIMESHEET_EXPENSE', timesheetId }
+	});
+
+	return row;
+}
+
+export async function updateTimesheetExpense(
+	expenseId: string,
+	patch: { description?: string; amountCents?: number },
+	actorUserId: string
+): Promise<TimesheetExpenseSelect> {
+	const before = await getTimesheetExpenseById(expenseId);
+	if (!before) throw error(404, 'Expense not found');
+	if (before.status !== 'PENDING') {
+		throw error(400, 'Only pending expenses can be edited');
+	}
+	if (patch.amountCents !== undefined && patch.amountCents <= 0) {
+		throw error(400, 'Expense amount must be greater than zero');
+	}
+	if (patch.description !== undefined && !patch.description.trim()) {
+		throw error(400, 'Expense description is required');
+	}
+
+	const [row] = await db
+		.update(timesheetExpenseTable)
+		.set({
+			description: patch.description?.trim() ?? before.description,
+			amountCents: patch.amountCents ?? before.amountCents,
+			updatedAt: new Date()
+		})
+		.where(eq(timesheetExpenseTable.id, expenseId))
+		.returning();
+
+	await writeActionHistory({
+		table: 'TIMESHEETS',
+		action: 'UPDATE',
+		userId: actorUserId,
+		entityId: expenseId,
+		beforeState: before,
+		afterState: row,
+		metadata: { kind: 'TIMESHEET_EXPENSE', timesheetId: before.timesheetId }
+	});
+
+	return row;
+}
+
+export async function deleteTimesheetExpense(
+	expenseId: string,
+	actorUserId: string
+): Promise<void> {
+	const before = await getTimesheetExpenseById(expenseId);
+	if (!before) throw error(404, 'Expense not found');
+	if (before.status !== 'PENDING') {
+		throw error(400, 'Only pending expenses can be deleted');
+	}
+
+	await db.delete(timesheetExpenseTable).where(eq(timesheetExpenseTable.id, expenseId));
+
+	await writeActionHistory({
+		table: 'TIMESHEETS',
+		action: 'DELETE',
+		userId: actorUserId,
+		entityId: expenseId,
+		beforeState: before,
+		metadata: { kind: 'TIMESHEET_EXPENSE', timesheetId: before.timesheetId }
+	});
+}
+
+export async function approveTimesheetExpense(
+	expenseId: string,
+	actorUserId: string
+): Promise<TimesheetExpenseSelect> {
+	const before = await getTimesheetExpenseById(expenseId);
+	if (!before) throw error(404, 'Expense not found');
+	if (before.status === 'APPROVED') return before;
+
+	const [row] = await db
+		.update(timesheetExpenseTable)
+		.set({
+			status: 'APPROVED',
+			approvedByUserId: actorUserId,
+			approvedAt: new Date(),
+			rejectionReason: null,
+			updatedAt: new Date()
+		})
+		.where(eq(timesheetExpenseTable.id, expenseId))
+		.returning();
+
+	await writeActionHistory({
+		table: 'TIMESHEETS',
+		action: 'UPDATE',
+		userId: actorUserId,
+		entityId: expenseId,
+		beforeState: before,
+		afterState: row,
+		metadata: { kind: 'TIMESHEET_EXPENSE_APPROVAL', timesheetId: before.timesheetId }
+	});
+
+	return row;
+}
+
+export async function rejectTimesheetExpense(
+	expenseId: string,
+	actorUserId: string,
+	reason: string
+): Promise<TimesheetExpenseSelect> {
+	const before = await getTimesheetExpenseById(expenseId);
+	if (!before) throw error(404, 'Expense not found');
+	if (!reason?.trim()) throw error(400, 'Rejection reason is required');
+
+	const [row] = await db
+		.update(timesheetExpenseTable)
+		.set({
+			status: 'REJECTED',
+			approvedByUserId: actorUserId,
+			approvedAt: new Date(),
+			rejectionReason: reason.trim(),
+			updatedAt: new Date()
+		})
+		.where(eq(timesheetExpenseTable.id, expenseId))
+		.returning();
+
+	await writeActionHistory({
+		table: 'TIMESHEETS',
+		action: 'UPDATE',
+		userId: actorUserId,
+		entityId: expenseId,
+		beforeState: before,
+		afterState: row,
+		metadata: { kind: 'TIMESHEET_EXPENSE_REJECTION', timesheetId: before.timesheetId }
+	});
+
+	return row;
 }

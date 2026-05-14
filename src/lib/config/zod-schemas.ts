@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { usPhoneField } from '$lib/_helpers/phone';
+import { isValidUSPhone, usPhoneField } from '$lib/_helpers/phone';
 
 export type Primitive = string | number | boolean | null;
 
@@ -358,6 +358,33 @@ export const ContactSchema = z.object({
 	email: z.string().email('Invalid email address').optional()
 });
 
+export const LocationContactDestinationSchema = z
+	.object({
+		type: z.enum(['EMAIL', 'SMS'], { required_error: 'Type is required' }),
+		value: z.string().min(1, 'Value is required')
+	})
+	.superRefine((data, ctx) => {
+		if (data.type === 'EMAIL') {
+			if (!z.string().email().safeParse(data.value).success) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ['value'],
+					message: 'Invalid email address'
+				});
+			}
+		} else if (!isValidUSPhone(data.value)) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ['value'],
+				message: 'Invalid US phone number'
+			});
+		}
+	});
+
+export const RemoveLocationContactDestinationSchema = z.object({
+	id: z.string().uuid('Invalid destination id')
+});
+
 export const OperatingHoursSchema = z.object({
 	operatingHours: z.string()
 });
@@ -439,3 +466,9 @@ export const updateClientSchema = z
 	);
 
 export type UpdateClientSchema = typeof updateClientSchema;
+
+export const addExpenseSchema = z.object({
+	description: z.string().min(1, 'Description is required').max(500),
+	amountDollars: z.number({ invalid_type_error: 'Amount must be a number' }).positive()
+});
+export type AddExpenseSchema = typeof addExpenseSchema;
