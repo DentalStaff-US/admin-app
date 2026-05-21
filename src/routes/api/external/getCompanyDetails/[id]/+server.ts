@@ -7,6 +7,7 @@ import { requisitionTable } from '$lib/server/database/schemas/requisition';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { and, eq } from 'drizzle-orm';
+import { logger } from '$lib/server/logger';
 
 export const GET: RequestHandler = async ({ params }) => {
 	const { id } = params;
@@ -60,7 +61,7 @@ export const GET: RequestHandler = async ({ params }) => {
 
 		return json({ company: company[0], requisitions });
 	} catch (err) {
-		console.error('Error fetching company details:', err);
+		logger.error('getCompanyDetails failed', { error: err, companyId: params.id });
 		throw error(500, 'Internal server error');
 	}
 };

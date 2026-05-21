@@ -2,6 +2,7 @@ import { getUserByToken, updateUser } from '$lib/server/database/queries/users';
 import { fail } from '@sveltejs/kit';
 import { EmailService } from '$lib/server/email/emailService';
 import type { User } from '$lib/server/database/schemas/auth';
+import { logger } from '$lib/server/logger';
 
 export async function load({ params }) {
 	try {
@@ -25,6 +26,7 @@ export async function load({ params }) {
 		}
 		return { heading, message };
 	} catch (e) {
-		return fail(500, { error: e });
+		logger.error('auth.verify.email-token failed', { error: e, token: params.token });
+		return fail(500, { error: 'Verification failed' });
 	}
 }

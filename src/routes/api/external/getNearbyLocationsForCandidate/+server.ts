@@ -5,6 +5,7 @@ import { authenticateUser } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { METERS_PER_MILE, RADIUS_METERS, RADIUS_MILES } from '$lib/config/constants';
+import { logger } from '$lib/server/logger';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const user = await authenticateUser(request);
@@ -70,7 +71,7 @@ export const GET: RequestHandler = async ({ request }) => {
 			totalFound: officeLocations.length
 		});
 	} catch (err) {
-		console.error('Error fetching locations:', err);
+		logger.error('getNearbyLocationsForCandidate failed', { error: err, distinctId: user?.id });
 		throw error(500, 'Internal server error');
 	}
 };

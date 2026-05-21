@@ -11,6 +11,7 @@ import {
 	createTimesheetExpense,
 	listTimesheetExpenses
 } from '$lib/server/database/queries/requisitions';
+import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -81,7 +82,7 @@ export const GET: RequestHandler = async ({ request, params }) => {
 		const expenses = await listTimesheetExpenses(id);
 		return json({ success: true, data: { expenses } }, { headers: corsHeaders });
 	} catch (err) {
-		console.error('GET /api/external/timesheets/[id]/expenses error:', err);
+		logger.error('timesheets.expenses.GET failed', { error: err, timesheetId: params.id });
 		return json(
 			{ success: false, message: 'Internal server error' },
 			{ status: 500, headers: corsHeaders }
@@ -150,13 +151,13 @@ export const POST: RequestHandler = async ({ request, params }) => {
 
 		return json({ success: true, data: { expense } }, { headers: corsHeaders });
 	} catch (err) {
-		console.error('POST /api/external/timesheets/[id]/expenses error:', err);
 		if (err instanceof Error && 'status' in err && 'body' in err) {
 			return json(
 				{ success: false, message: (err as any).body.message },
 				{ status: (err as any).status, headers: corsHeaders }
 			);
 		}
+		logger.error('timesheets.expenses.POST failed', { error: err, timesheetId: params.id });
 		return json(
 			{ success: false, message: 'Internal server error' },
 			{ status: 500, headers: corsHeaders }

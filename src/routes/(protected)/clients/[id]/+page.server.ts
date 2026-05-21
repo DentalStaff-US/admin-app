@@ -22,6 +22,7 @@ import {
 	getRequisitionsForClient
 } from '$lib/server/database/queries/requisitions';
 import { createStripeInvoice } from '$lib/server/stripe';
+import { logger } from '$lib/server/logger';
 import { z } from 'zod';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
@@ -254,8 +255,12 @@ export const actions = {
 			setFlash({ type: 'success', message: 'Invoice created successfully' }, request);
 			return message(form, 'Invoice created successfully');
 		} catch (err) {
+			logger.error('admin create invoice failed', {
+				error: err,
+				clientId,
+				distinctId: user?.id
+			});
 			setFlash({ type: 'error', message: 'Failed to create invoice' }, request);
-			console.error('Error creating invoice:', err);
 			return setError(form, 'Failed to create invoice');
 		}
 	},

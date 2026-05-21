@@ -409,9 +409,11 @@
 									status={candidate.profile.status}
 									label={candidate.profile.status === 'ACTIVE'
 										? 'Approved'
-										: candidate.profile.status === 'INACTIVE'
-											? 'Disapproved'
-											: 'Pending Review'}
+										: candidate.profile.status === 'DENIED'
+											? 'Denied'
+											: candidate.profile.status === 'INACTIVE'
+												? 'Inactive'
+												: 'Pending Review'}
 								/>
 							</div>
 						</div>
@@ -429,7 +431,17 @@
 								<Label class="text-sm text-gray-600">Status:</Label>
 								<Select.Root
 									preventScroll={false}
-									selected={{ value: candidate.profile.status, label: candidate.profile.status }}
+									selected={{
+										value: candidate.profile.status,
+										label:
+											candidate.profile.status === 'ACTIVE'
+												? 'Approved'
+												: candidate.profile.status === 'DENIED'
+													? 'Denied'
+													: candidate.profile.status === 'INACTIVE'
+														? 'Inactive'
+														: 'Pending'
+									}}
 									onSelectedChange={(selected) => {
 										if (selected) {
 											const form = document.getElementById('status-form');
@@ -446,7 +458,8 @@
 									<Select.Content>
 										<Select.Item value="PENDING">Pending</Select.Item>
 										<Select.Item value="ACTIVE">Approved</Select.Item>
-										<Select.Item value="INACTIVE">Denied</Select.Item>
+										<Select.Item value="INACTIVE">Inactive</Select.Item>
+										<Select.Item value="DENIED">Denied</Select.Item>
 									</Select.Content>
 									<Select.Input type="hidden" name="status" value={candidate.profile.status} />
 								</Select.Root>

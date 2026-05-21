@@ -16,6 +16,7 @@ import {
 import { notifyWorkday48HrReminder } from '$lib/server/notifications/transactional';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { verifyJobRequest } from '$lib/server/jobs/sign';
+import { logger } from '$lib/server/logger';
 
 export const POST: RequestHandler = async ({ request }) => {
 	const verified = verifyJobRequest(request.headers, 'processWorkday48HrReminder', CRON_SECRET);
@@ -88,6 +89,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 		return json({ success: true, dispatched: upcomingWorkdays.length });
 	} catch (error) {
+		logger.error('processWorkday48HrReminder job failed', { error });
 		return json(
 			{
 				success: false,

@@ -3,6 +3,7 @@ import { setError, superValidate } from 'sveltekit-superforms/server';
 import { userResetPasswordSchema } from '$lib/config/zod-schemas';
 import { getUserByToken, updateUser } from '$lib/server/database/queries/users';
 import { Argon2id } from 'oslo/password';
+import { logger } from '$lib/server/logger';
 export const load = async (event) => {
 	const form = await superValidate(event, userResetPasswordSchema);
 	return {
@@ -22,9 +23,7 @@ export const actions = {
 
 		try {
 			const token = event.params.token as string;
-			console.log('update user password');
 			const newToken = crypto.randomUUID();
-			//get email from token
 			const user = await getUserByToken(token);
 
 			if (user) {
@@ -40,7 +39,7 @@ export const actions = {
 				);
 			}
 		} catch (e) {
-			console.error(e);
+			logger.error('auth.password.update failed', { error: e });
 			return setError(
 				form,
 				'The was a problem resetting your password. Please contact support if you need further help.'

@@ -9,7 +9,7 @@ import {
 	uploadCandidateDocuments
 } from '$lib/server/database/queries/candidates';
 import { fail, redirect } from '@sveltejs/kit';
-import { USER_ROLES } from '$lib/config/constants';
+import { CANDIDATE_STATUS, USER_ROLES, type CandidateStatus } from '$lib/config/constants';
 import { getSupportTicketsForUser } from '$lib/server/database/queries/support';
 import { z } from 'zod';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
@@ -237,16 +237,21 @@ export const actions = {
 		const { id } = event.params;
 		const { status } = form.data;
 
+		if (!(status in CANDIDATE_STATUS)) {
+			return setError(form, `Invalid status: ${status}`);
+		}
+
 		try {
 			const profile = await getCandidateProfileById(id);
 			const user = profile.candidate.user;
+			const isActive = status === CANDIDATE_STATUS.ACTIVE;
 			const newValues = {
 				updatedAt: new Date(),
-				status: status as 'ACTIVE' | 'INACTIVE' | 'PENDING',
-				approved: status === 'ACTIVE' ? true : false
+				status: status as CandidateStatus,
+				approved: isActive
 			};
 
-			await updateUser(user.id, { completedOnboarding: status === 'ACTIVE' ? true : false });
+			await updateUser(user.id, { completedOnboarding: isActive });
 
 			await updateCandidateProfile(id, newValues);
 			setFlash(

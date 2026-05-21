@@ -38,6 +38,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from './$types';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { createStripeInvoice, stripe } from '$lib/server/stripe';
+import { logger } from '$lib/server/logger';
 import db from '$lib/server/database/drizzle';
 import { desc, eq } from 'drizzle-orm';
 import { adminConfigTable } from '$lib/server/database/schemas/config';
@@ -620,7 +621,11 @@ export const actions = {
 			return { success: true, message: 'Timesheet approved', timesheet };
 		} catch (err) {
 			await revertTimesheetToPending(id, user?.id);
-			console.error('Error approving timesheet:', err);
+			logger.error('timesheet approve failed', {
+				error: err,
+				timesheetId: id,
+				distinctId: user?.id
+			});
 			setFlash({ type: 'error', message: 'Error approving timesheet' }, event);
 			return { success: false };
 		}
@@ -637,8 +642,12 @@ export const actions = {
 			await voidTimesheet(id, userId);
 			setFlash({ type: 'success', message: 'Timesheet voided' }, event);
 			return { succes: true };
-		} catch (error) {
-			console.error('Error rejecting timesheet:', error);
+		} catch (err) {
+			logger.error('timesheet void failed', {
+				error: err,
+				timesheetId: event.params.id,
+				distinctId: userId
+			});
 			setFlash({ type: 'error', message: 'Error voiding timesheet' }, event);
 		}
 	},
@@ -771,8 +780,12 @@ export const actions = {
 
 			setFlash({ type: 'success', message: 'Timesheet approved' }, event);
 			return { success: true, message: 'Timesheet approved', overridden };
-		} catch (error) {
-			console.error('Error overriding timesheet:', error);
+		} catch (err) {
+			logger.error('timesheet adminOverride failed', {
+				error: err,
+				timesheetId: id,
+				distinctId: user.id
+			});
 			setFlash({ type: 'error', message: 'Error overriding timesheet' }, event);
 			return { success: false };
 		}

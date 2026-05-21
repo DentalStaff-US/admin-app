@@ -10,7 +10,7 @@ import {
 import { getClientCompanyById } from '$lib/server/database/queries/clients';
 import type { RequestEvent } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
-import { getPostHogClient } from '$lib/server/posthog';
+import { logger } from '$lib/server/logger';
 
 export async function load(event: RequestEvent) {
 	const token = event.params.token;
@@ -87,7 +87,7 @@ export async function load(event: RequestEvent) {
 			};
 		}
 	} catch (error) {
-		console.error('Error processing invite:', error);
+		logger.error('auth.invite.load failed', { error, token });
 		return {
 			status: 'error',
 			type: 'error',
@@ -123,17 +123,13 @@ export const actions = {
 				secure: process.env.NODE_ENV === 'production',
 				sameSite: 'lax'
 			});
-			const posthog = getPostHogClient();
-			posthog.capture({
+			logger.event('invitation_accepted', {
 				distinctId: invite.referrerId ?? 'unknown',
-				event: 'invitation_accepted',
-				properties: {
-					invite_type: 'admin',
-					invited_role: 'SUPERADMIN'
-				}
+				invite_type: 'admin',
+				invited_role: 'SUPERADMIN'
 			});
 		} catch (error) {
-			console.error('Error accepting invite:', error);
+			logger.error('auth.invite.handleAdminInvite failed', { error, token });
 			return fail(500, {
 				message: 'Error processing invitation. Please try again.'
 			});
@@ -180,20 +176,16 @@ export const actions = {
 				sameSite: 'lax'
 			});
 
-			const posthog = getPostHogClient();
-			posthog.capture({
+			logger.event('invitation_accepted', {
 				distinctId: invite.referrerId ?? 'unknown',
-				event: 'invitation_accepted',
-				properties: {
-					invite_type: 'client_staff',
-					invited_role: invite.invitedRole,
-					staff_role: invite.staffRole,
-					company_id: invite.companyId,
-					location_count: locationAssignments.length
-				}
+				invite_type: 'client_staff',
+				invited_role: invite.invitedRole,
+				staff_role: invite.staffRole,
+				company_id: invite.companyId,
+				location_count: locationAssignments.length
 			});
 		} catch (error) {
-			console.error('Error accepting invite:', error);
+			logger.error('auth.invite.handleClientInvite failed', { error, token });
 			return fail(500, {
 				message: 'Error processing invitation. Please try again.'
 			});

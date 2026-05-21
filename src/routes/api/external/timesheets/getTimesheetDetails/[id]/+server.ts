@@ -11,6 +11,7 @@ import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { eq, and, isNull } from 'drizzle-orm';
+import { logger } from '$lib/server/logger';
 
 export const GET: RequestHandler = async ({ params, request }) => {
 	const { id } = params;
@@ -94,7 +95,7 @@ export const GET: RequestHandler = async ({ params, request }) => {
 
 		return json(timesheet);
 	} catch (err) {
-		console.error('Error fetching timesheet details:', err);
+		logger.error('timesheets.getTimesheetDetails failed', { error: err, timesheetId: params.id });
 		throw error(500, 'Internal server error');
 	}
 };

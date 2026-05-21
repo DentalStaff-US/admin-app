@@ -21,7 +21,11 @@ import {
 	type UpdateCandidateProfile
 } from '../schemas/candidate';
 import { disciplineTable, experienceLevelTable, type Discipline } from '../schemas/skill';
-import { DEFAULT_MAX_RECORD_LIMIT, type CANDIDATE_STATUS } from '$lib/config/constants';
+import {
+	DEFAULT_MAX_RECORD_LIMIT,
+	CANDIDATE_STATUS,
+	type CandidateStatus
+} from '$lib/config/constants';
 import { error } from '@sveltejs/kit';
 import {
 	recurrenceDayTable,
@@ -78,8 +82,54 @@ export type CandidateWithProfileRaw = {
 	complete_address: string | null;
 };
 
-export async function getAllCandidateProfiles(searchTerm?: string) {
-	const countResult = await db.select({ value: count() }).from(candidateProfileTable);
+export type CandidateStatusCounts = Record<CandidateStatus, number>;
+
+const emptyStatusCounts = (): CandidateStatusCounts => ({
+	ACTIVE: 0,
+	PENDING: 0,
+	INACTIVE: 0,
+	DENIED: 0
+});
+
+export async function getCandidateStatusCounts(): Promise<CandidateStatusCounts> {
+	const rows = await db
+		.select({ status: candidateProfileTable.status, value: count() })
+		.from(candidateProfileTable)
+		.groupBy(candidateProfileTable.status);
+
+	const counts = emptyStatusCounts();
+	for (const row of rows) {
+		if (row.status && row.status in counts) {
+			counts[row.status as CandidateStatus] = Number(row.value);
+		}
+	}
+	return counts;
+}
+
+export async function getAllCandidateProfiles(
+	searchTerm?: string,
+	status?: CandidateStatus
+) {
+	const statusCounts = await getCandidateStatusCounts();
+	const filters: SQLWrapper[] = [];
+
+	if (status && status in CANDIDATE_STATUS) {
+		filters.push(eq(candidateProfileTable.status, status));
+	}
+
+	if (searchTerm) {
+		const searchFilter = or(
+			ilike(userTable.firstName, `%${searchTerm}%`),
+			ilike(userTable.lastName, `%${searchTerm}%`),
+			ilike(userTable.email, `%${searchTerm}%`),
+			ilike(disciplineTable.name, `%${searchTerm}%`),
+			ilike(candidateProfileTable.address, `%${searchTerm}%`),
+			ilike(candidateProfileTable.city, `%${searchTerm}%`),
+			ilike(candidateProfileTable.state, `%${searchTerm}%`)
+		);
+		if (searchFilter) filters.push(searchFilter);
+	}
+
 	const results = await db
 		.selectDistinctOn([candidateProfileTable.id], {
 			user: {
@@ -101,21 +151,8 @@ export async function getAllCandidateProfiles(searchTerm?: string) {
 			disciplineTable,
 			eq(candidateDisciplineExperienceTable.disciplineId, disciplineTable.id)
 		)
-		.where(
-			searchTerm
-				? or(
-						ilike(userTable.firstName, `%${searchTerm}%`),
-						ilike(userTable.lastName, `%${searchTerm}%`),
-						ilike(userTable.email, `%${searchTerm}%`),
-						ilike(disciplineTable.name, `%${searchTerm}%`),
-						ilike(candidateProfileTable.address, `%${searchTerm}%`),
-						ilike(candidateProfileTable.city, `%${searchTerm}%`),
-						ilike(candidateProfileTable.state, `%${searchTerm}%`)
-					)
-				: undefined
-		)
-		.orderBy(desc(candidateProfileTable.id), desc(candidateProfileTable.createdAt))
-		.limit(DEFAULT_MAX_RECORD_LIMIT);
+		.where(filters.length ? and(...filters) : undefined)
+		.orderBy(desc(candidateProfileTable.id), desc(candidateProfileTable.createdAt));
 
 	return {
 		candidates: results.map((res) => ({
@@ -123,7 +160,8 @@ export async function getAllCandidateProfiles(searchTerm?: string) {
 			user: res.user,
 			discipline: res.discipline
 		})),
-		count: countResult[0].value
+		count: statusCounts[status ?? CANDIDATE_STATUS.ACTIVE] ?? results.length,
+		statusCounts
 	};
 }
 
@@ -439,8 +477,8 @@ export async function getQualifiedProfessionalsForRequisition(requisition: any, 
 					requiredOrder !== null
 						? sql`${experienceLevelTable.order} >= ${requiredOrder}`
 						: undefined,
-					// Must be approved and active
-					eq(candidateProfileTable.approved, true),
+					// Must be approved/active. `approved` is kept in sync with status
+					// via updateStatus, so checking status alone is the source of truth.
 					eq(candidateProfileTable.status, 'ACTIVE'),
 					// Must have geometry point
 					isNotNull(candidateProfileTable.geom),

@@ -30,6 +30,7 @@ import { z } from 'zod';
 import { getRequisitionByWorkdayId } from '$lib/server/database/queries/requisitions';
 import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
+import { logger } from '$lib/server/logger';
 
 const draftTimesheetSchema = z.object({
 	userId: z.string().min(1, 'User ID is required'),
@@ -206,7 +207,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			{ status: 200, headers: corsHeaders }
 		);
 	} catch (err) {
-		console.error('Error in POST /api/external/timesheets/saveDraftTimesheetForCandidate:', err);
+		logger.error('timesheets.saveDraftTimesheetForCandidate failed', { error: err });
 		return json(
 			{ success: false, message: 'Internal server error' },
 			{ status: 500, headers: corsHeaders }

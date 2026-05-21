@@ -11,6 +11,7 @@ import {
 	maybeCleanupOrphanTimesheet,
 	recordRecurrenceDayCancellation
 } from '$lib/server/cancellations';
+import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -164,7 +165,6 @@ export const POST: RequestHandler = async ({ request, params }) => {
 			{ headers: corsHeaders }
 		);
 	} catch (err) {
-		console.error('Error in POST /api/external/cancelWorkdayForCandidate:', err);
 		// Determine if error is known/expected
 		if (err instanceof Error && 'status' in err && 'body' in err) {
 			return json(
@@ -177,6 +177,7 @@ export const POST: RequestHandler = async ({ request, params }) => {
 		}
 
 		// Unknown error
+		logger.error('cancelWorkdayForCandidate failed', { error: err, workdayId: params.id });
 		return json(
 			{ success: false, message: 'Internal server error' },
 			{

@@ -18,6 +18,7 @@ import { eq, and, inArray, notInArray, or, isNull, isNotNull, sql, gte, lte } fr
 import { METERS_PER_MILE, RADIUS_METERS, RADIUS_MILES } from '$lib/config/constants';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
+import { logger } from '$lib/server/logger';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const user = await authenticateUser(request);
@@ -252,7 +253,7 @@ export const GET: RequestHandler = async ({ request }) => {
 			nearbyOfficeCount: officeLocationIds.length
 		});
 	} catch (err) {
-		console.error('Error fetching recurrence days:', err);
+		logger.error('getUpcomingTempRequisitionsForCandidate failed', { error: err, distinctId: user?.id });
 		throw error(500, 'Internal server error');
 	}
 };

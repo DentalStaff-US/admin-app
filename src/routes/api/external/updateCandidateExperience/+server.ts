@@ -8,6 +8,7 @@ import {
 } from '$lib/server/database/schemas/candidate';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -109,7 +110,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			{ status: 200, headers: corsHeaders }
 		);
 	} catch (error) {
-		console.error('Error updating candidate profile:', error);
+		logger.error('updateCandidateExperience failed', { error });
 		return json(
 			{ success: false, message: 'An unexpected error occurred' },
 			{ status: 500, headers: corsHeaders }

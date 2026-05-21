@@ -7,14 +7,24 @@ import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 import { USER_ROLES } from '$lib/config/constants';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { logger } from '$lib/server/logger';
+import { isBotScanPath } from '$lib/server/noise';
 
-export const handleError: HandleServerError = async ({ error, event }) => {
+export const handleError: HandleServerError = async ({ error, event, status }) => {
 	const errorId = crypto.randomUUID();
+	const path = event.url.pathname;
+
+	// Suppress expected noise: bot scans probing for vulnerable endpoints, and any
+	// 4xx the framework escalated here (status < 500 means it's not a server fault).
+	if (status < 500 || isBotScanPath(path)) {
+		return { message: 'An unexpected error occurred.', errorId };
+	}
+
 	logger.error('uncaught server error', {
 		error,
 		errorId,
-		path: event.url.pathname,
+		path,
 		method: event.request.method,
+		status,
 		distinctId: event.locals.user?.id
 	});
 	return {

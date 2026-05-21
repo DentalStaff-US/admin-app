@@ -17,7 +17,12 @@ import { disciplineTable, experienceLevelTable } from './skill';
 import { clientCompanyTable } from './client';
 import { sql } from 'drizzle-orm';
 
-export const candidateStatusEnum = pgEnum('candidate_status', ['INACTIVE', 'PENDING', 'ACTIVE']);
+export const candidateStatusEnum = pgEnum('candidate_status', [
+	'INACTIVE',
+	'PENDING',
+	'ACTIVE',
+	'DENIED'
+]);
 const geometry = customType<{ data: string; notNull: false; default: false }>({
 	dataType() {
 		return 'geometry(POINT, 4326)';

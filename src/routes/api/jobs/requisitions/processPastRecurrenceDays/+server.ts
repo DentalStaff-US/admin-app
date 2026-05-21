@@ -4,6 +4,7 @@ import { recurrenceDayTable } from '$lib/server/database/schemas/requisition';
 import { and, eq, inArray, lt, or } from 'drizzle-orm';
 import { CRON_SECRET } from '$env/static/private';
 import { verifyJobRequest } from '$lib/server/jobs/sign';
+import { logger } from '$lib/server/logger';
 
 export const POST: RequestHandler = async ({ request }) => {
 	const verified = verifyJobRequest(request.headers, 'processPastRecurrenceDays', CRON_SECRET);
@@ -54,10 +55,11 @@ export const POST: RequestHandler = async ({ request }) => {
 			data: updateResult.map((day) => ({ id: day.id, requisitionId: day.requisitionId }))
 		});
 	} catch (error) {
+		logger.error('processPastRecurrenceDays job failed', { error });
 		return json(
 			{
 				success: false,
-				error: error
+				error: error instanceof Error ? error.message : String(error)
 			},
 			{ status: 500 }
 		);

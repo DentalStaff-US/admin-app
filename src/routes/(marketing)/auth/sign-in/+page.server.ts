@@ -5,7 +5,7 @@ import { lucia } from '$lib/server/lucia';
 import { Argon2id } from 'oslo/password';
 import { userSchema } from '$lib/config/zod-schemas';
 import { getUserByEmail } from '$lib/server/database/queries/users';
-import { getPostHogClient } from '$lib/server/posthog';
+import { logger } from '$lib/server/logger';
 
 const signInSchema = userSchema.pick({
 	email: true,
@@ -59,22 +59,15 @@ export const actions = {
 						...sessionCookie.attributes
 					});
 					setFlash({ type: 'success', message: 'Sign in successful.' }, event);
-					const posthog = getPostHogClient();
-					posthog.capture({
+					logger.event('user_signed_in', {
 						distinctId: existingUser.id,
-						event: 'user_signed_in',
-						properties: {
-							role: existingUser.role,
-							$set: { role: existingUser.role }
-						}
+						role: existingUser.role,
+						$set: { role: existingUser.role }
 					});
 				}
 			}
 		} catch (e) {
-			//TODO: need to return error message to client
-			console.error(e);
-			// email already in use
-			//const { fieldErrors: errors } = e.flatten();
+			logger.error('auth.sign-in failed', { error: e, email: form.data.email });
 			setFlash({ type: 'error', message: 'The email or password is incorrect.' }, event);
 			return setError(form, 'The email or password is incorrect.');
 		}

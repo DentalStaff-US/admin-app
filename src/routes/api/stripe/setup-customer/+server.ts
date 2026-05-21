@@ -8,6 +8,7 @@ import db from '$lib/server/database/drizzle';
 import { clientSubscriptionTable } from '$lib/server/database/schemas/client';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { logger } from '$lib/server/logger';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const user = locals.user;
@@ -16,8 +17,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		throw error(403, 'Unauthorized');
 	}
 
+	let requestedClientId: string | undefined;
 	try {
 		const { clientId } = await request.json();
+		requestedClientId = clientId;
 
 		if (!clientId) {
 			throw error(400, 'Client ID is required');
@@ -29,7 +32,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			throw error(404, 'Client not found');
 		}
 
-		// Check if customer already exists in our DB
 		const [existingSubscription] = await db
 			.select()
 			.from(clientSubscriptionTable)
@@ -38,10 +40,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		let customerId = existingSubscription?.stripeCustomerId;
 
-		// If no customer exists, create one in Stripe FIRST
 		if (!customerId) {
-			console.log('Creating new Stripe customer for:', clientData.user.email);
-
 			const customer = await stripe.customers.create({
 				email: clientData.user.email,
 				name: `${clientData.user.firstName} ${clientData.user.lastName}`,
@@ -52,9 +51,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			});
 
 			customerId = customer.id;
-			console.log('Created Stripe customer:', customerId);
-		} else {
-			console.log('Using existing Stripe customer:', customerId);
 		}
 
 		// Create Stripe Checkout Session in SETUP MODE with the customer
@@ -95,7 +91,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		return json({ url: session.url });
 	} catch (err) {
-		console.error('Error creating setup session:', err);
+		// Pass through SvelteKit HttpErrors (400/403/404) — they're expected client errors.
+		if (err && typeof err === 'object' && 'status' in err && 'body' in err) {
+			throw err;
+		}
+		logger.error('stripe setup-customer failed', {
+			error: err,
+			clientId: requestedClientId,
+			distinctId: user.id
+		});
 		throw error(500, 'Failed to create setup session');
 	}
 };
