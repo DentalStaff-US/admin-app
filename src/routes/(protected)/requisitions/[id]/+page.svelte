@@ -89,7 +89,7 @@
 	let applicationTableData: ApplicationResults[] = [];
 	let recurrenceDaysTableData: RecurrenceDaySelect[] = [];
 	let timesheetTableData: TimeSheetResults[] = [];
-	let selectedWorkDayStatus: 'OPEN' | 'FILLED' | 'UNFULFILLED' | 'CANCELLED' = 'OPEN';
+	let selectedWorkDayStatus: 'OPEN' | 'FILLED' | 'UNFULFILLED' | 'CANCELED' = 'OPEN';
 
 	export let changeStatusForm: SuperValidated<ChangeStatusSchema>;
 	export let recurrenceDayForm: SuperValidated<NewRecurrenceDaySchema>;
@@ -648,7 +648,7 @@
 								</div>
 							{:else}
 								<div class="mb-4 flex flex-wrap gap-2">
-									{#each ['OPEN', 'FILLED', 'UNFULFILLED', 'CANCELLED'] as s}
+									{#each ['OPEN', 'FILLED', 'UNFULFILLED', 'CANCELED'] as s}
 										<Button
 											variant={selectedWorkDayStatus === s ? 'default' : 'outline'}
 											size="sm"
@@ -656,7 +656,7 @@
 												if (s === 'OPEN') selectedWorkDayStatus = 'OPEN';
 												else if (s === 'FILLED') selectedWorkDayStatus = 'FILLED';
 												else if (s === 'UNFULFILLED') selectedWorkDayStatus = 'UNFULFILLED';
-												else if (s === 'CANCELLED') selectedWorkDayStatus = 'CANCELLED';
+												else if (s === 'CANCELED') selectedWorkDayStatus = 'CANCELED';
 											}}
 											class={cn(
 												selectedWorkDayStatus === s &&
@@ -669,7 +669,7 @@
 													s === 'UNFULFILLED' &&
 													'bg-orange-500 hover:bg-orange-600',
 												selectedWorkDayStatus === s &&
-													s === 'CANCELLED' &&
+													s === 'CANCELED' &&
 													'bg-red-500 hover:bg-red-600'
 											)}
 										>
