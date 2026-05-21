@@ -19,7 +19,7 @@ import { getClientIdByCompanyId } from '$lib/server/database/queries/clients.js'
 import type { PageServerLoad, RequestEvent } from './$types';
 import { getUserTimezone } from '$lib/_helpers/UTCTimezoneUtils';
 import { USER_ROLES } from '$lib/config/constants';
-import { getPostHogClient } from '$lib/server/posthog';
+import { logger } from '$lib/server/logger';
 
 const signUpSchema = userSchema.pick({
 	firstName: true,
@@ -112,8 +112,6 @@ export const actions = {
 				timezone: getUserTimezone()
 			};
 
-			console.log('user to be created:', user);
-
 			const newUser = await db.transaction(async (tx) => {
 				// First create the user
 				const createdUser = await createUser(user, tx); // Make sure createUser uses the transaction
@@ -187,16 +185,12 @@ export const actions = {
 					event.cookies.delete('admin_invite', { path: '/' });
 				}
 
-				const posthog = getPostHogClient();
-				posthog.capture({
+				logger.event('user_signed_up', {
 					distinctId: newUser.id,
-					event: 'user_signed_up',
-					properties: {
-						role: user.role,
-						via_invite: Boolean(inviteData),
-						invited_role: inviteData?.invitedRole ?? null,
-						$set: { role: user.role }
-					}
+					role: user.role,
+					via_invite: Boolean(inviteData),
+					invited_role: inviteData?.invitedRole ?? null,
+					$set: { role: user.role }
 				});
 
 				// Set appropriate flash message
@@ -209,8 +203,17 @@ export const actions = {
 						event
 					);
 				} else {
-					// await sendVerificationEmail(newUser.email, user.token);
-					await emailService.sendVerificationEmail(newUser.email, user.token);
+					const verificationResult = await emailService.sendVerificationEmail(
+						newUser.email,
+						user.token
+					);
+					if (!verificationResult.success) {
+						logger.error('verification email send failed at signup', {
+							error: verificationResult.error,
+							distinctId: newUser.id,
+							email: newUser.email
+						});
+					}
 					setFlash(
 						{
 							type: 'success',
@@ -221,7 +224,7 @@ export const actions = {
 				}
 			}
 		} catch (e) {
-			console.error(e);
+			logger.error('auth.sign-up failed', { error: e, email: form.data.email });
 			setFlash({ type: 'error', message: 'Account was not able to be created.' }, event);
 			return setError(form, 'email', 'A user with that email already exists.');
 		}

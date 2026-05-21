@@ -15,6 +15,7 @@ import { toZonedTime } from 'date-fns-tz';
 import { notifyTimesheetCreated } from '$lib/server/notifications/transactional';
 import { verifyJobRequest } from '$lib/server/jobs/sign';
 import { tryWithAdvisoryLock } from '$lib/server/jobs/withAdvisoryLock';
+import { logger } from '$lib/server/logger';
 
 export const POST: RequestHandler = async ({ request }) => {
 	const verified = verifyJobRequest(request.headers, 'processTimesheetCreation', CRON_SECRET);
@@ -181,7 +182,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				noop: created === 0
 			});
 		} catch (error) {
-			console.error('Error in processTimesheetCreation job:', error);
+			logger.error('processTimesheetCreation job failed', { error });
 			return json({ success: false, error: String(error) }, { status: 500 });
 		}
 	});

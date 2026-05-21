@@ -7,6 +7,7 @@ import { workdayTable } from '$lib/server/database/schemas/requisition';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { eq } from 'drizzle-orm';
 import { clientCompanyTable } from '$lib/server/database/schemas/client';
+import { logger } from '$lib/server/logger';
 
 export const GET: RequestHandler = async ({ request }) => {
   try {
@@ -40,7 +41,7 @@ export const GET: RequestHandler = async ({ request }) => {
 
     return json({ success: true, data: { companies } });
   } catch (err) {
-    console.error('Error in getCompaniesForCandidate:', err);
+    logger.error('timesheets.getCompaniesForCandidate failed', { error: err });
     return json({ success: false, message: 'Internal server error' }, { status: 500 });
   }
 }; 

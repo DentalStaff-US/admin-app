@@ -12,6 +12,7 @@ import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { eq, and } from 'drizzle-orm';
+import { logger } from '$lib/server/logger';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const user = await authenticateUser(request);
@@ -74,7 +75,7 @@ export const GET: RequestHandler = async ({ request }) => {
 
 		return json(appliedRequisitions);
 	} catch (err) {
-		console.error('Error fetching applied requisitions:', err);
+		logger.error('getAppliedRequisitions failed', { error: err, distinctId: user?.id });
 		throw error(500, 'Internal server error');
 	}
 };

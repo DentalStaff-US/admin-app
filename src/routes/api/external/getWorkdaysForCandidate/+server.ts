@@ -15,6 +15,7 @@ import {
 	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
+import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -92,7 +93,7 @@ export const GET: RequestHandler = async ({ request }) => {
 
 		return json({ success: true, data: workdays }, { headers: corsHeaders });
 	} catch (err) {
-		console.error('Error in GET /api/external/getWorkdaysForCandidate:', err);
+		logger.error('getWorkdaysForCandidate failed', { error: err });
 		return json(
 			{ success: false, message: 'An unexpected error occurred while loading shifts.' },
 			{ status: 500, headers: corsHeaders }

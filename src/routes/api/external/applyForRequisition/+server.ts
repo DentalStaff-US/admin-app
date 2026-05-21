@@ -14,6 +14,7 @@ import { and, eq } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import { getClientIdByCompanyId } from '$lib/server/database/queries/clients';
 import { getPostHogClient } from '$lib/server/posthog';
+import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -184,7 +185,6 @@ export const POST: RequestHandler = async ({ request }) => {
 			);
 		});
 	} catch (err) {
-		console.error('Error in POST /api/external/applyForRequisition:', err);
 		// Determine if error is known/expected
 		if (err instanceof Error && 'status' in err && 'body' in err) {
 			return json(
@@ -197,6 +197,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		// Unknown error
+		logger.error('applyForRequisition failed', { error: err });
 		return json(
 			{ success: false, message: 'Internal server error' },
 			{

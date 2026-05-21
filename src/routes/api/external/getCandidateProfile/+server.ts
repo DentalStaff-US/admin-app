@@ -3,6 +3,7 @@ import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
+import { logger } from '$lib/server/logger';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const user = await authenticateUser(request);
@@ -21,7 +22,7 @@ export const GET: RequestHandler = async ({ request }) => {
 
 		return json(candidateProfile);
 	} catch (err) {
-		console.error('Error fetching candidate profile:', err);
+		logger.error('getCandidateProfile failed', { error: err, distinctId: user?.id });
 		throw error(500, 'Internal server error');
 	}
 };

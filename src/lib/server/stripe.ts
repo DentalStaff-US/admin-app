@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
-// import { STRIPE_SECRET_KEY } from '$env/static/private';
 import * as dotenv from 'dotenv';
+import { logger } from '$lib/server/logger';
 dotenv.config();
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -12,7 +12,7 @@ export async function createStripeInvoice(
 		currency?: string;
 		quantity?: number;
 	}>,
-	metadata: Record<string, any> = {},
+	metadata: Stripe.MetadataParam = {},
 	additionalNotes?: string,
 	dueDate?: Date | string
 ): Promise<Stripe.Invoice> {
@@ -20,19 +20,21 @@ export async function createStripeInvoice(
 		throw new Error('Stripe customer ID is required');
 	}
 
-	try {
-		console.log('Starting invoice creation for customer:', stripeCustomerId);
-		console.log('Line items to create:', lineItems);
+	let stage:
+		| 'create_invoice'
+		| 'create_invoice_items'
+		| 'finalize_invoice'
+		| 'send_invoice' = 'create_invoice';
+	let invoiceId: string | undefined;
 
+	try {
 		// Convert dueDate to Unix timestamp
 		let dueDateTimestamp: number | undefined;
 		if (dueDate) {
 			const date = new Date(dueDate);
 			dueDateTimestamp = Math.floor(date.getTime() / 1000);
-			console.log('Due date timestamp:', dueDateTimestamp);
 		}
 
-		// Create the invoice in draft state
 		const invoice = await stripe.invoices.create({
 			customer: stripeCustomerId,
 			collection_method: 'send_invoice',
@@ -42,19 +44,13 @@ export async function createStripeInvoice(
 			metadata,
 			description: additionalNotes || 'Invoice for services rendered'
 		});
+		invoiceId = invoice.id;
 
-		console.log('Created invoice:', invoice.id);
-
-		// Add line items to the invoice
-		const createdItems = [];
-		for (let i = 0; i < lineItems.length; i++) {
-			const item = lineItems[i];
-			console.log(`Creating invoice item ${i + 1}:`, item);
-
+		stage = 'create_invoice_items';
+		for (const item of lineItems) {
 			let invoiceItemParams;
 
 			if (item.quantity && item.quantity > 1) {
-				// Use unit_amount + quantity approach
 				const unitAmount = Math.round(item.amountInCents / item.quantity);
 				invoiceItemParams = {
 					invoice: invoice.id,
@@ -64,9 +60,7 @@ export async function createStripeInvoice(
 					currency: item.currency || 'usd',
 					description: item.description || 'Service'
 				};
-				console.log(`Using unit_amount approach: ${unitAmount} x ${item.quantity}`);
 			} else {
-				// Use total amount approach (no quantity)
 				invoiceItemParams = {
 					invoice: invoice.id,
 					customer: stripeCustomerId,
@@ -74,54 +68,42 @@ export async function createStripeInvoice(
 					currency: item.currency || 'usd',
 					description: item.description || 'Service'
 				};
-				console.log(`Using total amount approach: ${item.amountInCents}`);
 			}
 
-			console.log('Invoice item params:', invoiceItemParams);
-
-			const invoiceItem = await stripe.invoiceItems.create(invoiceItemParams);
-
-			console.log(`Created invoice item ${i + 1}:`, invoiceItem.id, 'Amount:', invoiceItem.amount);
-			createdItems.push(invoiceItem);
+			await stripe.invoiceItems.create(invoiceItemParams);
 		}
 
-		console.log(`Total invoice items created: ${createdItems.length}`);
-
-		// Retrieve the invoice to see the items before finalizing
-		const invoiceWithItems = await stripe.invoices.retrieve(invoice.id);
-		console.log('Invoice lines before finalizing:', invoiceWithItems.lines.data.length);
-		console.log(
-			'Line items:',
-			invoiceWithItems.lines.data.map((line) => ({
-				id: line.id,
-				description: line.description,
-				amount: line.amount,
-				quantity: line.quantity
-			}))
-		);
-
-		// Finalize the invoice
-		console.log('Finalizing invoice...');
+		stage = 'finalize_invoice';
 		const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id);
-		console.log('Finalized invoice lines:', finalizedInvoice.lines.data.length);
 
-		// Send the invoice
-		console.log('Sending invoice...');
+		stage = 'send_invoice';
 		const customer = await stripe.customers.retrieve(stripeCustomerId);
 		if (!('email' in customer) || !customer.email) {
 			throw new Error('Stripe customer has no email — cannot send invoice');
 		}
-
 		await stripe.invoices.sendInvoice(finalizedInvoice.id);
-		console.log('Invoice sent successfully');
+
+		logger.event('stripe_invoice_created', {
+			stripe_invoice_id: finalizedInvoice.id,
+			stripe_customer_id: stripeCustomerId,
+			amount_due: finalizedInvoice.amount_due / 100,
+			currency: finalizedInvoice.currency,
+			line_item_count: lineItems.length,
+			metadata
+		});
 
 		return finalizedInvoice;
 	} catch (error) {
-		console.error('Error creating Stripe invoice:', error);
-		console.error('Error details:', {
-			type: (error as any).type,
-			message: (error as any).message,
-			param: (error as any).param
+		const stripeError = error as Stripe.errors.StripeError;
+		logger.error('createStripeInvoice failed', {
+			error,
+			stage,
+			stripe_invoice_id: invoiceId,
+			stripe_customer_id: stripeCustomerId,
+			stripe_error_type: stripeError?.type,
+			stripe_error_code: stripeError?.code,
+			stripe_param: stripeError?.param,
+			metadata
 		});
 		throw error;
 	}

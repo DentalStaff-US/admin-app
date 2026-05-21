@@ -3,6 +3,7 @@ import { userTable } from '$lib/server/database/schemas/auth';
 import { generateToken } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { eq, and, inArray } from 'drizzle-orm';
+import { logger } from '$lib/server/logger';
 
 export const POST: RequestHandler = async ({ request }) => {
 	try {
@@ -20,7 +21,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		return json({ token });
 	} catch (err) {
-		console.error(err);
+		logger.error('development.generateUserToken failed', { error: err });
 		throw error(500, 'Internal server error');
 	}
 };

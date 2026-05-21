@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, RequestEvent } from './$types';
-import { USER_ROLES } from '$lib/config/constants';
+import { CANDIDATE_STATUS, USER_ROLES, type CandidateStatus } from '$lib/config/constants';
 import {
 	createCandidateProfile,
 	getAllCandidateProfiles
@@ -17,6 +17,11 @@ import { setFlash } from 'sveltekit-flash-message/server';
 export const load: PageServerLoad = async (event) => {
 	const { url, locals, setHeaders } = event;
 	const searchTerm = url.searchParams.get('search')?.toString();
+	const statusParam = url.searchParams.get('status')?.toUpperCase();
+	const status: CandidateStatus =
+		statusParam && statusParam in CANDIDATE_STATUS
+			? (statusParam as CandidateStatus)
+			: CANDIDATE_STATUS.ACTIVE;
 
 	setHeaders({
 		'cache-control': 'max-age=60'
@@ -31,12 +36,19 @@ export const load: PageServerLoad = async (event) => {
 		redirect(302, '/dashboard');
 	}
 
-	const results = await getAllCandidateProfiles(searchTerm);
+	const results = await getAllCandidateProfiles(searchTerm, status);
 	const newProfileForm = await superValidate(event, adminNewUserSchema);
 
 	return {
 		candidates: results?.candidates || [],
 		count: results?.count || 0,
+		statusCounts: results?.statusCounts ?? {
+			ACTIVE: 0,
+			PENDING: 0,
+			INACTIVE: 0,
+			DENIED: 0
+		},
+		status,
 		searchTerm: searchTerm || '',
 		newProfileForm
 	};

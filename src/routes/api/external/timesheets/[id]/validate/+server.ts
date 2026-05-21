@@ -8,6 +8,7 @@ import { timeSheetTable } from '$lib/server/database/schemas/requisition';
 import db from '$lib/server/database/drizzle';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
+import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -111,7 +112,6 @@ export const POST: RequestHandler = async ({ request, params }) => {
 			{ headers: corsHeaders }
 		);
 	} catch (err) {
-		console.error('Error in POST /api/external/timesheets/:id/validate - ', err);
 		if (err instanceof Error && 'status' in err && 'body' in err) {
 			return json(
 				{ success: false, message: (err as any).body.message },
@@ -122,6 +122,7 @@ export const POST: RequestHandler = async ({ request, params }) => {
 			);
 		}
 
+		logger.error('timesheets.validate failed', { error: err, timesheetId: params.id });
 		return json(
 			{ success: false, message: 'Internal server error' },
 			{

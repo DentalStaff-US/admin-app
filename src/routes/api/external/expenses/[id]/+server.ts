@@ -9,6 +9,7 @@ import {
 	getTimesheetExpenseById,
 	updateTimesheetExpense
 } from '$lib/server/database/queries/requisitions';
+import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -73,13 +74,13 @@ export const PATCH: RequestHandler = async ({ request, params }) => {
 		const expense = await updateTimesheetExpense(id, parsed.data, auth.user.id);
 		return json({ success: true, data: { expense } }, { headers: corsHeaders });
 	} catch (err) {
-		console.error('PATCH /api/external/expenses/[id] error:', err);
 		if (err instanceof Error && 'status' in err && 'body' in err) {
 			return json(
 				{ success: false, message: (err as any).body.message },
 				{ status: (err as any).status, headers: corsHeaders }
 			);
 		}
+		logger.error('expenses.PATCH failed', { error: err, expenseId: params.id });
 		return json(
 			{ success: false, message: 'Internal server error' },
 			{ status: 500, headers: corsHeaders }
@@ -108,13 +109,13 @@ export const DELETE: RequestHandler = async ({ request, params }) => {
 		await deleteTimesheetExpense(id, auth.user.id);
 		return json({ success: true }, { headers: corsHeaders });
 	} catch (err) {
-		console.error('DELETE /api/external/expenses/[id] error:', err);
 		if (err instanceof Error && 'status' in err && 'body' in err) {
 			return json(
 				{ success: false, message: (err as any).body.message },
 				{ status: (err as any).status, headers: corsHeaders }
 			);
 		}
+		logger.error('expenses.DELETE failed', { error: err, expenseId: params.id });
 		return json(
 			{ success: false, message: 'Internal server error' },
 			{ status: 500, headers: corsHeaders }

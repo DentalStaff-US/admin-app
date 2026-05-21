@@ -3,7 +3,7 @@ import { pgTable, foreignKey, pgEnum, text, timestamp, unique, jsonb, boolean, i
 
 export const admin_payment_fee_type_enum = pgEnum("admin_payment_fee_type_enum", ['PERCENTAGE', 'FIXED'])
 export const candidate_document_type = pgEnum("candidate_document_type", ['RESUME', 'LICENSE', 'CERTIFICATE', 'OTHER'])
-export const candidate_status = pgEnum("candidate_status", ['INACTIVE', 'PENDING', 'ACTIVE'])
+export const candidate_status = pgEnum("candidate_status", ['INACTIVE', 'PENDING', 'ACTIVE', 'DENIED'])
 export const conversation_type = pgEnum("conversation_type", ['INTERNAL', 'APPLICATION', 'ADMIN_CLIENT', 'ADMIN_CANDIDATE'])
 export const in_app_notification_status = pgEnum("in_app_notification_status", ['UNREAD', 'READ'])
 export const invoice_source_type = pgEnum("invoice_source_type", ['timesheet', 'manual', 'recurring', 'other'])

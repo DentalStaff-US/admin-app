@@ -8,6 +8,7 @@ import { conversationParticipantsTable } from '$lib/server/database/schemas/mess
 import db from '$lib/server/database/drizzle';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { env } from '$env/dynamic/private';
+import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -98,7 +99,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
     }
 
     // Handle other errors
-    console.error('Error sending external message:', err);
+    logger.error('inbox.sendMessage failed', { error: err, conversationId });
     throw error(500, 'Failed to send message');
   }
 };

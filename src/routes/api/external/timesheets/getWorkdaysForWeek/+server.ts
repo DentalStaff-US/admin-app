@@ -12,6 +12,7 @@ import { authenticateUser } from '$lib/server/serverUtils';
 import { and, eq, gte, isNull, lte } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import { addDays } from 'date-fns';
+import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -106,7 +107,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		return json({ success: true, workdays }, { headers: corsHeaders });
 	} catch (err) {
-		console.error('Error fetching workdays for week:', err);
+		logger.error('timesheets.getWorkdaysForWeek failed', { error: err });
 		return json(
 			{ success: false, message: 'Internal server error' },
 			{ status: 500, headers: corsHeaders }

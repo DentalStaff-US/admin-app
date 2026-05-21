@@ -1,8 +1,8 @@
 import type { PageServerLoad } from './$types';
 import { fail } from '@sveltejs/kit';
-// import { sendVerificationEmail } from '$lib/config/email-messages';
 import { EmailService } from '$lib/server/email/emailService';
 import { getUserByEmail, updateUser } from '$lib/server/database/queries/users';
+import { logger } from '$lib/server/logger';
 
 export const load: PageServerLoad = async ({ params }) => {
 	try {
@@ -26,8 +26,9 @@ export const load: PageServerLoad = async ({ params }) => {
 		}
 		return { heading: heading, message: message };
 	} catch (e) {
+		logger.error('auth.verify.resend-email failed', { error: e });
 		return fail(500, {
-			error: e
+			error: 'Failed to resend verification email'
 		});
 	}
 };

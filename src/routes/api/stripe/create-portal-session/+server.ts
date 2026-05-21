@@ -3,12 +3,13 @@ import { stripe } from '$lib/server/stripe';
 import { json, error } from '@sveltejs/kit';
 import { getClientProfilebyUserId } from '$lib/server/database/queries/clients';
 import { getClientBillingInfo } from '$lib/server/database/queries/billing';
+import { logger } from '$lib/server/logger';
 
-export const POST: RequestHandler = async ({ request, locals, url }) => {
+export const POST: RequestHandler = async ({ locals, url }) => {
 	const user = locals.user;
 
-	const client = await getClientProfilebyUserId(user?.id)
-	const billingInfo = await getClientBillingInfo(client.id)
+	const client = await getClientProfilebyUserId(user?.id);
+	const billingInfo = await getClientBillingInfo(client.id);
 
 	if (!billingInfo?.clientSubscription?.stripeCustomerId) {
 		throw error(400, 'No Stripe customer ID found');
@@ -24,7 +25,11 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 
 		return json({ url: portalSession.url });
 	} catch (err) {
-		console.error('Stripe portal session creation error:', err);
+		logger.error('stripe billing portal session creation failed', {
+			error: err,
+			stripe_customer_id: billingInfo.clientSubscription.stripeCustomerId,
+			distinctId: user?.id
+		});
 		throw error(500, 'Error creating portal session');
 	}
 };

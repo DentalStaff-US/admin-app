@@ -8,6 +8,7 @@ import {
 } from '$lib/server/database/queries/support';
 import { notifySupportTicketCreated } from '$lib/server/notifications/transactional';
 import { getPostHogClient } from '$lib/server/posthog';
+import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -70,7 +71,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			properties: { ticket_id: newTicket.id, source: 'professional' }
 		});
 	} catch (e) {
-		console.error('[external/support/tickets] posthog capture failed:', e);
+		logger.error('support.tickets.POST posthog capture failed', { error: e, distinctId: user.id, ticketId: newTicket.id });
 	}
 
 	await notifySupportTicketCreated();

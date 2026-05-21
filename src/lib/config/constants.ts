@@ -37,8 +37,11 @@ export const CLIENT_STAFF_ROLES = {
 export const CANDIDATE_STATUS = {
 	INACTIVE: 'INACTIVE',
 	PENDING: 'PENDING',
-	ACTIVE: 'ACTIVE'
+	ACTIVE: 'ACTIVE',
+	DENIED: 'DENIED'
 } as const;
+
+export type CandidateStatus = (typeof CANDIDATE_STATUS)[keyof typeof CANDIDATE_STATUS];
 
 export const SUPPORT_TICKET_STATUS = {
 	NEW: 'NEW',

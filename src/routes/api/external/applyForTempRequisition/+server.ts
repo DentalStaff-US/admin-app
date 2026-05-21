@@ -16,6 +16,7 @@ import { and, eq } from 'drizzle-orm';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { notifyWorkdayClaimed } from '$lib/server/notifications/transactional';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
+import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': CANDIDATE_APP_DOMAIN,
@@ -228,7 +229,6 @@ export const POST: RequestHandler = async ({ request }) => {
 			{ headers: corsHeaders }
 		);
 	} catch (err) {
-		console.error('Error in POST /api/external/applyForTempRequisition:', err);
 		// Determine if error is known/expected
 		if (err instanceof Error && 'status' in err && 'body' in err) {
 			return json(
@@ -241,6 +241,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		// Unknown error
+		logger.error('applyForTempRequisition failed', { error: err });
 		return json(
 			{ success: false, message: 'Internal server error' },
 			{

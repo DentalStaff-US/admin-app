@@ -1,6 +1,7 @@
 import { uploadFile } from '$lib/server/uploads';
 import type { FileType } from '$lib/server/uploads';
 import { fail, json, type RequestEvent } from '@sveltejs/kit';
+import { logger } from '$lib/server/logger';
 
 export const POST = async ({ request }: RequestEvent) => {
 	const contentType = request.headers.get('Content-Type');
@@ -32,7 +33,7 @@ export const POST = async ({ request }: RequestEvent) => {
 
 		return json({ success: true, url, fileName: uploadedFile.name });
 	} catch (error) {
-		console.error('Error uploading file:', error);
+		logger.error('api.uploadFile failed', { error });
 		return fail(500, { success: false, message: 'File upload failed' });
 	}
 };

@@ -6,6 +6,7 @@ import { env } from '$env/dynamic/private';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { eq } from 'drizzle-orm';
 import { userTable } from '$lib/server/database/schemas/auth';
+import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -50,7 +51,7 @@ export const POST = async ({ request }: RequestEvent) => {
 
 		return json({ success: true, file: fileUrl });
 	} catch (error) {
-		console.error('Error uploading file:', error);
+		logger.error('upload.avatar failed', { error });
 		return fail(500, { success: false, message: 'File upload failed' });
 	}
 };

@@ -20,6 +20,7 @@ import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
 import { getPostHogClient } from '$lib/server/posthog';
 import { notifyTimesheetSubmitted } from '$lib/server/notifications/transactional';
+import { logger } from '$lib/server/logger';
 
 const newTimesheetSchema = z.object({
 	userId: z.string().min(1, 'User ID is required'),
@@ -217,7 +218,6 @@ export const POST: RequestHandler = async ({ request }) => {
 			}
 		);
 	} catch (err) {
-		console.error('Error in POST /api/external/timesheets/submitTimesheetForCandidate:', err);
 		if (err instanceof Error && 'status' in err && 'body' in err) {
 			return json(
 				{ success: false, message: (err as any).body.message },
@@ -228,6 +228,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			);
 		}
 
+		logger.error('timesheets.submitTimesheetForCandidate failed', { error: err });
 		return json(
 			{ success: false, message: 'Internal server error' },
 			{

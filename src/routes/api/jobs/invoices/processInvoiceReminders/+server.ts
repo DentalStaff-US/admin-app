@@ -5,6 +5,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { CRON_SECRET } from '$env/static/private';
 import { notifyOverdueInvoice } from '$lib/server/notifications/transactional';
 import { verifyJobRequest } from '$lib/server/jobs/sign';
+import { logger } from '$lib/server/logger';
 
 export const POST: RequestHandler = async ({ request }) => {
 	const verified = verifyJobRequest(request.headers, 'processInvoiceReminders', CRON_SECRET);
@@ -12,31 +13,43 @@ export const POST: RequestHandler = async ({ request }) => {
 		return new Response(`Unauthorized: ${verified.reason}`, { status: 401 });
 	}
 	try {
-		console.log('Starting processInvoiceRemindersJob');
-
-		// Get all invoices that are past their due date and still open
 		const today = new Date();
-		today.setHours(0, 0, 0, 0); // Normalize to start of the day
-		console.log(`Today's date: ${today.toISOString()}`);
+		today.setHours(0, 0, 0, 0);
 
-		// Query to find all overdue invoices
 		const overdueInvoices = await db
 			.select()
 			.from(invoiceTable)
 			.where(and(eq(invoiceTable.status, 'open'), lt(invoiceTable.dueDate, today)));
 
-		console.log(`Found ${overdueInvoices.length} overdue invoices`);
+		let notified = 0;
+		const failures: Array<{ invoiceId: string; error: string }> = [];
 
-		// Process each overdue invoice
+		// Per-invoice failures shouldn't kill the whole batch — keep going and report at end.
 		for (const invoice of overdueInvoices) {
-			console.log(`Processing overdue invoice ID: ${invoice.id}`);
-			await notifyOverdueInvoice(invoice);
-			console.log(`Reminder sent for invoice ID: ${invoice.id}`);
+			try {
+				await notifyOverdueInvoice(invoice);
+				notified++;
+			} catch (err) {
+				logger.error('processInvoiceReminders notify failed', {
+					error: err,
+					invoiceId: invoice.id
+				});
+				failures.push({
+					invoiceId: invoice.id,
+					error: err instanceof Error ? err.message : String(err)
+				});
+			}
 		}
 
-		return json({ success: true, count: overdueInvoices.length });
+		logger.event('cron_processInvoiceReminders_completed', {
+			overdue_count: overdueInvoices.length,
+			notified,
+			failure_count: failures.length
+		});
+
+		return json({ success: true, count: overdueInvoices.length, notified, failures });
 	} catch (error) {
-		console.error('Error processing invoice reminders', error);
+		logger.error('processInvoiceReminders job failed', { error });
 		return new Response('Internal Server Error', { status: 500 });
 	}
 };

@@ -7,6 +7,7 @@ import {
 import { authenticateUser } from '$lib/server/serverUtils';
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { eq, ne, and, asc, desc } from 'drizzle-orm';
+import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -55,7 +56,7 @@ export const GET: RequestHandler = async ({ request }) => {
 
 		return json({ success: true, documents }, { status: 200, headers: corsHeaders });
 	} catch (err) {
-		console.error('Error fetching documents:', err);
+		logger.error('getCandidateDocuments failed', { error: err });
 		return json(
 			{ success: false, message: 'An unexpected error occurred' },
 			{ status: 500, headers: corsHeaders }

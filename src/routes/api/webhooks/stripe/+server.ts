@@ -1,8 +1,4 @@
-import {
-	invoiceTable,
-	timeSheetTable,
-	type TimeSheetSelect
-} from './../../../../lib/server/database/schemas/requisition';
+import { invoiceTable } from './../../../../lib/server/database/schemas/requisition';
 import { stripe } from '$lib/server/stripe';
 import { json } from '@sveltejs/kit';
 import { STRIPE_WEBHOOK_SECRET } from '$env/static/private';
@@ -22,105 +18,86 @@ import type Stripe from 'stripe';
 import db from '$lib/server/database/drizzle';
 import { clientSubscriptionTable } from '$lib/server/database/schemas/client';
 import { eq } from 'drizzle-orm';
-import { getPostHogClient } from '$lib/server/posthog';
-import { dev } from '$app/environment';
-import posthog from 'posthog-js';
-// import {
-// 	createInvoiceRecord,
-// 	getTimesheetDetails
-// } from '$lib/server/database/queries/requisitions';
+import { logger } from '$lib/server/logger';
 
 export const POST: RequestHandler = async ({ request }) => {
-	console.log('Webhook received');
-	console.log('Webhook Secret: ', STRIPE_WEBHOOK_SECRET);
-
-	// Get the raw body directly as text instead of converting to buffer
 	const payload = await request.text();
 	const signature = request.headers.get('stripe-signature');
 
 	if (!signature) {
-		console.error('No stripe signature found');
+		logger.warn('stripe webhook missing signature header');
 		return new Response('No stripe signature', { status: 400 });
 	}
 
+	// Step 1: verify signature. A failure here is a 400 — Stripe will not retry.
+	let event: Stripe.Event;
 	try {
-		if (dev) console.log('Constructing event...');
-		const event = stripe.webhooks.constructEvent(payload, signature, STRIPE_WEBHOOK_SECRET);
-		if (dev) console.log('Event constructed successfully:', event.type);
+		event = stripe.webhooks.constructEvent(payload, signature, STRIPE_WEBHOOK_SECRET);
+	} catch (err) {
+		logger.error('stripe webhook signature verification failed', { error: err });
+		return new Response(
+			`Webhook Error: ${err instanceof Error ? err.message : 'Unknown Error'}`,
+			{ status: 400 }
+		);
+	}
 
-		const posthog = getPostHogClient();
-
-		// Add special handling for invoice.paid events
+	// Step 2: dispatch handlers. A failure here is a 500 so Stripe retries.
+	try {
 		switch (event.type) {
-			case 'checkout.session.completed':
-				if (dev) console.log('Handling checkout session completed');
+			case 'checkout.session.completed': {
 				const session = event.data.object as Stripe.Checkout.Session;
-
-				// Check if this is setup mode (payment method collection)
 				if (session.mode === 'setup') {
 					await handleCustomerSetupCompleted(session);
 				} else {
-					// Existing subscription checkout logic
 					await handleCheckoutCompleted(session);
 				}
 				break;
+			}
 
-			case 'customer.subscription.created':
-				if (dev) console.log('Handling customer subscription created');
+			case 'customer.subscription.created': {
 				const newSubscription = event.data.object as Stripe.Subscription;
 				await handleSubscriptionCreated(newSubscription);
-				posthog.capture({
+				logger.event('subscription_created', {
 					distinctId: newSubscription.metadata?.userId ?? String(newSubscription.customer),
-					event: 'subscription_created',
-					properties: {
-						stripe_subscription_id: newSubscription.id,
-						plan: newSubscription.items.data[0]?.price?.id ?? null,
-						status: newSubscription.status
-					}
+					stripe_subscription_id: newSubscription.id,
+					plan: newSubscription.items.data[0]?.price?.id ?? null,
+					status: newSubscription.status
 				});
 				break;
+			}
 
 			case 'customer.subscription.updated':
-				if (dev) console.log('Handling customer subscription updated');
 				await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
 				break;
 
-			case 'customer.subscription.deleted':
-				if (dev) console.log('Handling customer subscription deleted');
+			case 'customer.subscription.deleted': {
 				const deletedSubscription = event.data.object as Stripe.Subscription;
 				await handleSubscriptionDeleted(deletedSubscription);
-				// TODO: handle subscription delete/cleanup in database
 				await db
 					.delete(clientSubscriptionTable)
 					.where(
 						eq(clientSubscriptionTable.stripeCustomerId, deletedSubscription.customer as string)
 					);
-				posthog.capture({
-					distinctId: deletedSubscription.metadata?.userId ?? String(deletedSubscription.customer),
-					event: 'subscription_cancelled',
-					properties: {
-						stripe_subscription_id: deletedSubscription.id,
-						status: deletedSubscription.status
-					}
+				logger.event('subscription_cancelled', {
+					distinctId:
+						deletedSubscription.metadata?.userId ?? String(deletedSubscription.customer),
+					stripe_subscription_id: deletedSubscription.id,
+					status: deletedSubscription.status
 				});
 				break;
+			}
+
 			case 'invoice.created':
-				if (dev) console.log('Handling invoice created');
-				const invoiceCreated = event.data.object as Stripe.Invoice;
-				if (dev) console.log(invoiceCreated);
 				break;
 
-			case 'invoice.updated':
-				if (dev) console.log('Handling invoice updated');
+			case 'invoice.updated': {
 				const invoiceUpdated = event.data.object as Stripe.Invoice;
-				if (dev) console.log(invoiceUpdated);
 				const [existingInvoice] = await db
 					.select()
 					.from(invoiceTable)
 					.where(eq(invoiceTable.stripeInvoiceId, invoiceUpdated.id))
 					.limit(1);
 				if (existingInvoice) {
-					if (dev) console.log('Invoice exists in the database:', existingInvoice);
 					await db
 						.update(invoiceTable)
 						.set({
@@ -132,28 +109,19 @@ export const POST: RequestHandler = async ({ request }) => {
 							updatedAt: new Date()
 						})
 						.where(eq(invoiceTable.id, existingInvoice.id));
-				} else {
-					if (dev) console.log('Invoice does not exist in the database, creating new record');
 				}
 				break;
-			case 'invoice.finalized':
-				if (dev) console.log('Handling invoice finalized');
+			}
+
+			case 'invoice.finalized': {
 				const invoiceFinalized = event.data.object as Stripe.Invoice;
 				const userId = invoiceFinalized.metadata?.userId;
 				const clientId = invoiceFinalized.metadata?.clientId;
-				let timesheet: TimeSheetSelect | null = null;
 
 				if (!userId && !clientId) {
-					if (dev) {
-						console.error('No userId or clientId in metadata for invoice:', invoiceFinalized.id);
-					}
-					posthog.capture({
-						distinctId: 'server',
-						event: 'invoice_finalization_error',
-						properties: {
-							error: 'No userId or clientId in metadata',
-							stripe_invoice_id: invoiceFinalized.id
-						}
+					logger.error('stripe invoice.finalized missing metadata', {
+						stripe_invoice_id: invoiceFinalized.id,
+						reason: 'no userId or clientId in metadata'
 					});
 					break;
 				}
@@ -165,57 +133,38 @@ export const POST: RequestHandler = async ({ request }) => {
 						: null;
 
 				if (!client) {
-					if (dev) {
-						console.error(
-							'No client found for invoice:',
-							invoiceFinalized.id,
-							'userId:',
-							userId,
-							'clientId:',
-							clientId
-						);
-					}
-					posthog.capture({
-						distinctId: 'server',
-						event: 'invoice_finalization_error',
-						properties: {
-							error: 'No client found for userId or clientId in metadata',
-							stripe_invoice_id: invoiceFinalized.id,
-							userId,
-							clientId
-						}
+					// Never return non-2xx here — Stripe would retry forever.
+					logger.error('stripe invoice.finalized client not found', {
+						stripe_invoice_id: invoiceFinalized.id,
+						userId,
+						clientId
 					});
-					break; // never return 400 here — Stripe will retry forever
+					break;
 				}
-
-				if (invoiceFinalized.metadata?.timesheetId) {
-					const [result] = await db
-						.select()
-						.from(timeSheetTable)
-						.where(eq(timeSheetTable.id, invoiceFinalized.metadata?.timesheetId))
-						.limit(1);
-					timesheet = result as TimeSheetSelect;
-				}
-
-				const invoice = event.data.object as Stripe.Invoice;
-				if (dev) console.log('Invoice paid:', invoice.id);
 				break;
-			case 'invoice.payment_failed':
-				if (dev) console.log('Handling invoice payment failed');
+			}
+
+			case 'invoice.payment_failed': {
 				const invoicePaymentFailed = event.data.object as Stripe.Invoice;
-				if (dev) console.log(invoicePaymentFailed);
+				logger.event('invoice_payment_failed', {
+					distinctId:
+						invoicePaymentFailed.metadata?.userId ?? String(invoicePaymentFailed.customer),
+					stripe_invoice_id: invoicePaymentFailed.id,
+					amount_due: invoicePaymentFailed.amount_due / 100,
+					currency: invoicePaymentFailed.currency,
+					attempt_count: invoicePaymentFailed.attempt_count
+				});
 				break;
-			case 'invoice.payment_succeeded':
-				if (dev) console.log('Handling invoice payment succeeded');
+			}
+
+			case 'invoice.payment_succeeded': {
 				const invoicePaymentSucceeded = event.data.object as Stripe.Invoice;
-				if (dev) console.log(invoicePaymentSucceeded);
 				const [existingPaidInvoice] = await db
 					.select()
 					.from(invoiceTable)
 					.where(eq(invoiceTable.stripeInvoiceId, invoicePaymentSucceeded.id))
 					.limit(1);
 				if (existingPaidInvoice) {
-					if (dev) console.log('Invoice  exists in the database:', existingPaidInvoice);
 					await db
 						.update(invoiceTable)
 						.set({
@@ -227,50 +176,27 @@ export const POST: RequestHandler = async ({ request }) => {
 							amountRemaining: (invoicePaymentSucceeded.amount_remaining / 100).toFixed(2)
 						})
 						.where(eq(invoiceTable.id, existingPaidInvoice.id));
-					posthog.capture({
+					logger.event('invoice_payment_succeeded', {
 						distinctId:
-							invoicePaymentSucceeded.metadata?.userId ?? String(invoicePaymentSucceeded.customer),
-						event: 'invoice_payment_succeeded',
-						properties: {
-							stripe_invoice_id: invoicePaymentSucceeded.id,
-							amount_paid: invoicePaymentSucceeded.amount_paid / 100,
-							currency: invoicePaymentSucceeded.currency,
-							invoice_id: existingPaidInvoice.id
-						}
+							invoicePaymentSucceeded.metadata?.userId ??
+							String(invoicePaymentSucceeded.customer),
+						stripe_invoice_id: invoicePaymentSucceeded.id,
+						amount_paid: invoicePaymentSucceeded.amount_paid / 100,
+						currency: invoicePaymentSucceeded.currency,
+						invoice_id: existingPaidInvoice.id
 					});
 				}
 				break;
-			// case 'invoice.overdue':
-			// 	console.log('Handling invoice overdue');
-			// 	const invoiceOverdue = event.data.object as Stripe.Invoice;
-			// 	console.log(invoiceOverdue);
-			// 	const [existingOverdueInvoice] = await db
-			// 		.select()
-			// 		.from(invoiceTable)
-			// 		.where(eq(invoiceTable.stripeInvoiceId, invoiceOverdue.id))
-			// 		.limit(1);
-			// 	if (existingOverdueInvoice) {
-			// 		console.log('Invoice  exists in the database:', existingOverdueInvoice);
-			// 		await db
-			// 			.update(invoiceTable)
-			// 			.set({
-			// 				status: 'overdue',
-			// 				stripeStatus: invoiceOverdue.status
-			// 			})
-			// 			.where(eq(invoiceTable.id, existingOverdueInvoice.id));
-			// 	}
-			// 	break;
-			case 'invoice.voided':
-				if (dev) console.log('Handling invoice voided');
+			}
+
+			case 'invoice.voided': {
 				const invoiceVoided = event.data.object as Stripe.Invoice;
-				if (dev) console.log(invoiceVoided);
 				const [existingVoidedInvoice] = await db
 					.select()
 					.from(invoiceTable)
 					.where(eq(invoiceTable.stripeInvoiceId, invoiceVoided.id))
 					.limit(1);
 				if (existingVoidedInvoice) {
-					if (dev) console.log('Invoice  exists in the database:', existingVoidedInvoice);
 					await db
 						.update(invoiceTable)
 						.set({
@@ -280,14 +206,18 @@ export const POST: RequestHandler = async ({ request }) => {
 						.where(eq(invoiceTable.id, existingVoidedInvoice.id));
 				}
 				break;
+			}
 		}
 
 		return json({ received: true });
 	} catch (err) {
-		if (dev) console.error('Full webhook error:', err);
-		if (dev) console.error('Error message:', (err as Error).message);
-		return new Response(`Webhook Error: ${err instanceof Error ? err.message : 'Unknown Error'}`, {
-			status: 400
+		logger.error('stripe webhook handler failed', {
+			error: err,
+			stripe_event_type: event.type,
+			stripe_event_id: event.id
 		});
+		// Return 500 so Stripe retries — handler failures are usually transient
+		// (DB unavailable, etc.). Signature failures already returned 400 above.
+		return new Response('Webhook handler error', { status: 500 });
 	}
 };

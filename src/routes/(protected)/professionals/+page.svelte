@@ -29,7 +29,6 @@
 	import { cn } from '$lib/utils';
 	import type { PageData } from './$types';
 	import { writable } from 'svelte/store';
-	import { onMount } from 'svelte';
 	import ViewLink from '$lib/components/tables/ViewLink.svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import Label from '$lib/components/ui/label/label.svelte';
@@ -75,18 +74,18 @@
 	};
 
 	let searchTerm = data.searchTerm || '';
-	let activeTab = 'approved';
 
+	type StatusKey = 'ACTIVE' | 'PENDING' | 'INACTIVE' | 'DENIED';
+	const TABS: { value: StatusKey; label: string }[] = [
+		{ value: 'ACTIVE', label: 'Active' },
+		{ value: 'PENDING', label: 'Pending' },
+		{ value: 'INACTIVE', label: 'Inactive' },
+		{ value: 'DENIED', label: 'Denied' }
+	];
+
+	$: activeTab = (data.status as StatusKey) || 'ACTIVE';
 	$: candidates = (data.candidates as CandidateData[]) || [];
-
-	// Filter candidates by status
-	const filterByStatus = (candidates: CandidateData[], status: string) => {
-		return candidates.filter((candidate) =>
-			status === 'approved'
-				? candidate.profile.status === 'ACTIVE'
-				: candidate.profile.status === 'PENDING'
-		);
-	};
+	$: statusCounts = data.statusCounts as Record<StatusKey, number>;
 
 	// Slimmed down column definitions
 	const columns: ColumnDef<CandidateData>[] = [
@@ -165,9 +164,8 @@
 		}
 	];
 
-	// Create separate table instances for each tab
-	const createTableOptions = (data: CandidateData[]): TableOptions<CandidateData> => ({
-		data,
+	const createTableOptions = (rows: CandidateData[]): TableOptions<CandidateData> => ({
+		data: rows,
 		columns,
 		getCoreRowModel: getCoreRowModel(),
 		getSortedRowModel: getSortedRowModel(),
@@ -179,50 +177,31 @@
 		}
 	});
 
-	// Table options for each status
-	const approvedOptions = writable<TableOptions<CandidateData>>(createTableOptions([]));
-	const pendingOptions = writable<TableOptions<CandidateData>>(createTableOptions([]));
+	const tableOptions = writable<TableOptions<CandidateData>>(createTableOptions(candidates));
+	const currentTable = createSvelteTable(tableOptions);
 
-	// Create table instances
-	const approvedTable = createSvelteTable(approvedOptions);
-	const pendingTable = createSvelteTable(pendingOptions);
+	$: tableOptions.update((opts) => ({ ...opts, data: candidates, columns }));
 
-	// Get current active table
-	$: currentTable = activeTab === 'approved' ? approvedTable : pendingTable;
-
-	// Update table data when candidates change
-	$: {
-		const approvedData = filterByStatus(candidates, 'approved');
-		const pendingData = filterByStatus(candidates, 'pending');
-
-		approvedOptions.update((opts) => ({ ...opts, data: approvedData, columns }));
-		pendingOptions.update((opts) => ({ ...opts, data: pendingData, columns }));
+	function buildHref(nextStatus: StatusKey, nextSearch = searchTerm) {
+		const params = new URLSearchParams();
+		params.set('status', nextStatus);
+		if (nextSearch && nextSearch.trim()) params.set('search', nextSearch.trim());
+		return `/professionals?${params.toString()}`;
 	}
 
-	onMount(() => {
-		const approvedData = filterByStatus(candidates, 'approved');
-		const pendingData = filterByStatus(candidates, 'pending');
-
-		approvedOptions.update((opts) => ({ ...opts, data: approvedData, columns }));
-		pendingOptions.update((opts) => ({ ...opts, data: pendingData, columns }));
-	});
-
-	// Get tab counts
-	$: tabCounts = {
-		approved: filterByStatus(candidates, 'approved').length,
-		pending: filterByStatus(candidates, 'pending').length
-	};
+	function handleTabChange(value: string | undefined) {
+		if (!value) return;
+		const next = value as StatusKey;
+		if (next === activeTab) return;
+		goto(buildHref(next), { keepFocus: true, noScroll: true });
+	}
 
 	function handleRowClick(candidateId: string) {
 		goto(`/professionals/${candidateId}`);
 	}
 
-	function handleSearch(searchTerm: string) {
-		if (!searchTerm || searchTerm.trim() === '') {
-			goto('/professionals', { replaceState: true });
-			return;
-		}
-		goto(`/professionals?search=${encodeURIComponent(searchTerm)}`, { replaceState: true });
+	function handleSearch(value: string) {
+		goto(buildHref(activeTab, value), { replaceState: true });
 	}
 </script>
 
@@ -255,28 +234,26 @@
 	</div>
 
 	<!-- Tabs with Tables -->
-	<Tabs.Root bind:value={activeTab} class="">
-		<Tabs.List class="grid w-full grid-cols-2">
-			<Tabs.Trigger value="approved" class="relative">
-				Approved
-				{#if tabCounts.approved > 0}
-					<Badge variant="secondary" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.approved}
-					></Badge>
-				{/if}
-			</Tabs.Trigger>
-			<Tabs.Trigger value="pending" class="relative">
-				Pending
-				{#if tabCounts.pending > 0}
-					<Badge variant="secondary" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.pending}
-					></Badge>
-				{/if}
-			</Tabs.Trigger>
+	<Tabs.Root value={activeTab} onValueChange={handleTabChange} class="">
+		<Tabs.List class="grid w-full grid-cols-4">
+			{#each TABS as tab}
+				<Tabs.Trigger value={tab.value} class="relative">
+					{tab.label}
+					{#if (statusCounts?.[tab.value] ?? 0) > 0}
+						<Badge
+							variant="secondary"
+							class="ml-2 h-5 min-w-5 text-xs"
+							value={statusCounts[tab.value]}
+						></Badge>
+					{/if}
+				</Tabs.Trigger>
+			{/each}
 		</Tabs.List>
 
 		<!-- Tab Contents -->
-		{#each ['approved', 'pending'] as tabValue}
-			<Tabs.Content value={tabValue} class="">
-				{#if activeTab === tabValue}
+		{#each TABS as tab}
+			<Tabs.Content value={tab.value} class="">
+				{#if activeTab === tab.value}
 					<div class="bg-white rounded-lg shadow-sm">
 						{#if $currentTable.getRowModel().rows.length > 0}
 							<div class="rounded-md border">
@@ -377,7 +354,7 @@
 									<Users class="w-8 h-8 text-gray-400" />
 								</div>
 								<h3 class="text-lg font-medium text-gray-900 mb-2">
-									No {activeTab} professionals found
+									No {tab.label.toLowerCase()} professionals found
 								</h3>
 								<p class="text-sm text-gray-500">
 									{#if searchTerm}

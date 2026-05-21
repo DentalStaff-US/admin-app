@@ -10,6 +10,7 @@ import { authenticateUser } from '$lib/server/serverUtils';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { desc } from 'drizzle-orm';
 import { eq, and, ne } from 'drizzle-orm';
+import { logger } from '$lib/server/logger';
 
 export const GET: RequestHandler = async ({ request }) => {
 	// Authenticate the user
@@ -74,7 +75,7 @@ export const GET: RequestHandler = async ({ request }) => {
 
 		return json({ success: true, data: timesheets });
 	} catch (err) {
-		console.error('Error fetching timesheets:', err);
+		logger.error('timesheets.getPendingTimesheetsForUser failed', { error: err, distinctId: user?.id });
 		throw error(500, 'Internal server error');
 	}
 };
