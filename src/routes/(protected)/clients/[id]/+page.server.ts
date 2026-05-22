@@ -10,7 +10,8 @@ import {
 	getPrimaryLocationForStaff
 } from '$lib/server/database/queries/clients';
 import { fail, redirect } from '@sveltejs/kit';
-import { USER_ROLES } from '$lib/config/constants';
+import { CLIENT_STATUS, USER_ROLES, type ClientStatus } from '$lib/config/constants';
+import { notifyClientStatusChange } from '$lib/server/notifications/transactional';
 import {
 	getSupportTicketsForClient
 	// getSupportTicketsForUser
@@ -22,6 +23,7 @@ import {
 	getRequisitionsForClient
 } from '$lib/server/database/queries/requisitions';
 import { createStripeInvoice } from '$lib/server/stripe';
+import { dueDateEndOfDayInTimezone } from '$lib/_helpers/UTCTimezoneUtils';
 import { logger } from '$lib/server/logger';
 import { z } from 'zod';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
@@ -74,6 +76,15 @@ const LineItemSchema = z.array(
 	})
 );
 
+const ClientStatusSchema = z.object({
+	status: z.enum([
+		CLIENT_STATUS.PENDING,
+		CLIENT_STATUS.ACTIVE,
+		CLIENT_STATUS.INACTIVE,
+		CLIENT_STATUS.DENIED
+	])
+});
+
 const NewInvoiceSchema = z.object({
 	amount: z.number().min(0, 'Amount must be a positive number'),
 	dueDate: z.string().optional(),
@@ -125,6 +136,11 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		updateClientSchema
 	);
 
+	const statusForm = await superValidate(
+		{ status: (result.profile.status ?? CLIENT_STATUS.PENDING) as ClientStatus },
+		ClientStatusSchema
+	);
+
 	const staffWithPrimaryLocation = await Promise.all(
 		staff.map(async (member) => {
 			const primaryLocation = await getPrimaryLocationForStaff(member.profile.id);
@@ -156,6 +172,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				requisitionForm,
 				locationForm,
 				updateClientForm,
+				statusForm,
 				comments,
 				documents
 			}
@@ -171,12 +188,62 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				updateClientForm,
 				requisitionForm,
 				locationForm,
+				statusForm,
 				comments: [],
 				documents: []
 			};
 };
 
 export const actions = {
+	updateStatus: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id: clientId } = event.params;
+
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Not authorized' });
+		}
+
+		const form = await superValidate(event, ClientStatusSchema);
+		if (!form.valid) {
+			return fail(400, { form });
+		}
+
+		try {
+			const [previous] = await db
+				.select({ status: clientProfileTable.status })
+				.from(clientProfileTable)
+				.where(eq(clientProfileTable.id, clientId))
+				.limit(1);
+			if (!previous) {
+				return setError(form, 'Client not found');
+			}
+
+			const next = form.data.status as ClientStatus;
+			if (previous.status === next) {
+				return message(form, 'Status unchanged');
+			}
+
+			await db
+				.update(clientProfileTable)
+				.set({ status: next, updatedAt: new Date() })
+				.where(eq(clientProfileTable.id, clientId));
+
+			// Fire-and-forget client-facing email. Dispatcher swallows its own
+			// errors; admin's save success doesn't depend on email delivery.
+			await notifyClientStatusChange(clientId, next);
+
+			setFlash({ type: 'success', message: `Client marked ${next.toLowerCase()}` }, event);
+			return message(form, `Client status set to ${next}`);
+		} catch (err) {
+			logger.error('updateClientStatus failed', {
+				error: err,
+				clientId,
+				distinctId: user?.id
+			});
+			setFlash({ type: 'error', message: 'Failed to update client status' }, event);
+			return setError(form, 'Failed to update client status');
+		}
+	},
 	createInvoice: async (request: RequestEvent) => {
 		const user = request.locals.user;
 		const { id: clientId } = request.params;
@@ -206,14 +273,14 @@ export const actions = {
 						description: form.data.description,
 						lineItems: lineItems.map((item) => ({
 							id: crypto.randomUUID(),
-							description: item.description,
+							description: item.description ?? null,
 							quantity: item.quantity,
 							rate: item.rate,
 							unit_amount: Math.round(item.rate * 100),
 							unit_amount_excluding_tax: Math.round(item.rate * 100),
 							amount: Math.round(item.amount * 100),
 							currency: 'usd',
-							type: 'paper'
+							type: 'paper' as const
 						})),
 						customerEmail,
 						customerName
@@ -221,9 +288,11 @@ export const actions = {
 					user.id
 				);
 			} else {
-				// Existing Stripe flow
-				const localDate = new Date(dateString + 'T00:00:00');
-				const utcDate = localDate.toISOString();
+				// Existing Stripe flow. Anchor the picked date to end-of-day in
+				// the business timezone so "due today" submitted from ET in the
+				// morning still resolves to a future UTC instant (Stripe rejects
+				// past `due_date` values).
+				const dueDate = dueDateEndOfDayInTimezone(dateString)?.toISOString();
 				const stripeCustomerId = await getClientSubscription(clientId);
 
 				if (stripeCustomerId) {
@@ -237,7 +306,7 @@ export const actions = {
 						})),
 						{ clientId, userId: clientResult.user.id },
 						form.data.description,
-						utcDate
+						dueDate
 					);
 					await createInvoiceRecord(
 						{

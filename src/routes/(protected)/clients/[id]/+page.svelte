@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ClientCompanyLocation } from '$lib/server/database/schemas/client';
-	import { STAFF_ROLE_ENUM, USER_ROLES } from '$lib/config/constants';
+	import { CLIENT_STATUS, STAFF_ROLE_ENUM, USER_ROLES } from '$lib/config/constants';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import type { PageData } from './$types';
 	import convertNameToInitials from '$lib/_helpers/convertNameToInitials';
 	import { Download, Lock, Unlock, MoreHorizontal, Trash } from 'lucide-svelte';
@@ -176,6 +177,25 @@
 			};
 		}
 		editingSection = null;
+	}
+
+	// Mirror the professionals page status-dropdown pattern: imperatively set
+	// the hidden input's value on change, then `form.submit()` for a full
+	// post + reload. Avoids the superforms/requestSubmit DOM-flush race that
+	// caused the dropdown to revert. The server action still validates with
+	// superValidate, so this client-side simplification doesn't weaken the
+	// server contract.
+	function statusLabel(s: string | null | undefined) {
+		switch (s) {
+			case CLIENT_STATUS.ACTIVE:
+				return 'Approved';
+			case CLIENT_STATUS.DENIED:
+				return 'Denied';
+			case CLIENT_STATUS.INACTIVE:
+				return 'Inactive';
+			default:
+				return 'Pending';
+		}
 	}
 
 	type StaffProfileData = {
@@ -684,7 +704,53 @@
 									</div>
 								</div>
 
-								<div class="flex gap-2 mt-3 md:mt-0">
+								<div class="flex gap-2 mt-3 md:mt-0 items-center flex-wrap">
+									{#if isAdmin}
+										<div class="flex items-center gap-2">
+											<StatusBadge
+												status={client.profile.status}
+												label={statusLabel(client.profile.status)}
+											/>
+											<form
+												use:nativeEnhance
+												id="client-status-form"
+												action="?/updateStatus"
+												method="POST"
+												class="flex items-center gap-1"
+											>
+												<Select.Root
+													preventScroll={false}
+													selected={{
+														value: client.profile.status,
+														label: statusLabel(client.profile.status)
+													}}
+													onSelectedChange={(selected) => {
+														if (selected) {
+															const form = document.getElementById('client-status-form');
+															const hiddenInput = form?.querySelector('input[name="status"]');
+															hiddenInput.value = selected.value;
+															form?.submit();
+														}
+													}}
+												>
+													<Select.Trigger class="h-8 w-32 bg-white">
+														<Select.Value />
+													</Select.Trigger>
+													<Select.Content>
+														<Select.Item value="PENDING">Pending</Select.Item>
+														<Select.Item value="ACTIVE">Approved</Select.Item>
+														<Select.Item value="INACTIVE">Inactive</Select.Item>
+														<Select.Item value="DENIED">Denied</Select.Item>
+													</Select.Content>
+													<Select.Input
+														type="hidden"
+														name="status"
+														value={client.profile.status}
+													/>
+												</Select.Root>
+											</form>
+										</div>
+									{/if}
 									{#if needsCustomerSetup}
 										<Button
 											variant="outline"

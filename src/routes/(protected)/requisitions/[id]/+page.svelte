@@ -16,7 +16,10 @@
 		Edit,
 		X,
 		Clock,
-		ChevronUp
+		ChevronUp,
+		CreditCard,
+		Plus,
+		Trash2
 	} from 'lucide-svelte';
 	import type { PageData } from './$types';
 	import type { SuperValidated } from 'sveltekit-superforms';
@@ -68,6 +71,8 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Alert, AlertDescription } from '$lib/components/ui/alert';
+	import * as Dialog from '$lib/components/ui/dialog';
+	import * as Select from '$lib/components/ui/select';
 
 	export let data: PageData;
 
@@ -258,6 +263,58 @@
 
 	const { enhance: deleteEnhance } = superForm(deleteRecurrenceDayForm);
 	const { enhance: statusEnhance, submitting: statusSubmitting } = superForm(changeStatusForm);
+
+	// One-off invoice dialog state (permanent requisitions only). Default the
+	// method to whatever the client is set up to use for billing — admins on a
+	// Stripe-billed client shouldn't have to flip from PAPER every time.
+	let showInvoiceDialog = false;
+	let invoiceItems: { description: string; quantity: number; rate: number; amount: number }[] = [
+		{ description: '', quantity: 1, rate: 0, amount: 0 }
+	];
+	let selectedInvoiceMethod: 'STRIPE' | 'PAPER' =
+		data.clientInvoiceMethod === 'PAPER' ? 'PAPER' : 'STRIPE';
+	const {
+		form: invoiceFormStore,
+		enhance: invoiceEnhance,
+		submitting: invoiceSubmitting,
+		errors: invoiceErrors
+	} = superForm(data.invoiceForm, {
+		dataType: 'json',
+		onResult({ result }) {
+			if (result.type === 'success') {
+				showInvoiceDialog = false;
+				invoiceItems = [{ description: '', quantity: 1, rate: 0, amount: 0 }];
+			}
+		}
+	});
+
+	function updateInvoiceItemAmount(index: number) {
+		const item = invoiceItems[index];
+		item.amount = (Number(item.quantity) || 0) * (Number(item.rate) || 0);
+		invoiceItems = [...invoiceItems];
+	}
+
+	function addInvoiceItem() {
+		invoiceItems = [...invoiceItems, { description: '', quantity: 1, rate: 0, amount: 0 }];
+	}
+
+	function removeInvoiceItem(index: number) {
+		invoiceItems = invoiceItems.filter((_, i) => i !== index);
+	}
+
+	$: $invoiceFormStore.amount = invoiceItems.reduce(
+		(total, item) => total + (item.amount || 0),
+		0
+	);
+	$: $invoiceFormStore.items = JSON.stringify(
+		invoiceItems.map((item) => ({
+			description: item.description,
+			quantity: item.quantity,
+			rate: String(item.rate),
+			amount: item.amount
+		}))
+	);
+	$: $invoiceFormStore.invoiceMethod = selectedInvoiceMethod;
 </script>
 
 {#if requisition}
@@ -297,6 +354,17 @@
 
 				{#if hasRequisitionRights}
 					<div class="flex items-center gap-2 flex-shrink-0">
+						{#if requisition.permanentPosition}
+							<Button
+								variant="outline"
+								size="sm"
+								class="gap-1"
+								on:click={() => (showInvoiceDialog = true)}
+							>
+								<CreditCard class="h-4 w-4" />
+								<span>Create Invoice</span>
+							</Button>
+						{/if}
 						<DropdownMenu>
 							<DropdownMenuTrigger>
 								<Button variant="outline" size="sm" class="gap-1">
@@ -795,4 +863,166 @@
 			<Button type="button" on:click={() => window.history.back()}>Go back</Button>
 		</div>
 	</section>
+{/if}
+
+<!-- One-Off Invoice Dialog for permanent requisitions -->
+{#if requisition?.permanentPosition}
+	<Dialog.Root bind:open={showInvoiceDialog}>
+		<Dialog.Content class="sm:max-w-[600px] max-h-screen overflow-y-auto">
+			<Dialog.Header>
+				<Dialog.Title>Create Invoice for Permanent Requisition</Dialog.Title>
+				<Dialog.Description>
+					Charge the client for services tied to Req #{requisition.id}
+					({requisition.discipline?.name ?? requisition.title ?? 'Permanent position'}). Use the
+					notes field to capture the rationale for the charges.
+				</Dialog.Description>
+			</Dialog.Header>
+
+			<form method="POST" action="?/createInvoice" use:invoiceEnhance>
+				<div class="grid gap-4 py-4">
+					<div class="grid grid-cols-2 gap-4">
+						<div class="space-y-2">
+							<Label for="invoiceDueDate">Due Date</Label>
+							<Input
+								id="invoiceDueDate"
+								name="dueDate"
+								type="date"
+								bind:value={$invoiceFormStore.dueDate}
+							/>
+							{#if $invoiceErrors.dueDate}
+								<p class="text-sm text-destructive">{$invoiceErrors.dueDate}</p>
+							{/if}
+						</div>
+						<div class="space-y-2">
+							<Label>Invoice Method</Label>
+							<Select.Root
+								selected={{ value: selectedInvoiceMethod, label: selectedInvoiceMethod }}
+								onSelectedChange={(v) => {
+									if (v?.value === 'PAPER' || v?.value === 'STRIPE') {
+										selectedInvoiceMethod = v.value;
+									}
+								}}
+							>
+								<Select.Trigger>
+									<Select.Value placeholder="Select invoice method" />
+								</Select.Trigger>
+								<Select.Content>
+									<Select.Item value="PAPER">Paper Invoice</Select.Item>
+									<Select.Item value="STRIPE">Electronic (Stripe)</Select.Item>
+								</Select.Content>
+							</Select.Root>
+							<input
+								type="hidden"
+								name="invoiceMethod"
+								bind:value={$invoiceFormStore.invoiceMethod}
+							/>
+						</div>
+					</div>
+
+					<div class="space-y-2">
+						<div class="flex items-center justify-between">
+							<Label>Invoice Items</Label>
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								class="gap-1"
+								on:click={addInvoiceItem}
+							>
+								<Plus class="h-4 w-4" />
+								<span>Add Item</span>
+							</Button>
+						</div>
+						<div class="border rounded-md">
+							<Table.Root>
+								<TableHeader>
+									<TableRow>
+										<TableHead>Description</TableHead>
+										<TableHead class="w-20">Qty</TableHead>
+										<TableHead class="w-24">Rate</TableHead>
+										<TableHead class="w-24">Amount</TableHead>
+										<TableHead class="w-12"></TableHead>
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{#each invoiceItems as item, i}
+										<TableRow>
+											<TableCell>
+												<Input bind:value={item.description} placeholder="Item description" />
+											</TableCell>
+											<TableCell>
+												<Input
+													type="number"
+													bind:value={item.quantity}
+													on:input={() => updateInvoiceItemAmount(i)}
+													min="1"
+												/>
+											</TableCell>
+											<TableCell>
+												<Input
+													type="number"
+													bind:value={item.rate}
+													on:input={() => updateInvoiceItemAmount(i)}
+													min="0"
+													step="0.01"
+												/>
+											</TableCell>
+											<TableCell>${(item.amount || 0).toFixed(2)}</TableCell>
+											<TableCell>
+												<Button
+													type="button"
+													variant="ghost"
+													size="sm"
+													class="h-8 w-8 p-0 text-destructive hover:text-destructive"
+													on:click={() => removeInvoiceItem(i)}
+													disabled={invoiceItems.length <= 1}
+												>
+													<Trash2 class="h-4 w-4" />
+												</Button>
+											</TableCell>
+										</TableRow>
+									{/each}
+									<TableRow>
+										<TableCell colspan={4} class="text-right font-bold">Total:</TableCell>
+										<TableCell class="font-bold"
+											>${($invoiceFormStore.amount || 0).toFixed(2)}</TableCell
+										>
+									</TableRow>
+								</TableBody>
+							</Table.Root>
+						</div>
+						{#if $invoiceErrors.items}
+							<p class="text-sm text-destructive">{$invoiceErrors.items}</p>
+						{/if}
+					</div>
+
+					<div class="space-y-2">
+						<Label for="invoiceNotes">Rationale / Notes</Label>
+						<Textarea
+							id="invoiceNotes"
+							name="description"
+							bind:value={$invoiceFormStore.description}
+							placeholder="Explain what these charges cover (placement fee, retainer, etc.)"
+						/>
+						{#if $invoiceErrors.description}
+							<p class="text-sm text-destructive">{$invoiceErrors.description}</p>
+						{/if}
+					</div>
+
+					<!-- Hidden form fields -->
+					<input type="hidden" name="items" bind:value={$invoiceFormStore.items} />
+					<input type="hidden" name="amount" bind:value={$invoiceFormStore.amount} />
+				</div>
+
+				<Dialog.Footer>
+					<Button type="button" variant="outline" on:click={() => (showInvoiceDialog = false)}>
+						Cancel
+					</Button>
+					<Button type="submit" disabled={$invoiceSubmitting}>
+						{#if $invoiceSubmitting}Creating...{:else}Create Invoice{/if}
+					</Button>
+				</Dialog.Footer>
+			</form>
+		</Dialog.Content>
+	</Dialog.Root>
 {/if}

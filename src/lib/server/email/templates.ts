@@ -134,6 +134,152 @@ export const EMAIL_TEMPLATES: Record<
 
 		return { textEmail, htmlEmail, subject };
 	},
+	clientApprovedEmail: (details: { firstName: string; companyName: string }) => {
+		const dashboardUrl = `${BASE_URL}/dashboard`;
+		const greeting = details.firstName ? `Hi ${details.firstName},` : 'Hi,';
+		const company = details.companyName || 'your account';
+
+		const textEmail = `
+            ${greeting}
+
+            Good news — ${company} has been approved on ${APP_NAME}. You can now
+            sign in and start posting requisitions for your locations.
+
+            ${dashboardUrl}
+
+            Welcome aboard,
+            The ${APP_NAME} Team
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>You're approved</h2>
+                <p>${greeting}</p>
+                <p>Good news — <strong>${company}</strong> has been approved on ${APP_NAME}. You can now sign in and start posting requisitions for your locations.</p>
+                <p style="margin: 24px 0;">
+                    <a href="${dashboardUrl}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        Go to your dashboard
+                    </a>
+                </p>
+                <p style="color: #6B7280; font-size: 14px;">Welcome aboard,<br/>The ${APP_NAME} Team</p>
+            </div>
+        `.trim();
+
+		const subject = `${company} is approved on ${APP_NAME}`;
+
+		return { textEmail, htmlEmail, subject };
+	},
+	clientDeniedEmail: (details: { firstName: string; companyName: string }) => {
+		const greeting = details.firstName ? `Hi ${details.firstName},` : 'Hi,';
+		const company = details.companyName || 'your account';
+		const contactEmail = env.COMPANY_REPLY_TO_EMAIL || '';
+
+		const textEmail = `
+            ${greeting}
+
+            We weren't able to approve ${company} on ${APP_NAME} at this time.
+            If you believe this was a mistake or want to discuss next steps,
+            please reach out to us${contactEmail ? ` at ${contactEmail}` : ''}.
+
+            The ${APP_NAME} Team
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>About your ${APP_NAME} account</h2>
+                <p>${greeting}</p>
+                <p>We weren't able to approve <strong>${company}</strong> on ${APP_NAME} at this time.</p>
+                <p>If you believe this was a mistake or want to discuss next steps, please reach out${contactEmail ? ` at <a href="mailto:${contactEmail}">${contactEmail}</a>` : ''}.</p>
+                <p style="color: #6B7280; font-size: 14px;">The ${APP_NAME} Team</p>
+            </div>
+        `.trim();
+
+		const subject = `Update on your ${APP_NAME} application`;
+
+		return { textEmail, htmlEmail, subject };
+	},
+	clientInactiveEmail: (details: { firstName: string; companyName: string }) => {
+		const greeting = details.firstName ? `Hi ${details.firstName},` : 'Hi,';
+		const company = details.companyName || 'your account';
+		const contactEmail = env.COMPANY_REPLY_TO_EMAIL || '';
+
+		const textEmail = `
+            ${greeting}
+
+            ${company} has been marked inactive on ${APP_NAME}. While inactive,
+            you and your staff will not be able to create new requisitions.
+
+            If this is unexpected${contactEmail ? `, please reach out to us at ${contactEmail}` : ', please get in touch'}.
+
+            The ${APP_NAME} Team
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>Your ${APP_NAME} account is now inactive</h2>
+                <p>${greeting}</p>
+                <p><strong>${company}</strong> has been marked inactive on ${APP_NAME}. While inactive, you and your staff will not be able to create new requisitions.</p>
+                <p>If this is unexpected${contactEmail ? `, please reach out at <a href="mailto:${contactEmail}">${contactEmail}</a>` : ', please get in touch'}.</p>
+                <p style="color: #6B7280; font-size: 14px;">The ${APP_NAME} Team</p>
+            </div>
+        `.trim();
+
+		const subject = `${company} has been marked inactive on ${APP_NAME}`;
+
+		return { textEmail, htmlEmail, subject };
+	},
+	newClientSignupAdminEmail: (details: {
+		clientId: string;
+		companyName: string;
+		contactName: string;
+		contactEmail: string;
+		contactPhone: string | null | undefined;
+		signedUpAt: Date;
+	}) => {
+		const { clientId, companyName, contactName, contactEmail, contactPhone, signedUpAt } = details;
+		const profileUrl = `${BASE_URL}/clients/${clientId}`;
+		const signedUpAtFormatted = format(signedUpAt, 'PPPp');
+		const phoneLine = contactPhone ? `Phone: ${contactPhone}` : 'Phone: (not provided)';
+
+		const textEmail = `
+            A new client just signed up on ${APP_NAME} and is awaiting review.
+
+            Business: ${companyName}
+            Primary contact: ${contactName} <${contactEmail}>
+            ${phoneLine}
+            Signed up: ${signedUpAtFormatted}
+
+            Review their profile:
+            ${profileUrl}
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>New client signup</h2>
+                <p>A new client just signed up on ${APP_NAME} and is awaiting review.</p>
+                <table style="border-collapse: collapse; margin: 16px 0;">
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Business</td><td style="padding: 4px 0;"><strong>${companyName}</strong></td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Contact</td><td style="padding: 4px 0;">${contactName} &lt;<a href="mailto:${contactEmail}">${contactEmail}</a>&gt;</td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Phone</td><td style="padding: 4px 0;">${contactPhone ?? '(not provided)'}</td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Signed up</td><td style="padding: 4px 0;">${signedUpAtFormatted}</td></tr>
+                </table>
+                <p style="margin: 24px 0;">
+                    <a href="${profileUrl}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        View Client Profile
+                    </a>
+                </p>
+                <p style="color: #6B7280; font-size: 14px;">Or open it directly: ${profileUrl}</p>
+            </div>
+        `.trim();
+
+		const subject = `Pending review: new client signup — ${companyName}`;
+
+		return { textEmail, htmlEmail, subject };
+	},
 	adminUserInviteEmail: (token: string) => {
 		const verifyEmailURL = `${BASE_URL}/auth/invite/${token}`;
 		const textEmail = `

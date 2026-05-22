@@ -375,6 +375,105 @@ export class EmailService {
 	}
 
 	/**
+	 * Client status transition emails. One method per outgoing message so the
+	 * call sites stay tidy and per-template error wrapping is consistent.
+	 */
+	async sendClientApprovedEmail(
+		email: string,
+		details: { firstName: string; companyName: string }
+	): Promise<EmailSendResult> {
+		try {
+			const template = EMAIL_TEMPLATES.clientApprovedEmail(details);
+			return await this.sendEmail({
+				to: [{ email }],
+				subject: template.subject,
+				html: template.htmlEmail,
+				text: template.textEmail
+			});
+		} catch (error: any) {
+			return {
+				id: crypto.randomUUID(),
+				success: false,
+				error: error.message || 'Failed to send client approved email'
+			};
+		}
+	}
+
+	async sendClientDeniedEmail(
+		email: string,
+		details: { firstName: string; companyName: string }
+	): Promise<EmailSendResult> {
+		try {
+			const template = EMAIL_TEMPLATES.clientDeniedEmail(details);
+			return await this.sendEmail({
+				to: [{ email }],
+				subject: template.subject,
+				html: template.htmlEmail,
+				text: template.textEmail
+			});
+		} catch (error: any) {
+			return {
+				id: crypto.randomUUID(),
+				success: false,
+				error: error.message || 'Failed to send client denied email'
+			};
+		}
+	}
+
+	async sendClientInactiveEmail(
+		email: string,
+		details: { firstName: string; companyName: string }
+	): Promise<EmailSendResult> {
+		try {
+			const template = EMAIL_TEMPLATES.clientInactiveEmail(details);
+			return await this.sendEmail({
+				to: [{ email }],
+				subject: template.subject,
+				html: template.htmlEmail,
+				text: template.textEmail
+			});
+		} catch (error: any) {
+			return {
+				id: crypto.randomUUID(),
+				success: false,
+				error: error.message || 'Failed to send client inactive email'
+			};
+		}
+	}
+
+	/**
+	 * Notify an admin that a new client signed up.
+	 */
+	async sendNewClientSignupAdminEmail(
+		email: string,
+		details: {
+			clientId: string;
+			companyName: string;
+			contactName: string;
+			contactEmail: string;
+			contactPhone: string | null | undefined;
+			signedUpAt: Date;
+		}
+	): Promise<EmailSendResult> {
+		try {
+			const template = EMAIL_TEMPLATES.newClientSignupAdminEmail(details);
+			const result = await this.sendEmail({
+				to: [{ email }],
+				subject: template.subject,
+				html: template.htmlEmail,
+				text: template.textEmail
+			});
+			return result;
+		} catch (error: any) {
+			return {
+				id: crypto.randomUUID(),
+				success: false,
+				error: error.message || 'Failed to send new client signup admin email'
+			};
+		}
+	}
+
+	/**
 	 * Send Workday Reminder email
 	 */
 

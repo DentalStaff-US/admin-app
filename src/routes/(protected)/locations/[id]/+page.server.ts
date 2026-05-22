@@ -1,6 +1,10 @@
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { USER_ROLES } from '$lib/config/constants';
+import {
+	clientCanCreateRequisitions,
+	USER_ROLES,
+	type ClientStatus
+} from '$lib/config/constants';
 import {
 	addStaffToLocation,
 	getAllClientStaffProfilesForLocation,
@@ -78,6 +82,7 @@ export const load: PageServerLoad = async (event) => {
 			operatingHours: JSON.stringify(location.operatingHours || {})
 		};
 
+		const clientStatus = (client?.status ?? 'PENDING') as ClientStatus;
 		return {
 			user: user,
 			client: client || null,
@@ -89,7 +94,9 @@ export const load: PageServerLoad = async (event) => {
 			assignForm: form,
 			locationForm,
 			operatingHoursForm,
-			clientForm
+			clientForm,
+			clientStatus,
+			canCreateRequisitions: clientCanCreateRequisitions(clientStatus)
 		};
 	}
 	if (user.role === USER_ROLES.CLIENT_STAFF) {
@@ -118,6 +125,7 @@ export const load: PageServerLoad = async (event) => {
 		operatingHoursForm.data = {
 			operatingHours: JSON.stringify(location.operatingHours || {})
 		};
+		const clientStatus = (client?.status ?? 'PENDING') as ClientStatus;
 		return {
 			user: user,
 			client: client || null,
@@ -129,7 +137,9 @@ export const load: PageServerLoad = async (event) => {
 			assignForm: form,
 			locationForm,
 			operatingHoursForm,
-			clientForm
+			clientForm,
+			clientStatus,
+			canCreateRequisitions: clientCanCreateRequisitions(clientStatus)
 		};
 	}
 };

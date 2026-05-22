@@ -254,12 +254,31 @@
 		</div>
 
 		<div class="flex items-center gap-3">
-			<Button on:click={() => (drawerExpanded = true)} class="bg-blue-800 hover:bg-blue-900">
-				<Plus class="h-4 w-4 mr-2" />
-				New Requisition
-			</Button>
+			{#if data.canCreateRequisitions}
+				<Button on:click={() => (drawerExpanded = true)} class="bg-blue-800 hover:bg-blue-900">
+					<Plus class="h-4 w-4 mr-2" />
+					New Requisition
+				</Button>
+			{/if}
 		</div>
 	</div>
+
+	{#if data.user?.role !== USER_ROLES.SUPERADMIN && data.clientStatus && !data.canCreateRequisitions}
+		<div
+			class="rounded-md border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-900"
+		>
+			{#if data.clientStatus === 'PENDING'}
+				Your account is <strong>pending approval</strong>. You'll be able to create new
+				requisitions once an admin approves you.
+			{:else if data.clientStatus === 'DENIED'}
+				Your account has been <strong>denied</strong>. Please contact support if you believe this
+				is a mistake.
+			{:else}
+				Your account is <strong>inactive</strong>. Requisition posting is paused. Contact support
+				to reactivate.
+			{/if}
+		</div>
+	{/if}
 
 	<!-- Search -->
 	<form on:submit|preventDefault={() => handleSearch(searchTerm)} class="flex items-center gap-2">

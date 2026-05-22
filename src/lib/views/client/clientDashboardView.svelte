@@ -75,6 +75,22 @@
 			Welcome, {user?.firstName}
 			{user?.lastName}
 		</h1>
+		{#if data.clientStatus && !data.canCreateRequisitions}
+			<div
+				class="rounded-md border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-900"
+			>
+				{#if data.clientStatus === 'PENDING'}
+					Your account is <strong>pending approval</strong>. You'll be able to post requisitions
+					once an admin approves you.
+				{:else if data.clientStatus === 'DENIED'}
+					Your account has been <strong>denied</strong>. Please contact support if you believe this
+					is a mistake.
+				{:else}
+					Your account is <strong>inactive</strong>. Requisition posting is paused. Contact support
+					to reactivate.
+				{/if}
+			</div>
+		{/if}
 	</div>
 	<div class="col-span-3 p-6 grid grid-cols-12 gap-4">
 		<!-- Original metric cards -->
@@ -176,13 +192,19 @@
 			<Card.Root>
 				<Card.Header class="flex flex-row justify-between items-center flex-wrap">
 					<Card.Title class="text-xl md:text-2xl">Recent Requisitions</Card.Title>
-					<Button
-						on:click={() => (drawerExpanded = true)}
-						size="sm"
-						class="bg-blue-900 hover:bg-blue-800"
-					>
-						<PlusIcon size={16} class="mr-1" /> New Requisition
-					</Button>
+					{#if data.canCreateRequisitions}
+						<Button
+							on:click={() => (drawerExpanded = true)}
+							size="sm"
+							class="bg-blue-900 hover:bg-blue-800"
+						>
+							<PlusIcon size={16} class="mr-1" /> New Requisition
+						</Button>
+					{:else}
+						<span class="text-xs text-muted-foreground"
+							>Account {String(data.clientStatus ?? 'PENDING').toLowerCase()} — posting disabled</span
+						>
+					{/if}
 				</Card.Header>
 				<Card.Content class="p-2 md:p-4">
 					<Table.Root>
@@ -447,7 +469,9 @@
 								>
 									<Table.Cell>
 										<div class="flex flex-col">
-											<span class="font-medium">{requisition.title}</span>
+											<span class="font-medium"
+												>{requisition.disciplineName ?? requisition.title ?? '—'}</span
+											>
 										</div>
 									</Table.Cell>
 

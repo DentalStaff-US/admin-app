@@ -39,7 +39,11 @@ import {
 } from './requisitions';
 import type { PaginateOptions } from '$lib/types';
 import { EmailService } from '$lib/server/email/emailService';
-import { DEFAULT_MAX_RECORD_LIMIT } from '$lib/config/constants';
+import {
+	CLIENT_STATUS,
+	DEFAULT_MAX_RECORD_LIMIT,
+	type ClientStatus
+} from '$lib/config/constants';
 import { disciplineTable } from '../schemas/skill';
 
 export type ClientWithCompanyRaw = {
@@ -172,7 +176,47 @@ export async function getClientProfilesCount() {
 	}
 }
 
-export async function getAllClientProfiles(searchTerm?: string) {
+export type ClientStatusCounts = Record<ClientStatus, number>;
+
+const emptyClientStatusCounts = (): ClientStatusCounts => ({
+	PENDING: 0,
+	ACTIVE: 0,
+	INACTIVE: 0,
+	DENIED: 0
+});
+
+export async function getClientStatusCounts(): Promise<ClientStatusCounts> {
+	const rows = await db
+		.select({ status: clientProfileTable.status, value: count() })
+		.from(clientProfileTable)
+		.groupBy(clientProfileTable.status);
+
+	const counts = emptyClientStatusCounts();
+	for (const row of rows) {
+		if (row.status && row.status in counts) {
+			counts[row.status as ClientStatus] = Number(row.value);
+		}
+	}
+	return counts;
+}
+
+export async function getAllClientProfiles(searchTerm?: string, status?: ClientStatus) {
+	const filters: SQL[] = [];
+
+	if (status && status in CLIENT_STATUS) {
+		filters.push(eq(clientProfileTable.status, status));
+	}
+
+	if (searchTerm) {
+		const searchFilter = or(
+			ilike(userTable.email, `%${searchTerm}%`),
+			ilike(userTable.firstName, `%${searchTerm}%`),
+			ilike(userTable.lastName, `%${searchTerm}%`),
+			ilike(clientCompanyTable.companyName, `%${searchTerm}%`)
+		);
+		if (searchFilter) filters.push(searchFilter);
+	}
+
 	const results = await db
 		.select({
 			user: {
@@ -188,16 +232,8 @@ export async function getAllClientProfiles(searchTerm?: string) {
 		.from(clientProfileTable)
 		.innerJoin(clientCompanyTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
 		.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
-		.where(
-			or(
-				searchTerm ? ilike(userTable.email, `%${searchTerm}%`) : undefined,
-				searchTerm ? ilike(userTable.firstName, `%${searchTerm}%`) : undefined,
-				searchTerm ? ilike(userTable.lastName, `%${searchTerm}%`) : undefined,
-				searchTerm ? ilike(clientCompanyTable.companyName, `%${searchTerm}%`) : undefined
-			)
-		)
+		.where(filters.length ? and(...filters) : undefined)
 		.orderBy(desc(clientProfileTable.createdAt));
-	// .limit(DEFAULT_MAX_RECORD_LIMIT);
 
 	return results;
 }
@@ -211,7 +247,8 @@ export async function getClientProfileById(clientId: string) {
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				email: userTable.email,
-				avatarUrl: userTable.avatarUrl
+				avatarUrl: userTable.avatarUrl,
+				receiveEmail: userTable.receiveEmail
 			},
 			company: { ...clientCompanyTable },
 			subscription: { ...clientSubscriptionTable }

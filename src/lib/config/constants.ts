@@ -43,6 +43,24 @@ export const CANDIDATE_STATUS = {
 
 export type CandidateStatus = (typeof CANDIDATE_STATUS)[keyof typeof CANDIDATE_STATUS];
 
+export const CLIENT_STATUS = {
+	PENDING: 'PENDING',
+	ACTIVE: 'ACTIVE',
+	INACTIVE: 'INACTIVE',
+	DENIED: 'DENIED'
+} as const;
+
+export type ClientStatus = (typeof CLIENT_STATUS)[keyof typeof CLIENT_STATUS];
+
+/**
+ * Only ACTIVE clients can have CLIENT / CLIENT_STAFF create new requisitions.
+ * Admins are NOT subject to this gate — they may create requisitions on a
+ * client's behalf in any status.
+ */
+export function clientCanCreateRequisitions(status: ClientStatus | null | undefined): boolean {
+	return status === CLIENT_STATUS.ACTIVE;
+}
+
 export const SUPPORT_TICKET_STATUS = {
 	NEW: 'NEW',
 	PENDING: 'PENDING',

@@ -718,7 +718,7 @@
                     <Card class="w-full max-w-none">
                         <CardHeader class="flex flex-row items-center justify-between">
                             <CardTitle>Location Requisitions</CardTitle>
-                            {#if user?.role !== USER_ROLES.SUPERADMIN}
+                            {#if user?.role !== USER_ROLES.SUPERADMIN && data.canCreateRequisitions}
                                 <Button
                                         on:click={() => {
 										drawerExpanded = true;
@@ -728,6 +728,10 @@
                                     <Plus class="inline mr-2" size={18}/>
                                     New Requisition
                                 </Button>
+                            {:else if user?.role !== USER_ROLES.SUPERADMIN && data.clientStatus && !data.canCreateRequisitions}
+                                <span class="text-xs text-muted-foreground">
+                                    Account {String(data.clientStatus ?? 'PENDING').toLowerCase()} — posting disabled
+                                </span>
                             {/if}
                         </CardHeader>
                         <CardContent>

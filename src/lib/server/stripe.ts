@@ -28,11 +28,20 @@ export async function createStripeInvoice(
 	let invoiceId: string | undefined;
 
 	try {
-		// Convert dueDate to Unix timestamp
+		// Convert dueDate to Unix timestamp. Stripe rejects any timestamp that
+		// isn't strictly in the future, so we clamp anything within the next 5
+		// minutes (or already past) back to `undefined` and let the existing
+		// `days_until_due: 1` fallback below take over. This protects against
+		// caller mistakes (e.g. parsing a `YYYY-MM-DD` string at UTC midnight
+		// while the admin is several hours west of UTC), clock skew, and DST
+		// edge cases — without silently moving the due date far away from what
+		// the user asked for.
 		let dueDateTimestamp: number | undefined;
 		if (dueDate) {
 			const date = new Date(dueDate);
-			dueDateTimestamp = Math.floor(date.getTime() / 1000);
+			const candidate = Math.floor(date.getTime() / 1000);
+			const minimum = Math.floor(Date.now() / 1000) + 5 * 60;
+			dueDateTimestamp = candidate > minimum ? candidate : undefined;
 		}
 
 		const invoice = await stripe.invoices.create({

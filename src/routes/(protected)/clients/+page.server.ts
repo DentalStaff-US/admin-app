@@ -1,11 +1,12 @@
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { USER_ROLES } from '$lib/config/constants';
+import { CLIENT_STATUS, USER_ROLES, type ClientStatus } from '$lib/config/constants';
 import {
 	createClientCompany,
 	createClientProfile,
 	getAllClientProfiles,
-	getClientProfilesCount
+	getClientProfilesCount,
+	getClientStatusCounts
 } from '$lib/server/database/queries/clients';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { adminNewUserSchema } from '$lib/config/zod-schemas';
@@ -22,6 +23,11 @@ export const load: PageServerLoad = async (event) => {
 	const { url, locals, setHeaders } = event;
 
 	const searchTerm = url.searchParams.get('search') || '';
+	const statusParam = url.searchParams.get('status')?.toUpperCase();
+	const status: ClientStatus =
+		statusParam && statusParam in CLIENT_STATUS
+			? (statusParam as ClientStatus)
+			: CLIENT_STATUS.PENDING;
 
 	setHeaders({
 		'cache-control': 'max-age=60'
@@ -36,13 +42,19 @@ export const load: PageServerLoad = async (event) => {
 		redirect(302, '/dashboard');
 	}
 
-	const results = await getAllClientProfiles(searchTerm);
-	const count = await getClientProfilesCount();
-	const newProfileForm = await superValidate(event, adminNewUserSchema);
+	const [clients, count, statusCounts, newProfileForm] = await Promise.all([
+		getAllClientProfiles(searchTerm, status),
+		getClientProfilesCount(),
+		getClientStatusCounts(),
+		superValidate(event, adminNewUserSchema)
+	]);
 
 	return {
-		clients: results || [],
+		clients: clients || [],
 		count: count || 0,
+		statusCounts,
+		status,
+		searchTerm,
 		newProfileForm
 	};
 };

@@ -1,4 +1,8 @@
-import { USER_ROLES } from '$lib/config/constants.js';
+import {
+	clientCanCreateRequisitions,
+	USER_ROLES,
+	type ClientStatus
+} from '$lib/config/constants.js';
 import { redirect } from '@sveltejs/kit';
 import type { RequestEvent } from './$types';
 import {
@@ -103,6 +107,7 @@ export const load = async (event: RequestEvent) => {
 				)
 			);
 		const form = await superValidate(event, clientRequisitionSchema);
+		const clientStatus = (client?.status ?? 'PENDING') as ClientStatus;
 		return {
 			user,
 			profile: client,
@@ -121,7 +126,9 @@ export const load = async (event: RequestEvent) => {
 			clientForm: form,
 			adminForm: null,
 			newProfileForm: null,
-			wagesDueCount: 0
+			wagesDueCount: 0,
+			clientStatus,
+			canCreateRequisitions: clientCanCreateRequisitions(clientStatus)
 		};
 	}
 
@@ -171,6 +178,7 @@ export const load = async (event: RequestEvent) => {
 				)
 			);
 		const form = await superValidate(event, clientRequisitionSchema);
+		const clientStatus = (client?.status ?? 'PENDING') as ClientStatus;
 		return {
 			user,
 			profile,
@@ -189,7 +197,9 @@ export const load = async (event: RequestEvent) => {
 			clientForm: form,
 			adminForm: null,
 			newProfileForm: null,
-			wagesDueCount: 0
+			wagesDueCount: 0,
+			clientStatus,
+			canCreateRequisitions: clientCanCreateRequisitions(clientStatus)
 		};
 	}
 
@@ -211,6 +221,8 @@ export const load = async (event: RequestEvent) => {
 		clientForm: null,
 		adminForm: null,
 		newProfileForm: null,
-		wagesDueCount: 0
+		wagesDueCount: 0,
+		clientStatus: null,
+		canCreateRequisitions: false
 	};
 };

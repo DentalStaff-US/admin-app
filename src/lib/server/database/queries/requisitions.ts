@@ -67,6 +67,7 @@ import {
 	type CandidateProfileSelect,
 	candidateDocumentUploadsTable
 } from '../schemas/candidate';
+import { alias } from 'drizzle-orm/pg-core';
 import { error } from '@sveltejs/kit';
 import { writeActionHistory } from './admin';
 import { normalizeDate } from '$lib/_helpers';
@@ -757,6 +758,11 @@ export async function deleteRecurrenceDay(id: string, userId: string) {
 export const getRecentRequisitionApplications = async (companyId: string | undefined) => {
 	if (!companyId) return error(400, 'Missing company id');
 	try {
+		// Requisition titles were replaced by discipline names in the UI, so we
+		// join the requisition's own discipline (aliased separately from the
+		// candidate-discipline join below) and surface it as `disciplineName`.
+		const requisitionDiscipline = alias(disciplineTable, 'requisition_discipline');
+
 		return await db
 			.select({
 				application: requisitionApplicationTable,
@@ -773,6 +779,7 @@ export const getRecentRequisitionApplications = async (companyId: string | undef
 				requisition: {
 					id: requisitionTable.id,
 					title: requisitionTable.title,
+					disciplineName: requisitionDiscipline.name,
 					permanentPosition: requisitionTable.permanentPosition
 				}
 			})
@@ -784,6 +791,10 @@ export const getRecentRequisitionApplications = async (companyId: string | undef
 			.innerJoin(
 				requisitionTable,
 				eq(requisitionApplicationTable.requisitionId, requisitionTable.id)
+			)
+			.innerJoin(
+				requisitionDiscipline,
+				eq(requisitionDiscipline.id, requisitionTable.disciplineId)
 			)
 			.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
 			.leftJoin(
@@ -872,6 +883,11 @@ export const getRequisitionApplicationDetails = async (
 	applicationId: string
 ) => {
 	try {
+		// The candidate may have multiple discipline-experience rows. Filter the
+		// join down to the requisition's own discipline so the rate range and
+		// experience level returned here reflect what the candidate is applying
+		// for. The candidate profile's hourlyRateMin/Max fields are deprecated;
+		// pay range now lives on candidate_discipline_experience.
 		const [application] = await db
 			.select({
 				application: requisitionApplicationTable,
@@ -892,10 +908,17 @@ export const getRequisitionApplicationDetails = async (
 				candidateProfileTable,
 				eq(requisitionApplicationTable.candidateId, candidateProfileTable.id)
 			)
+			.innerJoin(
+				requisitionTable,
+				eq(requisitionApplicationTable.requisitionId, requisitionTable.id)
+			)
 			.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
 			.leftJoin(
 				candidateDisciplineExperienceTable,
-				eq(candidateProfileTable.id, candidateDisciplineExperienceTable.candidateId)
+				and(
+					eq(candidateProfileTable.id, candidateDisciplineExperienceTable.candidateId),
+					eq(candidateDisciplineExperienceTable.disciplineId, requisitionTable.disciplineId)
+				)
 			)
 			.leftJoin(
 				disciplineTable,
@@ -2841,12 +2864,19 @@ export async function createInvoiceRecord(
 		clientId,
 		timesheet,
 		stripeInvoice,
-		amountInDollars
+		amountInDollars,
+		requisitionId,
+		sourceType
 	}: {
 		clientId: string;
 		timesheet?: TimeSheetSelect;
 		stripeInvoice: Stripe.Invoice;
 		amountInDollars: string;
+		// Allow tying a non-timesheet invoice (e.g. one-off charge for a
+		// permanent-position requisition) to its requisition. Ignored for
+		// timesheet-sourced invoices, which already derive this from the timesheet.
+		requisitionId?: number;
+		sourceType?: InvoiceSourceType;
 	},
 	userId: string
 ): Promise<Invoice> {
@@ -2906,12 +2936,13 @@ export async function createInvoiceRecord(
 					id: crypto.randomUUID(),
 					clientId: clientId,
 					invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+					requisitionId: requisitionId ?? null,
 					stripeInvoiceId: stripeInvoice.id,
 					stripeCustomerId: stripeInvoice.customer as string,
 					stripePdfUrl: stripeInvoice.invoice_pdf,
 					stripeHostedUrl: stripeInvoice.hosted_invoice_url,
 					status: 'open', // Maps to Stripe's 'open' status
-					sourceType: 'manual',
+					sourceType: sourceType ?? 'manual',
 					currency: 'usd',
 					amountDue: amountInDollars,
 					total: amountInDollars,

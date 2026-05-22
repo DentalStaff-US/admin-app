@@ -9,7 +9,7 @@
 
 import { format, parseISO } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { BASE_URL } from '$env/static/private';
 import db from '$lib/server/database/drizzle';
 import { sms } from '$lib/server/sms/smsService';
@@ -899,6 +899,100 @@ async function getClientContactById(
 		.where(eq(clientProfileTable.id, clientId))
 		.limit(1);
 	return row ?? null;
+}
+
+/**
+ * Admin flipped a client's status — email the client contact. Only sends for
+ * the three transitions that warrant a heads-up: ACTIVE (approved), DENIED,
+ * INACTIVE. PENDING is the default on signup and never user-facing.
+ */
+export async function notifyClientStatusChange(
+	clientId: string,
+	newStatus: 'PENDING' | 'ACTIVE' | 'INACTIVE' | 'DENIED'
+): Promise<void> {
+	const label = 'clientStatusChange';
+	try {
+		if (newStatus === 'PENDING') return;
+
+		const result = await getClientProfileById(clientId);
+		if (!result?.user?.email) {
+			console.warn(`[transactional:${label}] aborted: no user/email for client ${clientId}`);
+			return;
+		}
+		if (!result.user.receiveEmail) {
+			console.log(`[transactional:${label}] skipped: client opted out of email`);
+			return;
+		}
+
+		const details = {
+			firstName: result.user.firstName ?? '',
+			companyName: (result.company?.companyName as string) ?? ''
+		};
+
+		const to = result.user.email;
+		const send =
+			newStatus === 'ACTIVE'
+				? () => emailService.sendClientApprovedEmail(to, details)
+				: newStatus === 'DENIED'
+					? () => emailService.sendClientDeniedEmail(to, details)
+					: () => emailService.sendClientInactiveEmail(to, details);
+
+		await dispatch(label, [safeEmail(label, to, send)]);
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
+	}
+}
+
+/**
+ * New client just finished the company-onboarding step — notify every
+ * SUPERADMIN (filtered by `receiveEmail`) so they can review the new business.
+ * Pairs with the client-status enum: this surfaces PENDING client profiles
+ * for approval.
+ */
+export async function notifyAdminsOfNewClient(clientId: string): Promise<void> {
+	const label = 'newClientSignup';
+	try {
+		// getClientProfileById returns { profile, user, company, subscription }
+		// so we get the contact user and the company in one round-trip.
+		const result = await getClientProfileById(clientId);
+		if (!result?.profile) {
+			console.warn(`[transactional:${label}] aborted: client profile ${clientId} not found`);
+			return;
+		}
+		if (!result.company) {
+			console.warn(`[transactional:${label}] aborted: company for client ${clientId} not found`);
+			return;
+		}
+
+		const admins = await db
+			.select({ email: userTable.email })
+			.from(userTable)
+			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+
+		if (admins.length === 0) {
+			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
+			return;
+		}
+
+		const details = {
+			clientId,
+			companyName: (result.company.companyName as string) ?? 'New business',
+			contactName: `${result.user.firstName ?? ''} ${result.user.lastName ?? ''}`.trim() || 'Unknown',
+			contactEmail: result.user.email ?? 'unknown@unknown',
+			contactPhone: result.profile.cellPhone,
+			signedUpAt:
+				result.profile.createdAt instanceof Date ? result.profile.createdAt : new Date()
+		};
+
+		await dispatch(
+			label,
+			admins.map((a) =>
+				safeEmail(label, a.email, () => emailService.sendNewClientSignupAdminEmail(a.email, details))
+			)
+		);
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
+	}
 }
 
 async function getInvoiceCoreFields(invoiceId: string) {
