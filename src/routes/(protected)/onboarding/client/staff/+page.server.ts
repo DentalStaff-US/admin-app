@@ -46,9 +46,9 @@ export const load = async (event) => {
 
 	const form = await superValidate(newStaffInvitesSchema);
 
-	// if (staffCount > 0) {
-	// 	redirect(302, '/dashboard');
-	// }
+	if (staffCount > 0) {
+		redirect(302, '/dashboard');
+	}
 
 	return {
 		user,
