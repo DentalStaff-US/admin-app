@@ -183,9 +183,12 @@
 	}
 
 	const handleAddInvite = (email: string) => {
-		const emailExpression = /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/g;
+		// Permissive client-side check — the server-side z.string().email()
+		// does the real validation. The previous bespoke regex silently
+		// rejected plus-aliased emails (e.g. user+tag@gmail.com) and TLDs
+		// longer than 4 chars (.email, .dental, etc.).
+		const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 		const includes = $inviteForm.invitees.find((invite) => invite.email === email);
-		const isEmail = emailExpression.test(email);
 
 		if (!includes && isEmail && inviteRole) {
 			$inviteForm.invitees = [
