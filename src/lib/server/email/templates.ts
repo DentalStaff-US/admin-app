@@ -280,6 +280,53 @@ export const EMAIL_TEMPLATES: Record<
 
 		return { textEmail, htmlEmail, subject };
 	},
+	newSupportTicketAdminEmail: (details: {
+		ticketId: string;
+		title: string;
+		body: string | null | undefined;
+		reportedByName: string;
+		reportedByEmail: string;
+		reportedByRole: string;
+	}) => {
+		const { ticketId, title, body, reportedByName, reportedByEmail, reportedByRole } = details;
+		const url = `${BASE_URL}/support/ticket/${ticketId}`;
+		const bodyExcerpt = body && body.trim().length > 0 ? body : '(no additional notes provided)';
+
+		const textEmail = `
+            New support ticket on ${APP_NAME}.
+
+            Title: ${title}
+            From: ${reportedByName} <${reportedByEmail}> (${reportedByRole})
+
+            ${bodyExcerpt}
+
+            Open the ticket:
+            ${url}
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>New support ticket</h2>
+                <table style="border-collapse: collapse; margin: 16px 0;">
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Title</td><td style="padding: 4px 0;"><strong>${title}</strong></td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">From</td><td style="padding: 4px 0;">${reportedByName} &lt;<a href="mailto:${reportedByEmail}">${reportedByEmail}</a>&gt; (${reportedByRole})</td></tr>
+                </table>
+                <div style="background-color: #F9FAFB; border-left: 3px solid #D1D5DB; padding: 12px 16px; margin: 16px 0; white-space: pre-wrap;">${bodyExcerpt}</div>
+                <p style="margin: 24px 0;">
+                    <a href="${url}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        Open Ticket
+                    </a>
+                </p>
+                <p style="color: #6B7280; font-size: 14px;">Or open it directly: ${url}</p>
+            </div>
+        `.trim();
+
+		const subject = `[${APP_NAME}] New support ticket: ${title}`;
+
+		return { textEmail, htmlEmail, subject };
+	},
 	adminUserInviteEmail: (token: string) => {
 		const verifyEmailURL = `${BASE_URL}/auth/invite/${token}`;
 		const textEmail = `

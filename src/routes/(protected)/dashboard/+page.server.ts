@@ -3,6 +3,8 @@ import {
 	USER_ROLES,
 	type ClientStatus
 } from '$lib/config/constants.js';
+import { hasBillingSetup } from '$lib/_helpers/billing';
+import { clientSubscriptionTable } from '$lib/server/database/schemas/client';
 import { redirect } from '@sveltejs/kit';
 import type { RequestEvent } from './$types';
 import {
@@ -108,6 +110,15 @@ export const load = async (event: RequestEvent) => {
 			);
 		const form = await superValidate(event, clientRequisitionSchema);
 		const clientStatus = (client?.status ?? 'PENDING') as ClientStatus;
+
+		const [subscription] = client
+			? await db
+					.select()
+					.from(clientSubscriptionTable)
+					.where(eq(clientSubscriptionTable.clientId, client.id))
+					.limit(1)
+			: [null];
+
 		return {
 			user,
 			profile: client,
@@ -128,7 +139,8 @@ export const load = async (event: RequestEvent) => {
 			newProfileForm: null,
 			wagesDueCount: 0,
 			clientStatus,
-			canCreateRequisitions: clientCanCreateRequisitions(clientStatus)
+			canCreateRequisitions: clientCanCreateRequisitions(clientStatus),
+			hasBillingSetup: hasBillingSetup(subscription ?? null)
 		};
 	}
 

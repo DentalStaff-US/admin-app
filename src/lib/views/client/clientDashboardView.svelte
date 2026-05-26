@@ -11,8 +11,10 @@
 		ScrollText,
 		UserPlus
 	} from 'lucide-svelte';
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { formatCurrency, formatDate, formatTicketDate } from '$lib/_helpers';
+	import { openStripeSetupInNewTab } from '$lib/_helpers/openStripeSetup';
+	import SupportTicketDialog from '$lib/components/dialogs/supportTicketDialog.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import { cn } from '$lib/utils';
@@ -27,6 +29,21 @@
 	export let data;
 	export let clientForm;
 	let drawerExpanded = false;
+	let billingSetupSubmitting = false;
+	let billingSetupError = '';
+	let billingHelpOpen = false;
+
+	async function startBillingSetup() {
+		billingSetupError = '';
+		billingSetupSubmitting = true;
+		await openStripeSetupInNewTab({
+			onReturn: () => invalidateAll(),
+			onError: (msg) => {
+				billingSetupError = msg;
+			}
+		});
+		billingSetupSubmitting = false;
+	}
 
 	$: clientForm = data.clientForm as SuperValidated<ClientRequisitionSchema> | null;
 	$: console.log({ data });
@@ -90,6 +107,43 @@
 					to reactivate.
 				{/if}
 			</div>
+		{/if}
+
+		{#if user?.role === USER_ROLES.CLIENT && data.hasBillingSetup === false}
+			<div
+				class="rounded-md border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+			>
+				<div>
+					<strong>Finish setting up billing.</strong> Save a payment method so we can charge for
+					services once you start hiring. You won't be charged anything today.
+				</div>
+				<div class="flex flex-wrap gap-2">
+					<Button
+						type="button"
+						size="sm"
+						class="bg-blue-700 hover:bg-blue-800"
+						disabled={billingSetupSubmitting}
+						on:click={startBillingSetup}
+					>
+						{billingSetupSubmitting ? 'Opening Stripe…' : 'Set up billing'}
+					</Button>
+					<Button
+						type="button"
+						size="sm"
+						variant="outline"
+						on:click={() => (billingHelpOpen = true)}
+					>
+						Need help?
+					</Button>
+				</div>
+			</div>
+			{#if billingSetupError}
+				<div
+					class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900"
+				>
+					{billingSetupError}
+				</div>
+			{/if}
 		{/if}
 	</div>
 	<div class="col-span-3 p-6 grid grid-cols-12 gap-4">
@@ -498,3 +552,13 @@
 
 <!-- Add Requisition Drawer -->
 <AddRequisitionDrawer {user} bind:drawerExpanded {clientForm} />
+
+<!-- Billing help modal (triggered from the "Need help?" button in the billing banner) -->
+<SupportTicketDialog
+	bind:open={billingHelpOpen}
+	title="Get help setting up billing"
+	description="Tell us anything that would help — preferred contact times, payment method preference, etc. An admin will reach out."
+	defaultTitle="Billing setup help needed"
+	defaultBody="I'd like an admin to help me set up billing for my account."
+	submitLabel="Request admin help"
+/>

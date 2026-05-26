@@ -902,6 +902,68 @@ async function getClientContactById(
 }
 
 /**
+ * A new support ticket was created (any path: admin /support page, external
+ * candidate API, billing-help, in-app support modal). Fan out to every
+ * SUPERADMIN with receiveEmail=true. Fire-and-forget — never throws to the
+ * caller, so ticket creation isn't gated on email delivery.
+ */
+export async function notifyAdminsOfNewSupportTicket(ticketId: string): Promise<void> {
+	const label = 'newSupportTicket';
+	try {
+		const { supportTicketTable } = await import('$lib/server/database/schemas/admin');
+
+		const [row] = await db
+			.select({
+				ticket: supportTicketTable,
+				reporter: {
+					firstName: userTable.firstName,
+					lastName: userTable.lastName,
+					email: userTable.email,
+					role: userTable.role
+				}
+			})
+			.from(supportTicketTable)
+			.innerJoin(userTable, eq(supportTicketTable.reportedById, userTable.id))
+			.where(eq(supportTicketTable.id, ticketId))
+			.limit(1);
+
+		if (!row) {
+			console.warn(`[transactional:${label}] aborted: ticket ${ticketId} not found`);
+			return;
+		}
+
+		const admins = await db
+			.select({ email: userTable.email })
+			.from(userTable)
+			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+
+		if (admins.length === 0) {
+			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
+			return;
+		}
+
+		const details = {
+			ticketId: row.ticket.id,
+			title: row.ticket.title,
+			body: row.ticket.additionalNotes ?? null,
+			reportedByName: `${row.reporter.firstName ?? ''} ${row.reporter.lastName ?? ''}`.trim() ||
+				'Unknown',
+			reportedByEmail: row.reporter.email ?? 'unknown@unknown',
+			reportedByRole: row.reporter.role ?? 'UNKNOWN'
+		};
+
+		await dispatch(
+			label,
+			admins.map((a) =>
+				safeEmail(label, a.email, () => emailService.sendNewSupportTicketAdminEmail(a.email, details))
+			)
+		);
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
+	}
+}
+
+/**
  * Admin flipped a client's status — email the client contact. Only sends for
  * the three transitions that warrant a heads-up: ACTIVE (approved), DENIED,
  * INACTIVE. PENDING is the default on signup and never user-facing.

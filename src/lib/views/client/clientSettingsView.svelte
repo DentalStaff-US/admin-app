@@ -45,6 +45,8 @@
 	import * as Table from '$lib/components/ui/table';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { goto } from '$app/navigation';
+	import { openStripeSetupInNewTab } from '$lib/_helpers/openStripeSetup';
+	import SupportTicketDialog from '$lib/components/dialogs/supportTicketDialog.svelte';
 	import { Select } from 'flowbite-svelte';
 	import AvatarUpload from '$lib/components/avatar-upload.svelte';
 	import FileDropzone from '$lib/components/file-upload.svelte';
@@ -101,6 +103,24 @@
 	let uploadDocType: 'LICENSE' | 'CERTIFICATE' | 'AGGREEMENT' | 'OTHER' = 'OTHER';
 	let uploadDocUrl = '';
 	let uploadDocFilename = '';
+
+	// Billing card: Stripe setup opens in a new tab so the app tab isn't lost,
+	// and "Need help?" opens the shared support modal.
+	let billingSetupSubmitting = false;
+	let billingSetupError = '';
+	let billingHelpOpen = false;
+
+	async function startBillingSetup() {
+		billingSetupError = '';
+		billingSetupSubmitting = true;
+		await openStripeSetupInNewTab({
+			onReturn: () => invalidateAll(),
+			onError: (msg) => {
+				billingSetupError = msg;
+			}
+		});
+		billingSetupSubmitting = false;
+	}
 
 	const { form: userFormObj, enhance: userFormEnhance } = superForm(userProfileForm);
 	const { form: profileFormObj } = superForm(profileForm);
@@ -853,7 +873,7 @@
 				<!-- Current Plan/Subscription Card -->
 				<div class="border rounded-lg p-6 space-y-4">
 					<div class="flex justify-between items-start">
-						<div>
+						<!-- <div>
 							<h3 class="text-xl font-semibold">Current Plan</h3>
 							{#if billingInfo?.clientSubscription?.stripeCustomerId}
 								<p class="text-sm text-gray-500">
@@ -864,7 +884,7 @@
 							{:else}
 								<p class="text-sm text-gray-500">No active subscription</p>
 							{/if}
-						</div>
+						</div> -->
 						{#if billingInfo?.subscription}
 							<div class="text-right">
 								<p class="text-2xl font-bold">${billingInfo.subscription.amount}</p>
@@ -875,7 +895,8 @@
 
 					<!-- Payment Method if exists -->
 					{#if billingInfo?.paymentMethod}
-						<div class="border-t pt-4 mt-4">
+						<div 
+						>
 							<h4 class="font-medium mb-3">Payment Method</h4>
 							<div class="flex items-center justify-between p-3 bg-gray-50 rounded-md">
 								<div class="flex items-center gap-3">
@@ -903,9 +924,57 @@
 						</div>
 					{/if}
 
-					<!-- Action Button -->
+					<!-- Action Button (three states: no customer → setup; customer no
+					     subscription → status note; customer + subscription → portal) -->
 					<div class="pt-4 mt-4 border-t">
-						{#if billingInfo?.clientSubscription?.stripeCustomerId}
+						{#if !billingInfo?.clientSubscription?.stripeCustomerId || billingInfo?.clientSubscription?.stripeCustomerSetupPending}
+							<!-- State 1: no customer / setup not finished -->
+							<div class="space-y-3">
+								<p class="text-sm text-muted-foreground">
+									Save a payment method so we can bill for services. You won't be charged
+									anything today.
+								</p>
+								<div class="flex flex-wrap gap-2">
+									<Button
+										type="button"
+										class="bg-blue-600 hover:bg-blue-700"
+										disabled={billingSetupSubmitting}
+										on:click={startBillingSetup}
+									>
+										{billingSetupSubmitting ? 'Opening Stripe…' : 'Set up billing with Stripe'}
+									</Button>
+									<Button
+										type="button"
+										variant="outline"
+										on:click={() => (billingHelpOpen = true)}
+									>
+										Need help?
+									</Button>
+								</div>
+								{#if billingSetupError}
+									<p class="text-sm text-red-600">{billingSetupError}</p>
+								{/if}
+							</div>
+						{:else if !billingInfo?.subscription}
+							<!-- State 2: customer + payment method but no subscription -->
+							<div class="space-y-3">
+								<p class="text-sm text-muted-foreground">
+									Payment method on file. Subscription management will appear here when activated.
+								</p>
+								<Button
+									type="button"
+									variant="outline"
+									disabled={billingSetupSubmitting}
+									on:click={startBillingSetup}
+								>
+									{billingSetupSubmitting ? 'Opening Stripe…' : 'Replace payment method'}
+								</Button>
+								{#if billingSetupError}
+									<p class="text-sm text-red-600">{billingSetupError}</p>
+								{/if}
+							</div>
+						{:else}
+							<!-- State 3: customer + subscription -->
 							<Button
 								class="w-fit bg-blue-600 hover:bg-blue-700"
 								on:click={async () => {
@@ -927,32 +996,6 @@
 								}}
 							>
 								Manage Subscription in Stripe
-							</Button>
-						{:else}
-							<Button
-								class="w-full md:w-fit bg-blue-600 hover:bg-blue-700"
-								on:click={async () => {
-									try {
-										const response = await fetch('/api/stripe/create-checkout-session', {
-											method: 'POST',
-											headers: {
-												'Content-Type': 'application/json'
-											},
-											body: JSON.stringify({
-												priceId: 'price_1RDtHDRdAMZLgbMga3fTw2vq' // Replace with your price ID
-											})
-										});
-
-										if (!response.ok) throw new Error('Failed to create checkout session');
-
-										const { url } = await response.json();
-										window.location.href = url;
-									} catch (error) {
-										console.error('Error creating checkout session:', error);
-									}
-								}}
-							>
-								Subscribe Now
 							</Button>
 						{/if}
 					</div>
@@ -1267,3 +1310,13 @@
 		</form>
 	</Dialog.Content>
 </Dialog.Root>
+
+<!-- Shared support modal for billing-tab "Need help?" -->
+<SupportTicketDialog
+	bind:open={billingHelpOpen}
+	title="Get help setting up billing"
+	description="Tell us anything that would help — preferred contact times, payment method preference, etc. An admin will reach out."
+	defaultTitle="Billing setup help needed"
+	defaultBody="I'd like an admin to help me set up billing for my account."
+	submitLabel="Request admin help"
+/>

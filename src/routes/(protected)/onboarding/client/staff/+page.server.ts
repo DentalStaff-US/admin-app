@@ -150,8 +150,9 @@ export const actions = {
 			});
 		}
 
-		// Only redirect if at least one invite was successful
-		redirect(302, '/dashboard');
+		// Funnel ends with the optional billing step; the billing page will
+		// itself redirect to /dashboard if the client is already set up.
+		redirect(302, '/onboarding/client/billing');
 	},
 	skipInviting: async (event) => {
 		const user = event.locals.user;
@@ -185,6 +186,6 @@ export const actions = {
 			});
 		}
 
-		redirect(302, '/dashboard');
+		redirect(302, '/onboarding/client/billing');
 	}
 };

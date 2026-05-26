@@ -442,6 +442,37 @@ export class EmailService {
 	}
 
 	/**
+	 * Notify an admin that a new support ticket was opened.
+	 */
+	async sendNewSupportTicketAdminEmail(
+		email: string,
+		details: {
+			ticketId: string;
+			title: string;
+			body: string | null | undefined;
+			reportedByName: string;
+			reportedByEmail: string;
+			reportedByRole: string;
+		}
+	): Promise<EmailSendResult> {
+		try {
+			const template = EMAIL_TEMPLATES.newSupportTicketAdminEmail(details);
+			return await this.sendEmail({
+				to: [{ email }],
+				subject: template.subject,
+				html: template.htmlEmail,
+				text: template.textEmail
+			});
+		} catch (error: any) {
+			return {
+				id: crypto.randomUUID(),
+				success: false,
+				error: error.message || 'Failed to send new support ticket admin email'
+			};
+		}
+	}
+
+	/**
 	 * Notify an admin that a new client signed up.
 	 */
 	async sendNewClientSignupAdminEmail(
