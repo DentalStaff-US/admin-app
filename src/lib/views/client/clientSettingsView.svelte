@@ -47,6 +47,8 @@
 	import { goto } from '$app/navigation';
 	import { openStripeSetupInNewTab } from '$lib/_helpers/openStripeSetup';
 	import SupportTicketDialog from '$lib/components/dialogs/supportTicketDialog.svelte';
+	import StaffLocationsDialog from '$lib/components/dialogs/staffLocationsDialog.svelte';
+	import { MapPin } from 'lucide-svelte';
 	import { Select } from 'flowbite-svelte';
 	import AvatarUpload from '$lib/components/avatar-upload.svelte';
 	import FileDropzone from '$lib/components/file-upload.svelte';
@@ -89,6 +91,27 @@
 	export let handleAvatarUpdated;
 	export let company;
 	export let documents;
+	export let companyLocations: Array<{ id: string; name: string | null }> = [];
+
+	// Staff-locations management dialog state
+	let manageLocationsOpen = false;
+	let manageLocationsForStaff: {
+		staffId: string;
+		staffName: string;
+		locationIds: string[];
+		primaryLocationId: string | null;
+	} | null = null;
+
+	function openManageLocations(staffMember: any) {
+		const assignments = staffMember.locationAssignments ?? [];
+		manageLocationsForStaff = {
+			staffId: staffMember.profile.id,
+			staffName: `${staffMember.user.firstName} ${staffMember.user.lastName}`,
+			locationIds: assignments.map((a: any) => a.locationId),
+			primaryLocationId: assignments.find((a: any) => a.isPrimary)?.locationId ?? null
+		};
+		manageLocationsOpen = true;
+	}
 
 	$: confirmPasswordError = $passwordErrors.confirmPassword;
 	$: localTimeZone = getLocalTimeZone();
@@ -1230,6 +1253,20 @@
 			{/if}
 		</div>
 		<Dialog.Footer>
+			{#if selectedProfile}
+				<Button
+					type="button"
+					class="bg-blue-700 hover:bg-blue-800 gap-1 w-full"
+					on:click={() => {
+						const sp = selectedProfile;
+						if (!sp) return;
+						detailsDialogOpen = false;
+						openManageLocations(sp);
+					}}
+				>
+					<MapPin class="h-4 w-4" /> Manage Locations
+				</Button>
+			{/if}
 			<Dialog.Close asChild>
 				<Button on:click={handleCloseDetailsDialog} variant="outline" type="button" class="w-full">
 					Close
@@ -1323,3 +1360,15 @@
 	defaultBody="I'd like an admin to help me set up billing for my account."
 	submitLabel="Request admin help"
 />
+
+{#if manageLocationsForStaff}
+	<StaffLocationsDialog
+		bind:open={manageLocationsOpen}
+		action="?/updateStaffLocations"
+		staffId={manageLocationsForStaff.staffId}
+		staffName={manageLocationsForStaff.staffName}
+		locations={companyLocations}
+		initialLocationIds={manageLocationsForStaff.locationIds}
+		initialPrimaryLocationId={manageLocationsForStaff.primaryLocationId}
+	/>
+{/if}

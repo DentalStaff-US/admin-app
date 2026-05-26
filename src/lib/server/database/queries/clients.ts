@@ -568,8 +568,12 @@ export async function getAllClientLocationsByCompanyId(
 
 export async function getPaginatedLocationsByCompanyId(
 	companyId: string,
-	{ limit = 25, offset = 0, orderBy = undefined }: PaginateOptions
+	{ limit = 25, offset = 0, orderBy = undefined }: PaginateOptions,
+	locationIds?: string[] | null
 ) {
+	if (Array.isArray(locationIds) && locationIds.length === 0) {
+		return { locations: [], count: 0 };
+	}
 	const orderSelector = orderBy ? orderBy.column : null;
 	try {
 		const query = sql.empty();
@@ -579,6 +583,10 @@ export async function getPaginatedLocationsByCompanyId(
 			FROM ${companyOfficeLocationTable} AS l
 			WHERE l.company_id = ${companyId}
 		`);
+
+		if (Array.isArray(locationIds)) {
+			query.append(sql` AND l.id = ANY(${locationIds})`);
+		}
 
 		if (orderSelector && orderBy) {
 			query.append(sql`
@@ -609,7 +617,14 @@ export async function getPaginatedLocationsByCompanyId(
 		const countResult = await db
 			.select({ value: count() })
 			.from(companyOfficeLocationTable)
-			.where(eq(companyOfficeLocationTable.companyId, companyId));
+			.where(
+				and(
+					eq(companyOfficeLocationTable.companyId, companyId),
+					Array.isArray(locationIds)
+						? inArray(companyOfficeLocationTable.id, locationIds)
+						: undefined
+				)
+			);
 
 		return { locations: results.rows, count: countResult[0].value };
 	} catch (err) {
@@ -715,7 +730,11 @@ export async function getStaffProfilesForLocation(locationId: string) {
 				lastName: userTable.lastName,
 				email: userTable.email,
 				avatarUrl: userTable.avatarUrl
-			}
+			},
+			// Expose whether THIS location is the staff's primary so the
+			// /locations/[id] page can render a "Primary" badge / Make Primary
+			// button per row.
+			isPrimary: clientStaffLocationTable.isPrimary
 		})
 		.from(clientStaffProfileTable)
 		.innerJoin(userTable, eq(userTable.id, clientStaffProfileTable.userId))
@@ -810,8 +829,12 @@ export async function createClientCompany(values: ClientCompany, tx?: any) {
 	}
 }
 
-export async function getCalendarEventsForClient(clientId: string | undefined) {
+export async function getCalendarEventsForClient(
+	clientId: string | undefined,
+	locationIds?: string[] | null
+) {
 	if (!clientId) return error(400, 'Missing Client Id');
+	if (Array.isArray(locationIds) && locationIds.length === 0) return [];
 	const clientCompanyResult = await db
 		.select({
 			client: { ...clientProfileTable },
@@ -839,7 +862,10 @@ export async function getCalendarEventsForClient(clientId: string | undefined) {
 		.where(
 			and(
 				eq(requisitionTable.companyId, clientCompanyResult[0].company.id),
-				eq(requisitionTable.archived, false)
+				eq(requisitionTable.archived, false),
+				Array.isArray(locationIds)
+					? inArray(requisitionTable.locationId, locationIds)
+					: undefined
 			)
 		)
 		.innerJoin(requisitionTable, eq(requisitionTable.id, recurrenceDayTable.requisitionId))
@@ -863,7 +889,12 @@ export async function getCalendarEventsForClient(clientId: string | undefined) {
 	return [...recurrenceDayEvents];
 }
 
-export async function getRequisitionsForClientWithLimit(clientId: string, count: number) {
+export async function getRequisitionsForClientWithLimit(
+	clientId: string,
+	count: number,
+	locationIds?: string[] | null
+) {
+	if (Array.isArray(locationIds) && locationIds.length === 0) return [];
 	try {
 		const company = await getClientCompanyByClientId(clientId);
 
@@ -893,7 +924,13 @@ export async function getRequisitionsForClientWithLimit(clientId: string, count:
 				eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 			)
 			.where(
-				and(eq(requisitionTable.companyId, company.id), ne(requisitionTable.status, 'PENDING'))
+				and(
+					eq(requisitionTable.companyId, company.id),
+					ne(requisitionTable.status, 'PENDING'),
+					Array.isArray(locationIds)
+						? inArray(requisitionTable.locationId, locationIds)
+						: undefined
+				)
 			)
 			.limit(count)
 			.orderBy(desc(requisitionTable.createdAt));
@@ -934,7 +971,8 @@ export async function getRequisitionsForClientWithLimit(clientId: string, count:
 
 export async function getClientDashboardData(
 	clientId: string | undefined,
-	userId: string | undefined
+	userId: string | undefined,
+	locationIds?: string[] | null
 ) {
 	if (!clientId) throw error(400, 'Client ID required');
 	if (!userId) throw error(400, 'User ID required');
@@ -953,14 +991,14 @@ export async function getClientDashboardData(
 		timesheetsDue,
 		invoices
 	] = await Promise.all([
-		await getRequisitionsForClientWithLimit(clientId, 5),
-		await getTimesheetsDueCount(clientId),
-		await getClientCompanyTimesheetDiscrepancies(clientId),
-		await getNewApplicationsCount(clientId),
+		await getRequisitionsForClientWithLimit(clientId, 5, locationIds),
+		await getTimesheetsDueCount(clientId, locationIds),
+		await getClientCompanyTimesheetDiscrepancies(clientId, locationIds),
+		await getNewApplicationsCount(clientId, locationIds),
 		await getSupportTicketsForUserWithLimit(userId, 5),
-		await getRecentRequisitionApplications(company.id),
-		await getRecentTimesheetsDueForClient(clientId),
-		await getClientInvoices(clientId, { limit: 5 })
+		await getRecentRequisitionApplications(company.id, locationIds),
+		await getRecentTimesheetsDueForClient(clientId, locationIds),
+		await getClientInvoices(clientId, { limit: 5, locationIds })
 	]);
 
 	return {
@@ -1004,6 +1042,86 @@ export async function addStaffToLocation(values: NewClientCompanyStaffLocation) 
 		console.log(err);
 		return error(500, 'Error adding staff to location');
 	}
+}
+
+/**
+ * Fetch a staff member's current location assignments along with the
+ * locationName so the management UI can render rows directly.
+ */
+export async function getStaffLocationsWithMeta(staffId: string) {
+	return await db
+		.select({
+			id: clientStaffLocationTable.id,
+			locationId: clientStaffLocationTable.locationId,
+			isPrimary: clientStaffLocationTable.isPrimary,
+			locationName: companyOfficeLocationTable.name
+		})
+		.from(clientStaffLocationTable)
+		.innerJoin(
+			companyOfficeLocationTable,
+			eq(companyOfficeLocationTable.id, clientStaffLocationTable.locationId)
+		)
+		.where(eq(clientStaffLocationTable.staffId, staffId));
+}
+
+/**
+ * Authoritatively set the list of locations for a staff member. Replaces all
+ * existing rows in clientStaffLocationTable for that staff with the supplied
+ * set, exactly one of which is flagged `isPrimary=true`. Wrapped in a
+ * transaction so the staff is never left without a primary mid-update.
+ *
+ * Caller responsibilities:
+ *   - Pass `companyId` so we can validate ownership of every locationId.
+ *   - `primaryLocationId` MUST be in `locationIds`; throws otherwise.
+ *   - Passing `locationIds: []` removes all assignments — fine if that's
+ *     intentional, but the staff will see nothing under location-scoping.
+ */
+export async function setStaffLocations(args: {
+	staffId: string;
+	companyId: string;
+	locationIds: string[];
+	primaryLocationId: string | null;
+}) {
+	const { staffId, companyId, locationIds, primaryLocationId } = args;
+
+	if (primaryLocationId && !locationIds.includes(primaryLocationId)) {
+		throw error(400, 'Primary location must be one of the assigned locations');
+	}
+
+	// Validate every locationId belongs to the same company — defense in
+	// depth against a stale form or an attacker passing arbitrary ids.
+	if (locationIds.length > 0) {
+		const owned = await db
+			.select({ id: companyOfficeLocationTable.id })
+			.from(companyOfficeLocationTable)
+			.where(
+				and(
+					eq(companyOfficeLocationTable.companyId, companyId),
+					inArray(companyOfficeLocationTable.id, locationIds)
+				)
+			);
+		if (owned.length !== locationIds.length) {
+			throw error(400, 'One or more locations do not belong to this company');
+		}
+	}
+
+	await db.transaction(async (tx) => {
+		await tx
+			.delete(clientStaffLocationTable)
+			.where(eq(clientStaffLocationTable.staffId, staffId));
+
+		if (locationIds.length > 0) {
+			await tx.insert(clientStaffLocationTable).values(
+				locationIds.map((locationId) => ({
+					id: crypto.randomUUID(),
+					staffId,
+					companyId,
+					locationId,
+					isPrimary: locationId === primaryLocationId
+				}))
+			);
+		}
+	});
 }
 
 export async function inviteStaffUsersToAccount(locationId: string, invitees: NewUserInvite[]) {

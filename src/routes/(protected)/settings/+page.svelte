@@ -73,6 +73,7 @@
 				{staff}
 				{user}
 				{company}
+				companyLocations={data.companyLocations ?? []}
 				{handleAvatarUpdated}
 				documents={data.documents ?? []}
 			/>

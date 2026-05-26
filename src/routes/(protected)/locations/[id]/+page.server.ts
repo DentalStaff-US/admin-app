@@ -12,8 +12,11 @@ import {
 	getClientProfileByStaffUserId,
 	getClientProfilebyUserId,
 	getClientStaffProfilebyClientId,
+	getClientStaffProfilebyUserId,
 	getLocationByIdForCompany,
+	getStaffLocationsWithMeta,
 	getStaffProfilesForLocation,
+	setStaffLocations,
 	updateCompanyLocation
 } from '$lib/server/database/queries/clients';
 import { getRequsitionsForLocation } from '$lib/server/database/queries/requisitions';
@@ -26,6 +29,10 @@ import {
 	clientRequisitionSchema
 } from '$lib/config/zod-schemas';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
+import db from '$lib/server/database/drizzle';
+import { companyOfficeLocationTable } from '$lib/server/database/schemas/client';
+import { eq } from 'drizzle-orm';
+import { assertCanAccessLocation } from '$lib/server/scoping';
 
 const assignStaffToLocationSchema = z.object({
 	staffId: z.string(),
@@ -102,6 +109,8 @@ export const load: PageServerLoad = async (event) => {
 	if (user.role === USER_ROLES.CLIENT_STAFF) {
 		const client = await getClientProfileByStaffUserId(user.id);
 		await redirectIfNotValidCustomer(client?.id, user.role);
+		// Access guard: scoped staff can only open their assigned locations.
+		await assertCanAccessLocation(user, id);
 		const company = await getClientCompanyByClientId(client?.id);
 		const location = await getLocationByIdForCompany(id, company.id);
 		const requisitions = await getRequsitionsForLocation(location.id);
@@ -145,6 +154,102 @@ export const load: PageServerLoad = async (event) => {
 };
 
 export const actions = {
+	/**
+	 * Per-staff toggle on THIS location. Supports two operations:
+	 *   - 'remove'      → drop this location from the staff's set
+	 *   - 'makePrimary' → keep current set, flip this location to primary
+	 *
+	 * Both compute the new full set server-side and route through
+	 * setStaffLocations() so we always end up with at most one primary.
+	 *
+	 * Allowed for SUPERADMIN, CLIENT, and CLIENT_ADMIN client_staff.
+	 */
+	updateStaffOnLocation: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id: locationId } = event.params;
+		if (!user) return fail(401, { error: 'Unauthorized' });
+
+		const isAdmin = user.role === USER_ROLES.SUPERADMIN;
+		const isClient = user.role === USER_ROLES.CLIENT;
+		const staffSelf =
+			user.role === USER_ROLES.CLIENT_STAFF
+				? await getClientStaffProfilebyUserId(user.id)
+				: null;
+		const isClientAdmin = staffSelf?.staffRole === 'CLIENT_ADMIN';
+		if (!isAdmin && !isClient && !isClientAdmin) {
+			return fail(403, { error: 'Not allowed' });
+		}
+
+		const formData = await event.request.formData();
+		const staffId = formData.get('staffId') as string;
+		const action = formData.get('action') as 'remove' | 'makePrimary';
+		if (!staffId || (action !== 'remove' && action !== 'makePrimary')) {
+			return fail(400, { error: 'Missing or invalid fields' });
+		}
+
+		try {
+			// Look up the company that owns this location so we can pass it
+			// into setStaffLocations for the ownership check.
+			const clientProfile =
+				user.role === USER_ROLES.CLIENT
+					? await getClientProfilebyUserId(user.id)
+					: user.role === USER_ROLES.CLIENT_STAFF
+						? await getClientProfileByStaffUserId(user.id)
+						: null;
+			let companyId: string | undefined;
+			if (clientProfile) {
+				const company = await getClientCompanyByClientId(clientProfile.id);
+				companyId = company?.id;
+			} else if (isAdmin) {
+				// Admin: derive companyId from the location row itself.
+				const locationRow = await db
+					.select({ companyId: companyOfficeLocationTable.companyId })
+					.from(companyOfficeLocationTable)
+					.where(eq(companyOfficeLocationTable.id, locationId))
+					.limit(1);
+				companyId = locationRow[0]?.companyId;
+			}
+			if (!companyId) return fail(404, { error: 'Company not found' });
+
+			const existing = await getStaffLocationsWithMeta(staffId);
+			let nextIds = existing.map((e) => e.locationId);
+			let nextPrimary = existing.find((e) => e.isPrimary)?.locationId ?? null;
+
+			if (action === 'remove') {
+				nextIds = nextIds.filter((id) => id !== locationId);
+				if (nextPrimary === locationId) {
+					nextPrimary = nextIds.length > 0 ? nextIds[0] : null;
+				}
+			} else if (action === 'makePrimary') {
+				if (!nextIds.includes(locationId)) nextIds = [...nextIds, locationId];
+				nextPrimary = locationId;
+			}
+
+			await setStaffLocations({
+				staffId,
+				companyId,
+				locationIds: nextIds,
+				primaryLocationId: nextPrimary
+			});
+
+			setFlash(
+				{
+					type: 'success',
+					message: action === 'remove' ? 'Staff removed from location' : 'Primary location updated'
+				},
+				event
+			);
+			return { success: true };
+		} catch (err) {
+			if (err && typeof err === 'object' && 'status' in err && 'body' in err) {
+				throw err;
+			}
+			console.error('updateStaffOnLocation failed', err);
+			setFlash({ type: 'error', message: 'Failed to update staff location' }, event);
+			return fail(500, { error: 'Internal error' });
+		}
+	},
+
 	assignStaff: async (event: RequestEvent) => {
 		const currentUser = event.locals.user;
 

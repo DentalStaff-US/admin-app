@@ -10,6 +10,7 @@ import { setFlash } from 'sveltekit-flash-message/server';
 import { superValidate } from 'sveltekit-superforms/server';
 import { z } from 'zod';
 import { USER_ROLES } from '$lib/config/constants';
+import { assertCanAccessLocation } from '$lib/server/scoping';
 import {
 	getClientProfileByStaffUserId,
 	getClientProfilebyUserId
@@ -53,6 +54,10 @@ export const load: PageServerLoad = async (event) => {
 		const client = await getClientProfileByStaffUserId(user.id);
 
 		await redirectIfNotValidCustomer(client?.id, user.role);
+
+		// Access guard: staff must be assigned to this requisition's location.
+		const requisition = await getRequisitionDetailsById(+id);
+		await assertCanAccessLocation(user, requisition?.requisition?.location?.id);
 
 		return {
 			user,

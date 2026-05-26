@@ -1,4 +1,5 @@
 import { USER_ROLES } from '$lib/config/constants';
+import { assertCanAccessLocation } from '$lib/server/scoping';
 import {
 	getClientCompanyByClientId,
 	getClientProfileById,
@@ -239,6 +240,8 @@ export const load = async (event: RequestEvent) => {
 
 		const timesheet = await getTimesheetDetails(id, client?.id);
 		const requisition = await getRequisitionDetailsById(timesheet.requisitionId);
+		// Access guard: scoped staff must own the requisition's location.
+		await assertCanAccessLocation(user, requisition?.requisition?.location?.id);
 		const recurrenceDays = await getRecurrenceDaysForTimesheet(timesheet);
 		const workdays = await getWorkdaysForTimesheet(timesheet);
 		const invoice = await getInvoiceByTimesheetId(id);

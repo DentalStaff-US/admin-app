@@ -7,6 +7,7 @@ import {
 	getClientProfilebyUserId
 } from '$lib/server/database/queries/clients';
 import { redirect } from '@sveltejs/kit';
+import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
 
 export const load = async ({ locals }) => {
 	const user = locals.user;
@@ -43,7 +44,8 @@ export const load = async ({ locals }) => {
 		const client = await getClientProfileByStaffUserId(user.id);
 		await redirectIfNotValidCustomer(client?.id, user.role);
 
-		const events = await getCalendarEventsForClient(client?.id);
+		const scopedLocationIds = await getClientStaffScopedLocationIds(user);
+		const events = await getCalendarEventsForClient(client?.id, scopedLocationIds);
 
 		console.log(events);
 

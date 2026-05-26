@@ -3,6 +3,7 @@ import {
 	USER_ROLES,
 	type ClientStatus
 } from '$lib/config/constants.js';
+import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
 import { adminRequisitionSchema, clientRequisitionSchema } from '$lib/config/zod-schemas.js';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
 import {
@@ -69,7 +70,8 @@ export const load = async (event: RequestEvent) => {
 
 		const company = await getClientCompanyByClientId(client?.id);
 		const form = await superValidate(event, clientRequisitionSchema);
-		const requisitions = await getRequisitionsForClient(company.id, searchTerm);
+		const scopedLocationIds = await getClientStaffScopedLocationIds(user);
+		const requisitions = await getRequisitionsForClient(company.id, searchTerm, scopedLocationIds);
 
 		const clientStatus = (client?.status ?? 'PENDING') as ClientStatus;
 		return {

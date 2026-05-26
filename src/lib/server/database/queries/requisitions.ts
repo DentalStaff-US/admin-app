@@ -183,7 +183,16 @@ export async function getAllRequisitions() {
 	return await db.select().from(requisitionTable).where(eq(requisitionTable.archived, false));
 }
 
-export async function getRequisitionsForClient(companyId: string, searchTerm?: string) {
+export async function getRequisitionsForClient(
+	companyId: string,
+	searchTerm?: string,
+	locationIds?: string[] | null
+) {
+	// CLIENT_STAFF scoping convention:
+	//   undefined/null → no scoping
+	//   []             → empty result (staff has no assignments)
+	//   [ids...]       → filter to requisitions in those locations
+	if (Array.isArray(locationIds) && locationIds.length === 0) return [];
 	try {
 		const results = await db
 			.select({
@@ -222,6 +231,9 @@ export async function getRequisitionsForClient(companyId: string, searchTerm?: s
 				and(
 					eq(requisitionTable.companyId, companyId),
 					eq(requisitionTable.archived, false),
+					Array.isArray(locationIds)
+						? inArray(requisitionTable.locationId, locationIds)
+						: undefined,
 					or(
 						searchTerm ? ilike(requisitionTable.title, `%${searchTerm}%`) : undefined,
 						searchTerm ? ilike(userTable.firstName, `%${searchTerm}%`) : undefined,
@@ -755,8 +767,12 @@ export async function deleteRecurrenceDay(id: string, userId: string) {
 	}
 }
 
-export const getRecentRequisitionApplications = async (companyId: string | undefined) => {
+export const getRecentRequisitionApplications = async (
+	companyId: string | undefined,
+	locationIds?: string[] | null
+) => {
 	if (!companyId) return error(400, 'Missing company id');
+	if (Array.isArray(locationIds) && locationIds.length === 0) return [];
 	try {
 		// Requisition titles were replaced by discipline names in the UI, so we
 		// join the requisition's own discipline (aliased separately from the
@@ -813,7 +829,13 @@ export const getRecentRequisitionApplications = async (companyId: string | undef
 				eq(candidateDisciplineExperienceTable.experienceLevelId, experienceLevelTable.id)
 			)
 			.where(
-				and(eq(requisitionTable.permanentPosition, true), eq(requisitionTable.companyId, companyId))
+				and(
+					eq(requisitionTable.permanentPosition, true),
+					eq(requisitionTable.companyId, companyId),
+					Array.isArray(locationIds)
+						? inArray(requisitionTable.locationId, locationIds)
+						: undefined
+				)
 			)
 			.orderBy(desc(requisitionApplicationTable.createdAt))
 			.limit(5);
@@ -1064,15 +1086,23 @@ export async function getRequisitionTimesheets(requisitionId: number | undefined
 	}
 }
 
-export async function getNewApplicationsCount(clientId: string) {
+export async function getNewApplicationsCount(
+	clientId: string,
+	locationIds?: string[] | null
+) {
+	if (Array.isArray(locationIds) && locationIds.length === 0) return 0;
 	try {
 		const [result] = await db
 			.select({ count: count() })
 			.from(requisitionApplicationTable)
+			.leftJoin(requisitionTable, eq(requisitionTable.id, requisitionApplicationTable.requisitionId))
 			.where(
 				and(
 					eq(requisitionApplicationTable.clientId, clientId),
-					eq(requisitionApplicationTable.status, 'PENDING')
+					eq(requisitionApplicationTable.status, 'PENDING'),
+					Array.isArray(locationIds)
+						? inArray(requisitionTable.locationId, locationIds)
+						: undefined
 				)
 			);
 
@@ -1083,7 +1113,11 @@ export async function getNewApplicationsCount(clientId: string) {
 	}
 }
 
-export async function getRecentTimesheetsDueForClient(clientId: string) {
+export async function getRecentTimesheetsDueForClient(
+	clientId: string,
+	locationIds?: string[] | null
+) {
+	if (Array.isArray(locationIds) && locationIds.length === 0) return [];
 	try {
 		const result = await db
 			.select({
@@ -1107,7 +1141,10 @@ export async function getRecentTimesheetsDueForClient(clientId: string) {
 				and(
 					eq(timeSheetTable.associatedClientId, clientId),
 					eq(timeSheetTable.status, 'PENDING'),
-					isNull(timeSheetTable.wagesStatus)
+					isNull(timeSheetTable.wagesStatus),
+					Array.isArray(locationIds)
+						? inArray(requisitionTable.locationId, locationIds)
+						: undefined
 				)
 			);
 
@@ -1163,8 +1200,13 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 	}
 }
 
-export async function getAllTimesheetsForClient(clientId: string | undefined, searchTerm?: string) {
+export async function getAllTimesheetsForClient(
+	clientId: string | undefined,
+	searchTerm?: string,
+	locationIds?: string[] | null
+) {
 	if (!clientId) throw new Error('Client ID required');
+	if (Array.isArray(locationIds) && locationIds.length === 0) return [];
 	try {
 		const result = await db
 			.select({
@@ -1191,6 +1233,9 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 			.where(
 				and(
 					eq(timeSheetTable.associatedClientId, clientId),
+					Array.isArray(locationIds)
+						? inArray(requisitionTable.locationId, locationIds)
+						: undefined,
 					searchTerm
 						? or(
 								ilike(requisitionTable.title, `%${searchTerm}%`),
@@ -1209,13 +1254,24 @@ export async function getAllTimesheetsForClient(clientId: string | undefined, se
 	}
 }
 
-export async function getTimesheetsDueCount(clientId: string) {
+export async function getTimesheetsDueCount(
+	clientId: string,
+	locationIds?: string[] | null
+) {
+	if (Array.isArray(locationIds) && locationIds.length === 0) return 0;
 	try {
 		const [result] = await db
 			.select({ count: count() })
 			.from(timeSheetTable)
+			.leftJoin(requisitionTable, eq(requisitionTable.id, timeSheetTable.requisitionId))
 			.where(
-				and(eq(timeSheetTable.associatedClientId, clientId), eq(timeSheetTable.status, 'PENDING'))
+				and(
+					eq(timeSheetTable.associatedClientId, clientId),
+					eq(timeSheetTable.status, 'PENDING'),
+					Array.isArray(locationIds)
+						? inArray(requisitionTable.locationId, locationIds)
+						: undefined
+				)
 			);
 
 		return result.count || 0;
@@ -1265,7 +1321,11 @@ export async function getAllTimesheetDiscrepancies() {
 	return timesheets;
 }
 
-export async function getClientCompanyTimesheetDiscrepancies(clientProfileId: string) {
+export async function getClientCompanyTimesheetDiscrepancies(
+	clientProfileId: string,
+	locationIds?: string[] | null
+) {
+	if (Array.isArray(locationIds) && locationIds.length === 0) return [];
 	const timesheets = await db
 		.select({
 			timeSheetId: timeSheetTable.id,
@@ -1300,7 +1360,13 @@ export async function getClientCompanyTimesheetDiscrepancies(clientProfileId: st
 		)
 		.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
 		.where(
-			and(eq(clientProfileTable.id, clientProfileId), eq(timeSheetTable.status, 'DISCREPANCY'))
+			and(
+				eq(clientProfileTable.id, clientProfileId),
+				eq(timeSheetTable.status, 'DISCREPANCY'),
+				Array.isArray(locationIds)
+					? inArray(requisitionTable.locationId, locationIds)
+					: undefined
+			)
 		);
 
 	return timesheets;
@@ -1870,9 +1936,11 @@ export async function getClientInvoices(
 		includeStripeData?: boolean;
 		limit?: number;
 		searchTerm?: string;
+		locationIds?: string[] | null;
 	}
 ): Promise<InvoiceWithRelations[]> {
 	if (!clientId) throw error(400, 'Must provide client ID');
+	if (Array.isArray(options?.locationIds) && options.locationIds.length === 0) return [];
 
 	// Build dynamic where conditions
 	const whereConditions: SQL[] = [eq(invoiceTable.clientId, clientId)];
@@ -1883,6 +1951,13 @@ export async function getClientInvoices(
 
 	if (options?.sourceType) {
 		whereConditions.push(eq(invoiceTable.sourceType, options.sourceType));
+	}
+
+	// CLIENT_STAFF location scoping: only invoices whose linked requisition is
+	// at one of the staff's assigned locations. Invoices without a requisition
+	// (e.g. one-off manual paper invoices) are excluded under scoping.
+	if (Array.isArray(options?.locationIds)) {
+		whereConditions.push(inArray(requisitionTable.locationId, options.locationIds));
 	}
 
 	// Add search conditions

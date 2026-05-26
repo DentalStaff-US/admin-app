@@ -99,6 +99,9 @@
 	import { env } from '$env/dynamic/public';
 	import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
 	import AddLocationDrawer from '$lib/components/drawers/addLocationDrawer.svelte';
+	import InviteStaffDialog from '$lib/components/dialogs/inviteStaffDialog.svelte';
+	import StaffLocationsDialog from '$lib/components/dialogs/staffLocationsDialog.svelte';
+	import { UserPlus } from 'lucide-svelte';
 	import AdminProfileComments from '$lib/views/admin/adminProfileComments.svelte';
 	import { format } from 'date-fns';
 	import * as Select from '$lib/components/ui/select';
@@ -123,6 +126,27 @@
 	let setupLink = '';
 	let drawerExpanded = false;
 	let locationDrawerExpanded = false;
+
+	// Admin staff management dialogs
+	let inviteStaffDialogOpen = false;
+	let manageLocationsDialogOpen = false;
+	let manageLocationsForStaff: {
+		staffId: string;
+		staffName: string;
+		locationIds: string[];
+		primaryLocationId: string | null;
+	} | null = null;
+
+	function openManageLocations(staffMember: any) {
+		const assignments = staffMember.locationAssignments ?? [];
+		manageLocationsForStaff = {
+			staffId: staffMember.profile.id,
+			staffName: `${staffMember.user.firstName} ${staffMember.user.lastName}`,
+			locationIds: assignments.map((a: any) => a.locationId),
+			primaryLocationId: assignments.find((a: any) => a.isPrimary)?.locationId ?? null
+		};
+		manageLocationsDialogOpen = true;
+	}
 	let editingSection: 'header' | 'personal' | 'billing' | null = null;
 	let selectedInvoiceMethod: 'STRIPE' | 'PAPER' =
 		data.client?.profile?.clientInvoiceMethod === 'PAPER' ? 'PAPER' : 'STRIPE';
@@ -1351,6 +1375,20 @@
 									<Users class="h-5 w-5 text-blue-600" />
 									<span>Client Staff</span>
 								</CardTitle>
+								{#if isAdmin}
+									<Button
+										size="sm"
+										class="bg-blue-700 hover:bg-blue-800 gap-1"
+										on:click={() => (inviteStaffDialogOpen = true)}
+										disabled={!data.client?.locations?.length}
+										title={data.client?.locations?.length
+											? ''
+											: 'Add a location before inviting staff'}
+									>
+										<UserPlus class="h-4 w-4" />
+										Invite Staff
+									</Button>
+								{/if}
 							</CardHeader>
 							<CardContent>
 								{#if staff && staff.length > 0}
@@ -1385,6 +1423,15 @@
 														{/each}
 														<TableCell class="text-right">
 															<div class="flex justify-end gap-2">
+																<Button
+																	on:click={() => openManageLocations(row.original)}
+																	variant="ghost"
+																	size="icon"
+																	class="h-8 w-8"
+																	title="Manage locations"
+																>
+																	<MapPin class="h-4 w-4" />
+																</Button>
 																<Button
 																	on:click={() => handleViewStaff(row.original)}
 																	variant="ghost"
@@ -2233,3 +2280,25 @@
 	bind:drawerExpanded
 	{adminForm}
 />
+
+{#if isAdmin}
+	<InviteStaffDialog
+		bind:open={inviteStaffDialogOpen}
+		action="?/inviteStaff"
+		locations={data.client?.locations?.map((l) => ({ id: l.id, name: l.name })) ?? []}
+		dialogTitle="Invite staff for {data.client?.company?.companyName ?? 'this client'}"
+		dialogDescription="An invite email will go out with a sign-up link tied to the primary location you pick. You can assign additional locations after they accept."
+	/>
+
+	{#if manageLocationsForStaff}
+		<StaffLocationsDialog
+			bind:open={manageLocationsDialogOpen}
+			action="?/updateStaffLocations"
+			staffId={manageLocationsForStaff.staffId}
+			staffName={manageLocationsForStaff.staffName}
+			locations={data.client?.locations?.map((l) => ({ id: l.id, name: l.name })) ?? []}
+			initialLocationIds={manageLocationsForStaff.locationIds}
+			initialPrimaryLocationId={manageLocationsForStaff.primaryLocationId}
+		/>
+	{/if}
+{/if}

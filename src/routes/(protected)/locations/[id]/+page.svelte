@@ -49,9 +49,11 @@
         Eye,
         UserMinus,
         Plus,
-        AlertCircle
+        AlertCircle,
+        Star
     } from 'lucide-svelte';
     import {getDayName} from '$lib/_helpers';
+    import {enhance} from '$app/forms';
     import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
     import {clientRequisitionSchema, type ClientRequisitionSchema} from '$lib/config/zod-schemas';
     import {formatTimeForDisplay, formatTimeString} from '$lib/_helpers/UTCTimezoneUtils';
@@ -77,6 +79,7 @@
             email: string;
             avatarUrl: string;
         };
+        isPrimary?: boolean | null;
     };
 
     type RequisitionData = {
@@ -693,14 +696,37 @@
                                                     {/each}
                                                     <!-- Add Actions column -->
                                                     <TableCell>
-                                                        <div class="flex justify-end gap-2">
-                                                            <Button variant="ghost" size="icon" class="h-8 w-8">
-                                                                <Eye class="h-4 w-4"/>
-                                                            </Button>
-                                                            <Button variant="ghost" size="icon"
-                                                                    class="h-8 w-8 text-red-500">
-                                                                <UserMinus class="h-4 w-4"/>
-                                                            </Button>
+                                                        <div class="flex justify-end gap-2 items-center">
+                                                            {#if row.original.isPrimary}
+                                                                <Badge value="Primary" class="bg-blue-100 text-blue-800 text-xs"/>
+                                                            {:else}
+                                                                <form method="POST" action="?/updateStaffOnLocation" use:enhance>
+                                                                    <input type="hidden" name="staffId" value={row.original.profile.id}/>
+                                                                    <input type="hidden" name="action" value="makePrimary"/>
+                                                                    <Button
+                                                                        type="submit"
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        class="h-8 w-8"
+                                                                        title="Make this their primary location"
+                                                                    >
+                                                                        <Star class="h-4 w-4"/>
+                                                                    </Button>
+                                                                </form>
+                                                            {/if}
+                                                            <form method="POST" action="?/updateStaffOnLocation" use:enhance>
+                                                                <input type="hidden" name="staffId" value={row.original.profile.id}/>
+                                                                <input type="hidden" name="action" value="remove"/>
+                                                                <Button
+                                                                    type="submit"
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    class="h-8 w-8 text-red-500"
+                                                                    title="Remove staff from this location"
+                                                                >
+                                                                    <UserMinus class="h-4 w-4"/>
+                                                                </Button>
+                                                            </form>
                                                         </div>
                                                     </TableCell>
                                                 </TableRow>

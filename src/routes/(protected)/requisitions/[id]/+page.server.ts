@@ -16,6 +16,7 @@ import {
 	createPaperInvoiceRecord
 } from '$lib/server/database/queries/requisitions';
 import { createStripeInvoice } from '$lib/server/stripe';
+import { assertCanAccessLocation } from '$lib/server/scoping';
 import { z } from 'zod';
 import { fail, redirect } from '@sveltejs/kit';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
@@ -198,6 +199,8 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		const profile: ClientCompanyStaffProfile | null = await getClientStaffProfilebyUserId(user.id);
 		const company = await getClientCompanyByClientId(client?.id);
 		const result = await getRequisitionDetailsById(idAsNum);
+		// Access guard: staff must be assigned to this requisition's location.
+		await assertCanAccessLocation(user, result?.requisition?.location?.id);
 		const requisitionApplications = await getRequisitionApplications(idAsNum);
 		const requisitionTimesheets = await getRequisitionTimesheets(idAsNum);
 		const requisitionRecurrenceDays = await getRecurrenceDaysForRequisition(idAsNum);

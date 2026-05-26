@@ -7,7 +7,10 @@ import {
 	getClientCompanyByClientId,
 	getClientProfileById,
 	getClientSubscription,
-	getPrimaryLocationForStaff
+	getPrimaryLocationForStaff,
+	getStaffLocationsWithMeta,
+	inviteStaffUsersToAccount,
+	setStaffLocations
 } from '$lib/server/database/queries/clients';
 import { fail, redirect } from '@sveltejs/kit';
 import { CLIENT_STATUS, USER_ROLES, type ClientStatus } from '$lib/config/constants';
@@ -143,10 +146,20 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
 	const staffWithPrimaryLocation = await Promise.all(
 		staff.map(async (member) => {
-			const primaryLocation = await getPrimaryLocationForStaff(member.profile.id);
+			const [primaryLocation, allLocations] = await Promise.all([
+				getPrimaryLocationForStaff(member.profile.id),
+				getStaffLocationsWithMeta(member.profile.id)
+			]);
 			return {
 				...member,
-				primaryLocation: primaryLocation ? primaryLocation : null
+				primaryLocation: primaryLocation ? primaryLocation : null,
+				// All current location assignments + which one is primary, so
+				// the Manage Locations dialog can hydrate its initial state.
+				locationAssignments: allLocations.map((l) => ({
+					locationId: l.locationId,
+					isPrimary: !!l.isPrimary,
+					locationName: l.locationName
+				}))
 			};
 		})
 	);
@@ -193,6 +206,48 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				documents: []
 			};
 };
+
+const InviteStaffSchema = z.object({
+	locationId: z.string().min(1, 'Location is required'),
+	invitees: z
+		.string()
+		.transform((val) => {
+			try {
+				return JSON.parse(val);
+			} catch {
+				return [];
+			}
+		})
+		.pipe(
+			z
+				.array(
+					z.object({
+						email: z.string().email(),
+						staffRole: z.enum(['CLIENT_ADMIN', 'CLIENT_MANAGER', 'CLIENT_EMPLOYEE'])
+					})
+				)
+				.min(1, 'Add at least one invitee')
+		)
+});
+
+const StaffLocationsSchema = z.object({
+	staffId: z.string().min(1),
+	locationIds: z
+		.string()
+		.transform((val) => {
+			try {
+				const parsed = JSON.parse(val);
+				return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
+			} catch {
+				return [] as string[];
+			}
+		})
+		.pipe(z.array(z.string())),
+	primaryLocationId: z
+		.string()
+		.optional()
+		.transform((v) => (v && v.length > 0 ? v : null))
+});
 
 export const actions = {
 	updateStatus: async (event: RequestEvent) => {
@@ -498,6 +553,129 @@ export const actions = {
 			return setError(form, 'Failed to update client');
 		}
 	},
+	inviteStaff: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id: clientId } = event.params;
+
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Unauthorized' });
+		}
+
+		const formData = await event.request.formData();
+		const parsed = InviteStaffSchema.safeParse({
+			locationId: formData.get('locationId'),
+			invitees: formData.get('invitees')
+		});
+		if (!parsed.success) {
+			return fail(400, { error: parsed.error.errors[0]?.message ?? 'Invalid invite' });
+		}
+
+		try {
+			const client = await getClientProfileById(clientId);
+			if (!client?.company) {
+				return fail(404, { error: 'Client not found' });
+			}
+
+			// Validate the chosen location belongs to this client's company.
+			const ownedLocations = await getAllClientLocationsByCompanyId(client.company.id);
+			if (!ownedLocations.some((l) => l.id === parsed.data.locationId)) {
+				return fail(400, { error: 'Location does not belong to this client' });
+			}
+
+			const INVITE_EXPIRATION_DAYS = 7;
+			const expiresAt = new Date();
+			expiresAt.setDate(expiresAt.getDate() + INVITE_EXPIRATION_DAYS);
+
+			const invites = parsed.data.invitees.map((invitee) => ({
+				id: crypto.randomUUID(),
+				email: invitee.email.toLowerCase(),
+				staffRole: invitee.staffRole,
+				invitedRole: 'CLIENT_STAFF' as const,
+				referrerRole: user.role as 'CANDIDATE' | 'CLIENT_STAFF' | 'SUPERADMIN' | 'CLIENT',
+				referrerId: user.id,
+				expiresAt
+			}));
+
+			const results = await inviteStaffUsersToAccount(parsed.data.locationId, invites);
+			const failures = results.filter((r) => !r.success);
+
+			if (failures.length === invites.length) {
+				setFlash({ type: 'error', message: 'Failed to send invites' }, event);
+				return fail(500, { error: 'All invites failed' });
+			}
+
+			if (failures.length > 0) {
+				setFlash(
+					{
+						type: 'success',
+						message: `Sent ${invites.length - failures.length}/${invites.length} invites. Some failed.`
+					},
+					event
+				);
+			} else {
+				setFlash(
+					{
+						type: 'success',
+						message: `Sent ${invites.length} invite${invites.length === 1 ? '' : 's'}`
+					},
+					event
+				);
+			}
+			return { success: true };
+		} catch (err) {
+			logger.error('admin inviteStaff failed', { error: err, clientId, distinctId: user.id });
+			setFlash({ type: 'error', message: 'Failed to send invites' }, event);
+			return fail(500, { error: 'Internal error' });
+		}
+	},
+
+	updateStaffLocations: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id: clientId } = event.params;
+
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Unauthorized' });
+		}
+
+		const formData = await event.request.formData();
+		const parsed = StaffLocationsSchema.safeParse({
+			staffId: formData.get('staffId'),
+			locationIds: formData.get('locationIds'),
+			primaryLocationId: formData.get('primaryLocationId')
+		});
+		if (!parsed.success) {
+			return fail(400, { error: 'Invalid form' });
+		}
+
+		try {
+			const client = await getClientProfileById(clientId);
+			if (!client?.company) {
+				return fail(404, { error: 'Client not found' });
+			}
+
+			await setStaffLocations({
+				staffId: parsed.data.staffId,
+				companyId: client.company.id,
+				locationIds: parsed.data.locationIds,
+				primaryLocationId: parsed.data.primaryLocationId
+			});
+
+			setFlash({ type: 'success', message: 'Staff locations updated' }, event);
+			return { success: true };
+		} catch (err) {
+			if (err && typeof err === 'object' && 'status' in err && 'body' in err) {
+				throw err;
+			}
+			logger.error('admin updateStaffLocations failed', {
+				error: err,
+				clientId,
+				distinctId: user.id
+			});
+			setFlash({ type: 'error', message: 'Failed to update staff locations' }, event);
+			return fail(500, { error: 'Internal error' });
+		}
+	},
+
 	addComment: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
