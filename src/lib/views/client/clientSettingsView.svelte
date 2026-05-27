@@ -48,6 +48,7 @@
 	import { openStripeSetupInNewTab } from '$lib/_helpers/openStripeSetup';
 	import SupportTicketDialog from '$lib/components/dialogs/supportTicketDialog.svelte';
 	import StaffLocationsDialog from '$lib/components/dialogs/staffLocationsDialog.svelte';
+	import PendingInvitesTable from '$lib/components/PendingInvitesTable.svelte';
 	import { MapPin } from 'lucide-svelte';
 	import { Select } from 'flowbite-svelte';
 	import AvatarUpload from '$lib/components/avatar-upload.svelte';
@@ -92,6 +93,15 @@
 	export let company;
 	export let documents;
 	export let companyLocations: Array<{ id: string; name: string | null }> = [];
+	export let pendingInvites: Array<{
+		id: string;
+		email: string;
+		staffRole: string | null;
+		invitedRole: string;
+		createdAt: Date | string;
+		expiresAt: Date | string;
+		locationName?: string | null;
+	}> = [];
 
 	// Staff-locations management dialog state
 	let manageLocationsOpen = false;
@@ -670,6 +680,20 @@
 				<PlusIcon class="mr-2" size={16} />
 				Invite Staff
 			</Button>
+
+			{#if pendingInvites.length > 0}
+				<div class="mt-6">
+					<h3 class="text-lg font-medium mb-2">
+						Pending Invites ({pendingInvites.length})
+					</h3>
+					<PendingInvitesTable
+						invites={pendingInvites}
+						resendAction="?/resendStaffInvite"
+						revokeAction="?/revokeStaffInvite"
+					/>
+				</div>
+			{/if}
+
 			<div class="mt-4">
 				<Tabs.Root bind:value={activeTab} class="">
 					<Tabs.List class="grid w-full grid-cols-4">

@@ -151,7 +151,9 @@ export const clientCompanyTable = pgTable('client_companies', {
 				isClosed: false,
 				timezone: 'America/New_York'
 			}
-		})
+		}),
+	einNumber: text('ein_number'),
+	accountableManager: text('accountable_manager')
 });
 
 const geometry = customType<{ data: string; notNull: false; default: false }>({

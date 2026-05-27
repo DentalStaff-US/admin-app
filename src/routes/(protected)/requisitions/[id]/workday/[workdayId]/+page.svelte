@@ -67,6 +67,7 @@
 	$: timesheet = workday?.timesheet;
 	$: hasWorkday = !!workday?.workday;
 	$: qualifiedProfessionals = data.qualifiedProfessionals || [];
+	$: defaultSearchRadiusMiles = data.defaultSearchRadiusMiles ?? 60;
 	$: editWorkdayScheduleForm = data.editWorkdayScheduleForm;
 
 	// Dialog/modal state
@@ -77,6 +78,37 @@
 	let cancelWorkdayDialogOpen = false;
 	let assigningCandidateId: string | null = null;
 	let reassigningCandidateId: string | null = null;
+
+	// "Show all discipline matches" extension: fetched on-demand from
+	// /api/requisitions/[id]/qualified-candidates?includeAllExperience=true,
+	// then deduped against qualifiedProfessionals (server-side filter is reductive,
+	// so the extended set is a strict superset — we just append the new ones).
+	let extendedProfessionals: typeof qualifiedProfessionals = [];
+	let loadingExtended = false;
+	let extendedLoaded = false;
+	let extendedError: string | null = null;
+	$: allProfessionals = [...qualifiedProfessionals, ...extendedProfessionals];
+
+	async function loadAllExperienceCandidates() {
+		if (loadingExtended || extendedLoaded) return;
+		loadingExtended = true;
+		extendedError = null;
+		try {
+			const requisitionId = data.requisition?.requisition?.id;
+			const res = await fetch(
+				`/api/requisitions/${requisitionId}/qualified-candidates?includeAllExperience=true`
+			);
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const all = await res.json();
+			const existingIds = new Set(qualifiedProfessionals.map((p) => p.candidateId));
+			extendedProfessionals = all.filter((p: { candidateId: string }) => !existingIds.has(p.candidateId));
+			extendedLoaded = true;
+		} catch (err) {
+			extendedError = err instanceof Error ? err.message : 'Failed to load';
+		} finally {
+			loadingExtended = false;
+		}
+	}
 
 	const {
 		form,
@@ -563,11 +595,13 @@
 		<DialogHeader>
 			<DialogTitle>Assign Professional to Workday</DialogTitle>
 			<DialogDescription>
-				{qualifiedProfessionals.length} qualified professionals within 50 miles
+				{allProfessionals.length} qualified professionals within {defaultSearchRadiusMiles} miles{extendedLoaded
+					? ' (incl. all experience levels)'
+					: ''}
 			</DialogDescription>
 		</DialogHeader>
 		<div class="space-y-4 mt-4">
-			{#each qualifiedProfessionals as professional}
+			{#each allProfessionals as professional}
 				<div class="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
 					<div class="flex items-start justify-between">
 						<div class="flex gap-4">
@@ -625,10 +659,27 @@
 				</div>
 			{:else}
 				<div class="text-center py-8 text-muted-foreground">
-					No qualified professionals found within 50 miles
+					No qualified professionals found within {defaultSearchRadiusMiles} miles
 				</div>
 			{/each}
 		</div>
+		{#if !extendedLoaded}
+			<DialogFooter class="sm:justify-center mt-2">
+				<button
+					type="button"
+					class="text-sm text-[#2a93d1] hover:underline disabled:opacity-50"
+					on:click={loadAllExperienceCandidates}
+					disabled={loadingExtended}
+				>
+					{loadingExtended
+						? 'Loading…'
+						: 'Show more — include candidates of any experience level'}
+				</button>
+			</DialogFooter>
+		{/if}
+		{#if extendedError}
+			<p class="text-sm text-red-600 text-center mt-2">Failed to load: {extendedError}</p>
+		{/if}
 	</DialogContent>
 </Dialog>
 
@@ -639,11 +690,13 @@
 			<DialogTitle>Reassign Professional</DialogTitle>
 			<DialogDescription>
 				Currently assigned to <strong>{candidate?.firstName} {candidate?.lastName}</strong>. Select
-				a replacement from {qualifiedProfessionals.length} qualified professionals within 50 miles.
+				a replacement from {allProfessionals.length} qualified professionals within {defaultSearchRadiusMiles} miles{extendedLoaded
+					? ' (incl. all experience levels)'
+					: ''}.
 			</DialogDescription>
 		</DialogHeader>
 		<div class="space-y-4 mt-4">
-			{#each qualifiedProfessionals as professional}
+			{#each allProfessionals as professional}
 				<!-- Skip the currently assigned candidate -->
 				{#if professional.candidateId !== candidate?.id}
 					<div class="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
@@ -710,13 +763,28 @@
 				{/if}
 			{:else}
 				<div class="text-center py-8 text-muted-foreground">
-					No other qualified professionals found within 50 miles
+					No other qualified professionals found within {defaultSearchRadiusMiles} miles
 				</div>
 			{/each}
 		</div>
-		<DialogFooter>
+		<DialogFooter class="flex-col sm:flex-row sm:justify-between gap-2">
+			{#if !extendedLoaded}
+				<button
+					type="button"
+					class="text-sm text-[#2a93d1] hover:underline disabled:opacity-50 sm:mr-auto"
+					on:click={loadAllExperienceCandidates}
+					disabled={loadingExtended}
+				>
+					{loadingExtended
+						? 'Loading…'
+						: 'Show more — include candidates of any experience level'}
+				</button>
+			{/if}
 			<Button variant="outline" on:click={() => (reassignDialogOpen = false)}>Cancel</Button>
 		</DialogFooter>
+		{#if extendedError}
+			<p class="text-sm text-red-600 text-center">Failed to load: {extendedError}</p>
+		{/if}
 	</DialogContent>
 </Dialog>
 

@@ -17,6 +17,7 @@ import { USER_ROLES } from '$lib/config/constants';
 import { assertCanAccessLocation } from '$lib/server/scoping';
 import { getClientProfileByIdAdmin } from '$lib/server/database/queries/admin';
 import { getQualifiedProfessionalsForRequisition } from '$lib/server/database/queries/candidates';
+import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
 import db from '$lib/server/database/drizzle';
 import {
 	recurrenceDayTable,
@@ -66,6 +67,7 @@ export async function load(event: RequestEvent) {
 			company.id
 		);
 
+		const { miles: defaultSearchRadiusMiles } = await getDefaultSearchRadius();
 		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
 			requisition.requisition,
 			location
@@ -89,6 +91,7 @@ export async function load(event: RequestEvent) {
 			requisition,
 			location,
 			qualifiedProfessionals,
+			defaultSearchRadiusMiles,
 			editWorkdayScheduleForm
 		};
 	}
@@ -106,6 +109,7 @@ export async function load(event: RequestEvent) {
 			requisition.requisition.locationId,
 			company.id
 		);
+		const { miles: defaultSearchRadiusMiles } = await getDefaultSearchRadius();
 		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
 			requisition.requisition,
 			location
@@ -129,6 +133,7 @@ export async function load(event: RequestEvent) {
 			requisition,
 			location,
 			qualifiedProfessionals,
+			defaultSearchRadiusMiles,
 			editWorkdayScheduleForm
 		};
 	}
@@ -146,6 +151,7 @@ export async function load(event: RequestEvent) {
 			requisition.requisition.locationId,
 			company.id
 		);
+		const { miles: defaultSearchRadiusMiles } = await getDefaultSearchRadius();
 		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
 			requisition.requisition,
 			location
@@ -169,6 +175,7 @@ export async function load(event: RequestEvent) {
 			requisition,
 			location,
 			qualifiedProfessionals,
+			defaultSearchRadiusMiles,
 			editWorkdayScheduleForm
 		};
 	}

@@ -15,7 +15,8 @@ import {
 import { authenticateUser } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { eq, and, inArray, notInArray, or, isNull, isNotNull, sql, gte, lte } from 'drizzle-orm';
-import { METERS_PER_MILE, RADIUS_METERS, RADIUS_MILES } from '$lib/config/constants';
+import { METERS_PER_MILE } from '$lib/config/constants';
+import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
 import { logger } from '$lib/server/logger';
@@ -24,6 +25,7 @@ export const GET: RequestHandler = async ({ request }) => {
 	const user = await authenticateUser(request);
 
 	try {
+		const { miles: radiusMiles, meters: radiusMeters } = await getDefaultSearchRadius();
 		// Fetch the candidate's profile
 		const [candidateProfile] = await db
 			.select()
@@ -69,7 +71,7 @@ export const GET: RequestHandler = async ({ request }) => {
 					address: candidateProfile.completeAddress
 				},
 				recurrenceDays: [],
-				searchRadius: RADIUS_MILES,
+				searchRadius: radiusMiles,
 				totalFound: 0,
 				message: 'Please add your work experience and disciplines to see available shifts.'
 			});
@@ -96,7 +98,7 @@ export const GET: RequestHandler = async ({ request }) => {
 					sql`ST_DWithin(
 						geom::geography,
 						ST_SetSRID(ST_MakePoint(${candidateProfile.lon}::float, ${candidateProfile.lat}::float), 4326)::geography,
-						${RADIUS_METERS}
+						${radiusMeters}
 					)`
 				)
 			);
@@ -111,7 +113,7 @@ export const GET: RequestHandler = async ({ request }) => {
 					address: candidateProfile.completeAddress
 				},
 				recurrenceDays: [],
-				searchRadius: RADIUS_MILES,
+				searchRadius: radiusMiles,
 				totalFound: 0,
 				message: 'No office locations found within 30 miles of your location.'
 			});
@@ -248,7 +250,7 @@ export const GET: RequestHandler = async ({ request }) => {
 				address: candidateProfile.completeAddress
 			},
 			recurrenceDays: filteredRecurrenceDays,
-			searchRadius: RADIUS_MILES,
+			searchRadius: radiusMiles,
 			totalFound: filteredRecurrenceDays.length,
 			nearbyOfficeCount: officeLocationIds.length
 		});

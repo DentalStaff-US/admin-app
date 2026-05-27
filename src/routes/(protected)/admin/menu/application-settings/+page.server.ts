@@ -8,12 +8,17 @@ import { z } from 'zod';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { eq } from 'drizzle-orm';
 
-const PaymentFeeSchema = z.object({
+const SettingsSchema = z.object({
 	paymentFee: z.coerce
 		.number()
 		.min(0, 'Payment fee must be a positive number')
 		.refine((val) => Number.isInteger(val), 'Payment fee must be a whole number'),
-	paymentFeeType: z.enum(['PERCENTAGE', 'FIXED'])
+	paymentFeeType: z.enum(['PERCENTAGE', 'FIXED']),
+	defaultSearchRadiusMiles: z.coerce
+		.number()
+		.int('Radius must be a whole number')
+		.min(1, 'Radius must be at least 1 mile')
+		.max(500, 'Radius must be 500 miles or less')
 });
 
 export const load: PageServerLoad = async (event) => {
@@ -34,63 +39,51 @@ export const load: PageServerLoad = async (event) => {
 		// Create admin settings
 	}
 
-	const paymentFeeForm = await superValidate(event, PaymentFeeSchema);
+	const settingsForm = await superValidate(event, SettingsSchema);
 
-	// Set the data exactly like your working example
-	paymentFeeForm.data = {
+	settingsForm.data = {
 		paymentFee: adminSettings?.adminPaymentFee || 0,
-		paymentFeeType: adminSettings?.adminPaymentFeeType || 'PERCENTAGE'
+		paymentFeeType: adminSettings?.adminPaymentFeeType || 'PERCENTAGE',
+		defaultSearchRadiusMiles: adminSettings?.defaultSearchRadiusMiles ?? 60
 	};
 
 	return {
 		user,
 		adminSettings: adminSettings || {},
-		paymentFeeForm
+		settingsForm
 	};
 };
 
 export const actions = {
-	updatePaymentFee: async (event) => {
+	updateSettings: async (event) => {
 		const { locals } = event;
 		const { user } = locals;
 
 		if (!user) {
 			throw redirect(303, '/auth/sign-in');
 		}
-
 		if (user.role !== USER_ROLES.SUPERADMIN) {
 			throw error(401, 'Unauthorized');
 		}
 
-		const form = await superValidate(event, PaymentFeeSchema);
-
+		const form = await superValidate(event, SettingsSchema);
 		if (!form.valid) {
 			return message(form, 'Invalid form data', { status: 400 });
 		}
 
 		const [adminSettings] = await db.select().from(adminConfigTable).limit(1);
-
-		const { paymentFee, paymentFeeType } = form.data;
+		const { paymentFee, paymentFeeType, defaultSearchRadiusMiles } = form.data;
 
 		await db
 			.update(adminConfigTable)
 			.set({
 				adminPaymentFee: paymentFee,
-				adminPaymentFeeType: paymentFeeType
+				adminPaymentFeeType: paymentFeeType,
+				defaultSearchRadiusMiles
 			})
 			.where(eq(adminConfigTable.id, adminSettings.id));
 
-		try {
-			setFlash(
-				{
-					type: 'success',
-					message: 'Payment fee updated successfully'
-				},
-				event
-			);
-			return { form };
-		} catch (err) {
-			throw error(500, 'Failed to update payment fee');
-		}
+		setFlash({ type: 'success', message: 'Application settings updated' }, event);
+		return { form };
 	}
 };

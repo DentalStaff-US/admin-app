@@ -7,9 +7,12 @@ import {
 	getClientCompanyByClientId,
 	getClientProfileById,
 	getClientSubscription,
+	getPendingInvitesForCompany,
 	getPrimaryLocationForStaff,
 	getStaffLocationsWithMeta,
 	inviteStaffUsersToAccount,
+	resendInvite,
+	revokeInvite,
 	setStaffLocations
 } from '$lib/server/database/queries/clients';
 import { fail, redirect } from '@sveltejs/kit';
@@ -120,6 +123,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	const recurrenceDays = await getCalendarEventsForClient(id);
 	const supportTickets = await getSupportTicketsForClient(result.profile.id);
 	const staff = await getAllClientStaffProfiles(result.company.id);
+	const pendingInvites = await getPendingInvitesForCompany(result.company.id);
 	const invoices = await getClientInvoices(id, { includeStripeData: true });
 	const invoiceForm = await superValidate(NewInvoiceSchema);
 	const requisitionForm = await superValidate(adminRequisitionSchema);
@@ -180,6 +184,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				recurrenceDays,
 				supportTickets,
 				staff: staffWithPrimaryLocation,
+				pendingInvites,
 				invoices,
 				invoiceForm,
 				requisitionForm,
@@ -195,6 +200,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				requisitions: [],
 				recurrenceDays: [],
 				supportTickets: [],
+				pendingInvites: [],
 				invoices: [],
 				staff: [],
 				invoiceForm,
@@ -625,6 +631,58 @@ export const actions = {
 		} catch (err) {
 			logger.error('admin inviteStaff failed', { error: err, clientId, distinctId: user.id });
 			setFlash({ type: 'error', message: 'Failed to send invites' }, event);
+			return fail(500, { error: 'Internal error' });
+		}
+	},
+
+	resendStaffInvite: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id: clientId } = event.params;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Unauthorized' });
+		}
+		const formData = await event.request.formData();
+		const inviteId = formData.get('inviteId') as string;
+		if (!inviteId) return fail(400, { error: 'Missing inviteId' });
+
+		try {
+			const client = await getClientProfileById(clientId);
+			if (!client?.company) return fail(404, { error: 'Client not found' });
+			const result = await resendInvite(inviteId, client.company.id);
+			if (!result?.success) {
+				setFlash({ type: 'error', message: 'Failed to resend invite email' }, event);
+				return fail(500, { error: 'Resend failed' });
+			}
+			setFlash({ type: 'success', message: 'Invite email resent' }, event);
+			return { success: true };
+		} catch (err) {
+			if (err && typeof err === 'object' && 'status' in err && 'body' in err) throw err;
+			logger.error('admin resendStaffInvite failed', { error: err, clientId, distinctId: user.id });
+			setFlash({ type: 'error', message: 'Failed to resend invite' }, event);
+			return fail(500, { error: 'Internal error' });
+		}
+	},
+
+	revokeStaffInvite: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id: clientId } = event.params;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Unauthorized' });
+		}
+		const formData = await event.request.formData();
+		const inviteId = formData.get('inviteId') as string;
+		if (!inviteId) return fail(400, { error: 'Missing inviteId' });
+
+		try {
+			const client = await getClientProfileById(clientId);
+			if (!client?.company) return fail(404, { error: 'Client not found' });
+			await revokeInvite(inviteId, client.company.id);
+			setFlash({ type: 'success', message: 'Invite revoked' }, event);
+			return { success: true };
+		} catch (err) {
+			if (err && typeof err === 'object' && 'status' in err && 'body' in err) throw err;
+			logger.error('admin revokeStaffInvite failed', { error: err, clientId, distinctId: user.id });
+			setFlash({ type: 'error', message: 'Failed to revoke invite' }, event);
 			return fail(500, { error: 'Internal error' });
 		}
 	},

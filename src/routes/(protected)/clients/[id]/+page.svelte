@@ -101,6 +101,7 @@
 	import AddLocationDrawer from '$lib/components/drawers/addLocationDrawer.svelte';
 	import InviteStaffDialog from '$lib/components/dialogs/inviteStaffDialog.svelte';
 	import StaffLocationsDialog from '$lib/components/dialogs/staffLocationsDialog.svelte';
+	import PendingInvitesTable from '$lib/components/PendingInvitesTable.svelte';
 	import { UserPlus } from 'lucide-svelte';
 	import AdminProfileComments from '$lib/views/admin/adminProfileComments.svelte';
 	import { format } from 'date-fns';
@@ -1487,6 +1488,19 @@
 										<p class="text-sm text-gray-500">
 											This client doesn't have any staff members yet.
 										</p>
+									</div>
+								{/if}
+
+								{#if isAdmin && (data.pendingInvites?.length ?? 0) > 0}
+									<div class="mt-6">
+										<h3 class="text-sm font-medium text-muted-foreground mb-2">
+											Pending Invites ({data.pendingInvites.length})
+										</h3>
+										<PendingInvitesTable
+											invites={data.pendingInvites}
+											resendAction="?/resendStaffInvite"
+											revokeAction="?/revokeStaffInvite"
+										/>
 									</div>
 								{/if}
 							</CardContent>

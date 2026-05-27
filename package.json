@@ -41,6 +41,7 @@
 		"@typescript-eslint/parser": "^6.0.0",
 		"@vitest/ui": "^2.1.9",
 		"autoprefixer": "^10.4.14",
+		"csv-parse": "^6.2.1",
 		"dotenv": "^16.4.5",
 		"drizzle-kit": "^0.31.5",
 		"echarts": "^5.5.0",

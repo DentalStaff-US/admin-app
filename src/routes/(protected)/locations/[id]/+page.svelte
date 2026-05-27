@@ -24,6 +24,7 @@
     import {Button} from '$lib/components/ui/button';
     import type {PageData} from './$types';
     import InviteStaffToLocationDialog from '$lib/components/dialogs/inviteStaffToLocationDialog.svelte';
+    import PendingInvitesTable from '$lib/components/PendingInvitesTable.svelte';
     import {CardHeader, CardTitle, CardContent, CardFooter} from '$lib/components/ui/card';
     import {
         Table,
@@ -733,6 +734,20 @@
                                             {/each}
                                         </TableBody>
                                     </Table>
+                                </div>
+                            {/if}
+
+                            {#if (data.pendingInvites?.length ?? 0) > 0}
+                                <div class="mt-6">
+                                    <h3 class="text-sm font-medium text-muted-foreground mb-2">
+                                        Pending Invites ({data.pendingInvites.length})
+                                    </h3>
+                                    <PendingInvitesTable
+                                        invites={data.pendingInvites}
+                                        resendAction="?/resendStaffInvite"
+                                        revokeAction="?/revokeStaffInvite"
+                                        showLocation={false}
+                                    />
                                 </div>
                             {/if}
                         </CardContent>

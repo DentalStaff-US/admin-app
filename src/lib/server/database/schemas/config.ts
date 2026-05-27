@@ -31,5 +31,6 @@ export const adminConfigTable = pgTable('admin_config', {
 	adminPaymentFee: smallint('admin_payment_fee').notNull().default(0),
 	adminPaymentFeeType: adminPaymentFeeTypeEnum('admin_payment_fee_type')
 		.notNull()
-		.default('PERCENTAGE')
+		.default('PERCENTAGE'),
+	defaultSearchRadiusMiles: smallint('default_search_radius_miles').notNull().default(60)
 });

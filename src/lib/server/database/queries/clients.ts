@@ -1,4 +1,4 @@
-import { desc, eq, count, sql, and, ne, notExists, or, ilike, SQL, inArray } from 'drizzle-orm';
+import { desc, eq, count, sql, and, ne, notExists, or, ilike, SQL, inArray, isNotNull } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import {
 	clientCompanyTable,
@@ -1027,6 +1027,138 @@ export async function getPrimaryLocationForCompany(companyId: string) {
 		console.log(err);
 		return error(500, 'Error getting primary location for company');
 	}
+}
+
+/**
+ * Pending staff invites — rows in user_invites with a non-null token (i.e.
+ * not yet accepted; the sign-up flow nulls the token on acceptance). Includes
+ * BOTH still-valid invites and expired ones so the UI can surface the expired
+ * ones for resend. Joined to the staff-invite-locations row + the location
+ * name so the table can render directly.
+ */
+export async function getPendingInvitesForCompany(companyId: string) {
+	return await db
+		.select({
+			id: userInviteTable.id,
+			email: userInviteTable.email,
+			staffRole: userInviteTable.staffRole,
+			invitedRole: userInviteTable.invitedRole,
+			createdAt: userInviteTable.createdAt,
+			expiresAt: userInviteTable.expiresAt,
+			token: userInviteTable.token,
+			locationId: companyStaffInviteLocations.locationId,
+			locationName: companyOfficeLocationTable.name
+		})
+		.from(userInviteTable)
+		.leftJoin(
+			companyStaffInviteLocations,
+			eq(companyStaffInviteLocations.token, userInviteTable.token)
+		)
+		.leftJoin(
+			companyOfficeLocationTable,
+			eq(companyOfficeLocationTable.id, companyStaffInviteLocations.locationId)
+		)
+		.where(
+			and(eq(userInviteTable.companyId, companyId), isNotNull(userInviteTable.token))
+		)
+		.orderBy(desc(userInviteTable.createdAt));
+}
+
+/**
+ * Same as getPendingInvitesForCompany but narrowed to invites tied to a
+ * specific location — used on /locations/[id] to show "who's been invited
+ * to this location".
+ */
+export async function getPendingInvitesForLocation(locationId: string) {
+	return await db
+		.select({
+			id: userInviteTable.id,
+			email: userInviteTable.email,
+			staffRole: userInviteTable.staffRole,
+			invitedRole: userInviteTable.invitedRole,
+			createdAt: userInviteTable.createdAt,
+			expiresAt: userInviteTable.expiresAt,
+			token: userInviteTable.token
+		})
+		.from(userInviteTable)
+		.innerJoin(
+			companyStaffInviteLocations,
+			eq(companyStaffInviteLocations.token, userInviteTable.token)
+		)
+		.where(
+			and(
+				eq(companyStaffInviteLocations.locationId, locationId),
+				isNotNull(userInviteTable.token)
+			)
+		)
+		.orderBy(desc(userInviteTable.createdAt));
+}
+
+/**
+ * Revoke a pending invite. Deletes the staff_invite_locations row too so
+ * the invite link in the email becomes invalid (the /auth/invite/[token]
+ * page looks up by token; deleting the row makes it 404 cleanly).
+ */
+export async function revokeInvite(inviteId: string, companyId: string) {
+	const [invite] = await db
+		.select({ token: userInviteTable.token, companyId: userInviteTable.companyId })
+		.from(userInviteTable)
+		.where(eq(userInviteTable.id, inviteId))
+		.limit(1);
+	if (!invite) throw error(404, 'Invite not found');
+	if (invite.companyId !== companyId) throw error(403, 'Invite belongs to another company');
+
+	await db.transaction(async (tx) => {
+		if (invite.token) {
+			await tx
+				.delete(companyStaffInviteLocations)
+				.where(eq(companyStaffInviteLocations.token, invite.token));
+		}
+		await tx.delete(userInviteTable).where(eq(userInviteTable.id, inviteId));
+	});
+}
+
+/**
+ * Resend a pending invite email. If the invite has already expired we bump
+ * the expiresAt forward another full TTL window so the link in the resent
+ * email is actually usable. Token is intentionally NOT rotated — any
+ * previously-sent links keep working until acceptance.
+ */
+export async function resendInvite(inviteId: string, companyId: string) {
+	const [invite] = await db
+		.select()
+		.from(userInviteTable)
+		.where(eq(userInviteTable.id, inviteId))
+		.limit(1);
+	if (!invite) throw error(404, 'Invite not found');
+	if (invite.companyId !== companyId) throw error(403, 'Invite belongs to another company');
+	if (!invite.token) throw error(400, 'Invite has already been accepted');
+
+	// Bump expiry forward if expired, otherwise leave alone.
+	const INVITE_EXPIRATION_DAYS = 7;
+	const now = new Date();
+	if (invite.expiresAt <= now) {
+		const newExpiresAt = new Date();
+		newExpiresAt.setDate(newExpiresAt.getDate() + INVITE_EXPIRATION_DAYS);
+		await db
+			.update(userInviteTable)
+			.set({ expiresAt: newExpiresAt, updatedAt: new Date() })
+			.where(eq(userInviteTable.id, inviteId));
+	}
+
+	const [company] = await db
+		.select({ name: clientCompanyTable.companyName })
+		.from(clientCompanyTable)
+		.where(eq(clientCompanyTable.id, companyId))
+		.limit(1);
+
+	const emailService = new EmailService();
+	const result = await emailService.sendClientStaffInviteEmail(
+		invite.email,
+		invite.token,
+		company?.name || 'your team'
+	);
+	return result;
 }
 
 export async function addStaffToLocation(values: NewClientCompanyStaffLocation) {

@@ -14,8 +14,11 @@ import {
 	getClientStaffProfilebyClientId,
 	getClientStaffProfilebyUserId,
 	getLocationByIdForCompany,
+	getPendingInvitesForLocation,
 	getStaffLocationsWithMeta,
 	getStaffProfilesForLocation,
+	resendInvite,
+	revokeInvite,
 	setStaffLocations,
 	updateCompanyLocation
 } from '$lib/server/database/queries/clients';
@@ -70,6 +73,7 @@ export const load: PageServerLoad = async (event) => {
 		const requisitions = await getRequsitionsForLocation(location.id);
 		const locationStaff = await getStaffProfilesForLocation(location.id);
 		const staff = await getAllClientStaffProfilesForLocation(company.id, location.id);
+		const pendingInvites = await getPendingInvitesForLocation(location.id);
 
 		locationForm.data = {
 			name: location.name || '',
@@ -98,6 +102,7 @@ export const load: PageServerLoad = async (event) => {
 			requisitions: requisitions || [],
 			locationStaff: locationStaff || [],
 			allStaff: staff || [],
+			pendingInvites,
 			assignForm: form,
 			locationForm,
 			operatingHoursForm,
@@ -116,6 +121,7 @@ export const load: PageServerLoad = async (event) => {
 		const requisitions = await getRequsitionsForLocation(location.id);
 		const locationStaff = await getClientStaffProfilebyClientId(client?.id);
 		const staff = await getAllClientStaffProfilesForLocation(company.id, location.id);
+		const pendingInvites = await getPendingInvitesForLocation(location.id);
 
 		locationForm.data = {
 			name: location.name || '',
@@ -143,6 +149,7 @@ export const load: PageServerLoad = async (event) => {
 			requisitions: requisitions || [],
 			locationStaff: locationStaff || [],
 			allStaff: staff || [],
+			pendingInvites,
 			assignForm: form,
 			locationForm,
 			operatingHoursForm,
@@ -164,6 +171,80 @@ export const actions = {
 	 *
 	 * Allowed for SUPERADMIN, CLIENT, and CLIENT_ADMIN client_staff.
 	 */
+	resendStaffInvite: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) return fail(401, { error: 'Unauthorized' });
+
+		const isClient = user.role === USER_ROLES.CLIENT;
+		const staffSelf =
+			user.role === USER_ROLES.CLIENT_STAFF
+				? await getClientStaffProfilebyUserId(user.id)
+				: null;
+		const isClientAdmin = staffSelf?.staffRole === 'CLIENT_ADMIN';
+		if (!isClient && !isClientAdmin) return fail(403, { error: 'Not allowed' });
+
+		const clientProfile = isClient
+			? await getClientProfilebyUserId(user.id)
+			: await getClientProfileByStaffUserId(user.id);
+		if (!clientProfile) return fail(404, { error: 'Client profile not found' });
+		const company = await getClientCompanyByClientId(clientProfile.id);
+		if (!company) return fail(404, { error: 'Company not found' });
+
+		const formData = await event.request.formData();
+		const inviteId = formData.get('inviteId') as string;
+		if (!inviteId) return fail(400, { error: 'Missing inviteId' });
+
+		try {
+			const result = await resendInvite(inviteId, company.id);
+			if (!result?.success) {
+				setFlash({ type: 'error', message: 'Failed to resend invite' }, event);
+				return fail(500, { error: 'Resend failed' });
+			}
+			setFlash({ type: 'success', message: 'Invite email resent' }, event);
+			return { success: true };
+		} catch (err) {
+			if (err && typeof err === 'object' && 'status' in err && 'body' in err) throw err;
+			console.error('location resendStaffInvite failed', err);
+			setFlash({ type: 'error', message: 'Failed to resend invite' }, event);
+			return fail(500, { error: 'Internal error' });
+		}
+	},
+
+	revokeStaffInvite: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) return fail(401, { error: 'Unauthorized' });
+
+		const isClient = user.role === USER_ROLES.CLIENT;
+		const staffSelf =
+			user.role === USER_ROLES.CLIENT_STAFF
+				? await getClientStaffProfilebyUserId(user.id)
+				: null;
+		const isClientAdmin = staffSelf?.staffRole === 'CLIENT_ADMIN';
+		if (!isClient && !isClientAdmin) return fail(403, { error: 'Not allowed' });
+
+		const clientProfile = isClient
+			? await getClientProfilebyUserId(user.id)
+			: await getClientProfileByStaffUserId(user.id);
+		if (!clientProfile) return fail(404, { error: 'Client profile not found' });
+		const company = await getClientCompanyByClientId(clientProfile.id);
+		if (!company) return fail(404, { error: 'Company not found' });
+
+		const formData = await event.request.formData();
+		const inviteId = formData.get('inviteId') as string;
+		if (!inviteId) return fail(400, { error: 'Missing inviteId' });
+
+		try {
+			await revokeInvite(inviteId, company.id);
+			setFlash({ type: 'success', message: 'Invite revoked' }, event);
+			return { success: true };
+		} catch (err) {
+			if (err && typeof err === 'object' && 'status' in err && 'body' in err) throw err;
+			console.error('location revokeStaffInvite failed', err);
+			setFlash({ type: 'error', message: 'Failed to revoke invite' }, event);
+			return fail(500, { error: 'Internal error' });
+		}
+	},
+
 	updateStaffOnLocation: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		const { id: locationId } = event.params;

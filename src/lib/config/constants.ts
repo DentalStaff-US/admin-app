@@ -335,6 +335,4 @@ export const STAFF_ROLE_ENUM = {
 	CLIENT_EMPLOYEE: 'Employee'
 } as const;
 
-export const RADIUS_MILES = 60;
 export const METERS_PER_MILE = 1609.34;
-export const RADIUS_METERS = RADIUS_MILES * METERS_PER_MILE;
