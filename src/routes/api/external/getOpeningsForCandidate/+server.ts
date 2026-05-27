@@ -12,13 +12,15 @@ import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { eq, and, inArray, isNotNull, sql } from 'drizzle-orm';
-import { METERS_PER_MILE, RADIUS_METERS, RADIUS_MILES } from '$lib/config/constants';
+import { METERS_PER_MILE } from '$lib/config/constants';
+import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
 import { logger } from '$lib/server/logger';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const user = await authenticateUser(request);
 
 	try {
+		const { miles: radiusMiles, meters: radiusMeters } = await getDefaultSearchRadius();
 		// Fetch the candidate's profile
 		const candidateProfile = await db
 			.select()
@@ -70,7 +72,7 @@ export const GET: RequestHandler = async ({ request }) => {
 					sql`ST_DWithin(
             geom::geography,
             ST_SetSRID(ST_MakePoint(${candidate.lon}::float, ${candidate.lat}::float), 4326)::geography,
-            ${RADIUS_METERS}
+            ${radiusMeters}
           )`
 				)
 			);
@@ -85,7 +87,7 @@ export const GET: RequestHandler = async ({ request }) => {
 					address: candidate.completeAddress
 				},
 				requisitions: [],
-				searchRadius: RADIUS_MILES,
+				searchRadius: radiusMiles,
 				totalFound: 0,
 				message: 'No office locations found within 30 miles of your location.'
 			});
@@ -151,7 +153,7 @@ export const GET: RequestHandler = async ({ request }) => {
 				address: candidate.completeAddress
 			},
 			requisitions,
-			searchRadius: RADIUS_MILES,
+			searchRadius: radiusMiles,
 			totalFound: requisitions.length,
 			nearbyOfficeCount: nearbyOfficeLocationIds.length
 		});

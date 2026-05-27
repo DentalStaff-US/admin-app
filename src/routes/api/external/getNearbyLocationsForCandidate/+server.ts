@@ -4,13 +4,15 @@ import { companyOfficeLocationTable } from '$lib/server/database/schemas/client'
 import { authenticateUser } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
-import { METERS_PER_MILE, RADIUS_METERS, RADIUS_MILES } from '$lib/config/constants';
+import { METERS_PER_MILE } from '$lib/config/constants';
+import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
 import { logger } from '$lib/server/logger';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const user = await authenticateUser(request);
 
 	try {
+		const { miles: radiusMiles, meters: radiusMeters } = await getDefaultSearchRadius();
 		// Fetch the candidate's profile
 		const [candidateProfile] = await db
 			.select()
@@ -52,7 +54,7 @@ export const GET: RequestHandler = async ({ request }) => {
 					sql`ST_DWithin(
             geom::geography,
             ST_SetSRID(ST_MakePoint(${candidateProfile.lon}::float, ${candidateProfile.lat}::float), 4326)::geography,
-            ${RADIUS_METERS}
+            ${radiusMeters}
           )`
 				)
 			).orderBy(sql`ST_Distance(
@@ -67,7 +69,7 @@ export const GET: RequestHandler = async ({ request }) => {
 				address: candidateProfile.completeAddress
 			},
 			officeLocations,
-			searchRadius: RADIUS_MILES,
+			searchRadius: radiusMiles,
 			totalFound: officeLocations.length
 		});
 	} catch (err) {

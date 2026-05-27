@@ -12,6 +12,7 @@ import {
 	validateTimesheet
 } from '$lib/server/database/queries/requisitions';
 import { redirect } from '@sveltejs/kit';
+import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
 
 // In your +page.server.ts
 export const load = async (event) => {
@@ -37,7 +38,8 @@ export const load = async (event) => {
 	} else if (user.role === USER_ROLES.CLIENT_STAFF) {
 		const client = await getClientProfileByStaffUserId(user.id);
 		await redirectIfNotValidCustomer(client?.id, user.role);
-		timesheets = await getAllTimesheetsForClient(client?.id, searchTerm);
+		const scopedLocationIds = await getClientStaffScopedLocationIds(user);
+		timesheets = await getAllTimesheetsForClient(client?.id, searchTerm, scopedLocationIds);
 	}
 
 	const enhancedTimesheets = await Promise.all(

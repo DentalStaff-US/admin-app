@@ -73,6 +73,8 @@
 				{staff}
 				{user}
 				{company}
+				companyLocations={data.companyLocations ?? []}
+				pendingInvites={data.pendingInvites ?? []}
 				{handleAvatarUpdated}
 				documents={data.documents ?? []}
 			/>

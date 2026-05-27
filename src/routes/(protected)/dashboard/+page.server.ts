@@ -1,4 +1,11 @@
-import { USER_ROLES } from '$lib/config/constants.js';
+import {
+	clientCanCreateRequisitions,
+	USER_ROLES,
+	type ClientStatus
+} from '$lib/config/constants.js';
+import { hasBillingSetup } from '$lib/_helpers/billing';
+import { clientSubscriptionTable } from '$lib/server/database/schemas/client';
+import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
 import { redirect } from '@sveltejs/kit';
 import type { RequestEvent } from './$types';
 import {
@@ -9,8 +16,8 @@ import {
 } from '$lib/server/database/queries/clients';
 import { superValidate } from 'sveltekit-superforms/server';
 import db from '$lib/server/database/drizzle';
-import { invoiceTable } from '$lib/server/database/schemas/requisition';
-import { count, and, eq, lt, ne, sum } from 'drizzle-orm';
+import { invoiceTable, requisitionTable } from '$lib/server/database/schemas/requisition';
+import { count, and, eq, lt, ne, sum, inArray } from 'drizzle-orm';
 import { getAdminDashboardData } from '$lib/server/database/queries/admin';
 import { adminRequisitionSchema, clientRequisitionSchema } from '$lib/config/zod-schemas';
 import { adminNewUserSchema } from '$lib/config/zod-schemas';
@@ -103,6 +110,16 @@ export const load = async (event: RequestEvent) => {
 				)
 			);
 		const form = await superValidate(event, clientRequisitionSchema);
+		const clientStatus = (client?.status ?? 'PENDING') as ClientStatus;
+
+		const [subscription] = client
+			? await db
+					.select()
+					.from(clientSubscriptionTable)
+					.where(eq(clientSubscriptionTable.clientId, client.id))
+					.limit(1)
+			: [null];
+
 		return {
 			user,
 			profile: client,
@@ -121,7 +138,10 @@ export const load = async (event: RequestEvent) => {
 			clientForm: form,
 			adminForm: null,
 			newProfileForm: null,
-			wagesDueCount: 0
+			wagesDueCount: 0,
+			clientStatus,
+			canCreateRequisitions: clientCanCreateRequisitions(clientStatus),
+			hasBillingSetup: hasBillingSetup(subscription ?? null)
 		};
 	}
 
@@ -133,6 +153,10 @@ export const load = async (event: RequestEvent) => {
 			return redirect(302, '/');
 		}
 
+		// Scope all CLIENT_STAFF reads to their assigned locations only. If the
+		// staff has zero assignments, every list/count below returns empty.
+		const scopedLocationIds = await getClientStaffScopedLocationIds(user);
+
 		const {
 			requisitions,
 			supportTickets,
@@ -142,35 +166,63 @@ export const load = async (event: RequestEvent) => {
 			positionApplications,
 			timesheetsDue,
 			invoices
-		} = await getClientDashboardData(client?.id, user.id);
+		} = await getClientDashboardData(client?.id, user.id, scopedLocationIds);
 
-		const overdueInvoicesCount = await db
-			.select({ count: count() })
-			.from(invoiceTable)
-			.where(
-				and(
-					eq(invoiceTable.clientId, client?.id),
-					lt(invoiceTable.dueDate, new Date()),
-					ne(invoiceTable.status, 'paid')
-				)
-			);
+		// Invoice counts are scoped by requisition.locationId via a join; if
+		// the staff has zero assigned locations, all three counts are 0.
+		const hasNoScope = Array.isArray(scopedLocationIds) && scopedLocationIds.length === 0;
 
-		const pendingInvoicesCount = await db
-			.select({ count: count() })
-			.from(invoiceTable)
-			.where(and(eq(invoiceTable.clientId, client.id), eq(invoiceTable.status, 'open')));
+		const overdueInvoicesCount = hasNoScope
+			? [{ count: 0 }]
+			: await db
+					.select({ count: count() })
+					.from(invoiceTable)
+					.leftJoin(requisitionTable, eq(requisitionTable.id, invoiceTable.requisitionId))
+					.where(
+						and(
+							eq(invoiceTable.clientId, client?.id),
+							lt(invoiceTable.dueDate, new Date()),
+							ne(invoiceTable.status, 'paid'),
+							Array.isArray(scopedLocationIds)
+								? inArray(requisitionTable.locationId, scopedLocationIds)
+								: undefined
+						)
+					);
 
-		const totalAmountDue = await db
-			.select({ sum: sum(invoiceTable.amountDue) })
-			.from(invoiceTable)
-			.where(
-				and(
-					eq(invoiceTable.clientId, client?.id),
-					ne(invoiceTable.status, 'paid'),
-					ne(invoiceTable.status, 'void')
-				)
-			);
+		const pendingInvoicesCount = hasNoScope
+			? [{ count: 0 }]
+			: await db
+					.select({ count: count() })
+					.from(invoiceTable)
+					.leftJoin(requisitionTable, eq(requisitionTable.id, invoiceTable.requisitionId))
+					.where(
+						and(
+							eq(invoiceTable.clientId, client.id),
+							eq(invoiceTable.status, 'open'),
+							Array.isArray(scopedLocationIds)
+								? inArray(requisitionTable.locationId, scopedLocationIds)
+								: undefined
+						)
+					);
+
+		const totalAmountDue = hasNoScope
+			? [{ sum: '0' }]
+			: await db
+					.select({ sum: sum(invoiceTable.amountDue) })
+					.from(invoiceTable)
+					.leftJoin(requisitionTable, eq(requisitionTable.id, invoiceTable.requisitionId))
+					.where(
+						and(
+							eq(invoiceTable.clientId, client?.id),
+							ne(invoiceTable.status, 'paid'),
+							ne(invoiceTable.status, 'void'),
+							Array.isArray(scopedLocationIds)
+								? inArray(requisitionTable.locationId, scopedLocationIds)
+								: undefined
+						)
+					);
 		const form = await superValidate(event, clientRequisitionSchema);
+		const clientStatus = (client?.status ?? 'PENDING') as ClientStatus;
 		return {
 			user,
 			profile,
@@ -189,7 +241,9 @@ export const load = async (event: RequestEvent) => {
 			clientForm: form,
 			adminForm: null,
 			newProfileForm: null,
-			wagesDueCount: 0
+			wagesDueCount: 0,
+			clientStatus,
+			canCreateRequisitions: clientCanCreateRequisitions(clientStatus)
 		};
 	}
 
@@ -211,6 +265,8 @@ export const load = async (event: RequestEvent) => {
 		clientForm: null,
 		adminForm: null,
 		newProfileForm: null,
-		wagesDueCount: 0
+		wagesDueCount: 0,
+		clientStatus: null,
+		canCreateRequisitions: false
 	};
 };

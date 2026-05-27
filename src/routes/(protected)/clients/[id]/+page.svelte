@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ClientCompanyLocation } from '$lib/server/database/schemas/client';
-	import { STAFF_ROLE_ENUM, USER_ROLES } from '$lib/config/constants';
+	import { CLIENT_STATUS, STAFF_ROLE_ENUM, USER_ROLES } from '$lib/config/constants';
+	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import type { PageData } from './$types';
 	import convertNameToInitials from '$lib/_helpers/convertNameToInitials';
 	import { Download, Lock, Unlock, MoreHorizontal, Trash } from 'lucide-svelte';
@@ -98,6 +99,10 @@
 	import { env } from '$env/dynamic/public';
 	import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
 	import AddLocationDrawer from '$lib/components/drawers/addLocationDrawer.svelte';
+	import InviteStaffDialog from '$lib/components/dialogs/inviteStaffDialog.svelte';
+	import StaffLocationsDialog from '$lib/components/dialogs/staffLocationsDialog.svelte';
+	import PendingInvitesTable from '$lib/components/PendingInvitesTable.svelte';
+	import { UserPlus } from 'lucide-svelte';
 	import AdminProfileComments from '$lib/views/admin/adminProfileComments.svelte';
 	import { format } from 'date-fns';
 	import * as Select from '$lib/components/ui/select';
@@ -122,6 +127,27 @@
 	let setupLink = '';
 	let drawerExpanded = false;
 	let locationDrawerExpanded = false;
+
+	// Admin staff management dialogs
+	let inviteStaffDialogOpen = false;
+	let manageLocationsDialogOpen = false;
+	let manageLocationsForStaff: {
+		staffId: string;
+		staffName: string;
+		locationIds: string[];
+		primaryLocationId: string | null;
+	} | null = null;
+
+	function openManageLocations(staffMember: any) {
+		const assignments = staffMember.locationAssignments ?? [];
+		manageLocationsForStaff = {
+			staffId: staffMember.profile.id,
+			staffName: `${staffMember.user.firstName} ${staffMember.user.lastName}`,
+			locationIds: assignments.map((a: any) => a.locationId),
+			primaryLocationId: assignments.find((a: any) => a.isPrimary)?.locationId ?? null
+		};
+		manageLocationsDialogOpen = true;
+	}
 	let editingSection: 'header' | 'personal' | 'billing' | null = null;
 	let selectedInvoiceMethod: 'STRIPE' | 'PAPER' =
 		data.client?.profile?.clientInvoiceMethod === 'PAPER' ? 'PAPER' : 'STRIPE';
@@ -176,6 +202,25 @@
 			};
 		}
 		editingSection = null;
+	}
+
+	// Mirror the professionals page status-dropdown pattern: imperatively set
+	// the hidden input's value on change, then `form.submit()` for a full
+	// post + reload. Avoids the superforms/requestSubmit DOM-flush race that
+	// caused the dropdown to revert. The server action still validates with
+	// superValidate, so this client-side simplification doesn't weaken the
+	// server contract.
+	function statusLabel(s: string | null | undefined) {
+		switch (s) {
+			case CLIENT_STATUS.ACTIVE:
+				return 'Approved';
+			case CLIENT_STATUS.DENIED:
+				return 'Denied';
+			case CLIENT_STATUS.INACTIVE:
+				return 'Inactive';
+			default:
+				return 'Pending';
+		}
 	}
 
 	type StaffProfileData = {
@@ -684,7 +729,53 @@
 									</div>
 								</div>
 
-								<div class="flex gap-2 mt-3 md:mt-0">
+								<div class="flex gap-2 mt-3 md:mt-0 items-center flex-wrap">
+									{#if isAdmin}
+										<div class="flex items-center gap-2">
+											<StatusBadge
+												status={client.profile.status}
+												label={statusLabel(client.profile.status)}
+											/>
+											<form
+												use:nativeEnhance
+												id="client-status-form"
+												action="?/updateStatus"
+												method="POST"
+												class="flex items-center gap-1"
+											>
+												<Select.Root
+													preventScroll={false}
+													selected={{
+														value: client.profile.status,
+														label: statusLabel(client.profile.status)
+													}}
+													onSelectedChange={(selected) => {
+														if (selected) {
+															const form = document.getElementById('client-status-form');
+															const hiddenInput = form?.querySelector('input[name="status"]');
+															hiddenInput.value = selected.value;
+															form?.submit();
+														}
+													}}
+												>
+													<Select.Trigger class="h-8 w-32 bg-white">
+														<Select.Value />
+													</Select.Trigger>
+													<Select.Content>
+														<Select.Item value="PENDING">Pending</Select.Item>
+														<Select.Item value="ACTIVE">Approved</Select.Item>
+														<Select.Item value="INACTIVE">Inactive</Select.Item>
+														<Select.Item value="DENIED">Denied</Select.Item>
+													</Select.Content>
+													<Select.Input
+														type="hidden"
+														name="status"
+														value={client.profile.status}
+													/>
+												</Select.Root>
+											</form>
+										</div>
+									{/if}
 									{#if needsCustomerSetup}
 										<Button
 											variant="outline"
@@ -1285,6 +1376,20 @@
 									<Users class="h-5 w-5 text-blue-600" />
 									<span>Client Staff</span>
 								</CardTitle>
+								{#if isAdmin}
+									<Button
+										size="sm"
+										class="bg-blue-700 hover:bg-blue-800 gap-1"
+										on:click={() => (inviteStaffDialogOpen = true)}
+										disabled={!data.client?.locations?.length}
+										title={data.client?.locations?.length
+											? ''
+											: 'Add a location before inviting staff'}
+									>
+										<UserPlus class="h-4 w-4" />
+										Invite Staff
+									</Button>
+								{/if}
 							</CardHeader>
 							<CardContent>
 								{#if staff && staff.length > 0}
@@ -1319,6 +1424,15 @@
 														{/each}
 														<TableCell class="text-right">
 															<div class="flex justify-end gap-2">
+																<Button
+																	on:click={() => openManageLocations(row.original)}
+																	variant="ghost"
+																	size="icon"
+																	class="h-8 w-8"
+																	title="Manage locations"
+																>
+																	<MapPin class="h-4 w-4" />
+																</Button>
 																<Button
 																	on:click={() => handleViewStaff(row.original)}
 																	variant="ghost"
@@ -1374,6 +1488,19 @@
 										<p class="text-sm text-gray-500">
 											This client doesn't have any staff members yet.
 										</p>
+									</div>
+								{/if}
+
+								{#if isAdmin && (data.pendingInvites?.length ?? 0) > 0}
+									<div class="mt-6">
+										<h3 class="text-sm font-medium text-muted-foreground mb-2">
+											Pending Invites ({data.pendingInvites.length})
+										</h3>
+										<PendingInvitesTable
+											invites={data.pendingInvites}
+											resendAction="?/resendStaffInvite"
+											revokeAction="?/revokeStaffInvite"
+										/>
 									</div>
 								{/if}
 							</CardContent>
@@ -2167,3 +2294,25 @@
 	bind:drawerExpanded
 	{adminForm}
 />
+
+{#if isAdmin}
+	<InviteStaffDialog
+		bind:open={inviteStaffDialogOpen}
+		action="?/inviteStaff"
+		locations={data.client?.locations?.map((l) => ({ id: l.id, name: l.name })) ?? []}
+		dialogTitle="Invite staff for {data.client?.company?.companyName ?? 'this client'}"
+		dialogDescription="An invite email will go out with a sign-up link tied to the primary location you pick. You can assign additional locations after they accept."
+	/>
+
+	{#if manageLocationsForStaff}
+		<StaffLocationsDialog
+			bind:open={manageLocationsDialogOpen}
+			action="?/updateStaffLocations"
+			staffId={manageLocationsForStaff.staffId}
+			staffName={manageLocationsForStaff.staffName}
+			locations={data.client?.locations?.map((l) => ({ id: l.id, name: l.name })) ?? []}
+			initialLocationIds={manageLocationsForStaff.locationIds}
+			initialPrimaryLocationId={manageLocationsForStaff.primaryLocationId}
+		/>
+	{/if}
+{/if}

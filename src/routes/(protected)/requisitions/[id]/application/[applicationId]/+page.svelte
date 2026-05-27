@@ -26,7 +26,8 @@
 		FileText,
 		Maximize2,
 		X,
-		Eye
+		Eye,
+		Briefcase
 	} from 'lucide-svelte';
 	import type { PageData } from './$types';
 	import convertNameToInitials from '$lib/_helpers/convertNameToInitials';
@@ -195,11 +196,26 @@
 										<div class="mt-2 space-y-2">
 											<div class="flex items-center gap-2">
 												<DollarSign class="h-4 w-4 text-muted-foreground" />
-												<span
-													>Desired Pay: ${application.candidateProfile.hourlyRateMin} - ${application
-														.candidateProfile.hourlyRateMax}/hour</span
-												>
+												{#if application.disciplineExperience}
+													<span>
+														Desired Pay: ${application.disciplineExperience.preferredHourlyMin} - ${application
+															.disciplineExperience.preferredHourlyMax}/hour
+														{#if application.discipline?.name}
+															<span class="text-muted-foreground"
+																>({application.discipline.name})</span
+															>
+														{/if}
+													</span>
+												{:else}
+													<span class="text-muted-foreground">No rate preference on file</span>
+												{/if}
 											</div>
+											{#if application.experienceLevel?.value}
+												<div class="flex items-center gap-2">
+													<Briefcase class="h-4 w-4 text-muted-foreground" />
+													<span>Experience: {application.experienceLevel.value}</span>
+												</div>
+											{/if}
 										</div>
 									</div>
 								</div>

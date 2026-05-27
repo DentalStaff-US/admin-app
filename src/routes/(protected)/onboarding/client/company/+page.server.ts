@@ -9,6 +9,7 @@ import {
 	getClientCompanyByClientId,
 	getClientProfilebyUserId
 } from '$lib/server/database/queries/clients.js';
+import { notifyAdminsOfNewClient } from '$lib/server/notifications/transactional';
 
 const companySchema = clientCompanySchema.pick({
 	companyName: true
@@ -74,6 +75,10 @@ export const actions = {
 			});
 
 			if (newCompany) {
+				// Fire-and-forget admin notification. Dispatcher swallows its
+				// own errors; the onboarding flow must not block on email.
+				await notifyAdminsOfNewClient(clientId);
+
 				setFlash(
 					{
 						type: 'success',

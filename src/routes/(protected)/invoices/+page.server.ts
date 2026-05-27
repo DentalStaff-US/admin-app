@@ -6,6 +6,7 @@ import {
 } from '$lib/server/database/queries/clients';
 import { getClientInvoices, getAllInvoicesAdmin } from '$lib/server/database/queries/requisitions';
 import { redirect } from '@sveltejs/kit';
+import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
 
 export const load = async (event) => {
 	const { locals, url } = event;
@@ -30,7 +31,8 @@ export const load = async (event) => {
 	} else if (user.role === USER_ROLES.CLIENT_STAFF) {
 		const client = await getClientProfileByStaffUserId(user.id);
 		await redirectIfNotValidCustomer(client?.id, user.role);
-		invoices = await getClientInvoices(client?.id, { searchTerm });
+		const scopedLocationIds = await getClientStaffScopedLocationIds(user);
+		invoices = await getClientInvoices(client?.id, { searchTerm, locationIds: scopedLocationIds });
 	}
 
 	return { user, invoices: invoices || [], searchTerm };

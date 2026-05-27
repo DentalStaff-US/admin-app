@@ -11,20 +11,19 @@
 		SelectTrigger,
 		SelectValue
 	} from '$lib/components/ui/select';
-	import { Disc, Loader2, Save } from 'lucide-svelte';
+	import { Loader2, Save } from 'lucide-svelte';
 	import { superForm } from 'sveltekit-superforms/client';
 
 	export let data;
 
-	const { form, enhance, submitting } = superForm(data.paymentFeeForm);
-	$: console.log('Form data:', $form);
+	const { form, enhance, submitting } = superForm(data.settingsForm);
 
 	$: selectedPaymentType = $form.paymentFeeType
 		? {
 				label: $form.paymentFeeType === 'FIXED' ? 'Fixed' : 'Percentage',
 				value: $form.paymentFeeType
 			}
-		: null;
+		: undefined;
 </script>
 
 <section class="container mx-auto flex flex-col min-h-screen">
@@ -37,29 +36,30 @@
 				Manage application-wide settings and configurations.
 			</p>
 		</div>
-		<div>
+
+		<form method="POST" use:enhance action="?/updateSettings">
 			<Card.Root>
-				<Card.Header>
-					<Card.Title>Invoice Platform Fee</Card.Title>
-					<Card.Description
-						>Set platform fee for handling invoices on behalf of Business Members</Card.Description
-					>
-				</Card.Header>
-				<form method="POST" use:enhance action="?/updatePaymentFee">
-					<Card.Content class="space-y-4">
-						<div>
-							<Label>Payment Fee</Label>
-							<Input type="number" name="paymentFee" bind:value={$form.paymentFee} />
-						</div>
-						<div>
-							<Label>Fee Type (fixed or percentage)</Label>
+				<Card.Content class="space-y-6 pt-6">
+					<div class="space-y-1">
+						<Label for="paymentFee">Invoice Platform Fee</Label>
+						<p class="text-xs text-muted-foreground">
+							Platform fee charged when handling invoices on behalf of Business Members.
+						</p>
+						<div class="flex gap-2 pt-1">
+							<Input
+								id="paymentFee"
+								type="number"
+								name="paymentFee"
+								class="max-w-[140px]"
+								bind:value={$form.paymentFee}
+							/>
 							<Select
 								selected={selectedPaymentType}
 								onSelectedChange={(v) => {
-									v && ($form.paymentFeeType = v.value);
+									if (v) $form.paymentFeeType = v.value;
 								}}
 							>
-								<SelectTrigger>
+								<SelectTrigger class="max-w-[180px]">
 									<SelectValue placeholder="Select Fee Type" />
 								</SelectTrigger>
 								<SelectContent>
@@ -69,19 +69,36 @@
 								<SelectInput name="paymentFeeType" bind:value={$form.paymentFeeType} />
 							</Select>
 						</div>
-					</Card.Content>
-					<Card.Footer>
-						<Button class="bg-green-500 hover:bg-green-600 ml-auto" type="submit">
-							<Save class="mr-2" />
-							{#if $submitting}
-								<Loader2 class="animate-spin" /> Saving...
-							{:else}
-								Save Changes
-							{/if}
-						</Button>
-					</Card.Footer>
-				</form>
+					</div>
+
+					<div class="space-y-1">
+						<Label for="defaultSearchRadiusMiles">Default Search Radius (miles)</Label>
+						<p class="text-xs text-muted-foreground">
+							Default radius used when finding qualified candidates for a requisition. Applies
+							across both apps as the fallback when no per-requisition radius is set.
+						</p>
+						<Input
+							id="defaultSearchRadiusMiles"
+							type="number"
+							name="defaultSearchRadiusMiles"
+							min="1"
+							max="500"
+							class="max-w-[140px]"
+							bind:value={$form.defaultSearchRadiusMiles}
+						/>
+					</div>
+				</Card.Content>
+				<Card.Footer>
+					<Button class="bg-green-500 hover:bg-green-600 ml-auto" type="submit">
+						<Save class="mr-2" />
+						{#if $submitting}
+							<Loader2 class="animate-spin" /> Saving...
+						{:else}
+							Save Changes
+						{/if}
+					</Button>
+				</Card.Footer>
 			</Card.Root>
-		</div>
+		</form>
 	</div>
 </section>

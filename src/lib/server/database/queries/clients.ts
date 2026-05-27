@@ -1,4 +1,4 @@
-import { desc, eq, count, sql, and, ne, notExists, or, ilike, SQL, inArray } from 'drizzle-orm';
+import { desc, eq, count, sql, and, ne, notExists, or, ilike, SQL, inArray, isNotNull } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import {
 	clientCompanyTable,
@@ -39,7 +39,11 @@ import {
 } from './requisitions';
 import type { PaginateOptions } from '$lib/types';
 import { EmailService } from '$lib/server/email/emailService';
-import { DEFAULT_MAX_RECORD_LIMIT } from '$lib/config/constants';
+import {
+	CLIENT_STATUS,
+	DEFAULT_MAX_RECORD_LIMIT,
+	type ClientStatus
+} from '$lib/config/constants';
 import { disciplineTable } from '../schemas/skill';
 
 export type ClientWithCompanyRaw = {
@@ -172,7 +176,47 @@ export async function getClientProfilesCount() {
 	}
 }
 
-export async function getAllClientProfiles(searchTerm?: string) {
+export type ClientStatusCounts = Record<ClientStatus, number>;
+
+const emptyClientStatusCounts = (): ClientStatusCounts => ({
+	PENDING: 0,
+	ACTIVE: 0,
+	INACTIVE: 0,
+	DENIED: 0
+});
+
+export async function getClientStatusCounts(): Promise<ClientStatusCounts> {
+	const rows = await db
+		.select({ status: clientProfileTable.status, value: count() })
+		.from(clientProfileTable)
+		.groupBy(clientProfileTable.status);
+
+	const counts = emptyClientStatusCounts();
+	for (const row of rows) {
+		if (row.status && row.status in counts) {
+			counts[row.status as ClientStatus] = Number(row.value);
+		}
+	}
+	return counts;
+}
+
+export async function getAllClientProfiles(searchTerm?: string, status?: ClientStatus) {
+	const filters: SQL[] = [];
+
+	if (status && status in CLIENT_STATUS) {
+		filters.push(eq(clientProfileTable.status, status));
+	}
+
+	if (searchTerm) {
+		const searchFilter = or(
+			ilike(userTable.email, `%${searchTerm}%`),
+			ilike(userTable.firstName, `%${searchTerm}%`),
+			ilike(userTable.lastName, `%${searchTerm}%`),
+			ilike(clientCompanyTable.companyName, `%${searchTerm}%`)
+		);
+		if (searchFilter) filters.push(searchFilter);
+	}
+
 	const results = await db
 		.select({
 			user: {
@@ -188,16 +232,8 @@ export async function getAllClientProfiles(searchTerm?: string) {
 		.from(clientProfileTable)
 		.innerJoin(clientCompanyTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
 		.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
-		.where(
-			or(
-				searchTerm ? ilike(userTable.email, `%${searchTerm}%`) : undefined,
-				searchTerm ? ilike(userTable.firstName, `%${searchTerm}%`) : undefined,
-				searchTerm ? ilike(userTable.lastName, `%${searchTerm}%`) : undefined,
-				searchTerm ? ilike(clientCompanyTable.companyName, `%${searchTerm}%`) : undefined
-			)
-		)
+		.where(filters.length ? and(...filters) : undefined)
 		.orderBy(desc(clientProfileTable.createdAt));
-	// .limit(DEFAULT_MAX_RECORD_LIMIT);
 
 	return results;
 }
@@ -211,7 +247,8 @@ export async function getClientProfileById(clientId: string) {
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				email: userTable.email,
-				avatarUrl: userTable.avatarUrl
+				avatarUrl: userTable.avatarUrl,
+				receiveEmail: userTable.receiveEmail
 			},
 			company: { ...clientCompanyTable },
 			subscription: { ...clientSubscriptionTable }
@@ -531,8 +568,12 @@ export async function getAllClientLocationsByCompanyId(
 
 export async function getPaginatedLocationsByCompanyId(
 	companyId: string,
-	{ limit = 25, offset = 0, orderBy = undefined }: PaginateOptions
+	{ limit = 25, offset = 0, orderBy = undefined }: PaginateOptions,
+	locationIds?: string[] | null
 ) {
+	if (Array.isArray(locationIds) && locationIds.length === 0) {
+		return { locations: [], count: 0 };
+	}
 	const orderSelector = orderBy ? orderBy.column : null;
 	try {
 		const query = sql.empty();
@@ -542,6 +583,10 @@ export async function getPaginatedLocationsByCompanyId(
 			FROM ${companyOfficeLocationTable} AS l
 			WHERE l.company_id = ${companyId}
 		`);
+
+		if (Array.isArray(locationIds)) {
+			query.append(sql` AND l.id = ANY(${locationIds})`);
+		}
 
 		if (orderSelector && orderBy) {
 			query.append(sql`
@@ -572,7 +617,14 @@ export async function getPaginatedLocationsByCompanyId(
 		const countResult = await db
 			.select({ value: count() })
 			.from(companyOfficeLocationTable)
-			.where(eq(companyOfficeLocationTable.companyId, companyId));
+			.where(
+				and(
+					eq(companyOfficeLocationTable.companyId, companyId),
+					Array.isArray(locationIds)
+						? inArray(companyOfficeLocationTable.id, locationIds)
+						: undefined
+				)
+			);
 
 		return { locations: results.rows, count: countResult[0].value };
 	} catch (err) {
@@ -678,7 +730,11 @@ export async function getStaffProfilesForLocation(locationId: string) {
 				lastName: userTable.lastName,
 				email: userTable.email,
 				avatarUrl: userTable.avatarUrl
-			}
+			},
+			// Expose whether THIS location is the staff's primary so the
+			// /locations/[id] page can render a "Primary" badge / Make Primary
+			// button per row.
+			isPrimary: clientStaffLocationTable.isPrimary
 		})
 		.from(clientStaffProfileTable)
 		.innerJoin(userTable, eq(userTable.id, clientStaffProfileTable.userId))
@@ -773,8 +829,12 @@ export async function createClientCompany(values: ClientCompany, tx?: any) {
 	}
 }
 
-export async function getCalendarEventsForClient(clientId: string | undefined) {
+export async function getCalendarEventsForClient(
+	clientId: string | undefined,
+	locationIds?: string[] | null
+) {
 	if (!clientId) return error(400, 'Missing Client Id');
+	if (Array.isArray(locationIds) && locationIds.length === 0) return [];
 	const clientCompanyResult = await db
 		.select({
 			client: { ...clientProfileTable },
@@ -802,7 +862,10 @@ export async function getCalendarEventsForClient(clientId: string | undefined) {
 		.where(
 			and(
 				eq(requisitionTable.companyId, clientCompanyResult[0].company.id),
-				eq(requisitionTable.archived, false)
+				eq(requisitionTable.archived, false),
+				Array.isArray(locationIds)
+					? inArray(requisitionTable.locationId, locationIds)
+					: undefined
 			)
 		)
 		.innerJoin(requisitionTable, eq(requisitionTable.id, recurrenceDayTable.requisitionId))
@@ -826,7 +889,12 @@ export async function getCalendarEventsForClient(clientId: string | undefined) {
 	return [...recurrenceDayEvents];
 }
 
-export async function getRequisitionsForClientWithLimit(clientId: string, count: number) {
+export async function getRequisitionsForClientWithLimit(
+	clientId: string,
+	count: number,
+	locationIds?: string[] | null
+) {
+	if (Array.isArray(locationIds) && locationIds.length === 0) return [];
 	try {
 		const company = await getClientCompanyByClientId(clientId);
 
@@ -856,7 +924,13 @@ export async function getRequisitionsForClientWithLimit(clientId: string, count:
 				eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 			)
 			.where(
-				and(eq(requisitionTable.companyId, company.id), ne(requisitionTable.status, 'PENDING'))
+				and(
+					eq(requisitionTable.companyId, company.id),
+					ne(requisitionTable.status, 'PENDING'),
+					Array.isArray(locationIds)
+						? inArray(requisitionTable.locationId, locationIds)
+						: undefined
+				)
 			)
 			.limit(count)
 			.orderBy(desc(requisitionTable.createdAt));
@@ -897,7 +971,8 @@ export async function getRequisitionsForClientWithLimit(clientId: string, count:
 
 export async function getClientDashboardData(
 	clientId: string | undefined,
-	userId: string | undefined
+	userId: string | undefined,
+	locationIds?: string[] | null
 ) {
 	if (!clientId) throw error(400, 'Client ID required');
 	if (!userId) throw error(400, 'User ID required');
@@ -916,14 +991,14 @@ export async function getClientDashboardData(
 		timesheetsDue,
 		invoices
 	] = await Promise.all([
-		await getRequisitionsForClientWithLimit(clientId, 5),
-		await getTimesheetsDueCount(clientId),
-		await getClientCompanyTimesheetDiscrepancies(clientId),
-		await getNewApplicationsCount(clientId),
+		await getRequisitionsForClientWithLimit(clientId, 5, locationIds),
+		await getTimesheetsDueCount(clientId, locationIds),
+		await getClientCompanyTimesheetDiscrepancies(clientId, locationIds),
+		await getNewApplicationsCount(clientId, locationIds),
 		await getSupportTicketsForUserWithLimit(userId, 5),
-		await getRecentRequisitionApplications(company.id),
-		await getRecentTimesheetsDueForClient(clientId),
-		await getClientInvoices(clientId, { limit: 5 })
+		await getRecentRequisitionApplications(company.id, locationIds),
+		await getRecentTimesheetsDueForClient(clientId, locationIds),
+		await getClientInvoices(clientId, { limit: 5, locationIds })
 	]);
 
 	return {
@@ -954,6 +1029,138 @@ export async function getPrimaryLocationForCompany(companyId: string) {
 	}
 }
 
+/**
+ * Pending staff invites — rows in user_invites with a non-null token (i.e.
+ * not yet accepted; the sign-up flow nulls the token on acceptance). Includes
+ * BOTH still-valid invites and expired ones so the UI can surface the expired
+ * ones for resend. Joined to the staff-invite-locations row + the location
+ * name so the table can render directly.
+ */
+export async function getPendingInvitesForCompany(companyId: string) {
+	return await db
+		.select({
+			id: userInviteTable.id,
+			email: userInviteTable.email,
+			staffRole: userInviteTable.staffRole,
+			invitedRole: userInviteTable.invitedRole,
+			createdAt: userInviteTable.createdAt,
+			expiresAt: userInviteTable.expiresAt,
+			token: userInviteTable.token,
+			locationId: companyStaffInviteLocations.locationId,
+			locationName: companyOfficeLocationTable.name
+		})
+		.from(userInviteTable)
+		.leftJoin(
+			companyStaffInviteLocations,
+			eq(companyStaffInviteLocations.token, userInviteTable.token)
+		)
+		.leftJoin(
+			companyOfficeLocationTable,
+			eq(companyOfficeLocationTable.id, companyStaffInviteLocations.locationId)
+		)
+		.where(
+			and(eq(userInviteTable.companyId, companyId), isNotNull(userInviteTable.token))
+		)
+		.orderBy(desc(userInviteTable.createdAt));
+}
+
+/**
+ * Same as getPendingInvitesForCompany but narrowed to invites tied to a
+ * specific location — used on /locations/[id] to show "who's been invited
+ * to this location".
+ */
+export async function getPendingInvitesForLocation(locationId: string) {
+	return await db
+		.select({
+			id: userInviteTable.id,
+			email: userInviteTable.email,
+			staffRole: userInviteTable.staffRole,
+			invitedRole: userInviteTable.invitedRole,
+			createdAt: userInviteTable.createdAt,
+			expiresAt: userInviteTable.expiresAt,
+			token: userInviteTable.token
+		})
+		.from(userInviteTable)
+		.innerJoin(
+			companyStaffInviteLocations,
+			eq(companyStaffInviteLocations.token, userInviteTable.token)
+		)
+		.where(
+			and(
+				eq(companyStaffInviteLocations.locationId, locationId),
+				isNotNull(userInviteTable.token)
+			)
+		)
+		.orderBy(desc(userInviteTable.createdAt));
+}
+
+/**
+ * Revoke a pending invite. Deletes the staff_invite_locations row too so
+ * the invite link in the email becomes invalid (the /auth/invite/[token]
+ * page looks up by token; deleting the row makes it 404 cleanly).
+ */
+export async function revokeInvite(inviteId: string, companyId: string) {
+	const [invite] = await db
+		.select({ token: userInviteTable.token, companyId: userInviteTable.companyId })
+		.from(userInviteTable)
+		.where(eq(userInviteTable.id, inviteId))
+		.limit(1);
+	if (!invite) throw error(404, 'Invite not found');
+	if (invite.companyId !== companyId) throw error(403, 'Invite belongs to another company');
+
+	await db.transaction(async (tx) => {
+		if (invite.token) {
+			await tx
+				.delete(companyStaffInviteLocations)
+				.where(eq(companyStaffInviteLocations.token, invite.token));
+		}
+		await tx.delete(userInviteTable).where(eq(userInviteTable.id, inviteId));
+	});
+}
+
+/**
+ * Resend a pending invite email. If the invite has already expired we bump
+ * the expiresAt forward another full TTL window so the link in the resent
+ * email is actually usable. Token is intentionally NOT rotated — any
+ * previously-sent links keep working until acceptance.
+ */
+export async function resendInvite(inviteId: string, companyId: string) {
+	const [invite] = await db
+		.select()
+		.from(userInviteTable)
+		.where(eq(userInviteTable.id, inviteId))
+		.limit(1);
+	if (!invite) throw error(404, 'Invite not found');
+	if (invite.companyId !== companyId) throw error(403, 'Invite belongs to another company');
+	if (!invite.token) throw error(400, 'Invite has already been accepted');
+
+	// Bump expiry forward if expired, otherwise leave alone.
+	const INVITE_EXPIRATION_DAYS = 7;
+	const now = new Date();
+	if (invite.expiresAt <= now) {
+		const newExpiresAt = new Date();
+		newExpiresAt.setDate(newExpiresAt.getDate() + INVITE_EXPIRATION_DAYS);
+		await db
+			.update(userInviteTable)
+			.set({ expiresAt: newExpiresAt, updatedAt: new Date() })
+			.where(eq(userInviteTable.id, inviteId));
+	}
+
+	const [company] = await db
+		.select({ name: clientCompanyTable.companyName })
+		.from(clientCompanyTable)
+		.where(eq(clientCompanyTable.id, companyId))
+		.limit(1);
+
+	const emailService = new EmailService();
+	const result = await emailService.sendClientStaffInviteEmail(
+		invite.email,
+		invite.token,
+		company?.name || 'your team'
+	);
+	return result;
+}
+
 export async function addStaffToLocation(values: NewClientCompanyStaffLocation) {
 	try {
 		const [result] = await db
@@ -967,6 +1174,86 @@ export async function addStaffToLocation(values: NewClientCompanyStaffLocation) 
 		console.log(err);
 		return error(500, 'Error adding staff to location');
 	}
+}
+
+/**
+ * Fetch a staff member's current location assignments along with the
+ * locationName so the management UI can render rows directly.
+ */
+export async function getStaffLocationsWithMeta(staffId: string) {
+	return await db
+		.select({
+			id: clientStaffLocationTable.id,
+			locationId: clientStaffLocationTable.locationId,
+			isPrimary: clientStaffLocationTable.isPrimary,
+			locationName: companyOfficeLocationTable.name
+		})
+		.from(clientStaffLocationTable)
+		.innerJoin(
+			companyOfficeLocationTable,
+			eq(companyOfficeLocationTable.id, clientStaffLocationTable.locationId)
+		)
+		.where(eq(clientStaffLocationTable.staffId, staffId));
+}
+
+/**
+ * Authoritatively set the list of locations for a staff member. Replaces all
+ * existing rows in clientStaffLocationTable for that staff with the supplied
+ * set, exactly one of which is flagged `isPrimary=true`. Wrapped in a
+ * transaction so the staff is never left without a primary mid-update.
+ *
+ * Caller responsibilities:
+ *   - Pass `companyId` so we can validate ownership of every locationId.
+ *   - `primaryLocationId` MUST be in `locationIds`; throws otherwise.
+ *   - Passing `locationIds: []` removes all assignments — fine if that's
+ *     intentional, but the staff will see nothing under location-scoping.
+ */
+export async function setStaffLocations(args: {
+	staffId: string;
+	companyId: string;
+	locationIds: string[];
+	primaryLocationId: string | null;
+}) {
+	const { staffId, companyId, locationIds, primaryLocationId } = args;
+
+	if (primaryLocationId && !locationIds.includes(primaryLocationId)) {
+		throw error(400, 'Primary location must be one of the assigned locations');
+	}
+
+	// Validate every locationId belongs to the same company — defense in
+	// depth against a stale form or an attacker passing arbitrary ids.
+	if (locationIds.length > 0) {
+		const owned = await db
+			.select({ id: companyOfficeLocationTable.id })
+			.from(companyOfficeLocationTable)
+			.where(
+				and(
+					eq(companyOfficeLocationTable.companyId, companyId),
+					inArray(companyOfficeLocationTable.id, locationIds)
+				)
+			);
+		if (owned.length !== locationIds.length) {
+			throw error(400, 'One or more locations do not belong to this company');
+		}
+	}
+
+	await db.transaction(async (tx) => {
+		await tx
+			.delete(clientStaffLocationTable)
+			.where(eq(clientStaffLocationTable.staffId, staffId));
+
+		if (locationIds.length > 0) {
+			await tx.insert(clientStaffLocationTable).values(
+				locationIds.map((locationId) => ({
+					id: crypto.randomUUID(),
+					staffId,
+					companyId,
+					locationId,
+					isPrimary: locationId === primaryLocationId
+				}))
+			);
+		}
+	});
 }
 
 export async function inviteStaffUsersToAccount(locationId: string, invitees: NewUserInvite[]) {

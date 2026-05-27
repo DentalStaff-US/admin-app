@@ -260,6 +260,20 @@
       "when": 1778795429157,
       "tag": "0036_strange_thanos",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1779852440205,
+      "tag": "0037_yummy_fenris",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1779862119795,
+      "tag": "0038_bouncy_human_fly",
+      "breakpoints": true
     }
   ]
 }

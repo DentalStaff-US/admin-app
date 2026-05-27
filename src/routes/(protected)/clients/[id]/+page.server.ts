@@ -7,10 +7,17 @@ import {
 	getClientCompanyByClientId,
 	getClientProfileById,
 	getClientSubscription,
-	getPrimaryLocationForStaff
+	getPendingInvitesForCompany,
+	getPrimaryLocationForStaff,
+	getStaffLocationsWithMeta,
+	inviteStaffUsersToAccount,
+	resendInvite,
+	revokeInvite,
+	setStaffLocations
 } from '$lib/server/database/queries/clients';
 import { fail, redirect } from '@sveltejs/kit';
-import { USER_ROLES } from '$lib/config/constants';
+import { CLIENT_STATUS, USER_ROLES, type ClientStatus } from '$lib/config/constants';
+import { notifyClientStatusChange } from '$lib/server/notifications/transactional';
 import {
 	getSupportTicketsForClient
 	// getSupportTicketsForUser
@@ -22,6 +29,7 @@ import {
 	getRequisitionsForClient
 } from '$lib/server/database/queries/requisitions';
 import { createStripeInvoice } from '$lib/server/stripe';
+import { dueDateEndOfDayInTimezone } from '$lib/_helpers/UTCTimezoneUtils';
 import { logger } from '$lib/server/logger';
 import { z } from 'zod';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
@@ -74,6 +82,15 @@ const LineItemSchema = z.array(
 	})
 );
 
+const ClientStatusSchema = z.object({
+	status: z.enum([
+		CLIENT_STATUS.PENDING,
+		CLIENT_STATUS.ACTIVE,
+		CLIENT_STATUS.INACTIVE,
+		CLIENT_STATUS.DENIED
+	])
+});
+
 const NewInvoiceSchema = z.object({
 	amount: z.number().min(0, 'Amount must be a positive number'),
 	dueDate: z.string().optional(),
@@ -106,6 +123,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	const recurrenceDays = await getCalendarEventsForClient(id);
 	const supportTickets = await getSupportTicketsForClient(result.profile.id);
 	const staff = await getAllClientStaffProfiles(result.company.id);
+	const pendingInvites = await getPendingInvitesForCompany(result.company.id);
 	const invoices = await getClientInvoices(id, { includeStripeData: true });
 	const invoiceForm = await superValidate(NewInvoiceSchema);
 	const requisitionForm = await superValidate(adminRequisitionSchema);
@@ -125,12 +143,27 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		updateClientSchema
 	);
 
+	const statusForm = await superValidate(
+		{ status: (result.profile.status ?? CLIENT_STATUS.PENDING) as ClientStatus },
+		ClientStatusSchema
+	);
+
 	const staffWithPrimaryLocation = await Promise.all(
 		staff.map(async (member) => {
-			const primaryLocation = await getPrimaryLocationForStaff(member.profile.id);
+			const [primaryLocation, allLocations] = await Promise.all([
+				getPrimaryLocationForStaff(member.profile.id),
+				getStaffLocationsWithMeta(member.profile.id)
+			]);
 			return {
 				...member,
-				primaryLocation: primaryLocation ? primaryLocation : null
+				primaryLocation: primaryLocation ? primaryLocation : null,
+				// All current location assignments + which one is primary, so
+				// the Manage Locations dialog can hydrate its initial state.
+				locationAssignments: allLocations.map((l) => ({
+					locationId: l.locationId,
+					isPrimary: !!l.isPrimary,
+					locationName: l.locationName
+				}))
 			};
 		})
 	);
@@ -151,11 +184,13 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				recurrenceDays,
 				supportTickets,
 				staff: staffWithPrimaryLocation,
+				pendingInvites,
 				invoices,
 				invoiceForm,
 				requisitionForm,
 				locationForm,
 				updateClientForm,
+				statusForm,
 				comments,
 				documents
 			}
@@ -165,18 +200,111 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				requisitions: [],
 				recurrenceDays: [],
 				supportTickets: [],
+				pendingInvites: [],
 				invoices: [],
 				staff: [],
 				invoiceForm,
 				updateClientForm,
 				requisitionForm,
 				locationForm,
+				statusForm,
 				comments: [],
 				documents: []
 			};
 };
 
+const InviteStaffSchema = z.object({
+	locationId: z.string().min(1, 'Location is required'),
+	invitees: z
+		.string()
+		.transform((val) => {
+			try {
+				return JSON.parse(val);
+			} catch {
+				return [];
+			}
+		})
+		.pipe(
+			z
+				.array(
+					z.object({
+						email: z.string().email(),
+						staffRole: z.enum(['CLIENT_ADMIN', 'CLIENT_MANAGER', 'CLIENT_EMPLOYEE'])
+					})
+				)
+				.min(1, 'Add at least one invitee')
+		)
+});
+
+const StaffLocationsSchema = z.object({
+	staffId: z.string().min(1),
+	locationIds: z
+		.string()
+		.transform((val) => {
+			try {
+				const parsed = JSON.parse(val);
+				return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
+			} catch {
+				return [] as string[];
+			}
+		})
+		.pipe(z.array(z.string())),
+	primaryLocationId: z
+		.string()
+		.optional()
+		.transform((v) => (v && v.length > 0 ? v : null))
+});
+
 export const actions = {
+	updateStatus: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id: clientId } = event.params;
+
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Not authorized' });
+		}
+
+		const form = await superValidate(event, ClientStatusSchema);
+		if (!form.valid) {
+			return fail(400, { form });
+		}
+
+		try {
+			const [previous] = await db
+				.select({ status: clientProfileTable.status })
+				.from(clientProfileTable)
+				.where(eq(clientProfileTable.id, clientId))
+				.limit(1);
+			if (!previous) {
+				return setError(form, 'Client not found');
+			}
+
+			const next = form.data.status as ClientStatus;
+			if (previous.status === next) {
+				return message(form, 'Status unchanged');
+			}
+
+			await db
+				.update(clientProfileTable)
+				.set({ status: next, updatedAt: new Date() })
+				.where(eq(clientProfileTable.id, clientId));
+
+			// Fire-and-forget client-facing email. Dispatcher swallows its own
+			// errors; admin's save success doesn't depend on email delivery.
+			await notifyClientStatusChange(clientId, next);
+
+			setFlash({ type: 'success', message: `Client marked ${next.toLowerCase()}` }, event);
+			return message(form, `Client status set to ${next}`);
+		} catch (err) {
+			logger.error('updateClientStatus failed', {
+				error: err,
+				clientId,
+				distinctId: user?.id
+			});
+			setFlash({ type: 'error', message: 'Failed to update client status' }, event);
+			return setError(form, 'Failed to update client status');
+		}
+	},
 	createInvoice: async (request: RequestEvent) => {
 		const user = request.locals.user;
 		const { id: clientId } = request.params;
@@ -206,14 +334,14 @@ export const actions = {
 						description: form.data.description,
 						lineItems: lineItems.map((item) => ({
 							id: crypto.randomUUID(),
-							description: item.description,
+							description: item.description ?? null,
 							quantity: item.quantity,
 							rate: item.rate,
 							unit_amount: Math.round(item.rate * 100),
 							unit_amount_excluding_tax: Math.round(item.rate * 100),
 							amount: Math.round(item.amount * 100),
 							currency: 'usd',
-							type: 'paper'
+							type: 'paper' as const
 						})),
 						customerEmail,
 						customerName
@@ -221,9 +349,11 @@ export const actions = {
 					user.id
 				);
 			} else {
-				// Existing Stripe flow
-				const localDate = new Date(dateString + 'T00:00:00');
-				const utcDate = localDate.toISOString();
+				// Existing Stripe flow. Anchor the picked date to end-of-day in
+				// the business timezone so "due today" submitted from ET in the
+				// morning still resolves to a future UTC instant (Stripe rejects
+				// past `due_date` values).
+				const dueDate = dueDateEndOfDayInTimezone(dateString)?.toISOString();
 				const stripeCustomerId = await getClientSubscription(clientId);
 
 				if (stripeCustomerId) {
@@ -237,7 +367,7 @@ export const actions = {
 						})),
 						{ clientId, userId: clientResult.user.id },
 						form.data.description,
-						utcDate
+						dueDate
 					);
 					await createInvoiceRecord(
 						{
@@ -429,6 +559,181 @@ export const actions = {
 			return setError(form, 'Failed to update client');
 		}
 	},
+	inviteStaff: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id: clientId } = event.params;
+
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Unauthorized' });
+		}
+
+		const formData = await event.request.formData();
+		const parsed = InviteStaffSchema.safeParse({
+			locationId: formData.get('locationId'),
+			invitees: formData.get('invitees')
+		});
+		if (!parsed.success) {
+			return fail(400, { error: parsed.error.errors[0]?.message ?? 'Invalid invite' });
+		}
+
+		try {
+			const client = await getClientProfileById(clientId);
+			if (!client?.company) {
+				return fail(404, { error: 'Client not found' });
+			}
+
+			// Validate the chosen location belongs to this client's company.
+			const ownedLocations = await getAllClientLocationsByCompanyId(client.company.id);
+			if (!ownedLocations.some((l) => l.id === parsed.data.locationId)) {
+				return fail(400, { error: 'Location does not belong to this client' });
+			}
+
+			const INVITE_EXPIRATION_DAYS = 7;
+			const expiresAt = new Date();
+			expiresAt.setDate(expiresAt.getDate() + INVITE_EXPIRATION_DAYS);
+
+			const invites = parsed.data.invitees.map((invitee) => ({
+				id: crypto.randomUUID(),
+				email: invitee.email.toLowerCase(),
+				staffRole: invitee.staffRole,
+				invitedRole: 'CLIENT_STAFF' as const,
+				referrerRole: user.role as 'CANDIDATE' | 'CLIENT_STAFF' | 'SUPERADMIN' | 'CLIENT',
+				referrerId: user.id,
+				expiresAt
+			}));
+
+			const results = await inviteStaffUsersToAccount(parsed.data.locationId, invites);
+			const failures = results.filter((r) => !r.success);
+
+			if (failures.length === invites.length) {
+				setFlash({ type: 'error', message: 'Failed to send invites' }, event);
+				return fail(500, { error: 'All invites failed' });
+			}
+
+			if (failures.length > 0) {
+				setFlash(
+					{
+						type: 'success',
+						message: `Sent ${invites.length - failures.length}/${invites.length} invites. Some failed.`
+					},
+					event
+				);
+			} else {
+				setFlash(
+					{
+						type: 'success',
+						message: `Sent ${invites.length} invite${invites.length === 1 ? '' : 's'}`
+					},
+					event
+				);
+			}
+			return { success: true };
+		} catch (err) {
+			logger.error('admin inviteStaff failed', { error: err, clientId, distinctId: user.id });
+			setFlash({ type: 'error', message: 'Failed to send invites' }, event);
+			return fail(500, { error: 'Internal error' });
+		}
+	},
+
+	resendStaffInvite: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id: clientId } = event.params;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Unauthorized' });
+		}
+		const formData = await event.request.formData();
+		const inviteId = formData.get('inviteId') as string;
+		if (!inviteId) return fail(400, { error: 'Missing inviteId' });
+
+		try {
+			const client = await getClientProfileById(clientId);
+			if (!client?.company) return fail(404, { error: 'Client not found' });
+			const result = await resendInvite(inviteId, client.company.id);
+			if (!result?.success) {
+				setFlash({ type: 'error', message: 'Failed to resend invite email' }, event);
+				return fail(500, { error: 'Resend failed' });
+			}
+			setFlash({ type: 'success', message: 'Invite email resent' }, event);
+			return { success: true };
+		} catch (err) {
+			if (err && typeof err === 'object' && 'status' in err && 'body' in err) throw err;
+			logger.error('admin resendStaffInvite failed', { error: err, clientId, distinctId: user.id });
+			setFlash({ type: 'error', message: 'Failed to resend invite' }, event);
+			return fail(500, { error: 'Internal error' });
+		}
+	},
+
+	revokeStaffInvite: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id: clientId } = event.params;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Unauthorized' });
+		}
+		const formData = await event.request.formData();
+		const inviteId = formData.get('inviteId') as string;
+		if (!inviteId) return fail(400, { error: 'Missing inviteId' });
+
+		try {
+			const client = await getClientProfileById(clientId);
+			if (!client?.company) return fail(404, { error: 'Client not found' });
+			await revokeInvite(inviteId, client.company.id);
+			setFlash({ type: 'success', message: 'Invite revoked' }, event);
+			return { success: true };
+		} catch (err) {
+			if (err && typeof err === 'object' && 'status' in err && 'body' in err) throw err;
+			logger.error('admin revokeStaffInvite failed', { error: err, clientId, distinctId: user.id });
+			setFlash({ type: 'error', message: 'Failed to revoke invite' }, event);
+			return fail(500, { error: 'Internal error' });
+		}
+	},
+
+	updateStaffLocations: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id: clientId } = event.params;
+
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Unauthorized' });
+		}
+
+		const formData = await event.request.formData();
+		const parsed = StaffLocationsSchema.safeParse({
+			staffId: formData.get('staffId'),
+			locationIds: formData.get('locationIds'),
+			primaryLocationId: formData.get('primaryLocationId')
+		});
+		if (!parsed.success) {
+			return fail(400, { error: 'Invalid form' });
+		}
+
+		try {
+			const client = await getClientProfileById(clientId);
+			if (!client?.company) {
+				return fail(404, { error: 'Client not found' });
+			}
+
+			await setStaffLocations({
+				staffId: parsed.data.staffId,
+				companyId: client.company.id,
+				locationIds: parsed.data.locationIds,
+				primaryLocationId: parsed.data.primaryLocationId
+			});
+
+			setFlash({ type: 'success', message: 'Staff locations updated' }, event);
+			return { success: true };
+		} catch (err) {
+			if (err && typeof err === 'object' && 'status' in err && 'body' in err) {
+				throw err;
+			}
+			logger.error('admin updateStaffLocations failed', {
+				error: err,
+				clientId,
+				distinctId: user.id
+			});
+			setFlash({ type: 'error', message: 'Failed to update staff locations' }, event);
+			return fail(500, { error: 'Internal error' });
+		}
+	},
+
 	addComment: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);

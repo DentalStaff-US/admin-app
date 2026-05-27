@@ -1,4 +1,9 @@
-import { USER_ROLES } from '$lib/config/constants.js';
+import {
+	clientCanCreateRequisitions,
+	USER_ROLES,
+	type ClientStatus
+} from '$lib/config/constants.js';
+import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
 import { adminRequisitionSchema, clientRequisitionSchema } from '$lib/config/zod-schemas.js';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
 import {
@@ -31,7 +36,9 @@ export const load = async (event: RequestEvent) => {
 			user: event.locals.user,
 			requisitions: requisitions || [],
 			adminForm: form,
-			clientForm: null
+			clientForm: null,
+			clientStatus: null,
+			canCreateRequisitions: true
 		};
 	}
 
@@ -46,11 +53,14 @@ export const load = async (event: RequestEvent) => {
 		const form = await superValidate(event, clientRequisitionSchema);
 		const requisitions = await getRequisitionsForClient(clientCompany.id, searchTerm);
 
+		const clientStatus = (client?.status ?? 'PENDING') as ClientStatus;
 		return {
 			user,
 			requisitions: requisitions || [],
 			clientForm: form,
-			adminForm: null
+			adminForm: null,
+			clientStatus,
+			canCreateRequisitions: clientCanCreateRequisitions(clientStatus)
 		};
 	}
 
@@ -60,13 +70,17 @@ export const load = async (event: RequestEvent) => {
 
 		const company = await getClientCompanyByClientId(client?.id);
 		const form = await superValidate(event, clientRequisitionSchema);
-		const requisitions = await getRequisitionsForClient(company.id, searchTerm);
+		const scopedLocationIds = await getClientStaffScopedLocationIds(user);
+		const requisitions = await getRequisitionsForClient(company.id, searchTerm, scopedLocationIds);
 
+		const clientStatus = (client?.status ?? 'PENDING') as ClientStatus;
 		return {
 			user,
 			requisitions: requisitions || [],
 			clientForm: form,
-			adminForm: null
+			adminForm: null,
+			clientStatus,
+			canCreateRequisitions: clientCanCreateRequisitions(clientStatus)
 		};
 	}
 
@@ -74,7 +88,9 @@ export const load = async (event: RequestEvent) => {
 		user: event.locals.user,
 		requisitions: [],
 		adminForm: null,
-		clientForm: null
+		clientForm: null,
+		clientStatus: null,
+		canCreateRequisitions: false
 	};
 };
 
@@ -138,6 +154,22 @@ export const actions = {
 			user && user?.role === USER_ROLES.CLIENT_STAFF
 				? await getClientProfileByStaffUserId(user.id)
 				: await getClientProfilebyUserId(user.id);
+
+		// Status gate: CLIENT / CLIENT_STAFF can only post when the underlying
+		// client profile is ACTIVE. Admins use the `admin` action above and are
+		// not subject to this check (they may post on a client's behalf in any
+		// status). This mirrors the UI-side hide on the dashboard/requisitions/
+		// locations pages — kept here as defense-in-depth.
+		if (!clientCanCreateRequisitions((client?.status ?? null) as ClientStatus | null)) {
+			setFlash(
+				{
+					type: 'error',
+					message: 'Your account is pending approval and cannot post requisitions yet.'
+				},
+				event
+			);
+			return fail(403, { error: 'Client account not approved' });
+		}
 
 		const company = client ? await getClientCompanyByClientId(client.id) : null;
 		const companyId = company?.id;

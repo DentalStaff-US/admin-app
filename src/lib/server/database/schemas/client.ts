@@ -27,6 +27,13 @@ export type OperatingHours = {
 
 export const clientInvoiceMethodEnum = pgEnum('client_invoice_method_enum', ['STRIPE', 'PAPER']);
 
+export const clientStatusEnum = pgEnum('client_status', [
+	'PENDING',
+	'ACTIVE',
+	'INACTIVE',
+	'DENIED'
+]);
+
 export const clientProfileTable = pgTable('client_profiles', {
 	id: text('id').notNull().primaryKey(),
 	userId: text('user_id')
@@ -46,7 +53,11 @@ export const clientProfileTable = pgTable('client_profiles', {
 		.defaultNow(),
 	birthday: date('birthday'),
 	cellPhone: text('cell_phone'),
-	clientInvoiceMethod: clientInvoiceMethodEnum('client_invoice_method').default('STRIPE')
+	clientInvoiceMethod: clientInvoiceMethodEnum('client_invoice_method').default('STRIPE'),
+	// New clients start as PENDING. Only admins can flip to ACTIVE. Requisition
+	// creation by CLIENT/CLIENT_STAFF is gated on status === 'ACTIVE'; admins
+	// can still create on a client's behalf regardless.
+	status: clientStatusEnum('client_status').notNull().default('PENDING')
 	// stripeCustomerId: text('stripe_customer_id')
 });
 
@@ -140,7 +151,9 @@ export const clientCompanyTable = pgTable('client_companies', {
 				isClosed: false,
 				timezone: 'America/New_York'
 			}
-		})
+		}),
+	einNumber: text('ein_number'),
+	accountableManager: text('accountable_manager')
 });
 
 const geometry = customType<{ data: string; notNull: false; default: false }>({

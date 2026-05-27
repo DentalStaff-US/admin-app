@@ -16,6 +16,7 @@ import {
 import { setFlash } from 'sveltekit-flash-message/server';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
 import { getPostHogClient } from '$lib/server/posthog';
+import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
 
 export const load: PageServerLoad = async (event) => {
 	const skip = Number(event.url.searchParams.get('skip'));
@@ -64,11 +65,12 @@ export const load: PageServerLoad = async (event) => {
 
 		const locationForm = await superValidate(event, clientCompanyLocationSchema);
 
-		const result = await getPaginatedLocationsByCompanyId(clientCompany.id, {
-			limit: 10,
-			offset: skip,
-			orderBy
-		});
+		const scopedLocationIds = await getClientStaffScopedLocationIds(user);
+		const result = await getPaginatedLocationsByCompanyId(
+			clientCompany.id,
+			{ limit: 10, offset: skip, orderBy },
+			scopedLocationIds
+		);
 
 		return {
 			user,

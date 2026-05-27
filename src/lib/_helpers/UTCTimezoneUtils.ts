@@ -413,3 +413,26 @@ export function formatTimeString(timeValue) {
 	// Ensure HH:MM format (some browsers might return HH:MM:SS)
 	return timeValue.substring(0, 5);
 }
+
+/**
+ * Resolve a `YYYY-MM-DD` due-date string from a form input into a real
+ * timestamp anchored at end-of-day (23:59:59) in the given IANA timezone.
+ *
+ * Stripe rejects `due_date` values that aren't strictly in the future. Parsing
+ * `'2026-05-22'` with `new Date(...)` on a UTC server resolves to midnight UTC
+ * — which is several hours in the past for an admin in Eastern time on the
+ * morning the invoice is "due today". Anchoring to end-of-day in a business
+ * timezone matches what humans expect ("due May 22" = "by close of business
+ * May 22") and keeps the timestamp safely in the future for same-day picks.
+ */
+export function dueDateEndOfDayInTimezone(
+	dateString: string | null | undefined,
+	timezone: string = 'America/New_York'
+): Date | undefined {
+	if (!dateString) return undefined;
+	// Treat the wall-clock value `YYYY-MM-DD 23:59:59` as if it were observed
+	// in `timezone`, then convert to a real UTC instant.
+	const naive = new Date(`${dateString}T23:59:59`);
+	if (!isValid(naive)) return undefined;
+	return fromZonedTime(naive, timezone);
+}

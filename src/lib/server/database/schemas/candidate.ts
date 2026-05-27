@@ -66,7 +66,8 @@ export const candidateProfileTable = pgTable('candidate_profiles', {
 	puid: integer('puid')
 		.notNull()
 		.unique()
-		.default(sql`nextval('puid_seq')`)
+		.default(sql`nextval('puid_seq')`),
+	ssnLast4: text('ssn_last4')
 });
 
 export const candidateRatingTable = pgTable('candidate_ratings', {

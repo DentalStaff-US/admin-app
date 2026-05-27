@@ -11,8 +11,13 @@ import {
 	getRequisitionDetailsById,
 	getRequisitionTimesheets,
 	getRequisitionDetailsByIdAdmin,
-	closeAllUpcomingRecurrenceDays
+	closeAllUpcomingRecurrenceDays,
+	createInvoiceRecord,
+	createPaperInvoiceRecord
 } from '$lib/server/database/queries/requisitions';
+import { createStripeInvoice } from '$lib/server/stripe';
+import { assertCanAccessLocation } from '$lib/server/scoping';
+import { z } from 'zod';
 import { fail, redirect } from '@sveltejs/kit';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import {
@@ -25,13 +30,21 @@ import { USER_ROLES } from '$lib/config/constants';
 import {
 	getAllClientLocationsByCompanyId,
 	getClientCompanyByClientId,
+	getClientIdByCompanyId,
+	getClientProfileById,
 	getClientProfileByStaffUserId,
 	getClientProfilebyUserId,
 	getClientStaffProfilebyUserId,
+	getClientSubscription,
 	getLocationByIdForCompany
 } from '$lib/server/database/queries/clients';
+import { getClientProfileByIdAdmin } from '$lib/server/database/queries/admin';
 import type { ClientCompanyStaffProfile } from '$lib/server/database/schemas/client';
-import { convertRecurrenceDayToUTC, getUserTimezone } from '$lib/_helpers/UTCTimezoneUtils';
+import {
+	convertRecurrenceDayToUTC,
+	getUserTimezone,
+	dueDateEndOfDayInTimezone
+} from '$lib/_helpers/UTCTimezoneUtils';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
 import { getAllDisciplines } from '$lib/server/database/queries/disciplines';
@@ -46,6 +59,42 @@ import {
 import db from '$lib/server/database/drizzle';
 import { eq } from 'drizzle-orm';
 import { workdayTable, recurrenceDayTable } from '$lib/server/database/schemas/requisition';
+import { logger } from '$lib/server/logger';
+
+const invoiceLineItemSchema = z.array(
+	z.object({
+		description: z.string().optional(),
+		amount: z.number().min(0, 'Item amount must be a positive number'),
+		quantity: z.any().transform((val) => {
+			const parsed = parseInt(val, 10);
+			if (isNaN(parsed) || parsed <= 0) {
+				throw new Error('Item quantity must be a positive integer');
+			}
+			return parsed;
+		}),
+		rate: z.string().transform((val) => {
+			const parsed = parseFloat(val);
+			if (isNaN(parsed) || parsed < 0) {
+				throw new Error('Item rate must be a non-negative number');
+			}
+			return parsed;
+		})
+	})
+);
+
+const requisitionInvoiceSchema = z.object({
+	amount: z.number().min(0, 'Amount must be a positive number'),
+	dueDate: z.string().optional(),
+	description: z.string().optional(),
+	invoiceMethod: z.enum(['STRIPE', 'PAPER']).default('PAPER'),
+	items: z.string().transform((val) => {
+		try {
+			return JSON.parse(val);
+		} catch {
+			return [];
+		}
+	})
+});
 
 export const load: PageServerLoad = async (event: RequestEvent) => {
 	const user = event.locals.user;
@@ -60,6 +109,7 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 	const changeStatusForm = await superValidate(event, changeStatusSchema);
 	const editRecurrenceDayForm = await superValidate(event, editRecurrenceDaySchema);
 	const deleteRecurrenceDayForm = await superValidate(event, deleteRecurrenceDaySchema);
+	const invoiceForm = await superValidate(requisitionInvoiceSchema);
 
 	if (user.role === USER_ROLES.SUPERADMIN) {
 		const company = await getCompanyByRequisitionIdAdmin(idAsNum);
@@ -76,6 +126,10 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			company.id
 		);
 
+		// Surface the client's preferred billing method so the Create Invoice
+		// dialog defaults to it rather than always to PAPER.
+		const clientProfile = await getClientProfileByIdAdmin(company.clientId);
+
 		return {
 			user,
 			hasRequisitionRights: true,
@@ -83,6 +137,7 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			recurrenceDayForm,
 			editRecurrenceDayForm,
 			deleteRecurrenceDayForm,
+			invoiceForm,
 			company: company,
 			location,
 			requisition: requisition.requisition || null,
@@ -91,7 +146,8 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			timesheets: requisitionTimesheets || [],
 			disciplines,
 			experienceLevels,
-			locations
+			locations,
+			clientInvoiceMethod: clientProfile?.clientInvoiceMethod ?? 'STRIPE'
 		};
 	}
 
@@ -124,13 +180,15 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			recurrenceDayForm,
 			editRecurrenceDayForm,
 			deleteRecurrenceDayForm,
+			invoiceForm,
 			requisition: result?.requisition ?? null,
 			recurrenceDays: requisitionRecurrenceDays || [],
 			applications: requisitionApplications || [],
 			timesheets: requisitionTimesheets || [],
 			disciplines,
 			experienceLevels,
-			locations
+			locations,
+			clientInvoiceMethod: client?.clientInvoiceMethod ?? 'STRIPE'
 		};
 	}
 	if (user.role === USER_ROLES.CLIENT_STAFF) {
@@ -141,6 +199,8 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		const profile: ClientCompanyStaffProfile | null = await getClientStaffProfilebyUserId(user.id);
 		const company = await getClientCompanyByClientId(client?.id);
 		const result = await getRequisitionDetailsById(idAsNum);
+		// Access guard: staff must be assigned to this requisition's location.
+		await assertCanAccessLocation(user, result?.requisition?.location?.id);
 		const requisitionApplications = await getRequisitionApplications(idAsNum);
 		const requisitionTimesheets = await getRequisitionTimesheets(idAsNum);
 		const requisitionRecurrenceDays = await getRecurrenceDaysForRequisition(idAsNum);
@@ -161,13 +221,15 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			recurrenceDayForm,
 			editRecurrenceDayForm,
 			deleteRecurrenceDayForm,
+			invoiceForm,
 			requisition: result?.requisition ?? null,
 			recurrenceDays: requisitionRecurrenceDays || [],
 			applications: requisitionApplications || [],
 			timesheets: requisitionTimesheets || [],
 			disciplines,
 			experienceLevels,
-			locations
+			locations,
+			clientInvoiceMethod: client?.clientInvoiceMethod ?? 'STRIPE'
 		};
 	}
 };
@@ -459,6 +521,108 @@ export const actions = {
 				request
 			);
 			return setError(form, 'Something went wrong');
+		}
+	},
+	createInvoice: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) {
+			return fail(403, { error: 'Not authenticated' });
+		}
+
+		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+			return fail(403, { error: 'Not authorized to create invoices' });
+		}
+
+		const { id } = event.params;
+		const requisitionId = Number(id);
+		const form = await superValidate(event, requisitionInvoiceSchema);
+
+		if (!form.valid) {
+			return fail(400, { form });
+		}
+
+		try {
+			const requisition = (await getRequisitionDetailsById(requisitionId))?.requisition;
+			if (!requisition) {
+				return setError(form, 'Requisition not found');
+			}
+			if (!requisition.permanentPosition) {
+				return setError(form, 'Invoices can only be created against permanent requisitions');
+			}
+
+			const lineItems = await invoiceLineItemSchema.parseAsync(form.data.items);
+			const clientId = await getClientIdByCompanyId(requisition.companyId);
+			const clientResult = await getClientProfileById(clientId);
+			const customerName = `${clientResult.user.firstName} ${clientResult.user.lastName}`;
+			const customerEmail = clientResult.user.email;
+
+			if (form.data.invoiceMethod === 'PAPER') {
+				await createPaperInvoiceRecord(
+					{
+						clientId,
+						amountInDollars: form.data.amount.toFixed(2),
+						dueDate: form.data.dueDate,
+						description: form.data.description,
+						requisitionId,
+						sourceType: 'other',
+						lineItems: lineItems.map((item) => ({
+							id: crypto.randomUUID(),
+							description: item.description ?? null,
+							quantity: item.quantity,
+							rate: item.rate,
+							unit_amount: Math.round(item.rate * 100),
+							unit_amount_excluding_tax: Math.round(item.rate * 100),
+							amount: Math.round(item.amount * 100),
+							currency: 'usd',
+							type: 'paper' as const
+						})),
+						customerEmail,
+						customerName
+					},
+					user.id
+				);
+			} else {
+				const stripeCustomerId = await getClientSubscription(clientId);
+				if (!stripeCustomerId) {
+					return setError(form, 'Stripe customer not configured for this client');
+				}
+				// End-of-day in the business timezone keeps "due today" picks safely
+				// in the future when the admin is west of UTC at submit time.
+				const dueDate = dueDateEndOfDayInTimezone(form.data.dueDate)?.toISOString();
+				const stripeInvoice = await createStripeInvoice(
+					stripeCustomerId,
+					lineItems.map((item) => ({
+						amountInCents: Math.round(item.amount * 100),
+						description: item.description || '',
+						quantity: item.quantity || 1,
+						currency: 'usd'
+					})),
+					{ clientId, userId: clientResult.user.id, requisitionId: String(requisitionId) },
+					form.data.description,
+					dueDate
+				);
+				await createInvoiceRecord(
+					{
+						clientId,
+						stripeInvoice,
+						amountInDollars: (stripeInvoice.amount_due / 100).toFixed(2),
+						requisitionId,
+						sourceType: 'other'
+					},
+					user.id
+				);
+			}
+
+			setFlash({ type: 'success', message: 'Invoice created successfully' }, event);
+			return message(form, 'Invoice created successfully');
+		} catch (err) {
+			logger.error('requisition create invoice failed', {
+				error: err,
+				requisitionId,
+				distinctId: user?.id
+			});
+			setFlash({ type: 'error', message: 'Failed to create invoice' }, event);
+			return setError(form, 'Failed to create invoice');
 		}
 	},
 	updateRequisition: async (event: RequestEvent) => {

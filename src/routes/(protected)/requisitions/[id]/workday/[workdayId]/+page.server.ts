@@ -14,8 +14,10 @@ import {
 	getWorkdayDetails
 } from '$lib/server/database/queries/requisitions';
 import { USER_ROLES } from '$lib/config/constants';
+import { assertCanAccessLocation } from '$lib/server/scoping';
 import { getClientProfileByIdAdmin } from '$lib/server/database/queries/admin';
 import { getQualifiedProfessionalsForRequisition } from '$lib/server/database/queries/candidates';
+import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
 import db from '$lib/server/database/drizzle';
 import {
 	recurrenceDayTable,
@@ -65,6 +67,7 @@ export async function load(event: RequestEvent) {
 			company.id
 		);
 
+		const { miles: defaultSearchRadiusMiles } = await getDefaultSearchRadius();
 		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
 			requisition.requisition,
 			location
@@ -88,6 +91,7 @@ export async function load(event: RequestEvent) {
 			requisition,
 			location,
 			qualifiedProfessionals,
+			defaultSearchRadiusMiles,
 			editWorkdayScheduleForm
 		};
 	}
@@ -105,6 +109,7 @@ export async function load(event: RequestEvent) {
 			requisition.requisition.locationId,
 			company.id
 		);
+		const { miles: defaultSearchRadiusMiles } = await getDefaultSearchRadius();
 		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
 			requisition.requisition,
 			location
@@ -128,6 +133,7 @@ export async function load(event: RequestEvent) {
 			requisition,
 			location,
 			qualifiedProfessionals,
+			defaultSearchRadiusMiles,
 			editWorkdayScheduleForm
 		};
 	}
@@ -135,13 +141,17 @@ export async function load(event: RequestEvent) {
 	if (user.role === 'CLIENT_STAFF') {
 		const client = await getClientProfileByStaffUserId(user.id);
 		const company = await getClientCompanyByClientId(client?.id);
+		const requisition = await getRequisitionDetailsById(requisitionId);
+		// Access guard: staff must be assigned to this requisition's location
+		// (which is the workday's effective location).
+		await assertCanAccessLocation(user, requisition?.requisition?.locationId);
 		const recurrenceDay = await getRecurrenceDayDetails(recurrenceDayId, company.id);
 		const workday = await getWorkdayDetails(recurrenceDayId, company.id);
-		const requisition = await getRequisitionDetailsById(requisitionId);
 		const location = await getLocationByIdForCompany(
 			requisition.requisition.locationId,
 			company.id
 		);
+		const { miles: defaultSearchRadiusMiles } = await getDefaultSearchRadius();
 		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
 			requisition.requisition,
 			location
@@ -165,6 +175,7 @@ export async function load(event: RequestEvent) {
 			requisition,
 			location,
 			qualifiedProfessionals,
+			defaultSearchRadiusMiles,
 			editWorkdayScheduleForm
 		};
 	}

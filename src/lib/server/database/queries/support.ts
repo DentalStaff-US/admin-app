@@ -1,4 +1,5 @@
-import { and, desc, eq, ilike, or } from 'drizzle-orm';
+import { and, desc, eq, ilike, ne, or } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
 import db from '../drizzle';
 import {
 	supportTicketCommentTable,
@@ -26,6 +27,13 @@ export interface SupportTicketResult {
 	};
 }
 
+/**
+ * Single chokepoint for support ticket creation. All paths (admin /support
+ * page, external candidate API, billing-help helper, internal modal endpoint)
+ * funnel through here so the admin email notification fires exactly once per
+ * created ticket. Notification is fire-and-forget; email delivery failures
+ * never block ticket creation.
+ */
 export async function createSupportTicket(data: SupportTicket) {
 	try {
 		const [result] = await db
@@ -33,11 +41,62 @@ export async function createSupportTicket(data: SupportTicket) {
 			.values(data)
 			.onConflictDoNothing()
 			.returning();
+
+		if (result) {
+			// Lazy-load to avoid a circular import (transactional → emailService
+			// → schemas, none of which can depend on this query file).
+			const { notifyAdminsOfNewSupportTicket } = await import(
+				'$lib/server/notifications/transactional'
+			);
+			await notifyAdminsOfNewSupportTicket(result.id);
+		}
+
 		return result;
 	} catch (err) {
 		console.log(err);
 		return error(500, `${err}`);
 	}
+}
+
+/**
+ * Open a "billing setup help" ticket on behalf of a client who skipped the
+ * Stripe Checkout setup flow. Used by the onboarding billing step and the
+ * dashboard banner's "Need help" path so admins get a single, consistent
+ * actionable ticket in their existing inbox.
+ *
+ * Returns `null` if a recent open ticket from this user already exists — we
+ * don't want a banner-mash to spam admins with duplicate tickets.
+ */
+export async function requestBillingHelp(args: {
+	userId: string;
+	context?: string;
+}): Promise<SupportTicket | null> {
+	const TITLE = 'Billing setup help needed';
+
+	const existing = await db
+		.select({ id: supportTicketTable.id })
+		.from(supportTicketTable)
+		.where(
+			and(
+				eq(supportTicketTable.reportedById, args.userId),
+				eq(supportTicketTable.title, TITLE),
+				ne(supportTicketTable.status, 'CLOSED')
+			)
+		)
+		.limit(1);
+	if (existing.length > 0) return null;
+
+	// Go through the single chokepoint so the admin notification fires.
+	const result = await createSupportTicket({
+		id: nanoid(),
+		title: TITLE,
+		reportedById: args.userId,
+		additionalNotes:
+			args.context ?? 'Client requested assistance setting up their Stripe payment method.',
+		status: 'NEW'
+	});
+
+	return result ?? null;
 }
 
 export async function getAllSupportTickets(searchTerm?: string) {

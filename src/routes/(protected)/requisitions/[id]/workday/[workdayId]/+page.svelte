@@ -67,6 +67,7 @@
 	$: timesheet = workday?.timesheet;
 	$: hasWorkday = !!workday?.workday;
 	$: qualifiedProfessionals = data.qualifiedProfessionals || [];
+	$: defaultSearchRadiusMiles = data.defaultSearchRadiusMiles ?? 60;
 	$: editWorkdayScheduleForm = data.editWorkdayScheduleForm;
 
 	// Dialog/modal state
@@ -77,6 +78,37 @@
 	let cancelWorkdayDialogOpen = false;
 	let assigningCandidateId: string | null = null;
 	let reassigningCandidateId: string | null = null;
+
+	// "Show all discipline matches" extension: fetched on-demand from
+	// /api/requisitions/[id]/qualified-candidates?includeAllExperience=true,
+	// then deduped against qualifiedProfessionals (server-side filter is reductive,
+	// so the extended set is a strict superset — we just append the new ones).
+	let extendedProfessionals: typeof qualifiedProfessionals = [];
+	let loadingExtended = false;
+	let extendedLoaded = false;
+	let extendedError: string | null = null;
+	$: allProfessionals = [...qualifiedProfessionals, ...extendedProfessionals];
+
+	async function loadAllExperienceCandidates() {
+		if (loadingExtended || extendedLoaded) return;
+		loadingExtended = true;
+		extendedError = null;
+		try {
+			const requisitionId = data.requisition?.requisition?.id;
+			const res = await fetch(
+				`/api/requisitions/${requisitionId}/qualified-candidates?includeAllExperience=true`
+			);
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const all = await res.json();
+			const existingIds = new Set(qualifiedProfessionals.map((p) => p.candidateId));
+			extendedProfessionals = all.filter((p: { candidateId: string }) => !existingIds.has(p.candidateId));
+			extendedLoaded = true;
+		} catch (err) {
+			extendedError = err instanceof Error ? err.message : 'Failed to load';
+		} finally {
+			loadingExtended = false;
+		}
+	}
 
 	const {
 		form,
@@ -99,10 +131,36 @@
 		</h1>
 
 		<div class="flex gap-2">
-			{#if hasWorkday}
-				<DropdownMenu>
-					<DropdownMenuTrigger>
-						<Button variant="outline">
+			<DropdownMenu>
+				<DropdownMenuTrigger>
+					<Button variant="outline">
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							class="h-4 w-4 mr-2"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke="currentColor"
+						>
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+							/>
+						</svg>
+						Actions
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent>
+					<DropdownMenuLabel>Workday Actions</DropdownMenuLabel>
+					<DropdownMenuSeparator />
+					<DropdownMenuItem class="gap-2" on:click={() => (editingSchedule = true)}>
+						<Pencil size={16} /> Edit Schedule
+					</DropdownMenuItem>
+					{#if workday?.timesheet}
+						<DropdownMenuItem
+							on:click={() => (window.location.href = '/timesheets/' + workday.timesheet?.id)}
+						>
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
 								class="h-4 w-4 mr-2"
@@ -114,56 +172,28 @@
 									stroke-linecap="round"
 									stroke-linejoin="round"
 									stroke-width="2"
-									d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+									d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+								/>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
 								/>
 							</svg>
-							Actions
-						</Button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent>
-						<DropdownMenuLabel>Workday Actions</DropdownMenuLabel>
-						<DropdownMenuSeparator />
-						<DropdownMenuItem class="gap-2" on:click={() => (editingSchedule = true)}>
-							<Pencil size={16} /> Edit Schedule
+							View Timesheet
 						</DropdownMenuItem>
-						{#if workday?.timesheet}
-							<DropdownMenuItem
-								on:click={() => (window.location.href = '/timesheets/' + workday.timesheet?.id)}
-							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									class="h-4 w-4 mr-2"
-									fill="none"
-									viewBox="0 0 24 24"
-									stroke="currentColor"
-								>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										stroke-width="2"
-										d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-									/>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										stroke-width="2"
-										d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-									/>
-								</svg>
-								View Timesheet
-							</DropdownMenuItem>
-						{/if}
-						{#if recurrenceDay?.recurrenceDay.status !== 'CANCELED'}
-							<DropdownMenuItem
-								class="gap-2 text-red-500 focus:text-red-500"
-								on:click={() => (cancelWorkdayDialogOpen = true)}
-							>
-								<XCircle size={16} /> Cancel Workday
-							</DropdownMenuItem>
-						{/if}
-					</DropdownMenuContent>
-				</DropdownMenu>
-			{/if}
+					{/if}
+					{#if recurrenceDay?.recurrenceDay.status !== 'CANCELED'}
+						<DropdownMenuItem
+							class="gap-2 text-red-500 focus:text-red-500"
+							on:click={() => (cancelWorkdayDialogOpen = true)}
+						>
+							<XCircle size={16} /> Cancel Workday
+						</DropdownMenuItem>
+					{/if}
+				</DropdownMenuContent>
+			</DropdownMenu>
 		</div>
 	</div>
 
@@ -565,11 +595,13 @@
 		<DialogHeader>
 			<DialogTitle>Assign Professional to Workday</DialogTitle>
 			<DialogDescription>
-				{qualifiedProfessionals.length} qualified professionals within 50 miles
+				{allProfessionals.length} qualified professionals within {defaultSearchRadiusMiles} miles{extendedLoaded
+					? ' (incl. all experience levels)'
+					: ''}
 			</DialogDescription>
 		</DialogHeader>
 		<div class="space-y-4 mt-4">
-			{#each qualifiedProfessionals as professional}
+			{#each allProfessionals as professional}
 				<div class="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
 					<div class="flex items-start justify-between">
 						<div class="flex gap-4">
@@ -627,10 +659,27 @@
 				</div>
 			{:else}
 				<div class="text-center py-8 text-muted-foreground">
-					No qualified professionals found within 50 miles
+					No qualified professionals found within {defaultSearchRadiusMiles} miles
 				</div>
 			{/each}
 		</div>
+		{#if !extendedLoaded}
+			<DialogFooter class="sm:justify-center mt-2">
+				<button
+					type="button"
+					class="text-sm text-[#2a93d1] hover:underline disabled:opacity-50"
+					on:click={loadAllExperienceCandidates}
+					disabled={loadingExtended}
+				>
+					{loadingExtended
+						? 'Loading…'
+						: 'Show more — include candidates of any experience level'}
+				</button>
+			</DialogFooter>
+		{/if}
+		{#if extendedError}
+			<p class="text-sm text-red-600 text-center mt-2">Failed to load: {extendedError}</p>
+		{/if}
 	</DialogContent>
 </Dialog>
 
@@ -641,11 +690,13 @@
 			<DialogTitle>Reassign Professional</DialogTitle>
 			<DialogDescription>
 				Currently assigned to <strong>{candidate?.firstName} {candidate?.lastName}</strong>. Select
-				a replacement from {qualifiedProfessionals.length} qualified professionals within 50 miles.
+				a replacement from {allProfessionals.length} qualified professionals within {defaultSearchRadiusMiles} miles{extendedLoaded
+					? ' (incl. all experience levels)'
+					: ''}.
 			</DialogDescription>
 		</DialogHeader>
 		<div class="space-y-4 mt-4">
-			{#each qualifiedProfessionals as professional}
+			{#each allProfessionals as professional}
 				<!-- Skip the currently assigned candidate -->
 				{#if professional.candidateId !== candidate?.id}
 					<div class="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
@@ -712,13 +763,28 @@
 				{/if}
 			{:else}
 				<div class="text-center py-8 text-muted-foreground">
-					No other qualified professionals found within 50 miles
+					No other qualified professionals found within {defaultSearchRadiusMiles} miles
 				</div>
 			{/each}
 		</div>
-		<DialogFooter>
+		<DialogFooter class="flex-col sm:flex-row sm:justify-between gap-2">
+			{#if !extendedLoaded}
+				<button
+					type="button"
+					class="text-sm text-[#2a93d1] hover:underline disabled:opacity-50 sm:mr-auto"
+					on:click={loadAllExperienceCandidates}
+					disabled={loadingExtended}
+				>
+					{loadingExtended
+						? 'Loading…'
+						: 'Show more — include candidates of any experience level'}
+				</button>
+			{/if}
 			<Button variant="outline" on:click={() => (reassignDialogOpen = false)}>Cancel</Button>
 		</DialogFooter>
+		{#if extendedError}
+			<p class="text-sm text-red-600 text-center">Failed to load: {extendedError}</p>
+		{/if}
 	</DialogContent>
 </Dialog>
 

@@ -35,6 +35,7 @@ import {
 } from '../schemas/requisition';
 import { clientCompanyTable, companyOfficeLocationTable } from '../schemas/client';
 import { candidateDocumentUploadSchema, documentResultSchema } from '$lib/config/zod-schemas';
+import { getDefaultSearchRadius } from './config';
 
 export type CandidateWithProfile = {
 	user: User;
@@ -384,7 +385,11 @@ export async function uploadCandidateDocuments(data: unknown, candidateId: strin
 	}
 }
 
-export async function getQualifiedProfessionalsForRequisition(requisition: any, location: any) {
+export async function getQualifiedProfessionalsForRequisition(
+	requisition: any,
+	location: any,
+	options: { includeAllExperience?: boolean } = {}
+) {
 	try {
 		// Get location coordinates
 		const locationLat = location.lat;
@@ -397,15 +402,16 @@ export async function getQualifiedProfessionalsForRequisition(requisition: any, 
 
 		// Required discipline ID from requisition
 		const requiredDisciplineId = requisition.disciplineId;
-		// Will eventually be a user provided parameter, but for now we can hardcode a radius
-		const radiusMiles = 60;
-		const radiusMeters = radiusMiles * 1609.34; // Convert miles to meters for PostGIS
+		// Search radius is sourced from admin_config (Application Settings page).
+		const { miles: radiusMiles, meters: radiusMeters } = await getDefaultSearchRadius();
 
-		// If the requisition specifies a required experience level, look up its
-		// `order` so we can do reductive filtering: candidate level >= required level.
-		// Null required level == "No Preference" — skip the level filter entirely.
+		// Resolve the requisition's experience-level "order" for reductive filtering:
+		// `candidate.order >= required.order` (higher experience cascades to lower
+		// requirements). Skip the filter entirely when the requisition has no level
+		// (null id == "no preference") or when the caller passed `includeAllExperience`
+		// (the "Show more" link in the assign modal).
 		let requiredOrder: number | null = null;
-		if (requisition.experienceLevelId) {
+		if (requisition.experienceLevelId && !options.includeAllExperience) {
 			const [requiredLevel] = await db
 				.select({ order: experienceLevelTable.order })
 				.from(experienceLevelTable)

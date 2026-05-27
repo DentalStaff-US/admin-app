@@ -35,10 +35,9 @@ export const POST: RequestHandler = async ({ request }) => {
 		event = stripe.webhooks.constructEvent(payload, signature, STRIPE_WEBHOOK_SECRET);
 	} catch (err) {
 		logger.error('stripe webhook signature verification failed', { error: err });
-		return new Response(
-			`Webhook Error: ${err instanceof Error ? err.message : 'Unknown Error'}`,
-			{ status: 400 }
-		);
+		return new Response(`Webhook Error: ${err instanceof Error ? err.message : 'Unknown Error'}`, {
+			status: 400
+		});
 	}
 
 	// Step 2: dispatch handlers. A failure here is a 500 so Stripe retries.
@@ -79,8 +78,7 @@ export const POST: RequestHandler = async ({ request }) => {
 						eq(clientSubscriptionTable.stripeCustomerId, deletedSubscription.customer as string)
 					);
 				logger.event('subscription_cancelled', {
-					distinctId:
-						deletedSubscription.metadata?.userId ?? String(deletedSubscription.customer),
+					distinctId: deletedSubscription.metadata?.userId ?? String(deletedSubscription.customer),
 					stripe_subscription_id: deletedSubscription.id,
 					status: deletedSubscription.status
 				});
@@ -158,6 +156,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			}
 
 			case 'invoice.payment_succeeded': {
+				// we need to record transactions the same way we do with paper, so we have a paper trail of 1 full payment or n payments until its completed.
 				const invoicePaymentSucceeded = event.data.object as Stripe.Invoice;
 				const [existingPaidInvoice] = await db
 					.select()
@@ -168,7 +167,7 @@ export const POST: RequestHandler = async ({ request }) => {
 					await db
 						.update(invoiceTable)
 						.set({
-							status: 'paid',
+							status: invoicePaymentSucceeded.status || 'open',
 							stripeStatus: invoicePaymentSucceeded.status,
 							paidAt: new Date(),
 							amountDue: (invoicePaymentSucceeded.amount_due / 100).toFixed(2),
@@ -178,8 +177,7 @@ export const POST: RequestHandler = async ({ request }) => {
 						.where(eq(invoiceTable.id, existingPaidInvoice.id));
 					logger.event('invoice_payment_succeeded', {
 						distinctId:
-							invoicePaymentSucceeded.metadata?.userId ??
-							String(invoicePaymentSucceeded.customer),
+							invoicePaymentSucceeded.metadata?.userId ?? String(invoicePaymentSucceeded.customer),
 						stripe_invoice_id: invoicePaymentSucceeded.id,
 						amount_paid: invoicePaymentSucceeded.amount_paid / 100,
 						currency: invoicePaymentSucceeded.currency,
