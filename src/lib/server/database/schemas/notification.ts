@@ -26,7 +26,9 @@ export const externalNotificationTemplatesTable = pgTable('notification_template
 
 export const inAppNotificationsTable = pgTable('in_app_notifications', {
 	id: uuid('id').primaryKey(),
-	userId: text('user_id').references(() => userTable.id).notNull(),
+	userId: text('user_id')
+		.references(() => userTable.id, { onDelete: 'cascade' })
+		.notNull(),
 	message: text('message').notNull(),
 	status: notificationStatusEnum('status').default('UNREAD').notNull(),
 	resourceUrl: text('resource_url').notNull(),

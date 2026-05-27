@@ -32,7 +32,7 @@ export const candidateProfileTable = pgTable('candidate_profiles', {
 	id: text('id').notNull().primaryKey(),
 	userId: text('user_id')
 		.notNull()
-		.references(() => userTable.id),
+		.references(() => userTable.id, { onDelete: 'cascade' }),
 	createdAt: timestamp('created_at', {
 		withTimezone: true,
 		mode: 'date'
@@ -170,7 +170,7 @@ export const candidateDocumentUploadsTable = pgTable('candidate_document_uploads
 		.notNull()
 		.default(new Date()),
 	candidateId: text('candidate_id')
-		.references(() => candidateProfileTable.id)
+		.references(() => candidateProfileTable.id, { onDelete: 'cascade' })
 		.notNull(),
 	uploadUrl: text('upload_url').notNull(),
 	expiryDate: timestamp('expiry_date', {

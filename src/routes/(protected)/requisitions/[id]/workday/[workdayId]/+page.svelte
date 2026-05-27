@@ -46,6 +46,7 @@
 		Edit,
 		MapPin,
 		Pencil,
+		Trash2,
 		UserPlus,
 		X,
 		XCircle,
@@ -76,6 +77,8 @@
 	let reassignDialogOpen = false;
 	let unassignDialogOpen = false;
 	let cancelWorkdayDialogOpen = false;
+	let deleteWorkdayDialogOpen = false;
+	let deletingWorkday = false;
 	let assigningCandidateId: string | null = null;
 	let reassigningCandidateId: string | null = null;
 
@@ -190,6 +193,14 @@
 							on:click={() => (cancelWorkdayDialogOpen = true)}
 						>
 							<XCircle size={16} /> Cancel Workday
+						</DropdownMenuItem>
+					{/if}
+					{#if isAdmin}
+						<DropdownMenuItem
+							class="gap-2 text-red-500 focus:text-red-500"
+							on:click={() => (deleteWorkdayDialogOpen = true)}
+						>
+							<Trash2 size={16} /> Delete Workday
 						</DropdownMenuItem>
 					{/if}
 				</DropdownMenuContent>
@@ -854,6 +865,44 @@
 				<input type="hidden" name="recurrenceDayId" value={recurrenceDay?.recurrenceDay.id} />
 				<AlertDialogAction type="submit" class="bg-red-500 hover:bg-red-600 text-white">
 					Cancel Workday
+				</AlertDialogAction>
+			</form>
+		</AlertDialogFooter>
+	</AlertDialogContent>
+</AlertDialog>
+
+<!-- ─── Delete Workday Confirm Dialog (admin only) ────────────────────────── -->
+<AlertDialog bind:open={deleteWorkdayDialogOpen}>
+	<AlertDialogContent>
+		<AlertDialogHeader>
+			<AlertDialogTitle>Delete this workday?</AlertDialogTitle>
+			<AlertDialogDescription>
+				This will permanently archive the workday and its assigned timesheet (if any). The
+				assigned professional will be notified. This action cannot be undone.
+			</AlertDialogDescription>
+		</AlertDialogHeader>
+		<AlertDialogFooter>
+			<AlertDialogCancel>Cancel</AlertDialogCancel>
+			<form
+				method="POST"
+				action="?/deleteWorkday"
+				use:enhance={() => {
+					deletingWorkday = true;
+					return async ({ result, update }) => {
+						deletingWorkday = false;
+						// On success the action redirects to the requisition page, so
+						// the dialog close here is mostly cosmetic.
+						deleteWorkdayDialogOpen = false;
+						await update();
+					};
+				}}
+			>
+				<AlertDialogAction
+					type="submit"
+					class="bg-red-500 hover:bg-red-600 text-white"
+					disabled={deletingWorkday}
+				>
+					{deletingWorkday ? 'Deleting...' : 'Delete Workday'}
 				</AlertDialogAction>
 			</form>
 		</AlertDialogFooter>

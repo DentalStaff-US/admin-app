@@ -8,6 +8,7 @@ import {
 	getLocationByIdForCompany
 } from '$lib/server/database/queries/clients';
 import {
+	deleteRecurrenceDay,
 	editRecurrenceDay,
 	getRecurrenceDayDetails,
 	getRequisitionDetailsById,
@@ -739,5 +740,58 @@ export const actions = {
 	// 	}
 	// },
 
-	blacklistCandidate: async (_event: RequestEvent) => {}
+	blacklistCandidate: async (_event: RequestEvent) => {},
+
+	// Admin-only hard-archive of this workday. Mirrors the requisition-page
+	// `deleteRecurrenceDay` action (snapshot for notification, soft-delete via
+	// `deleteRecurrenceDay`, notify if a candidate was assigned). Clients
+	// should cancel via `cancelWorkday` instead.
+	deleteWorkday: async (event: RequestEvent) => {
+		const { request, locals, params } = event;
+		const user = locals.user;
+		if (!user) return fail(403);
+		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { error: 'Admin only' });
+
+		const recurrenceDayId = params.workdayId;
+		if (!recurrenceDayId) return fail(400, { error: 'Missing workday id' });
+
+		try {
+			const [snapshot] = await db
+				.select({
+					candidateId: workdayTable.candidateId,
+					requisitionId: workdayTable.requisitionId,
+					date: recurrenceDayTable.date,
+					dayStart: recurrenceDayTable.dayStart,
+					dayEnd: recurrenceDayTable.dayEnd
+				})
+				.from(recurrenceDayTable)
+				.leftJoin(workdayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
+				.where(eq(recurrenceDayTable.id, recurrenceDayId))
+				.limit(1);
+
+			await deleteRecurrenceDay(recurrenceDayId, user.id);
+
+			if (snapshot?.candidateId && snapshot.requisitionId !== null) {
+				await notifyWorkdayDeleted({
+					candidateId: snapshot.candidateId,
+					requisitionId: snapshot.requisitionId,
+					recurrenceDay: {
+						date: snapshot.date,
+						dayStart: snapshot.dayStart,
+						dayEnd: snapshot.dayEnd
+					}
+				});
+			}
+
+			setFlash({ type: 'success', message: 'Workday deleted' }, request);
+			// Redirect back to the requisition page since this workday no longer exists.
+			throw redirect(303, `/requisitions/${params.id}`);
+		} catch (err) {
+			// SvelteKit redirects throw — let those bubble up.
+			if (err && typeof err === 'object' && 'status' in err && 'location' in err) throw err;
+			console.error(err);
+			setFlash({ type: 'error', message: 'Failed to delete workday' }, request);
+			return fail(500, { error: 'Failed to delete workday' });
+		}
+	}
 };

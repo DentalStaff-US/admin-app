@@ -243,7 +243,7 @@ export const deleteRecurrenceDaySchema = z.object({ id: z.string() });
 export type DeleteRecurrenceDaySchema = typeof deleteRecurrenceDaySchema;
 
 export const changeStatusSchema = z.object({
-	status: z.enum(['PENDING', 'OPEN', 'CANCELED', 'CLOSED']),
+	status: z.enum(['PENDING', 'OPEN', 'CANCELED', 'CLOSED', 'PAYMENT_REQUIRED', 'PAYMENT_RECEIVED']),
 	requisitionId: z.string()
 });
 

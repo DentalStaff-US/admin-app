@@ -120,6 +120,20 @@ export const load = async (event: RequestEvent) => {
 					.limit(1)
 			: [null];
 
+		// TEMP DEBUG — investigating client reports of stale "pending approval"
+		// banner even after admin sets status to ACTIVE. Remove after diagnosis.
+		console.log('[dashboard CLIENT load]', {
+			userId: user.id,
+			userEmail: user.email,
+			clientFound: !!client,
+			clientId: client?.id ?? null,
+			rawClientStatus: client?.status ?? null,
+			resolvedClientStatus: clientStatus,
+			canCreateRequisitions: clientCanCreateRequisitions(clientStatus),
+			subscriptionFound: !!subscription,
+			hasBillingSetup: hasBillingSetup(subscription ?? null)
+		});
+
 		return {
 			user,
 			profile: client,

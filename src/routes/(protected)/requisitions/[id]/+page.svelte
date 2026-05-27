@@ -51,6 +51,18 @@
 	import * as Table from '$lib/components/ui/table';
 	import type { RecurrenceDaySelect } from '$lib/server/database/schemas/requisition';
 	import WorkDayActionMenu from '$lib/components/dashboard/shared/workday-action-menu.svelte';
+	import { USER_ROLES } from '$lib/config/constants';
+	import { Checkbox } from '$lib/components/ui/checkbox';
+	import {
+		AlertDialog,
+		AlertDialogAction,
+		AlertDialogCancel,
+		AlertDialogContent,
+		AlertDialogDescription,
+		AlertDialogFooter,
+		AlertDialogHeader,
+		AlertDialogTitle
+	} from '$lib/components/ui/alert-dialog';
 	import AddRecurrenceDaysDrawer from '$lib/components/drawers/addRecurrenceDaysDrawer.svelte';
 	import TimesheetActionMenu from './timesheet-table-actions.svelte';
 	import { CardHeader, CardTitle, CardContent, CardDescription } from '$lib/components/ui/card';
@@ -77,6 +89,7 @@
 	export let data: PageData;
 
 	$: user = data.user;
+	$: isAdmin = user?.role === USER_ROLES.SUPERADMIN;
 	$: company = data.company;
 	$: requisition = data.requisition;
 	$: recurrenceDays = data.recurrenceDays;
@@ -103,6 +116,48 @@
 	$: filteredRecurrenceDays = recurrenceDaysTableData.filter(
 		(day) => day.status === selectedWorkDayStatus
 	);
+
+	// Bulk-action selection state for the workday table. Selection scope is the
+	// currently visible (status-filtered) list — clearing the filter clears the
+	// selection so we never act on rows the user can't see.
+	let selectedRecurrenceDayIds = new Set<string>();
+	$: visibleIds = filteredRecurrenceDays.map((d) => d.id);
+	$: {
+		// Drop any selected ids that aren't in the visible set (e.g. after switching
+		// status filter). Reassigning the Set keeps reactivity working.
+		const stillVisible = new Set<string>();
+		for (const id of selectedRecurrenceDayIds) {
+			if (visibleIds.includes(id)) stillVisible.add(id);
+		}
+		if (stillVisible.size !== selectedRecurrenceDayIds.size) {
+			selectedRecurrenceDayIds = stillVisible;
+		}
+	}
+	$: selectedCount = selectedRecurrenceDayIds.size;
+	$: allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedRecurrenceDayIds.has(id));
+	$: headerCheckboxState = allVisibleSelected
+		? true
+		: selectedCount > 0
+			? 'indeterminate'
+			: false;
+
+	function toggleRecurrenceDay(id: string) {
+		const next = new Set(selectedRecurrenceDayIds);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		selectedRecurrenceDayIds = next;
+	}
+
+	function toggleAllRecurrenceDays() {
+		if (allVisibleSelected) {
+			selectedRecurrenceDayIds = new Set();
+		} else {
+			selectedRecurrenceDayIds = new Set(visibleIds);
+		}
+	}
+
+	let bulkDeleteDialogOpen = false;
+	let bulkActionSubmitting = false;
 
 	$: {
 		applicationTableData = (applications as ApplicationResults[]) || [];
@@ -395,6 +450,26 @@
 											>Closed</button
 										>
 									</DropdownMenuItem>
+									<!-- Perm-only payment-tracking branch. Admin-only because clients
+									     shouldn't be able to mark their own payment state. -->
+									{#if isAdmin && requisition.permanentPosition}
+										<DropdownMenuItem>
+											<button
+												type="submit"
+												name="status"
+												value="PAYMENT_REQUIRED"
+												class="w-full text-left">Payment Required</button
+											>
+										</DropdownMenuItem>
+										<DropdownMenuItem>
+											<button
+												type="submit"
+												name="status"
+												value="PAYMENT_RECEIVED"
+												class="w-full text-left">Payment Received</button
+											>
+										</DropdownMenuItem>
+									{/if}
 								</form>
 							</DropdownMenuContent>
 						</DropdownMenu>
@@ -756,11 +831,126 @@
 										</p>
 									</div>
 								{:else}
+									<!-- Bulk-action toolbar — only renders when at least one row is selected. -->
+									{#if selectedCount > 0 && hasRequisitionRights}
+										<div
+											class="flex flex-wrap items-center gap-2 mb-3 p-3 rounded-md border bg-muted/40"
+										>
+											<span class="text-sm font-medium">
+												{selectedCount} selected
+											</span>
+											<div class="ml-auto flex flex-wrap gap-2">
+												<!-- Bulk status flip (non-destructive): OPEN / FILLED / UNFULFILLED.
+												     CANCELED is handled by the dedicated Cancel button below so the
+												     server-side notifications + audit fire on cancel. -->
+												<DropdownMenu>
+													<DropdownMenuTrigger>
+														<Button variant="outline" size="sm" class="gap-1">
+															Set Status
+															<ChevronDown class="h-3 w-3" />
+														</Button>
+													</DropdownMenuTrigger>
+													<DropdownMenuContent align="end">
+														<form
+															method="POST"
+															action="?/bulkUpdateRecurrenceDayStatus"
+															use:enhance={() => {
+																bulkActionSubmitting = true;
+																return async ({ result, update }) => {
+																	bulkActionSubmitting = false;
+																	if (result.type === 'success') {
+																		selectedRecurrenceDayIds = new Set();
+																	}
+																	await update();
+																};
+															}}
+														>
+															<input
+																type="hidden"
+																name="ids"
+																value={Array.from(selectedRecurrenceDayIds).join(',')}
+															/>
+															<DropdownMenuItem>
+																<button type="submit" name="status" value="OPEN" class="w-full text-left">
+																	Open
+																</button>
+															</DropdownMenuItem>
+															<DropdownMenuItem>
+																<button type="submit" name="status" value="FILLED" class="w-full text-left">
+																	Filled
+																</button>
+															</DropdownMenuItem>
+															<DropdownMenuItem>
+																<button type="submit" name="status" value="UNFULFILLED" class="w-full text-left">
+																	Unfulfilled
+																</button>
+															</DropdownMenuItem>
+														</form>
+													</DropdownMenuContent>
+												</DropdownMenu>
+
+												<!-- Cancel — available to both admin and client. Triggers the same
+												     per-row cancellation path so notifications still fire. -->
+												<form
+													method="POST"
+													action="?/bulkCancelRecurrenceDays"
+													use:enhance={() => {
+														bulkActionSubmitting = true;
+														return async ({ result, update }) => {
+															bulkActionSubmitting = false;
+															if (result.type === 'success') {
+																selectedRecurrenceDayIds = new Set();
+															}
+															await update();
+														};
+													}}
+												>
+													<input
+														type="hidden"
+														name="ids"
+														value={Array.from(selectedRecurrenceDayIds).join(',')}
+													/>
+													<Button
+														type="submit"
+														variant="outline"
+														size="sm"
+														class="border-orange-400 text-orange-700 hover:bg-orange-50"
+														disabled={bulkActionSubmitting}
+													>
+														<X class="h-3 w-3 mr-1" /> Cancel
+													</Button>
+												</form>
+
+												<!-- Delete — admin only. Confirmation required. -->
+												{#if isAdmin}
+													<Button
+														type="button"
+														variant="outline"
+														size="sm"
+														class="border-red-400 text-red-700 hover:bg-red-50"
+														disabled={bulkActionSubmitting}
+														on:click={() => (bulkDeleteDialogOpen = true)}
+													>
+														<Trash2 class="h-3 w-3 mr-1" /> Delete
+													</Button>
+												{/if}
+											</div>
+										</div>
+									{/if}
+
 									<div class="rounded-md border">
 										<Table.Root>
 											<TableHeader>
 												{#each $recurrenceDaysTable.getHeaderGroups() as headerGroup}
 													<TableRow>
+														{#if hasRequisitionRights}
+															<TableHead class="w-10">
+																<Checkbox
+																	checked={headerCheckboxState}
+																	on:click={toggleAllRecurrenceDays}
+																/>
+															</TableHead>
+														{/if}
 														{#each headerGroup.headers as header}
 															<TableHead>
 																<svelte:component
@@ -777,6 +967,14 @@
 											<TableBody>
 												{#each $recurrenceDaysTable.getRowModel().rows as row}
 													<TableRow>
+														{#if hasRequisitionRights}
+															<TableCell class="w-10">
+																<Checkbox
+																	checked={selectedRecurrenceDayIds.has(row.original.id)}
+																	on:click={() => toggleRecurrenceDay(row.original.id)}
+																/>
+															</TableCell>
+														{/if}
 														{#each row.getVisibleCells() as cell}
 															<TableCell>
 																<svelte:component
@@ -1026,3 +1224,47 @@
 		</Dialog.Content>
 	</Dialog.Root>
 {/if}
+
+<!-- ─── Bulk Delete Confirm Dialog (admin only) ────────────────────────────── -->
+<AlertDialog bind:open={bulkDeleteDialogOpen}>
+	<AlertDialogContent>
+		<AlertDialogHeader>
+			<AlertDialogTitle>Delete selected workdays?</AlertDialogTitle>
+			<AlertDialogDescription>
+				This will permanently archive {selectedCount} workday{selectedCount === 1 ? '' : 's'} and
+				their assigned timesheets. This action cannot be undone.
+			</AlertDialogDescription>
+		</AlertDialogHeader>
+		<AlertDialogFooter>
+			<AlertDialogCancel>Cancel</AlertDialogCancel>
+			<form
+				method="POST"
+				action="?/bulkDeleteRecurrenceDays"
+				use:enhance={() => {
+					bulkActionSubmitting = true;
+					return async ({ result, update }) => {
+						bulkActionSubmitting = false;
+						bulkDeleteDialogOpen = false;
+						if (result.type === 'success') {
+							selectedRecurrenceDayIds = new Set();
+						}
+						await update();
+					};
+				}}
+			>
+				<input
+					type="hidden"
+					name="ids"
+					value={Array.from(selectedRecurrenceDayIds).join(',')}
+				/>
+				<AlertDialogAction
+					type="submit"
+					class="bg-red-500 hover:bg-red-600"
+					disabled={bulkActionSubmitting}
+				>
+					{bulkActionSubmitting ? 'Deleting...' : 'Delete'}
+				</AlertDialogAction>
+			</form>
+		</AlertDialogFooter>
+	</AlertDialogContent>
+</AlertDialog>

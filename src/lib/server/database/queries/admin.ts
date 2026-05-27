@@ -14,6 +14,7 @@ import {
 import {
 	clientCompanyTable,
 	clientProfileTable,
+	clientStaffProfileTable,
 	companyOfficeLocationTable,
 	type ClientCompany,
 	type ClientCompanyLocation,
@@ -143,6 +144,123 @@ export async function getPaginatedAdminUsers({
 	} catch (error) {
 		console.error(error);
 	}
+}
+
+type GetPaginatedUsersOptions = {
+	limit?: number;
+	offset?: number;
+	orderBy?: { column: 'createdAt' | 'firstName' | 'email' | 'role'; direction: 'asc' | 'desc' };
+	search?: string;
+};
+
+// Powers /admin/menu/user-management. Returns ALL users across roles with their
+// company (for CLIENT / CLIENT_STAFF) and a best-effort address (candidate's
+// own address, or the company's oldest office-location for client-side users).
+// Search is a single OR ILIKE across name/email/role/company/address/id so one
+// box covers every visible column.
+export async function getPaginatedUsers({
+	limit = 25,
+	offset = 0,
+	orderBy,
+	search = ''
+}: GetPaginatedUsersOptions) {
+	const orderColumnMap = {
+		createdAt: 'u.created_at',
+		firstName: 'u.first_name',
+		email: 'u.email',
+		role: 'u.role'
+	} as const;
+	const orderColumn = orderBy ? orderColumnMap[orderBy.column] : 'u.created_at';
+	const orderDir = orderBy?.direction === 'asc' ? 'ASC' : 'DESC';
+
+	// FROM + JOINs are shared between the data query and the count query.
+	const fromClause = sql`
+		FROM ${userTable} AS u
+		LEFT JOIN ${candidateProfileTable} AS cand ON cand.user_id = u.id
+		LEFT JOIN ${clientProfileTable} AS cp ON cp.user_id = u.id
+		LEFT JOIN ${clientStaffProfileTable} AS cs ON cs.user_id = u.id
+		LEFT JOIN ${clientCompanyTable} AS cc ON cc.client_id = COALESCE(cp.id, cs.client_id)
+		LEFT JOIN LATERAL (
+			SELECT city, state, complete_address
+			FROM ${companyOfficeLocationTable}
+			WHERE company_id = cc.id
+			ORDER BY created_at ASC
+			LIMIT 1
+		) loc ON true
+	`;
+
+	const trimmed = search.trim();
+	const whereClause = trimmed
+		? sql`
+			WHERE (
+				u.first_name ILIKE ${'%' + trimmed + '%'}
+				OR u.last_name ILIKE ${'%' + trimmed + '%'}
+				OR u.email ILIKE ${'%' + trimmed + '%'}
+				OR u.role::text ILIKE ${'%' + trimmed + '%'}
+				OR u.id ILIKE ${trimmed}
+				OR cc.company_name ILIKE ${'%' + trimmed + '%'}
+				OR cand.city ILIKE ${'%' + trimmed + '%'}
+				OR cand.state ILIKE ${'%' + trimmed + '%'}
+				OR cand.zipcode ILIKE ${'%' + trimmed + '%'}
+				OR cand.complete_address ILIKE ${'%' + trimmed + '%'}
+				OR loc.city ILIKE ${'%' + trimmed + '%'}
+				OR loc.state ILIKE ${'%' + trimmed + '%'}
+				OR loc.complete_address ILIKE ${'%' + trimmed + '%'}
+			)
+		`
+		: sql``;
+
+	const dataQuery = sql`
+		SELECT
+			u.id,
+			u.first_name AS "firstName",
+			u.last_name AS "lastName",
+			u.email,
+			u.role,
+			u.verified,
+			u.completed_onboarding AS "completedOnboarding",
+			u.created_at AS "createdAt",
+			cc.company_name AS "companyName",
+			COALESCE(cand.city, loc.city) AS city,
+			COALESCE(cand.state, loc.state) AS state,
+			COALESCE(cand.complete_address, loc.complete_address) AS "fullAddress",
+			-- Profile ids used to build /clients/[id] and /professionals/[id] links.
+			-- For CLIENT_STAFF we use the parent client_profile id (cs.client_id),
+			-- since staff don't have their own client-profile detail page.
+			cand.id AS "candidateProfileId",
+			COALESCE(cp.id, cs.client_id) AS "clientProfileId"
+		${fromClause}
+		${whereClause}
+		ORDER BY ${sql.raw(orderColumn)} ${sql.raw(orderDir)}
+		LIMIT ${limit} OFFSET ${offset}
+	`;
+
+	const countQuery = sql`
+		SELECT COUNT(*)::int AS value
+		${fromClause}
+		${whereClause}
+	`;
+
+	const [dataResult, countResult] = await Promise.all([db.execute(dataQuery), db.execute(countQuery)]);
+	return {
+		users: dataResult.rows as Array<{
+			id: string;
+			firstName: string | null;
+			lastName: string | null;
+			email: string;
+			role: string;
+			verified: boolean;
+			completedOnboarding: boolean;
+			createdAt: Date;
+			companyName: string | null;
+			city: string | null;
+			state: string | null;
+			fullAddress: string | null;
+			candidateProfileId: string | null;
+			clientProfileId: string | null;
+		}>,
+		count: Number((countResult.rows[0] as { value: number })?.value ?? 0)
+	};
 }
 
 export async function getAdminUserById(id: string) {

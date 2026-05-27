@@ -57,7 +57,7 @@ import {
 	notifyWorkdayDeleted
 } from '$lib/server/notifications/transactional';
 import db from '$lib/server/database/drizzle';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { workdayTable, recurrenceDayTable } from '$lib/server/database/schemas/requisition';
 import { logger } from '$lib/server/logger';
 
@@ -245,6 +245,15 @@ export const actions = {
 
 		if (!form.valid) {
 			fail(400, { form });
+		}
+
+		// Payment-tracking statuses are admin-only. The UI hides them from clients,
+		// but enforce here too in case of direct POST.
+		if (
+			(form.data.status === 'PAYMENT_REQUIRED' || form.data.status === 'PAYMENT_RECEIVED') &&
+			user.role !== USER_ROLES.SUPERADMIN
+		) {
+			return fail(403, { form });
 		}
 
 		try {
@@ -703,4 +712,125 @@ export const actions = {
 	// 		return setError(form, 'Something went wrong');
 	// 	}
 	// }
+	,
+	// Bulk status change for selected workdays (OPEN / FILLED / UNFULFILLED only —
+	// CANCELED has its own action so notifications + audit fire correctly).
+	bulkUpdateRecurrenceDayStatus: async (request: RequestEvent) => {
+		const user = request.locals.user;
+		if (!user) return fail(403);
+
+		const formData = await request.request.formData();
+		const idsCsv = (formData.get('ids') as string | null) ?? '';
+		const status = formData.get('status') as string | null;
+		const ids = idsCsv.split(',').map((s) => s.trim()).filter(Boolean);
+		if (ids.length === 0) return fail(400, { error: 'No workdays selected' });
+		if (status !== 'OPEN' && status !== 'FILLED' && status !== 'UNFULFILLED') {
+			return fail(400, { error: 'Invalid status for bulk update' });
+		}
+
+		await db
+			.update(recurrenceDayTable)
+			.set({ status, updatedAt: new Date() })
+			.where(inArray(recurrenceDayTable.id, ids));
+
+		setFlash(
+			{ type: 'success', message: `${ids.length} workday(s) updated to ${status}` },
+			request
+		);
+		return { success: true };
+	},
+	// Bulk cancel. Available to admin + client (mirrors per-row cancel behavior:
+	// status -> CANCELED, workday.cancelledAt set, candidate notified per row).
+	bulkCancelRecurrenceDays: async (request: RequestEvent) => {
+		const user = request.locals.user;
+		if (!user) return fail(403);
+
+		const formData = await request.request.formData();
+		const idsCsv = (formData.get('ids') as string | null) ?? '';
+		const ids = idsCsv.split(',').map((s) => s.trim()).filter(Boolean);
+		if (ids.length === 0) return fail(400, { error: 'No workdays selected' });
+
+		// Snapshot candidate + time data BEFORE the status flip so post-tx
+		// notifications can reference the row even if it's been changed.
+		const snapshots = await db
+			.select({
+				recurrenceDayId: recurrenceDayTable.id,
+				candidateId: workdayTable.candidateId,
+				requisitionId: workdayTable.requisitionId,
+				date: recurrenceDayTable.date,
+				dayStart: recurrenceDayTable.dayStart,
+				dayEnd: recurrenceDayTable.dayEnd
+			})
+			.from(recurrenceDayTable)
+			.leftJoin(workdayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
+			.where(inArray(recurrenceDayTable.id, ids));
+
+		await db.transaction(async (tx) => {
+			await tx
+				.update(recurrenceDayTable)
+				.set({ status: 'CANCELED', updatedAt: new Date() })
+				.where(inArray(recurrenceDayTable.id, ids));
+			await tx
+				.update(workdayTable)
+				.set({ cancelledAt: new Date(), updatedAt: new Date() })
+				.where(inArray(workdayTable.recurrenceDayId, ids));
+		});
+
+		// Notifications fire after the tx commits. Dispatcher swallows its own
+		// failures, so partial notification delivery doesn't roll back the cancel.
+		for (const s of snapshots) {
+			if (s.candidateId && s.requisitionId !== null) {
+				await notifyWorkdayDeleted({
+					candidateId: s.candidateId,
+					requisitionId: s.requisitionId,
+					recurrenceDay: { date: s.date, dayStart: s.dayStart, dayEnd: s.dayEnd }
+				});
+			}
+		}
+
+		setFlash({ type: 'success', message: `${ids.length} workday(s) canceled` }, request);
+		return { success: true };
+	},
+	// Bulk delete. Admin-only — clients should cancel, not delete.
+	bulkDeleteRecurrenceDays: async (request: RequestEvent) => {
+		const user = request.locals.user;
+		if (!user) return fail(403);
+		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { error: 'Admin only' });
+
+		const formData = await request.request.formData();
+		const idsCsv = (formData.get('ids') as string | null) ?? '';
+		const ids = idsCsv.split(',').map((s) => s.trim()).filter(Boolean);
+		if (ids.length === 0) return fail(400, { error: 'No workdays selected' });
+
+		const snapshots = await db
+			.select({
+				recurrenceDayId: recurrenceDayTable.id,
+				candidateId: workdayTable.candidateId,
+				requisitionId: workdayTable.requisitionId,
+				date: recurrenceDayTable.date,
+				dayStart: recurrenceDayTable.dayStart,
+				dayEnd: recurrenceDayTable.dayEnd
+			})
+			.from(recurrenceDayTable)
+			.leftJoin(workdayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
+			.where(inArray(recurrenceDayTable.id, ids));
+
+		// Reuse the per-row soft-delete helper so each delete is audit-logged.
+		for (const id of ids) {
+			await deleteRecurrenceDay(id, user.id);
+		}
+
+		for (const s of snapshots) {
+			if (s.candidateId && s.requisitionId !== null) {
+				await notifyWorkdayDeleted({
+					candidateId: s.candidateId,
+					requisitionId: s.requisitionId,
+					recurrenceDay: { date: s.date, dayStart: s.dayStart, dayEnd: s.dayEnd }
+				});
+			}
+		}
+
+		setFlash({ type: 'success', message: `${ids.length} workday(s) deleted` }, request);
+		return { success: true };
+	}
 };

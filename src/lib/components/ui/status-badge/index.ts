@@ -22,6 +22,7 @@ const STATUS_KIND: Record<string, StatusKind> = {
 	WAGES_PAID: 'positive',
 	FILLED: 'positive',
 	SUCCESSFUL: 'positive',
+	PAYMENT_RECEIVED: 'positive',
 
 	// Informational — currently open / new
 	OPEN: 'info',
@@ -35,6 +36,7 @@ const STATUS_KIND: Record<string, StatusKind> = {
 	DISCREPANCY: 'warning',
 	UNFULFILLED: 'warning',
 	WAGES_DUE: 'warning',
+	PAYMENT_REQUIRED: 'warning',
 
 	// Negative — failure / rejection
 	REJECTED: 'negative',

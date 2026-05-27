@@ -140,9 +140,9 @@ export const actionHistoryTable = pgTable('action_history', {
 		.defaultNow(),
 	entityId: text('entity_id').notNull(),
 	entityType: text('entity_type').notNull(),
-	userId: text('user_id')
-		.notNull()
-		.references(() => userTable.id),
+	// Nullable + SET NULL so deleting a user preserves the audit row (entity,
+	// before/after, timestamp all intact) — only the attributed user is dropped.
+	userId: text('user_id').references(() => userTable.id, { onDelete: 'set null' }),
 	action: text('action').notNull(),
 	changes: jsonb('changes').$type<{
 		before?: Record<string, any>;
