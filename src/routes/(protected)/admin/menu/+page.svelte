@@ -4,7 +4,8 @@
 			{ name: 'Admins', link: '/admin/menu/admins' },
 			{ name: 'Professional Members', link: '/professionals' },
 			{ name: 'Business Members', link: '/clients' },
-			{ name: 'User Management', link: '/admin/menu/user-management' }
+			{ name: 'User Management', link: '/admin/menu/users' },
+			{ name: 'User Import', link: '/admin/menu/user-import' }
 		],
 		'Requisition Management': [
 			{ name: 'Requisitions', link: '/requisitions' },

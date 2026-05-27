@@ -52,7 +52,12 @@ export const requisitionStatusEnum = pgEnum('requisition_status_enum', [
 	'PENDING',
 	'OPEN',
 	'CANCELED',
-	'CLOSED'
+	'CLOSED',
+	// Perm-only payment-tracking branch. When a client approves an application
+	// on a permanent requisition we transition to PAYMENT_REQUIRED so admin can
+	// bill the client; admin then manually flips to PAYMENT_RECEIVED.
+	'PAYMENT_REQUIRED',
+	'PAYMENT_RECEIVED'
 ]);
 
 export const recurrenceDayStatusEnum = pgEnum('workday_status_enum', [
@@ -76,10 +81,10 @@ export const requisitionTable = pgTable('requisitions', {
 	title: text('name'),
 	companyId: text('client_id')
 		.notNull()
-		.references(() => clientCompanyTable.id),
+		.references(() => clientCompanyTable.id, { onDelete: 'cascade' }),
 	locationId: text('location_id')
 		.notNull()
-		.references(() => companyOfficeLocationTable.id),
+		.references(() => companyOfficeLocationTable.id, { onDelete: 'cascade' }),
 	disciplineId: text('discipline_id')
 		.notNull()
 		.references(() => disciplineTable.id),
@@ -192,9 +197,10 @@ export const invoiceTable = pgTable(
 		paidAt: timestamp('paid_at', { withTimezone: true, mode: 'date' }),
 		voidedAt: timestamp('voided_at', { withTimezone: true, mode: 'date' }),
 
-		// Customer information
+		// Customer information. Cascade so user deletion (which cascades to
+		// client_profiles) doesn't block on invoice FKs.
 		clientId: text('client_id')
-			.references(() => clientProfileTable.id, { onDelete: 'restrict' })
+			.references(() => clientProfileTable.id, { onDelete: 'cascade' })
 			.notNull(),
 		customerEmail: text('customer_email'),
 		customerName: text('customer_name'),
@@ -423,7 +429,7 @@ export const timeSheetTable = pgTable(
 			.references(() => clientProfileTable.id, { onDelete: 'cascade' })
 			.notNull(),
 		associatedCandidateId: text('associated_candidate_id')
-			.references(() => candidateProfileTable.id)
+			.references(() => candidateProfileTable.id, { onDelete: 'cascade' })
 			.notNull(),
 		validated: boolean('validated').default(false),
 		totalHoursWorked: decimal('total_hours_worked'),
@@ -506,7 +512,7 @@ export const requisitionApplicationTable = pgTable('requisition_application', {
 	}).notNull(),
 	clientId: text('client_id')
 		.notNull()
-		.references(() => clientProfileTable.id),
+		.references(() => clientProfileTable.id, { onDelete: 'cascade' }),
 	requisitionId: integer('requisition_id')
 		.references(() => requisitionTable.id, { onDelete: 'cascade', onUpdate: 'cascade' })
 		.notNull(),

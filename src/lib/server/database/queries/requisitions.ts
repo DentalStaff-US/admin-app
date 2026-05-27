@@ -998,9 +998,13 @@ export async function approveApplication(applicationId: string, userId: string) 
 			.from(requisitionTable)
 			.where(eq(requisitionTable.id, application.requisitionId));
 
+		// Perm requisitions enter a payment-tracking branch instead of closing:
+		// PAYMENT_REQUIRED → admin bills the client → admin manually flips to
+		// PAYMENT_RECEIVED. Temp requisitions retain the existing CLOSED behavior.
+		const nextStatus = requisition.permanentPosition ? 'PAYMENT_REQUIRED' : 'CLOSED';
 		const [reqResult] = await db
 			.update(requisitionTable)
-			.set({ status: 'CLOSED' })
+			.set({ status: nextStatus })
 			.where(eq(requisitionTable.id, requisition.id))
 			.returning();
 

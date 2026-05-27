@@ -274,6 +274,27 @@
       "when": 1779862119795,
       "tag": "0038_bouncy_human_fly",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1779895986189,
+      "tag": "0039_slippery_wolf_cub",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1779907794167,
+      "tag": "0040_lame_rictor",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1779908912361,
+      "tag": "0041_breezy_cerise",
+      "breakpoints": true
     }
   ]
 }

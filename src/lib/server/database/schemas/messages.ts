@@ -64,7 +64,7 @@ export const messageTable = pgTable(
 			.references(() => conversationTable.id, { onDelete: 'cascade' })
 			.notNull(),
 		senderId: text('sender_id')
-			.references(() => userTable.id)
+			.references(() => userTable.id, { onDelete: 'cascade' })
 			.notNull(),
 		body: text('body').notNull(),
 		status: messageStatusEnum('status').default('UNREAD'),
@@ -98,7 +98,7 @@ export const conversationParticipantsTable = pgTable(
 			.references(() => conversationTable.id, { onDelete: 'cascade' })
 			.notNull(),
 		userId: text('user_id')
-			.references(() => userTable.id)
+			.references(() => userTable.id, { onDelete: 'cascade' })
 			.notNull(),
 		participantType: participantTypeEnum('participant_type').notNull(),
 		joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),

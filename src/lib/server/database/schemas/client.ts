@@ -372,7 +372,7 @@ export const clientDocumentUploadsTable = pgTable('client_document_uploads', {
 		.notNull()
 		.default(new Date()),
 	clientId: text('client_id')
-		.references(() => clientProfileTable.id)
+		.references(() => clientProfileTable.id, { onDelete: 'cascade' })
 		.notNull(),
 	uploadUrl: text('upload_url').notNull(),
 	expiryDate: timestamp('expiry_date', {
