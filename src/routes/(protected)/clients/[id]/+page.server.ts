@@ -768,7 +768,7 @@ export const actions = {
 		const formData = await event.request.formData();
 		const uploadUrl = formData.get('uploadUrl') as string;
 		const filename = formData.get('filename') as string;
-		const type = formData.get('type') as 'LICENSE' | 'CERTIFICATE' | 'AGGREEMENT' | 'OTHER';
+		const type = formData.get('type') as 'LICENSE' | 'CERTIFICATE' | 'AGREEMENT' | 'OTHER';
 		const adminOnly = formData.get('adminOnly') === 'true';
 
 		try {

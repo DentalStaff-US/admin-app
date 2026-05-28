@@ -151,7 +151,7 @@ export const candidateDocumentTypeEnum = pgEnum('candidate_document_type', [
 	'RESUME',
 	'LICENSE',
 	'CERTIFICATE',
-	'AGGREEMENT',
+	'AGREEMENT',
 	'OTHER'
 ]);
 

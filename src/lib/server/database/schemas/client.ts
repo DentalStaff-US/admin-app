@@ -353,7 +353,7 @@ export const clientRatingTable = pgTable('client_ratings', {
 export const clientDocumentTypeEnum = pgEnum('client_document_type', [
 	'LICENSE',
 	'CERTIFICATE',
-	'AGGREEMENT',
+	'AGREEMENT',
 	'OTHER'
 ]);
 

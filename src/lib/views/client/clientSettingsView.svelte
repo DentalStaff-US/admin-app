@@ -133,7 +133,7 @@
 	let inviteRole = '';
 	let submitting = false;
 	let uploadDocDialogOpen = false;
-	let uploadDocType: 'LICENSE' | 'CERTIFICATE' | 'AGGREEMENT' | 'OTHER' = 'OTHER';
+	let uploadDocType: 'LICENSE' | 'CERTIFICATE' | 'AGREEMENT' | 'OTHER' = 'OTHER';
 	let uploadDocUrl = '';
 	let uploadDocFilename = '';
 
@@ -1111,7 +1111,7 @@
 						>
 							<option value="LICENSE">License</option>
 							<option value="CERTIFICATE">Certificate</option>
-							<option value="AGGREEMENT">Agreement</option>
+							<option value="AGREEMENT">Agreement</option>
 							<option value="OTHER">Other</option>
 						</select>
 					</div>
