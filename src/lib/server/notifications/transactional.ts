@@ -10,7 +10,7 @@
 import { format, parseISO } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import { and, eq, inArray } from 'drizzle-orm';
-import { BASE_URL } from '$env/static/private';
+import { BASE_URL, CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import db from '$lib/server/database/drizzle';
 import { sms } from '$lib/server/sms/smsService';
 import { EmailService } from '$lib/server/email/emailService';
@@ -41,6 +41,7 @@ import {
 } from '$lib/server/database/schemas/candidate';
 import {
 	recurrenceDayTable,
+	requisitionApplicationTable,
 	requisitionTable,
 	timeSheetTable,
 	workdayTable,
@@ -531,6 +532,136 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
 		);
 	} catch (e) {
 		console.error('[transactional:qualifiedCandidatesNewWorkdays] top-level error:', e);
+	}
+}
+
+/**
+ * Shared shape returned by the application-resolver below. `permanentPosition`
+ * is the perm-only guard — temp claims don't go through the approve/deny flow.
+ */
+type ApplicationNotificationContext = {
+	candidate: { firstName: string | null; email: string | null; phone: string | null };
+	requisition: {
+		id: number;
+		disciplineName: string;
+		companyName: string | null;
+		permanentPosition: boolean;
+	};
+};
+
+async function loadApplicationNotificationContext(
+	applicationId: string
+): Promise<ApplicationNotificationContext | null> {
+	const [row] = await db
+		.select({
+			firstName: userTable.firstName,
+			email: userTable.email,
+			phone: candidateProfileTable.cellPhone,
+			requisitionId: requisitionTable.id,
+			disciplineName: disciplineTable.name,
+			companyName: clientCompanyTable.companyName,
+			permanentPosition: requisitionTable.permanentPosition
+		})
+		.from(requisitionApplicationTable)
+		.innerJoin(
+			candidateProfileTable,
+			eq(candidateProfileTable.id, requisitionApplicationTable.candidateId)
+		)
+		.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+		.innerJoin(
+			requisitionTable,
+			eq(requisitionTable.id, requisitionApplicationTable.requisitionId)
+		)
+		.innerJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
+		.innerJoin(clientCompanyTable, eq(clientCompanyTable.id, requisitionTable.companyId))
+		.where(eq(requisitionApplicationTable.id, applicationId))
+		.limit(1);
+	if (!row) return null;
+	return {
+		candidate: { firstName: row.firstName, email: row.email, phone: row.phone },
+		requisition: {
+			id: row.requisitionId,
+			disciplineName: row.disciplineName,
+			companyName: row.companyName,
+			permanentPosition: row.permanentPosition ?? false
+		}
+	};
+}
+
+/**
+ * Admin approved a candidate's perm application — send the celebratory email
+ * + SMS. Perm-only by guard; temp claims don't reach here. Failures are
+ * swallowed per-channel via the existing safeEmail / safeSms wrappers.
+ */
+export async function notifyApplicationApproved(applicationId: string): Promise<void> {
+	try {
+		const ctx = await loadApplicationNotificationContext(applicationId);
+		if (!ctx || !ctx.requisition.permanentPosition) return;
+
+		const { candidate, requisition } = ctx;
+		const company = requisition.companyName ?? 'the business';
+		const dashboardUrl = CANDIDATE_APP_DOMAIN;
+
+		await dispatch('applicationApproved', [
+			safeEmail('applicationApproved', candidate.email, () => {
+				const t = EMAIL_TEMPLATES.applicationApprovedNotificationEmail(
+					{ firstName: candidate.firstName },
+					{ discipline: requisition.disciplineName, company, dashboardUrl }
+				);
+				return emailService.sendEmail({
+					to: [{ email: candidate.email as string }],
+					subject: t.subject,
+					html: t.htmlEmail,
+					text: t.textEmail
+				});
+			}),
+			safeSms('applicationApproved', candidate.phone, (phone) =>
+				sms.sendTemplated(phone, 'applicationApprovedNotification', {
+					discipline: requisition.disciplineName,
+					company
+				})
+			)
+		]);
+	} catch (e) {
+		console.error('[transactional:applicationApproved] top-level error:', e);
+	}
+}
+
+/**
+ * Admin denied a candidate's perm application, OR the candidate's app was
+ * auto-denied because the admin approved a rival applicant on the same req.
+ * Same notification either way: gentle copy, no emojis. Perm-only by guard.
+ */
+export async function notifyApplicationDenied(applicationId: string): Promise<void> {
+	try {
+		const ctx = await loadApplicationNotificationContext(applicationId);
+		if (!ctx || !ctx.requisition.permanentPosition) return;
+
+		const { candidate, requisition } = ctx;
+		const company = requisition.companyName ?? 'the business';
+
+		await dispatch('applicationDenied', [
+			safeEmail('applicationDenied', candidate.email, () => {
+				const t = EMAIL_TEMPLATES.applicationDeniedNotificationEmail(
+					{ firstName: candidate.firstName },
+					{ discipline: requisition.disciplineName, company }
+				);
+				return emailService.sendEmail({
+					to: [{ email: candidate.email as string }],
+					subject: t.subject,
+					html: t.htmlEmail,
+					text: t.textEmail
+				});
+			}),
+			safeSms('applicationDenied', candidate.phone, (phone) =>
+				sms.sendTemplated(phone, 'applicationDeniedNotification', {
+					discipline: requisition.disciplineName,
+					company
+				})
+			)
+		]);
+	} catch (e) {
+		console.error('[transactional:applicationDenied] top-level error:', e);
 	}
 }
 

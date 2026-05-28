@@ -2,9 +2,14 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, RequestEvent } from './$types';
 import {
 	approveApplication,
+	denyApplication,
 	getRequisitionApplicationDetails,
 	getRequisitionDetailsById
 } from '$lib/server/database/queries/requisitions';
+import {
+	notifyApplicationApproved,
+	notifyApplicationDenied
+} from '$lib/server/notifications/transactional';
 import { InboxService } from '$lib/server/inbox/service';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { superValidate } from 'sveltekit-superforms/server';
@@ -136,7 +141,7 @@ export const actions = {
 		}
 
 		try {
-			await approveApplication(applicationId, user.id);
+			const { autoDeniedAppIds } = await approveApplication(applicationId, user.id);
 			setFlash({ type: 'success', message: 'Application approved successfully.' }, event);
 			const posthog = getPostHogClient();
 			posthog.capture({
@@ -144,12 +149,46 @@ export const actions = {
 				event: 'application_approved',
 				properties: {
 					application_id: applicationId,
-					requisition_id: id
+					requisition_id: id,
+					auto_denied_count: autoDeniedAppIds.length
 				}
 			});
+
+			// Notifications dispatch outside the DB transaction so a delivery
+			// hiccup can't roll back the approval. The notify helpers are
+			// perm-only by guard; temp would no-op silently.
+			await notifyApplicationApproved(applicationId);
+			for (const deniedId of autoDeniedAppIds) {
+				await notifyApplicationDenied(deniedId);
+			}
 		} catch (error) {
 			console.error('Error approving application:', error);
 			setFlash({ type: 'error', message: 'Error approving application. Please try again.' }, event);
+			return fail(500);
+		}
+		return redirect(302, `/requisitions/${id}/application/${applicationId}`);
+	},
+	denyApplication: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const { id, applicationId } = event.params;
+
+		if (!user || (user && user.role === 'CANDIDATE')) {
+			return fail(403);
+		}
+
+		try {
+			await denyApplication(applicationId, user.id);
+			setFlash({ type: 'success', message: 'Application denied.' }, event);
+			const posthog = getPostHogClient();
+			posthog.capture({
+				distinctId: user.id,
+				event: 'application_denied',
+				properties: { application_id: applicationId, requisition_id: id }
+			});
+			await notifyApplicationDenied(applicationId);
+		} catch (error) {
+			console.error('Error denying application:', error);
+			setFlash({ type: 'error', message: 'Error denying application. Please try again.' }, event);
 			return fail(500);
 		}
 		return redirect(302, `/requisitions/${id}/application/${applicationId}`);
