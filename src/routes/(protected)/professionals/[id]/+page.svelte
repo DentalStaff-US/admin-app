@@ -52,6 +52,7 @@
 	} from '$lib/components/ui/dropdown-menu';
 	import AddressSearchAutocomplete from '$lib/components/AddressSearchAutocomplete.svelte';
 	import type { AddressResult } from '$lib/types';
+	import { onMount } from 'svelte';
 	import DialogTitle from '$lib/components/ui/dialog/dialog-title.svelte';
 	import { Dialog, DialogTrigger } from '$lib/components/ui/dialog';
 	import DialogContent from '$lib/components/ui/dialog/dialog-content.svelte';
@@ -369,8 +370,17 @@
 	function handleClear() {
 		selectedAddress = null;
 	}
-	$: if (candidate && !selectedAddress) {
-		if (candidate.profile.completeAddress && candidate.profile.lat && candidate.profile.lon) {
+	// Prefill the address autocomplete from the existing profile ONCE on mount.
+	// This used to be a reactive `$: if (candidate && !selectedAddress) { ... }`
+	// which re-fired on every keystroke (the autocomplete clears `selected`
+	// during typing), instantly snapping `query` back to the prefilled value
+	// and freezing the input. Use a one-shot effect instead.
+	onMount(() => {
+		if (
+			candidate?.profile.completeAddress &&
+			candidate?.profile.lat &&
+			candidate?.profile.lon
+		) {
 			selectedAddress = {
 				formatted_address: candidate.profile.completeAddress,
 				coordinates: {
@@ -379,7 +389,7 @@
 				}
 			} as unknown as AddressResult;
 		}
-	}
+	});
 </script>
 
 {#if candidate}

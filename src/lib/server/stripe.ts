@@ -117,3 +117,87 @@ export async function createStripeInvoice(
 		throw error;
 	}
 }
+
+/**
+ * Idempotent: returns the existing Stripe customer if one is already linked,
+ * else creates one with our standard metadata (clientId + userId) and returns
+ * the new id. Single place that ever issues `stripe.customers.create` for a
+ * client — both setup endpoints route through here, so the metadata shape
+ * stays consistent (the webhook + reconcile path both read these fields).
+ */
+export async function ensureStripeCustomer(opts: {
+	clientId: string;
+	userId: string;
+	email: string;
+	name?: string;
+	existingCustomerId?: string | null;
+}): Promise<string> {
+	if (opts.existingCustomerId) {
+		// Trust our DB pointer. If Stripe later 404s on this id, the caller
+		// will surface that error; we don't speculatively `retrieve` here to
+		// keep this hot path cheap.
+		return opts.existingCustomerId;
+	}
+	const customer = await stripe.customers.create({
+		email: opts.email,
+		name: opts.name,
+		metadata: {
+			clientId: opts.clientId,
+			userId: opts.userId
+		}
+	});
+	return customer.id;
+}
+
+/**
+ * Truth check against Stripe. Used by the reconcile path before generating a
+ * fresh Checkout — if the customer already has a default payment method we
+ * skip Checkout entirely and just sync our DB. Returns `false` for any
+ * lookup error (lenient) so a Stripe outage doesn't block setup attempts.
+ */
+export async function customerHasDefaultPaymentMethod(
+	customerId: string
+): Promise<boolean> {
+	try {
+		const customer = await stripe.customers.retrieve(customerId);
+		if (customer.deleted) return false;
+		const defaultPm = customer.invoice_settings?.default_payment_method;
+		return defaultPm != null;
+	} catch (err) {
+		logger.warn?.('customerHasDefaultPaymentMethod lookup failed', {
+			error: err,
+			stripe_customer_id: customerId
+		});
+		return false;
+	}
+}
+
+/**
+ * Wraps `stripe.checkout.sessions.create` in setup mode with our standard
+ * metadata (clientId + userId), so the webhook (`checkout.session.completed`
+ * → `handleCustomerSetupCompleted`) can locate the right `client_subscriptions`
+ * row when the candidate finishes Checkout.
+ */
+export async function createSetupCheckoutSession(opts: {
+	customerId: string;
+	clientId: string;
+	userId: string;
+	successUrl: string;
+	cancelUrl: string;
+}): Promise<{ url: string; sessionId: string }> {
+	const session = await stripe.checkout.sessions.create({
+		mode: 'setup',
+		customer: opts.customerId,
+		payment_method_types: ['card', 'us_bank_account'],
+		success_url: opts.successUrl,
+		cancel_url: opts.cancelUrl,
+		metadata: {
+			clientId: opts.clientId,
+			userId: opts.userId
+		}
+	});
+	if (!session.url) {
+		throw new Error('Stripe Checkout session created with no url');
+	}
+	return { url: session.url, sessionId: session.id };
+}

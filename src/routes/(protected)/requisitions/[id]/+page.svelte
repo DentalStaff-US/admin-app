@@ -409,7 +409,9 @@
 
 				{#if hasRequisitionRights}
 					<div class="flex items-center gap-2 flex-shrink-0">
-						{#if requisition.permanentPosition}
+						{#if requisition.permanentPosition && isAdmin}
+							<!-- Invoice creation is the admin's billing workflow (perm only).
+							     Clients shouldn't see this — they can't invoice themselves. -->
 							<Button
 								variant="outline"
 								size="sm"

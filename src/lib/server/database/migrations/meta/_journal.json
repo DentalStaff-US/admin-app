@@ -295,6 +295,13 @@
       "when": 1779908912361,
       "tag": "0041_breezy_cerise",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1780001007383,
+      "tag": "0042_pale_skaar",
+      "breakpoints": true
     }
   ]
 }
