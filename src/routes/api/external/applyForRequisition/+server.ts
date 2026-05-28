@@ -9,10 +9,12 @@ import {
 	requisitionTable,
 	requisitionApplicationTable
 } from '$lib/server/database/schemas/requisition';
+import { experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { and, eq } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import { getClientIdByCompanyId } from '$lib/server/database/queries/clients';
+import { isClientActiveByCompanyId } from '$lib/server/clientStatusGuards';
 import { getPostHogClient } from '$lib/server/posthog';
 import { logger } from '$lib/server/logger';
 
@@ -76,6 +78,19 @@ export const POST: RequestHandler = async ({ request }) => {
 				);
 			}
 
+			// The candidate's OWN account must be ACTIVE to apply. Pending/inactive/
+			// denied professionals can't interact with postings.
+			if (candidateProfile.status !== 'ACTIVE') {
+				return json(
+					{
+						success: false,
+						message: 'Your account is not active. You cannot apply to positions yet.',
+						reason: 'account_status'
+					},
+					{ status: 403, headers: corsHeaders }
+				);
+			}
+
 			// Verify requisition exists and is active.
 			const requisition = await tx
 				.select()
@@ -91,14 +106,20 @@ export const POST: RequestHandler = async ({ request }) => {
 				);
 			}
 
-			// Light discipline-only gate. Permanent positions are exploratory
-			// (job-board style) — admins review applicants individually for
-			// experience + rate fit, so we only enforce that the candidate at
-			// least practices the field. Temp claims are gated more strictly
-			// in applyForTempRequisition.
+			// Discipline + experience gate. (Rate is NOT enforced for permanent —
+			// perm rate semantics differ from temp hourly.) This mirrors the
+			// visibility gate in getOpeningsForCandidate so a candidate can't apply
+			// via a stale link to a perm role above their experience level.
 			const candidateHasDiscipline = await tx
-				.select({ disciplineId: candidateDisciplineExperienceTable.disciplineId })
+				.select({
+					disciplineId: candidateDisciplineExperienceTable.disciplineId,
+					experienceLevelOrder: experienceLevelTable.order
+				})
 				.from(candidateDisciplineExperienceTable)
+				.innerJoin(
+					experienceLevelTable,
+					eq(experienceLevelTable.id, candidateDisciplineExperienceTable.experienceLevelId)
+				)
 				.where(
 					and(
 						eq(candidateDisciplineExperienceTable.candidateId, candidateProfile.id),
@@ -115,6 +136,40 @@ export const POST: RequestHandler = async ({ request }) => {
 						message: 'You do not have the required discipline for this position.',
 						reason: 'discipline'
 					},
+					{ status: 403, headers: corsHeaders }
+				);
+			}
+
+			// Reductive experience gate: candidate's level order must be >= the
+			// requisition's required order. Skipped when the requisition has no
+			// required level ("No Preference" → experienceLevelId is null).
+			if (requisition.experienceLevelId) {
+				const [requiredLevel] = await tx
+					.select({ order: experienceLevelTable.order })
+					.from(experienceLevelTable)
+					.where(eq(experienceLevelTable.id, requisition.experienceLevelId))
+					.limit(1);
+				if (
+					requiredLevel &&
+					(candidateHasDiscipline.experienceLevelOrder ?? 0) < requiredLevel.order
+				) {
+					return json(
+						{
+							success: false,
+							message: 'You do not meet the required experience level for this position.',
+							reason: 'experience'
+						},
+						{ status: 403, headers: corsHeaders }
+					);
+				}
+			}
+
+			// Block applications to requisitions whose owning business isn't ACTIVE.
+			// Admins can create requisitions for inactive/pending/denied clients;
+			// candidates must not be able to apply to those.
+			if (!(await isClientActiveByCompanyId(requisition.companyId))) {
+				return json(
+					{ success: false, message: 'This position is not currently accepting applications.' },
 					{ status: 403, headers: corsHeaders }
 				);
 			}

@@ -29,7 +29,11 @@ import {
 	getLocationContactDestinations
 } from '$lib/server/database/queries/clients';
 import { logger } from '$lib/server/logger';
-import { getCandidateUserById } from '$lib/server/database/queries/candidates';
+import {
+	getCandidateUserById,
+	getQualifiedProfessionalsForRequisition
+} from '$lib/server/database/queries/candidates';
+import { isClientActiveByCompanyId } from '$lib/server/clientStatusGuards';
 import { userTable } from '$lib/server/database/schemas/auth';
 import {
 	candidateProfileTable,
@@ -438,6 +442,8 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
 	try {
 		const requisition = await getRequisitionById(requisitionId);
 		if (!requisition) return;
+		// Don't notify anyone about requisitions whose owning business isn't ACTIVE.
+		if (!(await isClientActiveByCompanyId(requisition.companyId))) return;
 		const location = await getLocationByIdForCompany(requisition.locationId, requisition.companyId);
 		if (!location) return;
 		const discipline = await getDisciplineById(requisition.disciplineId);
@@ -472,20 +478,18 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
 			experience = exp?.value ?? '';
 		}
 
-		const candidates = await db
-			.selectDistinct({
-				phone: candidateProfileTable.cellPhone,
-				email: userTable.email,
-				firstName: userTable.firstName,
-				lastName: userTable.lastName
-			})
-			.from(candidateProfileTable)
-			.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
-			.innerJoin(
-				candidateDisciplineExperienceTable,
-				eq(candidateDisciplineExperienceTable.candidateId, candidateProfileTable.id)
-			)
-			.where(eq(candidateDisciplineExperienceTable.disciplineId, requisition.disciplineId));
+		// Recipient selection MUST match the candidate-facing "qualified" rules:
+		// discipline + reductive experience level + within radius + candidate
+		// status ACTIVE. Reuse the single source of truth rather than the old
+		// discipline-only query, which blasted SMS to everyone in the discipline
+		// regardless of location/experience/active status.
+		const qualified = await getQualifiedProfessionalsForRequisition(requisition, location);
+		const candidates = qualified.map((c) => ({
+			phone: c.phoneNumber,
+			email: c.email,
+			firstName: c.firstName,
+			lastName: c.lastName
+		}));
 
 		if (candidates.length === 0) return;
 

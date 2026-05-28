@@ -67,6 +67,10 @@ type Args = {
 	commit: boolean;
 	limitPerRole: number;
 	only: string[] | null;
+	// Status-only follow-up pass: skip all field updates and only write
+	// candidate_profiles.status / client_profiles.status from CSV column AA.
+	// See plan: ok-i-need-to-frolicking-panda.md.
+	statusOnly: boolean;
 };
 
 function parseArgs(): Args {
@@ -108,8 +112,20 @@ function parseArgs(): Args {
 		report,
 		commit,
 		limitPerRole,
-		only
+		only,
+		statusOnly: flag('status-only')
 	};
+}
+
+// Status-only follow-up pass: map the CSV's column AA "Status" cell to a
+// candidate/client profile status. Strict match — anything other than
+// "active"/"inactive" (case-insensitive, after trim) returns null and the row
+// is skipped, so we never accidentally overwrite a real value with garbage.
+function mapCsvStatus(csvValue: string | undefined): 'ACTIVE' | 'INACTIVE' | null {
+	const v = csvValue?.trim().toLowerCase();
+	if (v === 'active') return 'ACTIVE';
+	if (v === 'inactive') return 'INACTIVE';
+	return null;
 }
 
 // -------- CSV column model --------
@@ -568,7 +584,8 @@ async function main() {
 					user,
 					disciplineIdByCsv,
 					expLevelIdByCsv,
-					commit: args.commit
+					commit: args.commit,
+					statusOnly: args.statusOnly
 				});
 			} else {
 				diff = await processClientRow({
@@ -576,6 +593,7 @@ async function main() {
 					row,
 					user,
 					commit: args.commit,
+					statusOnly: args.statusOnly,
 					blacklistNotFound: report.blacklistNotFound
 				});
 			}
@@ -647,12 +665,13 @@ type ProcessCandidateInput = {
 	disciplineIdByCsv: Map<string, string>;
 	expLevelIdByCsv: Map<string, string | null>;
 	commit: boolean;
+	statusOnly: boolean;
 };
 
 async function processCandidateRow(
 	input: ProcessCandidateInput
 ): Promise<RowDiff | 'missing-profile' | null> {
-	const { rowNumber, row, user, disciplineIdByCsv, expLevelIdByCsv, commit } = input;
+	const { rowNumber, row, user, disciplineIdByCsv, expLevelIdByCsv, commit, statusOnly } = input;
 
 	// Look up the candidate profile by the user's id. If they don't have one
 	// yet (shouldn't happen per "all users in DB"), surface as an error.
@@ -663,6 +682,35 @@ async function processCandidateRow(
 		.limit(1);
 	if (!profile) {
 		return 'missing-profile';
+	}
+
+	// --- Status-only follow-up pass ---
+	// Short-circuit everything else: only write candidate_profiles.status when the
+	// CSV says ACTIVE/INACTIVE. DENIED is sticky (admin set it deliberately, the
+	// source-of-truth CSV shouldn't undo that). Rows whose CSV Status is blank or
+	// non-matching land in skippedNoChanges so the reviewer can tally them.
+	if (statusOnly) {
+		if (profile.status === 'DENIED') return null;
+		const newStatus = mapCsvStatus(row['Status']);
+		if (newStatus === null) return null;
+		if (newStatus === profile.status) return null;
+
+		const diff: RowDiff = {
+			rowNumber,
+			email: user.email,
+			role: 'candidate',
+			patch: { status: newStatus }
+		};
+
+		if (commit) {
+			await runWithRetry(async () => {
+				await db
+					.update(candidateProfileTable)
+					.set({ status: newStatus, updatedAt: new Date() })
+					.where(eq(candidateProfileTable.id, profile.id));
+			});
+		}
+		return diff;
 	}
 
 	// --- Profile patch (only fields that have a CSV value) ---
@@ -928,13 +976,14 @@ type ProcessClientInput = {
 	row: CsvRow;
 	user: typeof userTable.$inferSelect;
 	commit: boolean;
+	statusOnly: boolean;
 	blacklistNotFound: Report['blacklistNotFound'];
 };
 
 async function processClientRow(
 	input: ProcessClientInput
 ): Promise<RowDiff | 'missing-profile' | null> {
-	const { rowNumber, row, user, commit, blacklistNotFound } = input;
+	const { rowNumber, row, user, commit, statusOnly, blacklistNotFound } = input;
 
 	const [profile] = await db
 		.select()
@@ -943,6 +992,31 @@ async function processClientRow(
 		.limit(1);
 	if (!profile) {
 		return 'missing-profile';
+	}
+
+	// --- Status-only follow-up pass --- (see candidate processor for full notes)
+	if (statusOnly) {
+		if (profile.status === 'DENIED') return null;
+		const newStatus = mapCsvStatus(row['Status']);
+		if (newStatus === null) return null;
+		if (newStatus === profile.status) return null;
+
+		const diff: RowDiff = {
+			rowNumber,
+			email: user.email,
+			role: 'client',
+			patch: { status: newStatus }
+		};
+
+		if (commit) {
+			await runWithRetry(async () => {
+				await db
+					.update(clientProfileTable)
+					.set({ status: newStatus, updatedAt: new Date() })
+					.where(eq(clientProfileTable.id, profile.id));
+			});
+		}
+		return diff;
 	}
 
 	const [company] = await db

@@ -1,12 +1,14 @@
 import db from '$lib/server/database/drizzle';
 import {
 	companyOfficeLocationTable,
-	clientCompanyTable
+	clientCompanyTable,
+	clientProfileTable
 } from '$lib/server/database/schemas/client';
 import { requisitionTable } from '$lib/server/database/schemas/requisition';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { eq, and } from 'drizzle-orm';
+import { clientIsActiveCondition } from '$lib/server/clientStatusGuards';
 import { logger } from '$lib/server/logger';
 
 export const GET: RequestHandler = async ({ params }) => {
@@ -44,6 +46,7 @@ export const GET: RequestHandler = async ({ params }) => {
 			})
 			.from(requisitionTable)
 			.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
+			.innerJoin(clientProfileTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
 			.innerJoin(
 				companyOfficeLocationTable,
 				eq(requisitionTable.locationId, companyOfficeLocationTable.id)
@@ -53,7 +56,9 @@ export const GET: RequestHandler = async ({ params }) => {
 				and(
 					eq(requisitionTable.id, numId),
 					eq(requisitionTable.status, 'OPEN'),
-					eq(requisitionTable.archived, false)
+					eq(requisitionTable.archived, false),
+					// Hide requisitions whose owning business isn't ACTIVE.
+					clientIsActiveCondition
 				)
 			)
 			.limit(1);
