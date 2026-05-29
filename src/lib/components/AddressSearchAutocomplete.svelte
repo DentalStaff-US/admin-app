@@ -258,7 +258,7 @@
 </Command.Root>
 
 <!-- Portal the dropdown to body to escape overflow constraints -->
-{#if open && (suggestions.length > 0 || loading)}
+{#if open && (suggestions.length > 0 || loading || query.length >= minChars)}
     <div style="position: fixed; z-index: 99999; background: white; border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-height: 300px; overflow-y: auto; min-width: 300px; {dropdownStyle}"
          class="suggestions-dropdown">
         {#if loading}
@@ -297,11 +297,6 @@
                         </span>
                     {/if}
 
-                    <!-- Debug info - remove in production -->
-                    <details class="text-xs">
-                        <summary class="text-gray-500 cursor-pointer">Debug Info</summary>
-                        <pre class="mt-1 text-xs bg-gray-100 p-2 rounded overflow-x-auto">{JSON.stringify(suggestion.address_components, null, 2)}</pre>
-                    </details>
                 </div>
             </div>
         {/each}

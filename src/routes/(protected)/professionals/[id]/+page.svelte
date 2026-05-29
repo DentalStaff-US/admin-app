@@ -52,7 +52,6 @@
 	} from '$lib/components/ui/dropdown-menu';
 	import AddressSearchAutocomplete from '$lib/components/AddressSearchAutocomplete.svelte';
 	import type { AddressResult } from '$lib/types';
-	import { onMount } from 'svelte';
 	import DialogTitle from '$lib/components/ui/dialog/dialog-title.svelte';
 	import { Dialog, DialogTrigger } from '$lib/components/ui/dialog';
 	import DialogContent from '$lib/components/ui/dialog/dialog-content.svelte';
@@ -125,6 +124,11 @@
 		onResult: ({ result }) => {
 			if (result.type === 'success') {
 				editingPersonal = false;
+				// Clear the autocomplete selection so the next time the admin
+				// opens the edit panel the address field starts blank again
+				// (matching the initial-load behavior). Without this reset the
+				// previously-submitted address sticks across edits.
+				selectedAddress = null;
 			}
 		}
 	});
@@ -370,26 +374,14 @@
 	function handleClear() {
 		selectedAddress = null;
 	}
-	// Prefill the address autocomplete from the existing profile ONCE on mount.
-	// This used to be a reactive `$: if (candidate && !selectedAddress) { ... }`
-	// which re-fired on every keystroke (the autocomplete clears `selected`
-	// during typing), instantly snapping `query` back to the prefilled value
-	// and freezing the input. Use a one-shot effect instead.
-	onMount(() => {
-		if (
-			candidate?.profile.completeAddress &&
-			candidate?.profile.lat &&
-			candidate?.profile.lon
-		) {
-			selectedAddress = {
-				formatted_address: candidate.profile.completeAddress,
-				coordinates: {
-					lat: candidate.profile.lat,
-					lng: candidate.profile.lon
-				}
-			} as unknown as AddressResult;
-		}
-	});
+	// Intentionally do NOT prefill `selectedAddress` from the existing profile.
+	// `AddressSearchAutocomplete` has an internal `$: if (selected) query = ...`
+	// reactive that fights typing whenever `selected` is non-null on mount,
+	// freezing the input. Every other use of this component in the codebase
+	// starts blank — we match that pattern. The current address is rendered as
+	// read-only text below so the admin can see what's on file, and the server
+	// action skips the update when `completeAddress` is blank so saving with
+	// the autocomplete empty doesn't wipe the existing address.
 </script>
 
 {#if candidate}
@@ -577,11 +569,20 @@
 										<div class="space-y-2">
 											<div class="space-y-2">
 												<Label for="completeAddress">Complete Address</Label>
+												{#if candidate.profile.completeAddress}
+													<p class="text-xs text-muted-foreground">
+														Current: <span class="text-foreground"
+															>{candidate.profile.completeAddress}</span
+														>
+													</p>
+												{/if}
 												<AddressSearchAutocomplete
 													bind:selected={selectedAddress}
 													on:select={handleAddressSelect}
 													on:clear={handleClear}
-													placeholder="Update your address..."
+													placeholder={candidate.profile.completeAddress
+														? 'Start typing to change address...'
+														: 'Search for an address...'}
 													country="us"
 													maxResults={8}
 												/>
