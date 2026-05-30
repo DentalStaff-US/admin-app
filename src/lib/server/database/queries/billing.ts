@@ -1,8 +1,8 @@
 // lib/server/database/queries/billing.ts
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import db from '../drizzle';
 import { clientProfileTable, clientSubscriptionTable } from '../schemas/client';
-import { stripe } from '$lib/server/stripe';
+import { stripe, customerHasDefaultPaymentMethod } from '$lib/server/stripe';
 import { error, redirect } from '@sveltejs/kit';
 import type Stripe from 'stripe';
 import { getUserByEmail } from './users';
@@ -10,6 +10,7 @@ import { getClientProfilebyUserId } from './clients';
 import { userTable } from '../schemas/auth';
 import { USER_ROLES } from '$lib/config/constants';
 import { env } from '$env/dynamic/public';
+import { nanoid } from 'nanoid';
 
 export type SubscriptionStatus =
 	| 'incomplete'
@@ -365,4 +366,149 @@ export async function redirectIfNotValidCustomer(clientId: string | undefined, r
 			}
 			break;
 	}
+}
+
+export type BillingState = {
+	stripeCustomerId: string | null;
+	setupPending: boolean;
+	hasPaymentMethod: boolean;
+};
+
+/**
+ * Reconcile our billing-setup state for a single client against Stripe truth.
+ * Idempotent. Returns the post-reconcile state. Called from:
+ *   - both setup endpoints (before deciding whether to issue a fresh Checkout
+ *     link — if the client is already set up, short-circuit instead of
+ *     resetting `pending=true` and creating a stale Checkout session); and
+ *   - the admin client detail page load (so the "Setup Customer" / "Resend
+ *     Link" buttons hide automatically when Stripe says the client is done).
+ *
+ * Why this exists: the webhook (`checkout.session.completed`) is currently
+ * the ONLY mechanism that flips `stripe_customer_setup_pending` from true to
+ * false. If it ever fails to deliver, our DB is permanently wrong until
+ * someone runs a manual UPDATE. This helper gives every interactive path a
+ * Stripe-authoritative sync, so drift heals itself the next time anyone
+ * touches the relevant surfaces.
+ */
+export async function syncBillingFromStripe(
+	clientId: string | undefined
+): Promise<BillingState> {
+	if (!clientId) {
+		return { stripeCustomerId: null, setupPending: true, hasPaymentMethod: false };
+	}
+
+	const [row] = await db
+		.select({
+			id: clientSubscriptionTable.id,
+			stripeCustomerId: clientSubscriptionTable.stripeCustomerId,
+			setupPending: clientSubscriptionTable.stripeCustomerSetupPending,
+			userId: clientProfileTable.userId
+		})
+		.from(clientSubscriptionTable)
+		.innerJoin(
+			clientProfileTable,
+			eq(clientProfileTable.id, clientSubscriptionTable.clientId)
+		)
+		.where(eq(clientSubscriptionTable.clientId, clientId))
+		.limit(1);
+
+	if (!row || !row.stripeCustomerId) {
+		return {
+			stripeCustomerId: row?.stripeCustomerId ?? null,
+			setupPending: true,
+			hasPaymentMethod: false
+		};
+	}
+
+	const hasPaymentMethod = await customerHasDefaultPaymentMethod(row.stripeCustomerId);
+	const dbSetupPending = row.setupPending ?? true;
+
+	// Case A: Stripe says set up, DB says still pending → flip DB to match.
+	// This is the regression-healing path that would have caught Ginny.
+	if (hasPaymentMethod && dbSetupPending) {
+		await db
+			.update(clientSubscriptionTable)
+			.set({ stripeCustomerSetupPending: false, updatedAt: new Date() })
+			.where(eq(clientSubscriptionTable.id, row.id));
+		// Keep the secondary copy in sync.
+		await db
+			.update(userTable)
+			.set({ stripeCustomerId: row.stripeCustomerId })
+			.where(eq(userTable.id, row.userId));
+		return {
+			stripeCustomerId: row.stripeCustomerId,
+			setupPending: false,
+			hasPaymentMethod: true
+		};
+	}
+
+	// Case B: Stripe says no PM, DB says complete → admin removed the PM in
+	// Stripe directly. Re-mark pending so the setup buttons reappear.
+	if (!hasPaymentMethod && !dbSetupPending) {
+		await db
+			.update(clientSubscriptionTable)
+			.set({ stripeCustomerSetupPending: true, updatedAt: new Date() })
+			.where(eq(clientSubscriptionTable.id, row.id));
+		return {
+			stripeCustomerId: row.stripeCustomerId,
+			setupPending: true,
+			hasPaymentMethod: false
+		};
+	}
+
+	// Already in agreement — no write.
+	return {
+		stripeCustomerId: row.stripeCustomerId,
+		setupPending: dbSetupPending,
+		hasPaymentMethod
+	};
+}
+
+/**
+ * Shared UPSERT used by both setup endpoints. Writes BOTH `client_subscriptions`
+ * AND `users.stripe_customer_id` so the secondary copy can't drift. Marks the
+ * row `pending=true` because the caller is about to send the client to a
+ * Checkout session; the webhook will flip it to false on completion.
+ *
+ * NOTE: relies on `client_subscriptions.client_id` being unique. The unique
+ * constraint is added in the schema; before migrate, the conflict target may
+ * not exist — see the verification block in the plan file for the dedupe SQL.
+ */
+export async function recordBillingSetupPending(opts: {
+	clientId: string;
+	userId: string;
+	stripeCustomerId: string;
+}): Promise<void> {
+	const now = new Date();
+	await db
+		.insert(clientSubscriptionTable)
+		.values({
+			id: nanoid(),
+			clientId: opts.clientId,
+			stripeCustomerId: opts.stripeCustomerId,
+			status: 'inactive',
+			stripeCustomerSetupPending: true,
+			createdAt: now,
+			updatedAt: now
+		})
+		.onConflictDoUpdate({
+			target: clientSubscriptionTable.clientId,
+			set: {
+				stripeCustomerId: opts.stripeCustomerId,
+				stripeCustomerSetupPending: true,
+				updatedAt: now
+			}
+		});
+
+	// Keep the secondary copy on `users` in lockstep.
+	await db
+		.update(userTable)
+		.set({ stripeCustomerId: opts.stripeCustomerId })
+		.where(
+			and(
+				eq(userTable.id, opts.userId),
+				// Only write when actually different — avoids needless updated_at churn.
+				sql`(${userTable.stripeCustomerId} IS NULL OR ${userTable.stripeCustomerId} != ${opts.stripeCustomerId})`
+			)
+		);
 }

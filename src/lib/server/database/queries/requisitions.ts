@@ -1026,7 +1026,50 @@ export async function approveApplication(applicationId: string, userId: string) 
 			afterState: reqResult
 		});
 
-		return result;
+		// Auto-deny rivals (perm only). Approving one perm application means
+		// the position is spoken for — every other PENDING application on the
+		// same req is automatically transitioned to DENIED and the caller is
+		// expected to fire `notifyApplicationDenied` for each so those
+		// candidates know to stop waiting. Temp claims don't have rival
+		// applications (claiming flips the day directly to FILLED), so this
+		// only matters for perm.
+		let autoDeniedAppIds: string[] = [];
+		if (requisition.permanentPosition) {
+			const rivals = await db
+				.select({ id: requisitionApplicationTable.id })
+				.from(requisitionApplicationTable)
+				.where(
+					and(
+						eq(requisitionApplicationTable.requisitionId, requisition.id),
+						eq(requisitionApplicationTable.status, 'PENDING'),
+						ne(requisitionApplicationTable.id, applicationId)
+					)
+				);
+			autoDeniedAppIds = rivals.map((r) => r.id);
+
+			if (autoDeniedAppIds.length > 0) {
+				await db
+					.update(requisitionApplicationTable)
+					.set({ status: 'DENIED', updatedAt: new Date() })
+					.where(inArray(requisitionApplicationTable.id, autoDeniedAppIds));
+
+				// One audit row per auto-denial so the per-application history
+				// captures the transition (and the `autoDenied` marker tells a
+				// reviewer it wasn't a manual admin decision).
+				for (const rivalId of autoDeniedAppIds) {
+					await writeActionHistory({
+						table: 'REQUISITION_APPLICATIONS',
+						userId,
+						action: 'UPDATE',
+						entityId: rivalId,
+						beforeState: { status: 'PENDING' },
+						afterState: { status: 'DENIED', autoDenied: true }
+					});
+				}
+			}
+		}
+
+		return { approved: result, autoDeniedAppIds };
 	} catch (err) {
 		console.log(err);
 		throw error(500, `${err}`);

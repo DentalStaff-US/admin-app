@@ -1375,7 +1375,7 @@ export async function uploadClientDocument(data: {
 	clientId: string;
 	uploadUrl: string;
 	filename: string;
-	type: 'LICENSE' | 'CERTIFICATE' | 'AGGREEMENT' | 'OTHER';
+	type: 'LICENSE' | 'CERTIFICATE' | 'AGREEMENT' | 'OTHER';
 	adminOnly?: boolean;
 }) {
 	const [result] = await db

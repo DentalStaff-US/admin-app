@@ -599,7 +599,7 @@
 	}
 
 	let uploadDocumentDialogOpen = false;
-	let uploadDocumentType: 'LICENSE' | 'CERTIFICATE' | 'AGGREEMENT' | 'OTHER' = 'OTHER';
+	let uploadDocumentType: 'LICENSE' | 'CERTIFICATE' | 'AGREEMENT' | 'OTHER' = 'OTHER';
 	let uploadDocumentAdminOnly = false;
 	let clientDocsUrlString = '';
 	let clientDocsFileString = '';
@@ -1856,7 +1856,7 @@
 												>
 													<option value="LICENSE">License</option>
 													<option value="CERTIFICATE">Certificate</option>
-													<option value="AGGREEMENT">Agreement</option>
+													<option value="AGREEMENT">Agreement</option>
 													<option value="OTHER">Other</option>
 												</select>
 											</div>

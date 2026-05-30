@@ -642,6 +642,51 @@ ${daysText}
 			subject: `New Requisition Available | ${APP_NAME}`
 		};
 	},
+	applicationApprovedNotificationEmail: (
+		candidateDetails: { firstName: string | null },
+		details: { discipline: string; company: string; dashboardUrl: string }
+	) => {
+		const name = candidateDetails.firstName ?? 'there';
+		return {
+			subject: `Your application was approved | ${APP_NAME}`,
+			textEmail: `
+            Hello ${name},
+
+            Good news — your application for the ${details.discipline} position at ${details.company} was approved.
+
+            The business will be in touch with next steps. You can also check your candidate dashboard for updates: ${details.dashboardUrl}
+
+            Thanks for using ${APP_NAME}.
+            `,
+			htmlEmail: `
+            <p>Hello ${name},</p>
+            <p>Good news — your application for the <strong>${details.discipline}</strong> position at <strong>${details.company}</strong> was approved.</p>
+            <p>The business will be in touch with next steps. You can also check your candidate dashboard for updates: <a href="${details.dashboardUrl}">${details.dashboardUrl}</a></p>
+            <p>Thanks for using ${APP_NAME}.</p>
+            `.trim()
+		};
+	},
+	applicationDeniedNotificationEmail: (
+		candidateDetails: { firstName: string | null },
+		details: { discipline: string; company: string }
+	) => {
+		const name = candidateDetails.firstName ?? 'there';
+		return {
+			subject: `Update on your application | ${APP_NAME}`,
+			textEmail: `
+            Hello ${name},
+
+            Thank you for applying to the ${details.discipline} position at ${details.company}. This business has moved forward with another application. We hope to have more positions available soon — keep an eye on the job board for new openings.
+
+            Thanks for using ${APP_NAME}.
+            `,
+			htmlEmail: `
+            <p>Hello ${name},</p>
+            <p>Thank you for applying to the <strong>${details.discipline}</strong> position at <strong>${details.company}</strong>. This business has moved forward with another application. We hope to have more positions available soon — keep an eye on the job board for new openings.</p>
+            <p>Thanks for using ${APP_NAME}.</p>
+            `.trim()
+		};
+	},
 	timesheetVerificationNotificationEmail: (
 		candidateDetails: { firstName: string; lastName: string },
 		workdayDetails: {

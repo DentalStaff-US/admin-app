@@ -1,13 +1,23 @@
 // /routes/api/stripe/setup-customer/+server.ts
+//
+// Admin-initiated billing setup. Thin wrapper over the shared helpers —
+// everything below the auth check is intentionally identical to the
+// client-initiated `setup-customer-self` endpoint. Any divergence here means
+// the two paths can produce different DB state for the same client, which is
+// the regression class we just unwound (Ginny — admin "Resend Link" reset
+// her pending bit despite Stripe already having her payment method).
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { stripe } from '$lib/server/stripe';
+import {
+	ensureStripeCustomer,
+	createSetupCheckoutSession
+} from '$lib/server/stripe';
 import { getClientProfileById } from '$lib/server/database/queries/clients';
-import db from '$lib/server/database/drizzle';
-import { clientSubscriptionTable } from '$lib/server/database/schemas/client';
-import { eq } from 'drizzle-orm';
-import { nanoid } from 'nanoid';
+import {
+	recordBillingSetupPending,
+	syncBillingFromStripe
+} from '$lib/server/database/queries/billing';
 import { logger } from '$lib/server/logger';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -27,69 +37,46 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		}
 
 		const clientData = await getClientProfileById(clientId);
-
 		if (!clientData) {
 			throw error(404, 'Client not found');
 		}
 
-		const [existingSubscription] = await db
-			.select()
-			.from(clientSubscriptionTable)
-			.where(eq(clientSubscriptionTable.clientId, clientId))
-			.limit(1);
-
-		let customerId = existingSubscription?.stripeCustomerId;
-
-		if (!customerId) {
-			const customer = await stripe.customers.create({
-				email: clientData.user.email,
-				name: `${clientData.user.firstName} ${clientData.user.lastName}`,
-				metadata: {
-					clientId: clientId,
-					userId: clientData.user.id
-				}
+		// Reconcile first: if Stripe already has this customer with a default
+		// payment method, short-circuit without resetting pending=true or
+		// creating a stale Checkout session. This heals drift caused by
+		// previous "Resend Link" clicks AND keeps repeat clicks idempotent.
+		const state = await syncBillingFromStripe(clientId);
+		if (state.hasPaymentMethod) {
+			return json({
+				alreadySetUp: true,
+				message: 'Client is already set up.'
 			});
-
-			customerId = customer.id;
 		}
 
-		// Create Stripe Checkout Session in SETUP MODE with the customer
-		const session = await stripe.checkout.sessions.create({
-			mode: 'setup',
-			currency: 'usd',
-			customer: customerId, // Use customer ID, not customer_email
-			payment_method_types: ['card', 'us_bank_account'],
-			success_url: `${request.headers.get('origin')}/setup-complete`,
-			cancel_url: `${request.headers.get('origin')}/setup-complete`,
-			metadata: {
-				clientId: clientId,
-				setupType: 'internal_customer'
-			}
+		const customerId = await ensureStripeCustomer({
+			clientId,
+			userId: clientData.user.id,
+			email: clientData.user.email,
+			name: `${clientData.user.firstName} ${clientData.user.lastName}`,
+			existingCustomerId: state.stripeCustomerId
 		});
 
-		// Create or update clientSubscription record with pending status
-		if (existingSubscription) {
-			await db
-				.update(clientSubscriptionTable)
-				.set({
-					stripeCustomerId: customerId,
-					stripeCustomerSetupPending: true,
-					updatedAt: new Date()
-				})
-				.where(eq(clientSubscriptionTable.clientId, clientId));
-		} else {
-			await db.insert(clientSubscriptionTable).values({
-				id: nanoid(),
-				clientId: clientId,
-				stripeCustomerId: customerId,
-				status: 'inactive',
-				stripeCustomerSetupPending: true,
-				createdAt: new Date(),
-				updatedAt: new Date()
-			});
-		}
+		const origin = request.headers.get('origin') ?? '';
+		const { url } = await createSetupCheckoutSession({
+			customerId,
+			clientId,
+			userId: clientData.user.id,
+			successUrl: `${origin}/setup-complete`,
+			cancelUrl: `${origin}/setup-complete`
+		});
 
-		return json({ url: session.url });
+		await recordBillingSetupPending({
+			clientId,
+			userId: clientData.user.id,
+			stripeCustomerId: customerId
+		});
+
+		return json({ url });
 	} catch (err) {
 		// Pass through SvelteKit HttpErrors (400/403/404) — they're expected client errors.
 		if (err && typeof err === 'object' && 'status' in err && 'body' in err) {

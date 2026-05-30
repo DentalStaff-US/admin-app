@@ -2,23 +2,28 @@
 // their own behalf during onboarding (or any time they want to add a payment
 // method via the dashboard banner / settings billing card).
 //
-// Mirrors the admin endpoint's Stripe flow exactly — creates the Customer if
-// needed, opens a setup-mode Checkout Session, stamps clientSubscriptionTable
-// with stripeCustomerSetupPending=true — but resolves the client from the
-// logged-in user instead of taking clientId as input. The webhook flips
-// stripeCustomerSetupPending back to false on checkout.session.completed.
+// Intentionally identical to the admin endpoint below the auth check — both
+// route through the shared `ensureStripeCustomer` / `recordBillingSetupPending`
+// helpers and reconcile against Stripe before touching DB state. The webhook
+// continues to flip `stripeCustomerSetupPending` to false on
+// `checkout.session.completed`, but this endpoint also short-circuits when
+// Stripe truth already reflects setup-complete (so the user clicking the
+// button again from a stale UI doesn't reset their billing state).
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { stripe } from '$lib/server/stripe';
+import {
+	ensureStripeCustomer,
+	createSetupCheckoutSession
+} from '$lib/server/stripe';
 import {
 	getClientProfilebyUserId,
 	getClientProfileByStaffUserId
 } from '$lib/server/database/queries/clients';
-import db from '$lib/server/database/drizzle';
-import { clientSubscriptionTable } from '$lib/server/database/schemas/client';
-import { eq } from 'drizzle-orm';
-import { nanoid } from 'nanoid';
+import {
+	recordBillingSetupPending,
+	syncBillingFromStripe
+} from '$lib/server/database/queries/billing';
 import { USER_ROLES } from '$lib/config/constants';
 import { logger } from '$lib/server/logger';
 
@@ -44,62 +49,36 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		const clientId = clientProfile.id;
 
-		const [existingSubscription] = await db
-			.select()
-			.from(clientSubscriptionTable)
-			.where(eq(clientSubscriptionTable.clientId, clientId))
-			.limit(1);
-
-		let customerId = existingSubscription?.stripeCustomerId;
-
-		if (!customerId) {
-			const customer = await stripe.customers.create({
-				email: user.email,
-				name: `${user.firstName} ${user.lastName}`,
-				metadata: {
-					clientId,
-					userId: user.id
-				}
-			});
-			customerId = customer.id;
+		// Reconcile first — short-circuit when Stripe says we're done.
+		const state = await syncBillingFromStripe(clientId);
+		if (state.hasPaymentMethod) {
+			return json({ alreadySetUp: true, message: 'Billing is already set up.' });
 		}
 
-		const origin = request.headers.get('origin');
-		const session = await stripe.checkout.sessions.create({
-			mode: 'setup',
-			currency: 'usd',
-			customer: customerId,
-			payment_method_types: ['card', 'us_bank_account'],
-			success_url: `${origin}/setup-complete`,
-			cancel_url: `${origin}/setup-complete?canceled=1`,
-			metadata: {
-				clientId,
-				setupType: 'client_self_serve'
-			}
+		const customerId = await ensureStripeCustomer({
+			clientId,
+			userId: user.id,
+			email: user.email,
+			name: `${user.firstName} ${user.lastName}`,
+			existingCustomerId: state.stripeCustomerId
 		});
 
-		if (existingSubscription) {
-			await db
-				.update(clientSubscriptionTable)
-				.set({
-					stripeCustomerId: customerId,
-					stripeCustomerSetupPending: true,
-					updatedAt: new Date()
-				})
-				.where(eq(clientSubscriptionTable.clientId, clientId));
-		} else {
-			await db.insert(clientSubscriptionTable).values({
-				id: nanoid(),
-				clientId,
-				stripeCustomerId: customerId,
-				status: 'inactive',
-				stripeCustomerSetupPending: true,
-				createdAt: new Date(),
-				updatedAt: new Date()
-			});
-		}
+		const origin = request.headers.get('origin') ?? '';
+		const { url } = await createSetupCheckoutSession({
+			customerId,
+			clientId,
+			userId: user.id,
+			successUrl: `${origin}/setup-complete`,
+			cancelUrl: `${origin}/setup-complete?canceled=1`
+		});
 
-		return json({ url: session.url });
+		await recordBillingSetupPending({
+			clientId,
+			userId: user.id,
+			stripeCustomerId: customerId
+		});
+
+		return json({ url });
 	} catch (err) {
 		if (err && typeof err === 'object' && 'status' in err && 'body' in err) {
 			throw err;

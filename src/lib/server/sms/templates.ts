@@ -41,6 +41,12 @@ export const SMS_TEMPLATES = {
 		associatedCandidate: string;
 	}) => ({
 		textMessage: `Dear ${vars.associatedCandidate}, we regret to inform you that Req. #${vars.requisitionNumber} has been cancelled.`
+	}),
+	applicationApprovedNotification: (vars: { discipline: string; company: string }) => ({
+		textMessage: `Good news — your application for ${vars.discipline} at ${vars.company} was approved. Check the candidate app for next steps.`
+	}),
+	applicationDeniedNotification: (vars: { discipline: string; company: string }) => ({
+		textMessage: `Thank you for applying for ${vars.discipline} at ${vars.company}. This business has moved forward with another application. We hope to have more positions available soon.`
 	})
 } as const;
 

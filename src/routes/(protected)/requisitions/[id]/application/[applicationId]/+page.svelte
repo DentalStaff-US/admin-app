@@ -88,9 +88,13 @@
 							<div class="mt-1 flex items-center gap-3 text-sm text-muted-foreground">
 								<div class="flex items-center gap-2">
 									<MapPin class="h-4 w-4" />
-									<span
-										>{application.candidateProfile.city}, {application.candidateProfile.state}</span
-									>
+									<span>
+										{[application.candidateProfile.city, application.candidateProfile.state]
+											.filter(Boolean)
+											.join(', ') ||
+											application.candidateProfile.completeAddress ||
+											'No location on file'}
+									</span>
 								</div>
 
 								<div class="hidden md:flex items-center gap-2">
@@ -181,9 +185,19 @@
 											<div class="flex items-center gap-2">
 												<MapPin class="h-4 w-4 text-muted-foreground" />
 												<span>
-													{application.candidateProfile.address}<br />
-													{application.candidateProfile.city}, {application.candidateProfile.state}
-													{application.candidateProfile.zipcode}
+													{#if application.candidateProfile.completeAddress}
+														{application.candidateProfile.completeAddress}
+													{:else}
+														{[
+															application.candidateProfile.address,
+															[application.candidateProfile.city, application.candidateProfile.state]
+																.filter(Boolean)
+																.join(', '),
+															application.candidateProfile.zipcode
+														]
+															.filter(Boolean)
+															.join(' ') || 'No address on file'}
+													{/if}
 												</span>
 											</div>
 										</div>

@@ -7,6 +7,7 @@ import { requisitionTable } from '$lib/server/database/schemas/requisition';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { and, eq } from 'drizzle-orm';
+import { isClientActiveByCompanyId } from '$lib/server/clientStatusGuards';
 import { logger } from '$lib/server/logger';
 
 export const GET: RequestHandler = async ({ params }) => {
@@ -17,6 +18,12 @@ export const GET: RequestHandler = async ({ params }) => {
 	}
 
 	try {
+		// Candidates may only view companies whose owning business is ACTIVE.
+		// 404 (not 403) so we don't reveal that the company exists at all.
+		if (!(await isClientActiveByCompanyId(id))) {
+			throw error(404, 'No Company Found');
+		}
+
 		const company = await db
 			.select()
 			.from(clientCompanyTable)

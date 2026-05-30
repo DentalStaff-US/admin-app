@@ -133,23 +133,25 @@ export const actions = {
 				lastName
 			};
 
-			const profileData = {
-				updatedAt: new Date(),
-				birthday: birthday ?? null,
-				cellPhone: cellPhone || null,
-				completeAddress:
-					form.data.completeAddress && form.data.completeAddress !== 'undefined'
-						? form.data.completeAddress
-						: null,
-				lat:
-					form.data.lat && form.data.lat !== 'undefined'
-						? parseFloat(form.data.lat).toString()
-						: null,
-				lon:
-					form.data.lon && form.data.lon !== 'undefined'
-						? parseFloat(form.data.lon).toString()
-						: null
-			};
+			// Build the profile patch field-by-field so blanks are SKIPPED rather
+			// than written as null. The admin's address autocomplete starts blank
+			// (it can't be prefilled without freezing the input — see svelte file
+			// comment), so a save without re-selecting an address must NOT wipe
+			// the existing address. Only fields the admin actually typed/picked
+			// land in the update.
+			const profileData: Record<string, unknown> = { updatedAt: new Date() };
+			if (birthday !== undefined) profileData.birthday = birthday ?? null;
+			if (cellPhone !== undefined) profileData.cellPhone = cellPhone || null;
+			const addr = form.data.completeAddress;
+			if (addr && addr !== 'undefined') {
+				profileData.completeAddress = addr;
+				if (form.data.lat && form.data.lat !== 'undefined') {
+					profileData.lat = parseFloat(form.data.lat).toString();
+				}
+				if (form.data.lon && form.data.lon !== 'undefined') {
+					profileData.lon = parseFloat(form.data.lon).toString();
+				}
+			}
 			await updateUser(candidateResult.candidate.user.id, userData);
 			await updateCandidateProfile(id, profileData);
 

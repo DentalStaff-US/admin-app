@@ -5,6 +5,7 @@ import {
 } from '$lib/server/database/schemas/candidate';
 import {
 	clientCompanyTable,
+	clientProfileTable,
 	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
 import {
@@ -17,6 +18,7 @@ import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { eq, and, inArray, notInArray, or, isNull, isNotNull, sql, gte, lte } from 'drizzle-orm';
 import { METERS_PER_MILE } from '$lib/config/constants';
 import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
+import { clientIsActiveCondition } from '$lib/server/clientStatusGuards';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
 import { logger } from '$lib/server/logger';
@@ -35,6 +37,11 @@ export const GET: RequestHandler = async ({ request }) => {
 
 		if (!candidateProfile) {
 			throw error(404, 'Candidate profile not found');
+		}
+
+		// Non-active candidates (pending/inactive/denied) can't see shifts.
+		if (candidateProfile.status !== 'ACTIVE') {
+			return json({ recurrenceDays: [], totalFound: 0, accountStatus: candidateProfile.status });
 		}
 
 		// Check if candidate has location coordinates
@@ -192,6 +199,7 @@ export const GET: RequestHandler = async ({ request }) => {
 			.from(recurrenceDayTable)
 			.innerJoin(requisitionTable, eq(recurrenceDayTable.requisitionId, requisitionTable.id))
 			.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
+			.innerJoin(clientProfileTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
 			.innerJoin(
 				companyOfficeLocationTable,
 				eq(requisitionTable.locationId, companyOfficeLocationTable.id)
@@ -211,6 +219,8 @@ export const GET: RequestHandler = async ({ request }) => {
 					eq(requisitionTable.status, 'OPEN'),
 					eq(requisitionTable.archived, false),
 					eq(requisitionTable.permanentPosition, false),
+					// Owning business must be ACTIVE.
+					clientIsActiveCondition,
 					// Filter by candidate's disciplines
 					inArray(requisitionTable.disciplineId, disciplineIds),
 					// Only show shifts that:

@@ -63,8 +63,12 @@ export const clientProfileTable = pgTable('client_profiles', {
 
 export const clientSubscriptionTable = pgTable('client_subscriptions', {
 	id: text('id').notNull().primaryKey(),
+	// Unique: one billing-setup row per client. Lets us safely UPSERT by
+	// clientId in `recordBillingSetupPending` and eliminates the race-condition
+	// class where two writes could produce duplicate rows.
 	clientId: text('client_id')
 		.notNull()
+		.unique()
 		.references(() => clientProfileTable.id, { onDelete: 'cascade' }),
 	createdAt: timestamp('created_at', {
 		withTimezone: true,
@@ -353,7 +357,7 @@ export const clientRatingTable = pgTable('client_ratings', {
 export const clientDocumentTypeEnum = pgEnum('client_document_type', [
 	'LICENSE',
 	'CERTIFICATE',
-	'AGGREEMENT',
+	'AGREEMENT',
 	'OTHER'
 ]);
 

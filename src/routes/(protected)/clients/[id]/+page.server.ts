@@ -29,6 +29,7 @@ import {
 	getRequisitionsForClient
 } from '$lib/server/database/queries/requisitions';
 import { createStripeInvoice } from '$lib/server/stripe';
+import { syncBillingFromStripe } from '$lib/server/database/queries/billing';
 import { dueDateEndOfDayInTimezone } from '$lib/_helpers/UTCTimezoneUtils';
 import { logger } from '$lib/server/logger';
 import { z } from 'zod';
@@ -116,6 +117,13 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	}
 
 	const { id } = params;
+
+	// Reconcile billing state against Stripe BEFORE reading the subscription
+	// row, so the "Setup Customer" / "Resend Link" buttons gate on Stripe truth
+	// rather than a potentially-stale DB row. This is the page-load half of
+	// the convergence work — webhook drift (Ginny's case) heals itself the
+	// next time an admin opens this page.
+	await syncBillingFromStripe(id);
 
 	const result = await getClientProfileById(id);
 	const locations = result.company ? await getAllClientLocationsByCompanyId(result.company.id) : [];
@@ -768,7 +776,7 @@ export const actions = {
 		const formData = await event.request.formData();
 		const uploadUrl = formData.get('uploadUrl') as string;
 		const filename = formData.get('filename') as string;
-		const type = formData.get('type') as 'LICENSE' | 'CERTIFICATE' | 'AGGREEMENT' | 'OTHER';
+		const type = formData.get('type') as 'LICENSE' | 'CERTIFICATE' | 'AGREEMENT' | 'OTHER';
 		const adminOnly = formData.get('adminOnly') === 'true';
 
 		try {

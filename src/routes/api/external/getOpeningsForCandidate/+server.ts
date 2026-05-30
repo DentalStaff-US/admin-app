@@ -5,15 +5,17 @@ import {
 } from '$lib/server/database/schemas/candidate';
 import {
 	clientCompanyTable,
+	clientProfileTable,
 	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
 import { requisitionTable } from '$lib/server/database/schemas/requisition';
-import { disciplineTable } from '$lib/server/database/schemas/skill';
+import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { eq, and, inArray, isNotNull, sql } from 'drizzle-orm';
 import { METERS_PER_MILE } from '$lib/config/constants';
 import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
+import { clientIsActiveCondition } from '$lib/server/clientStatusGuards';
 import { logger } from '$lib/server/logger';
 
 export const GET: RequestHandler = async ({ request }) => {
@@ -34,6 +36,11 @@ export const GET: RequestHandler = async ({ request }) => {
 
 		const candidate = candidateProfile[0];
 
+		// Non-active candidates (pending/inactive/denied) can't see openings.
+		if (candidate.status !== 'ACTIVE') {
+			return json({ requisitions: [], totalFound: 0, accountStatus: candidate.status });
+		}
+
 		// Check if candidate has location coordinates
 		if (!candidate.lat || !candidate.lon) {
 			throw error(
@@ -42,13 +49,22 @@ export const GET: RequestHandler = async ({ request }) => {
 			);
 		}
 
-		// Fetch candidate's disciplines. Permanent listings are exploratory
-		// (job-board style) — we only filter by discipline (and location/status
-		// in the SQL below). Experience level + rate are NOT enforced for
-		// permanent; admins review applicants individually.
+		// Fetch candidate's disciplines WITH the order of their experience level.
+		// Permanent listings now gate on experience level too (reductive: the
+		// candidate's level order must be >= the requisition's required order),
+		// so professionals don't see/notified-about perm roles above their level.
+		// Rate is intentionally NOT enforced for permanent (perm rate semantics
+		// differ from temp hourly); discipline + experience only.
 		const candidateDisciplines = await db
-			.select({ disciplineId: candidateDisciplineExperienceTable.disciplineId })
+			.select({
+				disciplineId: candidateDisciplineExperienceTable.disciplineId,
+				experienceLevelOrder: experienceLevelTable.order
+			})
 			.from(candidateDisciplineExperienceTable)
+			.innerJoin(
+				experienceLevelTable,
+				eq(candidateDisciplineExperienceTable.experienceLevelId, experienceLevelTable.id)
+			)
 			.where(eq(candidateDisciplineExperienceTable.candidateId, candidate.id));
 
 		if (candidateDisciplines.length === 0) {
@@ -107,6 +123,7 @@ export const GET: RequestHandler = async ({ request }) => {
 				hourlyRate: requisitionTable.hourlyRate,
 				disciplineId: requisitionTable.disciplineId,
 				experienceLevelId: requisitionTable.experienceLevelId,
+				experienceLevelOrder: experienceLevelTable.order,
 				createdAt: requisitionTable.createdAt,
 				permanentPosition: requisitionTable.permanentPosition,
 				company: {
@@ -123,17 +140,26 @@ export const GET: RequestHandler = async ({ request }) => {
 			})
 			.from(requisitionTable)
 			.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
+			.innerJoin(clientProfileTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
 			.innerJoin(
 				companyOfficeLocationTable,
 				eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 			)
 			.innerJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
+			// Left join so perm reqs with NULL experienceLevelId ("No Preference")
+			// are still returned; reductive level filtering happens in-memory below.
+			.leftJoin(
+				experienceLevelTable,
+				eq(requisitionTable.experienceLevelId, experienceLevelTable.id)
+			)
 			.where(
 				and(
 					inArray(requisitionTable.locationId, nearbyOfficeLocationIds),
 					eq(requisitionTable.status, 'OPEN'),
 					eq(requisitionTable.archived, false),
 					eq(requisitionTable.permanentPosition, true),
+					// Owning business must be ACTIVE.
+					clientIsActiveCondition,
 					// Ensure the requisition's discipline matches one of the candidate's disciplines
 					inArray(
 						requisitionTable.disciplineId,
@@ -146,15 +172,26 @@ export const GET: RequestHandler = async ({ request }) => {
         ST_SetSRID(ST_MakePoint(${candidate.lon}::float, ${candidate.lat}::float), 4326)::geography
       )`);
 
+		// Reductive experience-level filter (perm): keep a requisition only when
+		// the candidate's level for that discipline is >= the required level, or
+		// the requisition has no required level ("No Preference"). Rate is not
+		// enforced for perm. Mirrors the temp endpoint's in-memory filter.
+		const qualified = requisitions.filter((req) => {
+			if (req.experienceLevelOrder === null) return true; // No Preference
+			const match = candidateDisciplines.find((d) => d.disciplineId === req.disciplineId);
+			const candidateOrder = match?.experienceLevelOrder ?? 0;
+			return candidateOrder >= req.experienceLevelOrder;
+		});
+
 		return json({
 			candidateLocation: {
 				lat: candidate.lat,
 				lon: candidate.lon,
 				address: candidate.completeAddress
 			},
-			requisitions,
+			requisitions: qualified,
 			searchRadius: radiusMiles,
-			totalFound: requisitions.length,
+			totalFound: qualified.length,
 			nearbyOfficeCount: nearbyOfficeLocationIds.length
 		});
 	} catch (err) {

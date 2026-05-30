@@ -1,11 +1,16 @@
 import db from '$lib/server/database/drizzle';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
-import { companyOfficeLocationTable } from '$lib/server/database/schemas/client';
+import {
+	clientCompanyTable,
+	clientProfileTable,
+	companyOfficeLocationTable
+} from '$lib/server/database/schemas/client';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { METERS_PER_MILE } from '$lib/config/constants';
 import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
+import { clientIsActiveCondition } from '$lib/server/clientStatusGuards';
 import { logger } from '$lib/server/logger';
 
 export const GET: RequestHandler = async ({ request }) => {
@@ -22,6 +27,11 @@ export const GET: RequestHandler = async ({ request }) => {
 
 		if (!candidateProfile) {
 			throw error(404, 'Candidate profile not found');
+		}
+
+		// Non-active candidates (pending/inactive/denied) can't see locations.
+		if (candidateProfile.status !== 'ACTIVE') {
+			return json({ officeLocations: [], totalFound: 0, accountStatus: candidateProfile.status });
 		}
 
 		if (!candidateProfile.lat || !candidateProfile.lon) {
@@ -47,18 +57,25 @@ export const GET: RequestHandler = async ({ request }) => {
         ) / ${METERS_PER_MILE}`
 			})
 			.from(companyOfficeLocationTable)
+			.innerJoin(
+				clientCompanyTable,
+				eq(clientCompanyTable.id, companyOfficeLocationTable.companyId)
+			)
+			.innerJoin(clientProfileTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
 			.where(
 				and(
 					isNotNull(companyOfficeLocationTable.geom),
+					// Owning business must be ACTIVE.
+					clientIsActiveCondition,
 					// Filter by distance using ST_DWithin for performance
 					sql`ST_DWithin(
-            geom::geography,
+            ${companyOfficeLocationTable.geom}::geography,
             ST_SetSRID(ST_MakePoint(${candidateProfile.lon}::float, ${candidateProfile.lat}::float), 4326)::geography,
             ${radiusMeters}
           )`
 				)
 			).orderBy(sql`ST_Distance(
-        geom::geography,
+        ${companyOfficeLocationTable.geom}::geography,
         ST_SetSRID(ST_MakePoint(${candidateProfile.lon}::float, ${candidateProfile.lat}::float), 4326)::geography
       )`);
 

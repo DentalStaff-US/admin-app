@@ -16,6 +16,7 @@ import { and, eq } from 'drizzle-orm';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { notifyWorkdayClaimed } from '$lib/server/notifications/transactional';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
+import { isClientActiveByCompanyId } from '$lib/server/clientStatusGuards';
 import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
@@ -90,6 +91,21 @@ export const POST: RequestHandler = async ({ request }) => {
 					};
 				}
 
+				// The candidate's OWN account must be ACTIVE to claim a shift.
+				if (candidateProfile.status !== 'ACTIVE') {
+					return {
+						kind: 'response',
+						response: json(
+							{
+								success: false,
+								message: 'Your account is not active. You cannot claim shifts yet.',
+								reason: 'account_status'
+							},
+							{ status: 403, headers: corsHeaders }
+						)
+					};
+				}
+
 				// Verify requisition exists and is active. LeftJoin experience_levels
 				// so we can read the required order for the qualification check.
 				const [recurrenceDay] = await tx
@@ -115,6 +131,17 @@ export const POST: RequestHandler = async ({ request }) => {
 						response: json(
 							{ success: false, message: 'Requisition not found or not active' },
 							{ status: 404, headers: corsHeaders }
+						)
+					};
+				}
+
+				// Block claims on shifts whose owning business isn't ACTIVE.
+				if (!(await isClientActiveByCompanyId(recurrenceDay.requisition.companyId))) {
+					return {
+						kind: 'response',
+						response: json(
+							{ success: false, message: 'This shift is not currently available.' },
+							{ status: 403, headers: corsHeaders }
 						)
 					};
 				}
