@@ -302,6 +302,13 @@
       "when": 1780001007383,
       "tag": "0042_pale_skaar",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1780551799109,
+      "tag": "0043_late_scrambler",
+      "breakpoints": true
     }
   ]
 }

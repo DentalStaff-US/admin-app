@@ -52,6 +52,7 @@
 		Clipboard,
 		Undo2,
 		Trash2,
+		Ban,
 		Eye,
 		Plus,
 		Receipt,
@@ -80,6 +81,8 @@
 	let rejectionNote = '';
 	let activeTab = 'hours';
 	let overrideDialogOpen = false;
+	let voidDialogOpen = false;
+	let deleteDialogOpen = false;
 	let submitDialogOpen = false;
 
 	// Editing state
@@ -1197,16 +1200,19 @@
 							{:else if isDiscrepancy}
 								This timesheet has discrepancies. Edit the hours and resubmit.
 							{:else if isVoid}
-								This timesheet has been voided. You can edit and resubmit if needed.
+								This timesheet has been voided and its workdays released. A corrected draft
+								timesheet will regenerate automatically.
 							{:else if isRejected}
 								This timesheet has been rejected. You can edit and resubmit.
 							{:else if isApproved}
-								This timesheet has been approved and processed. You can still edit if needed.
+								This timesheet has been approved and an invoice generated. It is locked — to make
+								corrections, void it (this also voids the invoice) and a fresh draft timesheet will
+								regenerate.
 							{/if}
 						</p>
 
 						<div class="space-y-2">
-							{#if !isEditing}
+							{#if !isEditing && !isApproved && !isVoid}
 								<Button on:click={enableEditing} variant="outline" class="w-full gap-2">
 									<Edit class="h-4 w-4" />
 									<span>Edit Hours</span>
@@ -1259,6 +1265,28 @@
 										the override function.
 									</AlertDescription>
 								</Alert>
+							{/if}
+
+							{#if !isEditing && !isVoid}
+								{#if data.invoice}
+									<Button
+										variant="outline"
+										class="w-full border-red-200 text-red-700 hover:bg-red-50 gap-2"
+										on:click={() => (voidDialogOpen = true)}
+									>
+										<Ban class="h-4 w-4" />
+										<span>Void Timesheet &amp; Invoice</span>
+									</Button>
+								{:else}
+									<Button
+										variant="outline"
+										class="w-full border-red-200 text-red-700 hover:bg-red-50 gap-2"
+										on:click={() => (deleteDialogOpen = true)}
+									>
+										<Trash2 class="h-4 w-4" />
+										<span>Delete Timesheet</span>
+									</Button>
+								{/if}
 							{/if}
 						</div>
 					</CardContent>
@@ -1679,6 +1707,62 @@
 					on:click={() => (approvalDialogOpen = false)}
 				>
 					Approve Timesheet
+				</Button>
+			</form>
+		</DialogFooter>
+	</DialogContent>
+</Dialog>
+
+<Dialog bind:open={voidDialogOpen}>
+	<DialogContent>
+		<DialogHeader>
+			<DialogTitle>Void Timesheet &amp; Invoice</DialogTitle>
+			<DialogDescription>
+				This voids the timesheet and its invoice (the {data.invoice?.invoiceType === 'PAPER'
+					? 'paper'
+					: 'Stripe'} invoice will no longer be payable), clears the wages status, and releases the
+				workdays so a corrected timesheet can regenerate. This cannot be undone.
+			</DialogDescription>
+		</DialogHeader>
+		<DialogFooter class="mt-4">
+			<form method="POST" action="?/voidTimesheet" use:enhance>
+				<Button type="button" variant="outline" on:click={() => (voidDialogOpen = false)}>
+					Cancel
+				</Button>
+				<Button
+					type="submit"
+					variant="default"
+					class="bg-red-600 hover:bg-red-700 text-white"
+					on:click={() => (voidDialogOpen = false)}
+				>
+					Void Timesheet &amp; Invoice
+				</Button>
+			</form>
+		</DialogFooter>
+	</DialogContent>
+</Dialog>
+
+<Dialog bind:open={deleteDialogOpen}>
+	<DialogContent>
+		<DialogHeader>
+			<DialogTitle>Delete Timesheet</DialogTitle>
+			<DialogDescription>
+				This permanently deletes the timesheet and releases its workdays (no invoice is attached).
+				A fresh timesheet will regenerate from the released workdays. This cannot be undone.
+			</DialogDescription>
+		</DialogHeader>
+		<DialogFooter class="mt-4">
+			<form method="POST" action="?/deleteTimesheet" use:enhance>
+				<Button type="button" variant="outline" on:click={() => (deleteDialogOpen = false)}>
+					Cancel
+				</Button>
+				<Button
+					type="submit"
+					variant="default"
+					class="bg-red-600 hover:bg-red-700 text-white"
+					on:click={() => (deleteDialogOpen = false)}
+				>
+					Delete Timesheet
 				</Button>
 			</form>
 		</DialogFooter>

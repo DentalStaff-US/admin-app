@@ -11,9 +11,10 @@ import {
 	adminOverrideTimesheet,
 	approveTimesheet,
 	approveTimesheetExpense,
-	convertToStripeAmount,
+	computeHoursBreakdown,
 	createInvoiceRecord,
 	createTimesheetExpense,
+	deleteTimesheet,
 	deleteTimesheetExpense,
 	getInvoiceByTimesheetId,
 	getRecurrenceDaysForTimesheet,
@@ -24,6 +25,7 @@ import {
 	getTimesheetDetails,
 	getTimesheetDetailsAdmin,
 	getTimesheetExpenseById,
+	getUnfinishedWorkdaysForTimesheetWeek,
 	getWorkdaysForTimesheet,
 	listTimesheetExpenses,
 	rejectTimesheet,
@@ -31,9 +33,10 @@ import {
 	revertTimesheetToPending,
 	updateTimesheetExpense,
 	updateTimesheetHours,
-	voidTimesheet,
+	voidTimesheetWithInvoice,
 	createPaperInvoiceRecord
 } from '$lib/server/database/queries/requisitions';
+import { getCandidateProfileById } from '$lib/server/database/queries/candidates';
 import type { TimesheetExpenseSelect } from '$lib/server/database/schemas/requisition';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from './$types';
@@ -57,33 +60,43 @@ import { superValidate } from 'sveltekit-superforms/server';
 import { addExpenseSchema } from '$lib/config/zod-schemas';
 
 const ADMIN_FEE_LINE_DESCRIPTION = 'Administration Fees';
+const OVERTIME_LINE_DESCRIPTION = 'Overtime hours (1.5×)';
 
+// Admin fee is charged on REGULAR hours only — overtime is exempt. Callers pass
+// `regularCents` (not the full billable amount) here.
 function calculateAdminFeeCents(
-	billableCents: number,
+	regularCents: number,
 	adminFee: number,
 	adminFeeType: 'PERCENTAGE' | 'FIXED'
 ): number {
 	if (!adminFee || adminFee <= 0) return 0;
 	if (adminFeeType === 'PERCENTAGE') {
-		return Math.round((billableCents * adminFee) / 100);
+		return Math.round((regularCents * adminFee) / 100);
 	}
 	return Math.round(adminFee * 100);
 }
 
 function buildStripeLineItems({
-	billableCents,
+	regularCents,
+	overtimeCents,
+	overtimeHours,
 	adminFeeCents,
 	hoursDescription,
 	expenses
 }: {
-	billableCents: number;
+	regularCents: number;
+	overtimeCents: number;
+	overtimeHours: number;
 	adminFeeCents: number;
 	hoursDescription: string;
 	expenses: TimesheetExpenseSelect[];
 }) {
 	const lineItems: Array<{ amountInCents: number; description: string }> = [
-		{ amountInCents: billableCents, description: hoursDescription }
+		{ amountInCents: regularCents, description: hoursDescription }
 	];
+	if (overtimeHours > 0 && overtimeCents > 0) {
+		lineItems.push({ amountInCents: overtimeCents, description: OVERTIME_LINE_DESCRIPTION });
+	}
 	for (const expense of expenses) {
 		lineItems.push({
 			amountInCents: expense.amountCents,
@@ -97,34 +110,52 @@ function buildStripeLineItems({
 }
 
 function buildPaperLineItems({
-	hoursWorked,
+	regularHours,
+	overtimeHours,
+	regularCents,
+	overtimeCents,
 	effectiveRateDollars,
-	billableCents,
 	adminFeeCents,
 	hoursDescription,
 	expenses
 }: {
-	hoursWorked: number;
+	regularHours: number;
+	overtimeHours: number;
+	regularCents: number;
+	overtimeCents: number;
 	effectiveRateDollars: number;
-	billableCents: number;
 	adminFeeCents: number;
 	hoursDescription: string;
 	expenses: TimesheetExpenseSelect[];
 }) {
 	const rateCents = Math.round(effectiveRateDollars * 100);
+	const overtimeRateCents = Math.round(effectiveRateDollars * 1.5 * 100);
 	const items = [
 		{
 			id: crypto.randomUUID(),
 			description: hoursDescription,
-			quantity: hoursWorked,
+			quantity: regularHours,
 			rate: rateCents,
 			unit_amount: rateCents,
 			unit_amount_excluding_tax: rateCents,
-			amount: billableCents,
+			amount: regularCents,
 			currency: 'usd',
 			type: 'paper' as const
 		}
 	];
+	if (overtimeHours > 0 && overtimeCents > 0) {
+		items.push({
+			id: crypto.randomUUID(),
+			description: OVERTIME_LINE_DESCRIPTION,
+			quantity: overtimeHours,
+			rate: overtimeRateCents,
+			unit_amount: overtimeRateCents,
+			unit_amount_excluding_tax: overtimeRateCents,
+			amount: overtimeCents,
+			currency: 'usd',
+			type: 'paper' as const
+		});
+	}
 	for (const expense of expenses) {
 		items.push({
 			id: crypto.randomUUID(),
@@ -328,6 +359,19 @@ export const actions = {
 				throw error(404, 'Timesheet not found');
 			}
 
+			// Approved/void timesheets are locked — no edits. Corrections require a
+			// Void (which regenerates a fresh DRAFT).
+			if (timesheet.status === 'APPROVED' || timesheet.status === 'VOID') {
+				setFlash(
+					{
+						type: 'error',
+						message: `This timesheet is ${timesheet.status.toLowerCase()} and can no longer be edited. Void it to make corrections.`
+					},
+					event
+				);
+				return fail(409, { error: 'Timesheet is locked' });
+			}
+
 			const requisition = await getRequisitionById(timesheet.requisitionId);
 
 			if (!requisition || !requisition.referenceTimezone) {
@@ -409,6 +453,19 @@ export const actions = {
 
 			if (!timesheet) {
 				throw error(404, 'Timesheet not found');
+			}
+
+			// Approved/void timesheets are locked — no edits. Corrections require a
+			// Void (which regenerates a fresh DRAFT).
+			if (timesheet.status === 'APPROVED' || timesheet.status === 'VOID') {
+				setFlash(
+					{
+						type: 'error',
+						message: `This timesheet is ${timesheet.status.toLowerCase()} and can no longer be edited. Void it to make corrections.`
+					},
+					event
+				);
+				return fail(409, { error: 'Timesheet is locked' });
 			}
 
 			const requisition = await getRequisitionById(timesheet.requisitionId);
@@ -524,6 +581,25 @@ export const actions = {
 				return fail(400, { error: 'Resolve all pending expenses before approving' });
 			}
 
+			// Approval gate: every assigned (non-cancelled) workday for this
+			// candidate's week must have ended before we bill — otherwise a shift
+			// added later in the week could spawn a second timesheet/invoice.
+			const preApproval = await getTimesheetById(id);
+			if (!preApproval) {
+				return fail(404, { error: 'Timesheet not found' });
+			}
+			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheetWeek(preApproval);
+			if (unfinishedWorkdays.length > 0) {
+				setFlash(
+					{
+						type: 'error',
+						message: `Cannot approve yet: ${unfinishedWorkdays.length} assigned workday(s) this week have not ended.`
+					},
+					event
+				);
+				return fail(400, { error: 'All assigned workdays for the week must end before approval' });
+			}
+
 			const timesheet = await approveTimesheet(id, user.id);
 			const requisition = timesheet.requisitionId
 				? await getRequisitionById(timesheet.requisitionId)
@@ -537,14 +613,12 @@ export const actions = {
 
 			const effectiveRate = timesheet.adjustedHourlyRate ?? requisition.hourlyRate;
 
-			const amountInCents = convertToStripeAmount(
-				timesheet.totalHoursWorked || 0,
-				effectiveRate,
-				effectiveRate && effectiveRate * 1.5
-			);
+			const breakdown = computeHoursBreakdown(timesheet.totalHoursWorked || 0, effectiveRate);
+			const amountInCents = breakdown.billableCents;
 
+			// Admin fee applies to regular hours only — overtime is exempt.
 			const adminFeeCents = calculateAdminFeeCents(
-				amountInCents,
+				breakdown.regularCents,
 				adminConfig.adminPaymentFee,
 				adminConfig.adminPaymentFeeType
 			);
@@ -564,13 +638,15 @@ export const actions = {
 				return fail(400, { error: 'Invoice amount must be greater than $0.00' });
 			}
 
+			// Only ever put the candidate/professional's name on the invoice — never
+			// the logged-in admin's.
+			const { candidate } = await getCandidateProfileById(timesheet.associatedCandidateId);
+			const candidateName = `${candidate.user.firstName} ${candidate.user.lastName}`;
+
 			const clientProfile = await getClientProfileById(timesheet.associatedClientId);
 			const isPaperBilling = clientProfile?.profile.clientInvoiceMethod === 'PAPER';
 
-			console.log({ clientProfile, isPaperBilling });
-
 			if (isPaperBilling) {
-				const hoursWorked = parseFloat(String(timesheet.totalHoursWorked ?? 0));
 				const effectiveRateDollars = effectiveRate ?? 0;
 
 				await createPaperInvoiceRecord(
@@ -581,13 +657,15 @@ export const actions = {
 						timesheetId: timesheet.id,
 						requisitionId: timesheet.requisitionId ?? undefined,
 						candidateId: timesheet.associatedCandidateId,
-						description: `Dental Temp Staffing Solutions invoice: Hours worked for timesheet ${id}`,
+						description: `Dental Temp Staffing Solutions invoice: Hours worked for ${candidateName}`,
 						lineItems: buildPaperLineItems({
-							hoursWorked,
+							regularHours: breakdown.regularHours,
+							overtimeHours: breakdown.overtimeHours,
+							regularCents: breakdown.regularCents,
+							overtimeCents: breakdown.overtimeCents,
 							effectiveRateDollars,
-							billableCents: amountInCents,
 							adminFeeCents,
-							hoursDescription: `Hours worked for timesheet ${id}`,
+							hoursDescription: `Regular hours worked for ${candidateName}`,
 							expenses: approvedExpenses
 						})
 					},
@@ -600,13 +678,15 @@ export const actions = {
 				const stripeInvoice = await createStripeInvoice(
 					stripeCustomerId,
 					buildStripeLineItems({
-						billableCents: amountInCents,
+						regularCents: breakdown.regularCents,
+						overtimeCents: breakdown.overtimeCents,
+						overtimeHours: breakdown.overtimeHours,
 						adminFeeCents,
-						hoursDescription: `Invoice for timesheet ${id}`,
+						hoursDescription: `Regular hours worked for ${candidateName}`,
 						expenses: approvedExpenses
 					}),
 					{ userId: user.id, timesheetId: timesheet.id, clientId: timesheet.associatedClientId },
-					`Dental Temp Staffing Solutions invoice: Hours worked for ${user.firstName} ${user.lastName} for timesheet ${id}`
+					`Dental Temp Staffing Solutions invoice: Hours worked for ${candidateName}`
 				);
 
 				await createInvoiceRecord(
@@ -634,25 +714,62 @@ export const actions = {
 		}
 	},
 
+	// Void a timesheet that HAS an invoice: voids the timesheet + its invoice
+	// (paper or Stripe), clears wages, and disconnects workdays so a corrected
+	// timesheet can regenerate.
 	voidTimesheet: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user) {
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
 			redirect(302, '/auth/sign-in');
 		}
 		const userId = user.id;
 		try {
 			const { id } = event.params;
-			await voidTimesheet(id, userId);
-			setFlash({ type: 'success', message: 'Timesheet voided' }, event);
-			return { succes: true };
+			await voidTimesheetWithInvoice(id, userId);
+			setFlash({ type: 'success', message: 'Timesheet and invoice voided' }, event);
+			return { success: true };
 		} catch (err) {
 			logger.error('timesheet void failed', {
 				error: err,
 				timesheetId: event.params.id,
 				distinctId: userId
 			});
-			setFlash({ type: 'error', message: 'Error voiding timesheet' }, event);
+			const message =
+				err && typeof err === 'object' && 'body' in err
+					? // SvelteKit error() carries a { message } body
+						(err as { body?: { message?: string } }).body?.message
+					: undefined;
+			setFlash({ type: 'error', message: message || 'Error voiding timesheet' }, event);
+			return fail(500, { error: 'Failed to void timesheet' });
 		}
+	},
+
+	// Delete a timesheet that has NO invoice: removes the row and disconnects its
+	// workdays (nulls timesheetId) so they regenerate a fresh timesheet.
+	deleteTimesheet: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			redirect(302, '/auth/sign-in');
+		}
+		try {
+			const { id } = event.params;
+			await deleteTimesheet(id, user.id);
+			setFlash({ type: 'success', message: 'Timesheet deleted' }, event);
+		} catch (err) {
+			logger.error('timesheet delete failed', {
+				error: err,
+				timesheetId: event.params.id,
+				distinctId: user.id
+			});
+			const message =
+				err && typeof err === 'object' && 'body' in err
+					? (err as { body?: { message?: string } }).body?.message
+					: undefined;
+			setFlash({ type: 'error', message: message || 'Error deleting timesheet' }, event);
+			return fail(500, { error: 'Failed to delete timesheet' });
+		}
+		// Deleted — nothing to return to; send the admin back to the list.
+		redirect(303, '/timesheets');
 	},
 
 	adminOverrideTimesheet: async (event: RequestEvent) => {
@@ -670,6 +787,32 @@ export const actions = {
 			if (!timesheet) {
 				return fail(404, { error: 'Timesheet not found' });
 			}
+
+			// Override is a correction path for unapproved sheets only. An already
+			// APPROVED or VOID sheet must be voided (which regenerates a fresh one)
+			// rather than re-approved.
+			if (timesheet.status === 'APPROVED' || timesheet.status === 'VOID') {
+				setFlash(
+					{ type: 'error', message: `Cannot override a ${timesheet.status.toLowerCase()} timesheet` },
+					event
+				);
+				return fail(409, { error: 'Timesheet is locked' });
+			}
+
+			// Same approval gate as normal approval — all assigned workdays for the
+			// week must have ended before billing.
+			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheetWeek(timesheet);
+			if (unfinishedWorkdays.length > 0) {
+				setFlash(
+					{
+						type: 'error',
+						message: `Cannot approve yet: ${unfinishedWorkdays.length} assigned workday(s) this week have not ended.`
+					},
+					event
+				);
+				return fail(400, { error: 'All assigned workdays for the week must end before approval' });
+			}
+
 			const overridden = await adminOverrideTimesheet(id, user.id, timesheet);
 			const requisition = overridden.requisitionId
 				? await getRequisitionById(overridden.requisitionId)
@@ -698,14 +841,12 @@ export const actions = {
 
 			const effectiveRate = overridden.adjustedHourlyRate ?? requisition.hourlyRate;
 
-			const amountInCents = convertToStripeAmount(
-				timesheet.totalHoursWorked || 0,
-				effectiveRate,
-				effectiveRate && effectiveRate * 1.5
-			);
+			const breakdown = computeHoursBreakdown(timesheet.totalHoursWorked || 0, effectiveRate);
+			const amountInCents = breakdown.billableCents;
 
+			// Admin fee applies to regular hours only — overtime is exempt.
 			const adminFeeCents = calculateAdminFeeCents(
-				amountInCents,
+				breakdown.regularCents,
 				adminConfig.adminPaymentFee,
 				adminConfig.adminPaymentFeeType
 			);
@@ -724,11 +865,14 @@ export const actions = {
 				return fail(400, { error: 'Invoice amount must be greater than $0.00' });
 			}
 
+			// Only ever put the candidate/professional's name on the invoice.
+			const { candidate } = await getCandidateProfileById(overridden.associatedCandidateId);
+			const candidateName = `${candidate.user.firstName} ${candidate.user.lastName}`;
+
 			const clientProfile = await getClientProfileById(overridden.associatedClientId);
 			const isPaperBilling = clientProfile?.profile.clientInvoiceMethod === 'PAPER';
 
 			if (isPaperBilling) {
-				const hoursWorked = parseFloat(String(overridden.totalHoursWorked ?? 0));
 				const effectiveRateDollars = effectiveRate ?? 0;
 
 				await createPaperInvoiceRecord(
@@ -739,13 +883,15 @@ export const actions = {
 						timesheetId: overridden.id,
 						requisitionId: overridden.requisitionId ?? undefined,
 						candidateId: overridden.associatedCandidateId,
-						description: `Dental Temp Staffing Solutions invoice: Hours worked for timesheet ${id}`,
+						description: `Dental Temp Staffing Solutions invoice: Hours worked for ${candidateName}`,
 						lineItems: buildPaperLineItems({
-							hoursWorked,
+							regularHours: breakdown.regularHours,
+							overtimeHours: breakdown.overtimeHours,
+							regularCents: breakdown.regularCents,
+							overtimeCents: breakdown.overtimeCents,
 							effectiveRateDollars,
-							billableCents: amountInCents,
 							adminFeeCents,
-							hoursDescription: `Hours worked for timesheet ${id}`,
+							hoursDescription: `Regular hours worked for ${candidateName}`,
 							expenses: approvedExpenses
 						})
 					},
@@ -761,13 +907,15 @@ export const actions = {
 				const stripeInvoice = await createStripeInvoice(
 					stripeCustomerId,
 					buildStripeLineItems({
-						billableCents: amountInCents,
+						regularCents: breakdown.regularCents,
+						overtimeCents: breakdown.overtimeCents,
+						overtimeHours: breakdown.overtimeHours,
 						adminFeeCents,
-						hoursDescription: `Invoice for timesheet ${id}`,
+						hoursDescription: `Regular hours worked for ${candidateName}`,
 						expenses: approvedExpenses
 					}),
 					{ userId: user.id, timesheetId: overridden.id, clientId: overridden.associatedClientId },
-					`Dental Temp Staffing Solutions invoice: Hours worked for ${user.firstName} ${user.lastName} for timesheet ${id}`
+					`Dental Temp Staffing Solutions invoice: Hours worked for ${candidateName}`
 				);
 
 				await createInvoiceRecord(

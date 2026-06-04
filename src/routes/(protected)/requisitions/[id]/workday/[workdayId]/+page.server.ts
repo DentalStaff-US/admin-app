@@ -8,11 +8,13 @@ import {
 	getLocationByIdForCompany
 } from '$lib/server/database/queries/clients';
 import {
+	computeWeekBeginDate,
 	deleteRecurrenceDay,
 	editRecurrenceDay,
 	getRecurrenceDayDetails,
 	getRequisitionDetailsById,
-	getWorkdayDetails
+	getWorkdayDetails,
+	linkWorkdayToOpenTimesheet
 } from '$lib/server/database/queries/requisitions';
 import { USER_ROLES } from '$lib/config/constants';
 import { assertCanAccessLocation } from '$lib/server/scoping';
@@ -30,7 +32,7 @@ import {
 	maybeCleanupOrphanTimesheet,
 	recordRecurrenceDayCancellation
 } from '$lib/server/cancellations';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { editRecurrenceDaySchema } from '$lib/config/zod-schemas';
 import { superValidate, message, setError } from 'sveltekit-superforms/server';
@@ -303,6 +305,17 @@ export const actions = {
 					updatedAt: new Date()
 				});
 
+				// Proactively attach to the candidate's open timesheet for this
+				// requisition+week (if any) so a day assigned after the timesheet
+				// exists doesn't fragment into a second one.
+				await linkWorkdayToOpenTimesheet(tx, {
+					workdayId,
+					candidateId,
+					requisitionId,
+					dayStart: recurrenceDay.dayStart,
+					referenceTimezone: requisition.referenceTimezone
+				});
+
 				await tx
 					.update(recurrenceDayTable)
 					.set({ status: 'FILLED', updatedAt: new Date() })
@@ -511,15 +524,15 @@ export const actions = {
 
 				const clientId = await getClientIdByCompanyId(requisition.companyId);
 
-				// Calculate week start date
-				const recurrenceDate = new Date(recurrenceDay.date);
-				const dayOfWeek = recurrenceDate.getUTCDay();
-				const diffToMonday = (dayOfWeek + 6) % 7;
-				const weekStartDate = new Date(recurrenceDate);
-				weekStartDate.setUTCDate(recurrenceDate.getUTCDate() - diffToMonday);
-				const weekStartStr = weekStartDate.toISOString().split('T')[0];
+				// Monday-of-week in the requisition's timezone — same calc as the
+				// cron and the proactive linker, so all sites agree on the boundary.
+				const weekStartStr = computeWeekBeginDate(
+					recurrenceDay.dayStart,
+					requisition.referenceTimezone
+				);
 
-				// Check if a timesheet already exists for new candidate this week
+				// Reuse only an OPEN timesheet for the new candidate this week; a
+				// terminal (APPROVED/VOID) sheet must not absorb the reassigned day.
 				const existingTimesheet = await tx
 					.select()
 					.from(timesheetTable)
@@ -527,7 +540,8 @@ export const actions = {
 						and(
 							eq(timesheetTable.associatedCandidateId, newCandidateId),
 							eq(timesheetTable.weekBeginDate, weekStartStr),
-							eq(timesheetTable.requisitionId, requisitionId)
+							eq(timesheetTable.requisitionId, requisitionId),
+							inArray(timesheetTable.status, ['DRAFT', 'PENDING', 'DISCREPANCY'])
 						)
 					)
 					.limit(1);
@@ -547,7 +561,7 @@ export const actions = {
 						totalHoursWorked: '0',
 						totalHoursBilled: '0',
 						hoursRaw: [],
-						status: 'PENDING',
+						status: 'DRAFT',
 						validated: false,
 						awaitingClientSignature: true
 					});

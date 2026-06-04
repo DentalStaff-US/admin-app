@@ -30,7 +30,8 @@
 		Eye,
 		AlertTriangle,
 		MoreHorizontal,
-		Clock
+		Clock,
+		Ban
 	} from 'lucide-svelte';
 	import { goto } from '$app/navigation';
 	import { cn } from '$lib/utils';
@@ -57,7 +58,8 @@
 		return dueDate < today;
 	}
 
-	// Filter invoices by status
+	// Filter invoices by status. Voided invoices are segregated into their own
+	// tab, so every other tab (incl. "all") excludes them.
 	const filterByStatus = (invoices: InvoiceWithRelations[], status: string) => {
 		switch (status) {
 			case 'open':
@@ -66,8 +68,10 @@
 				return invoices.filter((inv) => inv.invoice.status === 'paid');
 			case 'overdue':
 				return invoices.filter((inv) => isOverdue(inv));
+			case 'voided':
+				return invoices.filter((inv) => inv.invoice.status === 'void');
 			default:
-				return invoices;
+				return invoices.filter((inv) => inv.invoice.status !== 'void');
 		}
 	};
 
@@ -188,12 +192,14 @@
 	const openOptions = writable<TableOptions<InvoiceWithRelations>>(createTableOptions([]));
 	const paidOptions = writable<TableOptions<InvoiceWithRelations>>(createTableOptions([]));
 	const overdueOptions = writable<TableOptions<InvoiceWithRelations>>(createTableOptions([]));
+	const voidedOptions = writable<TableOptions<InvoiceWithRelations>>(createTableOptions([]));
 
 	// Create table instances
 	const allTable = createSvelteTable(allOptions);
 	const openTable = createSvelteTable(openOptions);
 	const paidTable = createSvelteTable(paidOptions);
 	const overdueTable = createSvelteTable(overdueOptions);
+	const voidedTable = createSvelteTable(voidedOptions);
 
 	// Get current active table
 	$: currentTable =
@@ -203,39 +209,46 @@
 				? openTable
 				: activeTab === 'paid'
 					? paidTable
-					: overdueTable;
+					: activeTab === 'voided'
+						? voidedTable
+						: overdueTable;
 
 	// Update table data when invoices change
 	$: {
-		const allData = invoices;
+		const allData = filterByStatus(invoices, 'all');
 		const openData = filterByStatus(invoices, 'open');
 		const paidData = filterByStatus(invoices, 'paid');
 		const overdueData = filterByStatus(invoices, 'overdue');
+		const voidedData = filterByStatus(invoices, 'voided');
 
 		allOptions.update((opts) => ({ ...opts, data: allData, columns }));
 		openOptions.update((opts) => ({ ...opts, data: openData, columns }));
 		paidOptions.update((opts) => ({ ...opts, data: paidData, columns }));
 		overdueOptions.update((opts) => ({ ...opts, data: overdueData, columns }));
+		voidedOptions.update((opts) => ({ ...opts, data: voidedData, columns }));
 	}
 
 	onMount(() => {
-		const allData = invoices;
+		const allData = filterByStatus(invoices, 'all');
 		const openData = filterByStatus(invoices, 'open');
 		const paidData = filterByStatus(invoices, 'paid');
 		const overdueData = filterByStatus(invoices, 'overdue');
+		const voidedData = filterByStatus(invoices, 'voided');
 
 		allOptions.update((opts) => ({ ...opts, data: allData, columns }));
 		openOptions.update((opts) => ({ ...opts, data: openData, columns }));
 		paidOptions.update((opts) => ({ ...opts, data: paidData, columns }));
 		overdueOptions.update((opts) => ({ ...opts, data: overdueData, columns }));
+		voidedOptions.update((opts) => ({ ...opts, data: voidedData, columns }));
 	});
 
 	// Get tab counts
 	$: tabCounts = {
-		all: invoices.length,
+		all: filterByStatus(invoices, 'all').length,
 		open: filterByStatus(invoices, 'open').length,
 		paid: filterByStatus(invoices, 'paid').length,
-		overdue: filterByStatus(invoices, 'overdue').length
+		overdue: filterByStatus(invoices, 'overdue').length,
+		voided: filterByStatus(invoices, 'voided').length
 	};
 
 	function getSortingIcon(header: any) {
@@ -312,7 +325,7 @@
 	{:else}
 		<!-- Tabs with Tables -->
 		<Tabs.Root bind:value={activeTab} class="">
-			<Tabs.List class="grid w-full grid-cols-4">
+			<Tabs.List class="grid w-full grid-cols-5">
 				<Tabs.Trigger value="all" class="relative">
 					All Invoices
 					{#if tabCounts.all > 0}
@@ -348,10 +361,18 @@
 						></Badge>
 					{/if}
 				</Tabs.Trigger>
+				<Tabs.Trigger value="voided" class="relative">
+					<Ban class="h-4 w-4 mr-1" />
+					Voided
+					{#if tabCounts.voided > 0}
+						<Badge variant="secondary" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.voided}
+						></Badge>
+					{/if}
+				</Tabs.Trigger>
 			</Tabs.List>
 
 			<!-- Tab Contents -->
-			{#each ['all', 'open', 'paid', 'overdue'] as tabValue}
+			{#each ['all', 'open', 'paid', 'overdue', 'voided'] as tabValue}
 				<Tabs.Content value={tabValue} class="">
 					{#if activeTab === tabValue}
 						<div class="bg-white rounded-lg shadow-sm">

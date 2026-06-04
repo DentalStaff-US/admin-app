@@ -8,7 +8,7 @@ import {
 } from '$lib/server/database/schemas/requisition';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { clientCompanyTable } from '$lib/server/database/schemas/client';
-import { and, eq, isNull, lte } from 'drizzle-orm';
+import { and, eq, isNull, lte, inArray } from 'drizzle-orm';
 import crypto from 'crypto';
 import { CRON_SECRET } from '$env/static/private';
 import { toZonedTime } from 'date-fns-tz';
@@ -26,6 +26,32 @@ export const POST: RequestHandler = async ({ request }) => {
 	const result = await tryWithAdvisoryLock('processTimesheetCreation', async () => {
 		try {
 			const now = new Date();
+
+			// Self-heal: release any workdays still attached to a VOID timesheet.
+			// A correctly-voided timesheet detaches its workdays, but a void done
+			// before that logic existed (or any future regression) can leave the
+			// link dangling — which would keep those workdays out of regeneration
+			// forever. Nulling timesheetId here lets the eligibility query below
+			// pick them up and build a fresh DRAFT.
+			const released = await db
+				.update(workdayTable)
+				.set({ timesheetId: null, updatedAt: new Date() })
+				.where(
+					and(
+						isNull(workdayTable.cancelledAt),
+						inArray(
+							workdayTable.timesheetId,
+							db
+								.select({ id: timeSheetTable.id })
+								.from(timeSheetTable)
+								.where(eq(timeSheetTable.status, 'VOID'))
+						)
+					)
+				)
+				.returning({ id: workdayTable.id });
+			if (released.length > 0) {
+				logger.event?.('timesheet_cron_released_voided_workdays', { count: released.length });
+			}
 
 			// Find all workdays where:
 			// - timesheetId is null (not yet linked)
@@ -107,24 +133,29 @@ export const POST: RequestHandler = async ({ request }) => {
 
 			// Process each group
 			for (const group of groups.values()) {
-				const createdNew = await db.transaction(async (tx) => {
-					// Check if a timesheet already exists for this group
-					const existing = await tx
+				const outcome = await db.transaction(async (tx) => {
+					// Only reuse an OPEN timesheet for this week. Terminal sheets
+					// (APPROVED, VOID, REJECTED) must NOT absorb new/disconnected
+					// workdays — those form a fresh DRAFT instead. This is what lets a
+					// voided timesheet's released workdays regenerate correctly.
+					const [existing] = await tx
 						.select()
 						.from(timeSheetTable)
 						.where(
 							and(
 								eq(timeSheetTable.associatedCandidateId, group.candidateId),
 								eq(timeSheetTable.requisitionId, group.requisitionId),
-								eq(timeSheetTable.weekBeginDate, group.weekBeginDate)
+								eq(timeSheetTable.weekBeginDate, group.weekBeginDate),
+								inArray(timeSheetTable.status, ['DRAFT', 'PENDING', 'DISCREPANCY'])
 							)
 						)
 						.limit(1);
 
 					let timesheetId: string;
 					let didCreate = false;
+					let reopenedPending = false;
 
-					if (existing.length === 0) {
+					if (!existing) {
 						// Create new timesheet
 						timesheetId = crypto.randomUUID();
 						await tx.insert(timeSheetTable).values({
@@ -145,7 +176,16 @@ export const POST: RequestHandler = async ({ request }) => {
 						didCreate = true;
 						created++;
 					} else {
-						timesheetId = existing[0].id;
+						timesheetId = existing.id;
+						// A new workday joined an already-submitted sheet — reopen it so
+						// the added day's hours get entered before re-submission.
+						if (existing.status === 'PENDING') {
+							await tx
+								.update(timeSheetTable)
+								.set({ status: 'DRAFT', updatedAt: new Date() })
+								.where(eq(timeSheetTable.id, existing.id));
+							reopenedPending = true;
+						}
 					}
 
 					// Link all workdays in this group to the timesheet
@@ -157,13 +197,13 @@ export const POST: RequestHandler = async ({ request }) => {
 						linked++;
 					}
 
-					return didCreate;
+					return { didCreate, reopenedPending };
 				});
 
-				// Notify the candidate that they have a new draft timesheet to fill out.
-				// Fire after the transaction commits so the email/SMS doesn't fire on a
-				// rollback. Only on first creation, not re-link of existing timesheet.
-				if (createdNew) {
+				// Notify the candidate when there's a fresh sheet to fill out, or when
+				// we reopened a submitted one because a new day was added. Fire after
+				// the transaction commits so email/SMS doesn't go out on a rollback.
+				if (outcome.didCreate || outcome.reopenedPending) {
 					await notifyTimesheetCreated({
 						candidateId: group.candidateId,
 						requisitionId: group.requisitionId

@@ -441,6 +441,9 @@ export const timeSheetTable = pgTable(
 		weekBeginDate: date('week_begin_date').notNull(),
 		hoursRaw: json('hours_raw').$type<RawTimesheetHours[]>().default([]),
 		status: timesheetStatusEnum('status').default('DRAFT').notNull(),
+		submittedAt: timestamp('submitted_at', { withTimezone: true, mode: 'date' }),
+		approvedAt: timestamp('approved_at', { withTimezone: true, mode: 'date' }),
+		approvedByUserId: text('approved_by_user_id'),
 		discrepancyNote: text('discrepancy_note'),
 		adjustedHourlyRate: smallint('adjusted_hourly_rate'),
 		wagesStatus: wagesStatusEnum('wages_status')

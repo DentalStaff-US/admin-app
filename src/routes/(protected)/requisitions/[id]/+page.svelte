@@ -781,6 +781,8 @@
 									form={recurrenceDayForm}
 									{company}
 									{requisition}
+									{isAdmin}
+									qualifiedProfessionals={data.qualifiedProfessionals ?? []}
 								/>
 							{/if}
 						</CardHeader>
