@@ -77,6 +77,7 @@ import { toZonedTime } from 'date-fns-tz';
 import { voidStripeInvoice } from '$lib/server/stripe';
 import { DEFAULT_MAX_RECORD_LIMIT } from '$lib/config/constants';
 import { actionHistoryTable } from '../schemas/admin';
+import { logger } from '$lib/server/logger';
 
 // Types and Interfaces
 export interface TimesheetDiscrepancy {
@@ -1629,17 +1630,27 @@ export async function getUnfinishedWorkdaysForTimesheetWeek(timesheet: {
 }) {
 	if (!timesheet.requisitionId) return [];
 	const now = new Date();
+
+	// Match by the Mon–Sun date window rather than by timesheet link, so workdays
+	// that exist for this candidate+requisition+week but aren't linked to a
+	// timesheet yet (e.g. future-dated days the cron hasn't picked up) still count
+	// — those are exactly the late-week shifts we must not approve over.
+	const weekStart = timesheet.weekBeginDate; // 'YYYY-MM-DD' (Monday)
+	const weekEndDate = new Date(`${weekStart}T00:00:00Z`);
+	weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 6);
+	const weekEnd = weekEndDate.toISOString().split('T')[0];
+
 	const rows = await db
 		.select({ workday: workdayTable, recurrenceDay: recurrenceDayTable })
 		.from(workdayTable)
 		.innerJoin(recurrenceDayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
-		.innerJoin(timeSheetTable, eq(timeSheetTable.id, workdayTable.timesheetId))
 		.where(
 			and(
 				eq(workdayTable.candidateId, timesheet.associatedCandidateId),
 				eq(workdayTable.requisitionId, timesheet.requisitionId),
 				isNull(workdayTable.cancelledAt),
-				eq(timeSheetTable.weekBeginDate, timesheet.weekBeginDate),
+				gte(recurrenceDayTable.date, weekStart),
+				lte(recurrenceDayTable.date, weekEnd),
 				gt(recurrenceDayTable.dayEnd, now)
 			)
 		);
@@ -2889,8 +2900,12 @@ export async function voidTimesheetWithInvoice(timesheetId: string, userId: stri
 	// Void the Stripe invoice OUTSIDE the DB transaction so a Stripe failure
 	// doesn't leave us half-committed. If Stripe rejects (e.g. paid race), we
 	// abort before touching our DB.
-	if (invoice.invoiceType === 'STRIPE' && invoice.stripeInvoiceId) {
-		await voidStripeInvoice(invoice.stripeInvoiceId);
+	try {
+		if (invoice.invoiceType === 'STRIPE' && invoice.stripeInvoiceId) {
+			await voidStripeInvoice(invoice.stripeInvoiceId);
+		}
+	} catch (err) {
+		logger.error('Error voiding Stripe invoice:', { error: err, timesheetId, userId });
 	}
 
 	return await db.transaction(async (tx) => {

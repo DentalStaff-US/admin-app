@@ -1015,29 +1015,39 @@
 										</div>
 									{/if}
 								{:else}
-									<!-- Read-only view — show hoursRaw if available, otherwise show scheduled workdays -->
-									{@const rowsToShow =
-										data?.timesheet?.hoursRaw && data.timesheet.hoursRaw.length > 0
-											? data.timesheet.hoursRaw.map((entry) => ({
-													dateKey: entry.date,
-													dayString: formatFullDate(entry.date),
-													startTime: entry.startTime,
-													endTime: entry.endTime,
-													lunchStartTime: entry.lunchStartTime,
-													lunchEndTime: entry.lunchEndTime,
-													hours: entry.hours,
-													hasEntry: true
-												}))
-											: scheduledWorkDays.map(({ dateKey, dayString }) => ({
-													dateKey,
-													dayString,
-													startTime: null,
-													endTime: null,
-													lunchStartTime: null,
-													lunchEndTime: null,
-													hours: null,
-													hasEntry: false
-												}))}
+									<!-- Read-only view — render EVERY scheduled day, overlaying logged
+									hours from hoursRaw where present, so days that are assigned but
+									not yet worked (e.g. a Thu/Fri shift later in the week) still show
+									as "No hours entered" instead of disappearing. -->
+									{@const hoursRawList = data?.timesheet?.hoursRaw ?? []}
+									{@const scheduledKeys = new Set(scheduledWorkDays.map((d) => d.dateKey))}
+									{@const rowsToShow = [
+										...scheduledWorkDays.map(({ dateKey, dayString }) => {
+											const entry = hoursRawList.find((e) => e.date === dateKey);
+											return {
+												dateKey,
+												dayString,
+												startTime: entry?.startTime ?? null,
+												endTime: entry?.endTime ?? null,
+												lunchStartTime: entry?.lunchStartTime ?? null,
+												lunchEndTime: entry?.lunchEndTime ?? null,
+												hours: entry?.hours ?? null,
+												hasEntry: !!entry
+											};
+										}),
+										...hoursRawList
+											.filter((e) => !scheduledKeys.has(e.date))
+											.map((entry) => ({
+												dateKey: entry.date,
+												dayString: formatFullDate(entry.date),
+												startTime: entry.startTime,
+												endTime: entry.endTime,
+												lunchStartTime: entry.lunchStartTime,
+												lunchEndTime: entry.lunchEndTime,
+												hours: entry.hours,
+												hasEntry: true
+											}))
+									]}
 									{#if rowsToShow.length > 0}
 										<div class="divide-y">
 											{#each rowsToShow as row}
@@ -1222,17 +1232,30 @@
 							{#if isPending && !isEditing}
 								<Button
 									class="w-full bg-green-700 hover:bg-green-800 gap-2"
-									disabled={hasDiscrepancies()}
+									disabled={hasDiscrepancies() || data.hasUnfinishedWorkdays}
 									on:click={() => (approvalDialogOpen = true)}
 								>
 									<CheckCircle2 class="h-4 w-4" />
 									<span>Approve Timesheet</span>
 								</Button>
 
+								{#if data.hasUnfinishedWorkdays}
+									<Alert variant="destructive">
+										<AlertCircle class="h-4 w-4" />
+										<AlertDescription>
+											{data.unfinishedWorkdayCount} assigned workday{data.unfinishedWorkdayCount === 1
+												? ''
+												: 's'} this week {data.unfinishedWorkdayCount === 1 ? 'has' : 'have'} not ended
+											yet. Approval (and invoicing) unlocks once every shift in the Mon–Sun week is over.
+										</AlertDescription>
+									</Alert>
+								{/if}
+
 								{#if hasDiscrepancies()}
 									<Button
 										variant="outline"
 										class="w-full border-amber-200 text-amber-700 hover:bg-amber-50 gap-2"
+										disabled={data.hasUnfinishedWorkdays}
 										on:click={() => (overrideDialogOpen = true)}
 									>
 										<Shield class="h-4 w-4" />
@@ -1625,7 +1648,7 @@
 								<Button
 									class="w-full bg-green-700 hover:bg-green-800 gap-2"
 									on:click={() => (approvalDialogOpen = true)}
-									disabled={hasDiscrepancies()}
+									disabled={hasDiscrepancies() || data.hasUnfinishedWorkdays}
 								>
 									<CheckCircle2 class="h-4 w-4" />
 									<span>Approve Timesheet</span>
@@ -1641,6 +1664,18 @@
 									<span>Reject Timesheet</span>
 								</Button>
 							</div>
+
+							{#if data.hasUnfinishedWorkdays}
+								<Alert variant="destructive" class="mt-3">
+									<AlertCircle class="h-4 w-4" />
+									<AlertDescription>
+										{data.unfinishedWorkdayCount} assigned workday{data.unfinishedWorkdayCount === 1
+											? ''
+											: 's'} this week {data.unfinishedWorkdayCount === 1 ? 'has' : 'have'} not ended
+										yet. Approval unlocks once every shift in the Mon–Sun week is over.
+									</AlertDescription>
+								</Alert>
+							{/if}
 
 							{#if hasDiscrepancies()}
 								<Alert variant="default" class="mt-3">
