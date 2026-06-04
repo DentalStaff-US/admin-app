@@ -1,6 +1,6 @@
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { stripe } from '$lib/server/stripe';
-import { redirect, error } from '@sveltejs/kit';
+import { redirect, error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, RequestEvent } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
 import {
@@ -65,6 +65,17 @@ export const actions = {
 		const invoice = await getInvoiceByIdAdmin(id);
 		if (!invoice) redirect(302, '/invoices');
 
+		// Never attempt payment on an invoice that is voided, already paid, or
+		// written off — the button is hidden for these, this is the server guard.
+		const blockedStatuses = ['void', 'paid', 'uncollectible'];
+		if (blockedStatuses.includes(invoice.invoice.status)) {
+			setFlash(
+				{ type: 'error', message: `Cannot process a ${invoice.invoice.status} invoice` },
+				event
+			);
+			return fail(400, { error: `Invoice is ${invoice.invoice.status}` });
+		}
+
 		try {
 			if (invoice.invoice.stripeInvoiceId) {
 				const result = await stripe.invoices.pay(invoice.invoice.stripeInvoiceId);
@@ -95,6 +106,7 @@ export const actions = {
 			// Fetch current invoice state
 			const [currentInvoice] = await db
 				.select({
+					status: invoiceTable.status,
 					amountRemaining: invoiceTable.amountRemaining,
 					amountPaid: invoiceTable.amountPaid,
 					total: invoiceTable.total
@@ -106,6 +118,16 @@ export const actions = {
 			if (!currentInvoice) {
 				setFlash({ type: 'error', message: 'Invoice not found' }, event);
 				return { form };
+			}
+
+			// A voided invoice is dead — no payments/refunds/adjustments may post
+			// against it.
+			if (currentInvoice.status === 'void') {
+				setFlash(
+					{ type: 'error', message: 'Cannot record a transaction on a voided invoice' },
+					event
+				);
+				return fail(400, { form });
 			}
 
 			const currentRemaining = parseFloat(String(currentInvoice.amountRemaining ?? 0));

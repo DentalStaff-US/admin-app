@@ -20,11 +20,8 @@ export async function createStripeInvoice(
 		throw new Error('Stripe customer ID is required');
 	}
 
-	let stage:
-		| 'create_invoice'
-		| 'create_invoice_items'
-		| 'finalize_invoice'
-		| 'send_invoice' = 'create_invoice';
+	let stage: 'create_invoice' | 'create_invoice_items' | 'finalize_invoice' | 'send_invoice' =
+		'create_invoice';
 	let invoiceId: string | undefined;
 
 	try {
@@ -119,6 +116,19 @@ export async function createStripeInvoice(
 }
 
 /**
+ * Voids a finalized Stripe invoice so the client can no longer pay it. Stripe
+ * rejects voiding an already-`paid` (or draft) invoice — that error propagates
+ * to the caller, which blocks the void. Our `invoice.voided` webhook syncs the
+ * DB `status` to `void`, so we don't write the status here.
+ */
+export async function voidStripeInvoice(stripeInvoiceId: string): Promise<Stripe.Invoice> {
+	if (!stripeInvoiceId) {
+		throw new Error('Stripe invoice ID is required');
+	}
+	return stripe.invoices.voidInvoice(stripeInvoiceId);
+}
+
+/**
  * Idempotent: returns the existing Stripe customer if one is already linked,
  * else creates one with our standard metadata (clientId + userId) and returns
  * the new id. Single place that ever issues `stripe.customers.create` for a
@@ -155,9 +165,7 @@ export async function ensureStripeCustomer(opts: {
  * skip Checkout entirely and just sync our DB. Returns `false` for any
  * lookup error (lenient) so a Stripe outage doesn't block setup attempts.
  */
-export async function customerHasDefaultPaymentMethod(
-	customerId: string
-): Promise<boolean> {
+export async function customerHasDefaultPaymentMethod(customerId: string): Promise<boolean> {
 	try {
 		const customer = await stripe.customers.retrieve(customerId);
 		if (customer.deleted) return false;

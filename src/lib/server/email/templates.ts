@@ -642,6 +642,35 @@ ${daysText}
 			subject: `New Requisition Available | ${APP_NAME}`
 		};
 	},
+	candidateAssignedNotificationEmail: (
+		candidateDetails: { firstName: string | null },
+		details: {
+			daysLanguage: string;
+			disciplineName: string;
+			requisitionNumber: number;
+			loginUrl: string;
+		}
+	) => {
+		const name = candidateDetails.firstName ?? 'there';
+		return {
+			subject: `You've been assigned a shift | ${APP_NAME}`,
+			textEmail: `
+            Hello ${name},
+
+            You have been assigned by DTSS to requisition #${details.requisitionNumber}: ${details.disciplineName} for ${details.daysLanguage}.
+
+            Please log in to DTSS to verify your shift start times: ${details.loginUrl}
+
+            Thanks for working with ${APP_NAME}.
+            `,
+			htmlEmail: `
+            <p>Hello ${name},</p>
+            <p>You have been assigned by DTSS to requsition <strong>#${details.requisitionNumber}: ${details.disciplineName}</strong> for <strong>${details.daysLanguage}</strong>.</p>
+            <p>Please log in to DTSS to verify your shift start times: <a href="${details.loginUrl}">${details.loginUrl}</a></p>
+            <p>Thanks for working with ${APP_NAME}.</p>
+            `.trim()
+		};
+	},
 	applicationApprovedNotificationEmail: (
 		candidateDetails: { firstName: string | null },
 		details: { discipline: string; company: string; dashboardUrl: string }

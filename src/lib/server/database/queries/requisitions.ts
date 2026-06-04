@@ -73,6 +73,8 @@ import { writeActionHistory } from './admin';
 import { normalizeDate } from '$lib/_helpers';
 import type Stripe from 'stripe';
 import { calculateMaxHours, toUTCDateString } from '$lib/_helpers/UTCTimezoneUtils';
+import { toZonedTime } from 'date-fns-tz';
+import { voidStripeInvoice } from '$lib/server/stripe';
 import { DEFAULT_MAX_RECORD_LIMIT } from '$lib/config/constants';
 import { actionHistoryTable } from '../schemas/admin';
 
@@ -662,10 +664,7 @@ export async function changeRequisitionStatus(
 	tx?: any
 ) {
 	const exec = tx || db;
-	const [original] = await exec
-		.select()
-		.from(requisitionTable)
-		.where(eq(requisitionTable.id, id));
+	const [original] = await exec.select().from(requisitionTable).where(eq(requisitionTable.id, id));
 	if (original) {
 		const [update] = await exec
 			.update(requisitionTable)
@@ -808,10 +807,7 @@ export const getRecentRequisitionApplications = async (
 				requisitionTable,
 				eq(requisitionApplicationTable.requisitionId, requisitionTable.id)
 			)
-			.innerJoin(
-				requisitionDiscipline,
-				eq(requisitionDiscipline.id, requisitionTable.disciplineId)
-			)
+			.innerJoin(requisitionDiscipline, eq(requisitionDiscipline.id, requisitionTable.disciplineId))
 			.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
 			.leftJoin(
 				candidateDisciplineExperienceTable,
@@ -832,9 +828,7 @@ export const getRecentRequisitionApplications = async (
 				and(
 					eq(requisitionTable.permanentPosition, true),
 					eq(requisitionTable.companyId, companyId),
-					Array.isArray(locationIds)
-						? inArray(requisitionTable.locationId, locationIds)
-						: undefined
+					Array.isArray(locationIds) ? inArray(requisitionTable.locationId, locationIds) : undefined
 				)
 			)
 			.orderBy(desc(requisitionApplicationTable.createdAt))
@@ -1133,23 +1127,21 @@ export async function getRequisitionTimesheets(requisitionId: number | undefined
 	}
 }
 
-export async function getNewApplicationsCount(
-	clientId: string,
-	locationIds?: string[] | null
-) {
+export async function getNewApplicationsCount(clientId: string, locationIds?: string[] | null) {
 	if (Array.isArray(locationIds) && locationIds.length === 0) return 0;
 	try {
 		const [result] = await db
 			.select({ count: count() })
 			.from(requisitionApplicationTable)
-			.leftJoin(requisitionTable, eq(requisitionTable.id, requisitionApplicationTable.requisitionId))
+			.leftJoin(
+				requisitionTable,
+				eq(requisitionTable.id, requisitionApplicationTable.requisitionId)
+			)
 			.where(
 				and(
 					eq(requisitionApplicationTable.clientId, clientId),
 					eq(requisitionApplicationTable.status, 'PENDING'),
-					Array.isArray(locationIds)
-						? inArray(requisitionTable.locationId, locationIds)
-						: undefined
+					Array.isArray(locationIds) ? inArray(requisitionTable.locationId, locationIds) : undefined
 				)
 			);
 
@@ -1189,9 +1181,7 @@ export async function getRecentTimesheetsDueForClient(
 					eq(timeSheetTable.associatedClientId, clientId),
 					eq(timeSheetTable.status, 'PENDING'),
 					isNull(timeSheetTable.wagesStatus),
-					Array.isArray(locationIds)
-						? inArray(requisitionTable.locationId, locationIds)
-						: undefined
+					Array.isArray(locationIds) ? inArray(requisitionTable.locationId, locationIds) : undefined
 				)
 			);
 
@@ -1301,10 +1291,7 @@ export async function getAllTimesheetsForClient(
 	}
 }
 
-export async function getTimesheetsDueCount(
-	clientId: string,
-	locationIds?: string[] | null
-) {
+export async function getTimesheetsDueCount(clientId: string, locationIds?: string[] | null) {
 	if (Array.isArray(locationIds) && locationIds.length === 0) return 0;
 	try {
 		const [result] = await db
@@ -1315,9 +1302,7 @@ export async function getTimesheetsDueCount(
 				and(
 					eq(timeSheetTable.associatedClientId, clientId),
 					eq(timeSheetTable.status, 'PENDING'),
-					Array.isArray(locationIds)
-						? inArray(requisitionTable.locationId, locationIds)
-						: undefined
+					Array.isArray(locationIds) ? inArray(requisitionTable.locationId, locationIds) : undefined
 				)
 			);
 
@@ -1410,9 +1395,7 @@ export async function getClientCompanyTimesheetDiscrepancies(
 			and(
 				eq(clientProfileTable.id, clientProfileId),
 				eq(timeSheetTable.status, 'DISCREPANCY'),
-				Array.isArray(locationIds)
-					? inArray(requisitionTable.locationId, locationIds)
-					: undefined
+				Array.isArray(locationIds) ? inArray(requisitionTable.locationId, locationIds) : undefined
 			)
 		);
 
@@ -1628,6 +1611,95 @@ export async function getWorkdaysForTimesheet(timesheet: any) {
 		.orderBy(recurrenceDayTable.date);
 
 	return workdays;
+}
+
+/**
+ * Approval gate: returns the non-cancelled workdays for this timesheet's
+ * candidate+requisition+week whose shift has NOT yet ended (recurrenceDay.dayEnd
+ * in the future). Matches by week keys (candidate/requisition/weekBeginDate) —
+ * the same keys the cron groups on — rather than by timesheetId, so a shift
+ * assigned later in the week that isn't linked yet still blocks approval. A
+ * non-empty result means approval must be refused (premature → double-charge
+ * risk).
+ */
+export async function getUnfinishedWorkdaysForTimesheetWeek(timesheet: {
+	associatedCandidateId: string;
+	requisitionId: number | null;
+	weekBeginDate: string;
+}) {
+	if (!timesheet.requisitionId) return [];
+	const now = new Date();
+	const rows = await db
+		.select({ workday: workdayTable, recurrenceDay: recurrenceDayTable })
+		.from(workdayTable)
+		.innerJoin(recurrenceDayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
+		.innerJoin(timeSheetTable, eq(timeSheetTable.id, workdayTable.timesheetId))
+		.where(
+			and(
+				eq(workdayTable.candidateId, timesheet.associatedCandidateId),
+				eq(workdayTable.requisitionId, timesheet.requisitionId),
+				isNull(workdayTable.cancelledAt),
+				eq(timeSheetTable.weekBeginDate, timesheet.weekBeginDate),
+				gt(recurrenceDayTable.dayEnd, now)
+			)
+		);
+	return rows;
+}
+
+/**
+ * Proactively links a freshly-created workday to the candidate's OPEN timesheet
+ * for its requisition+week, if one exists — so shifts assigned after the
+ * timesheet was created (or before the shift starts) land on the same timesheet
+ * instead of fragmenting into a second one. Computes the week boundary the same
+ * way as the cron. If the matched timesheet is already PENDING, it is reverted
+ * to DRAFT so the newly added day's hours get (re)entered before resubmission.
+ *
+ * Pass a transaction `tx` to run inside the workday-insert transaction. Returns
+ * the linked timesheetId, or null if no open timesheet exists (the cron will
+ * create one once the shift starts).
+ */
+export async function linkWorkdayToOpenTimesheet(
+	tx: any,
+	args: {
+		workdayId: string;
+		candidateId: string;
+		requisitionId: number;
+		dayStart: Date;
+		referenceTimezone: string | null | undefined;
+	}
+): Promise<string | null> {
+	const weekBeginDate = computeWeekBeginDate(args.dayStart, args.referenceTimezone);
+
+	const [existing] = await tx
+		.select()
+		.from(timeSheetTable)
+		.where(
+			and(
+				eq(timeSheetTable.associatedCandidateId, args.candidateId),
+				eq(timeSheetTable.requisitionId, args.requisitionId),
+				eq(timeSheetTable.weekBeginDate, weekBeginDate),
+				inArray(timeSheetTable.status, [...OPEN_TIMESHEET_STATUSES])
+			)
+		)
+		.limit(1);
+
+	if (!existing) return null;
+
+	await tx
+		.update(workdayTable)
+		.set({ timesheetId: existing.id, updatedAt: new Date() })
+		.where(eq(workdayTable.id, args.workdayId));
+
+	// A new day was added to an already-submitted sheet — reopen it so the day's
+	// hours can be entered and the sheet re-submitted/re-approved.
+	if (existing.status === 'PENDING') {
+		await tx
+			.update(timeSheetTable)
+			.set({ status: 'DRAFT', updatedAt: new Date() })
+			.where(eq(timeSheetTable.id, existing.id));
+	}
+
+	return existing.id;
 }
 
 export const getWorkdayDetails = async (
@@ -2751,18 +2823,115 @@ export async function revertTimesheetToPending(timesheetId: string, userId: stri
 	}
 }
 
-export async function voidTimesheet(timesheetId: string, userId: string) {
+/**
+ * Hard-deletes a timesheet that has NO invoice. Disconnects its workdays
+ * (set timesheetId = NULL) first so they survive and can regenerate a fresh
+ * timesheet via the proactive linker / cron. Throws if an invoice is linked —
+ * callers must use {@link voidTimesheetWithInvoice} in that case.
+ */
+export async function deleteTimesheet(timesheetId: string, userId: string) {
 	try {
-		const [original] = await db
+		const existingInvoice = await getInvoiceByTimesheetId(timesheetId);
+		if (existingInvoice) {
+			throw error(409, 'Timesheet has an invoice — void it instead of deleting');
+		}
+
+		return await db.transaction(async (tx) => {
+			const [original] = await tx
+				.select()
+				.from(timeSheetTable)
+				.where(eq(timeSheetTable.id, timesheetId));
+
+			if (!original) {
+				throw error(404, 'Timesheet not found');
+			}
+
+			await tx
+				.update(workdayTable)
+				.set({ timesheetId: null, updatedAt: new Date() })
+				.where(eq(workdayTable.timesheetId, timesheetId));
+
+			await tx.delete(timeSheetTable).where(eq(timeSheetTable.id, timesheetId));
+
+			await writeActionHistory({
+				table: 'TIMESHEETS',
+				userId,
+				action: 'DELETE',
+				entityId: timesheetId,
+				beforeState: original,
+				metadata: { reason: 'timesheet_deleted', disconnectedWorkdays: true }
+			});
+
+			return original;
+		});
+	} catch (err) {
+		if (err && typeof err === 'object' && 'status' in err) throw err;
+		throw error(500, `Error deleting timesheet: ${err}`);
+	}
+}
+
+/**
+ * Voids an APPROVED timesheet that has an invoice. Voids the invoice too —
+ * paper invoices are marked void directly; Stripe invoices are voided through
+ * Stripe (the invoice.voided webhook syncs our DB status). Clears the wages
+ * status, nulls the invoice's timesheetId, and disconnects the workdays so a
+ * corrected timesheet can regenerate. Blocks if the invoice is already paid.
+ */
+export async function voidTimesheetWithInvoice(timesheetId: string, userId: string) {
+	const invoice = await getInvoiceByTimesheetId(timesheetId);
+	if (!invoice) {
+		throw error(409, 'No invoice linked to this timesheet — use delete instead');
+	}
+	if (invoice.status === 'paid') {
+		throw error(409, 'Invoice is already paid — a refund is required, not a void');
+	}
+
+	// Void the Stripe invoice OUTSIDE the DB transaction so a Stripe failure
+	// doesn't leave us half-committed. If Stripe rejects (e.g. paid race), we
+	// abort before touching our DB.
+	if (invoice.invoiceType === 'STRIPE' && invoice.stripeInvoiceId) {
+		await voidStripeInvoice(invoice.stripeInvoiceId);
+	}
+
+	return await db.transaction(async (tx) => {
+		const [original] = await tx
 			.select()
 			.from(timeSheetTable)
 			.where(eq(timeSheetTable.id, timesheetId));
 
-		const [result] = await db
+		if (!original) {
+			throw error(404, 'Timesheet not found');
+		}
+
+		const [voidedTimesheet] = await tx
 			.update(timeSheetTable)
-			.set({ status: 'VOID' })
-			.where(eq(timeSheetTable.id, original.id))
+			.set({ status: 'VOID', wagesStatus: null, updatedAt: new Date() })
+			.where(eq(timeSheetTable.id, timesheetId))
 			.returning();
+
+		// Paper invoices have no Stripe webhook to flip the status, so do it here.
+		// Stripe invoices get status='void' from the invoice.voided webhook; we
+		// only detach the timesheet link here.
+		if (invoice.invoiceType === 'PAPER') {
+			await tx
+				.update(invoiceTable)
+				.set({ timesheetId: null, status: 'void', voidedAt: new Date(), updatedAt: new Date() })
+				.where(eq(invoiceTable.id, invoice.id!));
+		} else {
+			await tx
+				.update(invoiceTable)
+				.set({ timesheetId: null, updatedAt: new Date() })
+				.where(eq(invoiceTable.id, invoice.id!));
+		}
+
+		// Disconnect the workdays (set timesheetId NULL) so the
+		// processTimesheetCreation cron regenerates a fresh DRAFT for them on its
+		// next run. The cron's status-filtered lookup ignores this VOID sheet, so
+		// the released workdays form a brand-new DRAFT rather than re-joining it.
+		await tx
+			.update(workdayTable)
+			.set({ timesheetId: null, updatedAt: new Date() })
+			.where(eq(workdayTable.timesheetId, timesheetId));
 
 		await writeActionHistory({
 			table: 'TIMESHEETS',
@@ -2770,14 +2939,17 @@ export async function voidTimesheet(timesheetId: string, userId: string) {
 			action: 'UPDATE',
 			entityId: timesheetId,
 			beforeState: original,
-			afterState: result,
-			metadata: { status: 'VOID' }
+			afterState: voidedTimesheet,
+			metadata: {
+				status: 'VOID',
+				voidedInvoiceId: invoice.id,
+				invoiceType: invoice.invoiceType,
+				disconnectedWorkdays: true
+			}
 		});
 
-		return result;
-	} catch (err) {
-		throw error(500, `Error rejecting timesheet: ${error}`);
-	}
+		return voidedTimesheet;
+	});
 }
 
 export async function rejectTimesheet(
@@ -3191,56 +3363,94 @@ export async function createPaperInvoiceRecord(
  * @param candidateRateOvertime - Optional overtime hourly rate (decimal string or number)
  * @returns Total amount in cents for Stripe (integer)
  */
-export function convertToStripeAmount(
+// Weekly overtime kicks in past this many hours. Overtime is always billed at
+// 1.5× the base rate, and the admin fee never applies to the overtime portion.
+export const STANDARD_HOURS_THRESHOLD = 40;
+export const OVERTIME_MULTIPLIER = 1.5;
+
+export type HoursBreakdown = {
+	regularHours: number;
+	overtimeHours: number;
+	regularCents: number;
+	overtimeCents: number;
+	billableCents: number;
+};
+
+/**
+ * Single source of truth for the weekly 40h overtime split. Hours up to 40 bill
+ * at `baseRate`; hours beyond 40 bill at `baseRate × 1.5`. `baseRate` is in
+ * dollars. Returns each portion in cents plus the combined `billableCents`
+ * (which equals what `convertToStripeAmount` returns).
+ */
+export function computeHoursBreakdown(
 	totalHoursWorked: string | number,
-	rateOfPayBase: string | number | null,
-	rateOfPayWithOvertime?: string | number | null
-): number {
+	rateOfPayBase: string | number | null
+): HoursBreakdown {
 	if (!rateOfPayBase) throw new Error('Base rate is required');
-	// Convert all inputs to numbers, handling null/undefined
+
 	const hours = parseFloat(String(totalHoursWorked));
 	const baseRate = parseFloat(String(rateOfPayBase));
-	const overtimeRate = rateOfPayWithOvertime ? parseFloat(String(rateOfPayWithOvertime)) : null;
 
-	// Validate inputs
 	if (isNaN(hours) || hours < 0) {
 		throw new Error('Invalid totalHoursWorked: must be a valid positive number');
 	}
-
 	if (isNaN(baseRate) || baseRate < 0) {
 		throw new Error('Invalid rateOfPayBase: must be a valid positive number');
 	}
 
-	if (overtimeRate !== null && (isNaN(overtimeRate) || overtimeRate < 0)) {
-		throw new Error('Invalid candidateRateOvertime: must be a valid positive number or null');
-	}
+	const regularHours = Math.min(hours, STANDARD_HOURS_THRESHOLD);
+	const overtimeHours = Math.max(0, hours - STANDARD_HOURS_THRESHOLD);
 
-	// Define standard hours threshold (adjust as needed for your business rules)
-	const STANDARD_HOURS_THRESHOLD = 40;
+	const regularCents = Math.round(regularHours * baseRate * 100);
+	const overtimeCents = Math.round(overtimeHours * baseRate * OVERTIME_MULTIPLIER * 100);
 
-	let totalAmount = 0;
-
-	if (hours <= STANDARD_HOURS_THRESHOLD || !overtimeRate) {
-		// All hours are billed at base rate, or no overtime rate specified
-		totalAmount = hours * baseRate;
-	} else {
-		// Split between regular and overtime hours
-		const regularHours = STANDARD_HOURS_THRESHOLD;
-		const overtimeHours = hours - STANDARD_HOURS_THRESHOLD;
-
-		totalAmount = regularHours * baseRate + overtimeHours * overtimeRate;
-	}
-
-	// Convert to cents for Stripe (multiply by 100 and round to avoid floating point issues)
-	const amountInCents = Math.round(totalAmount * 100);
-	console.log('Amount in cents:', amountInCents);
-	// Ensure the amount is a positive integer
-	if (amountInCents < 0) {
-		throw new Error('Calculated amount is negative, which is invalid');
-	}
-
-	return amountInCents;
+	return {
+		regularHours,
+		overtimeHours,
+		regularCents,
+		overtimeCents,
+		billableCents: regularCents + overtimeCents
+	};
 }
+
+/**
+ * Thin wrapper kept for existing callers: returns the combined billable amount
+ * in cents (regular + overtime). The optional overtime-rate argument is ignored
+ * — overtime is always 1.5× base via {@link computeHoursBreakdown}.
+ */
+export function convertToStripeAmount(
+	totalHoursWorked: string | number,
+	rateOfPayBase: string | number | null,
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	_rateOfPayWithOvertime?: string | number | null
+): number {
+	return computeHoursBreakdown(totalHoursWorked, rateOfPayBase).billableCents;
+}
+
+/**
+ * Monday (in the requisition's timezone) of the week containing `dayStart`,
+ * formatted YYYY-MM-DD. Mirrors the canonical calc in the
+ * processTimesheetCreation cron so every workday-linking site agrees on the
+ * week boundary.
+ */
+export function computeWeekBeginDate(
+	dayStart: Date,
+	referenceTimezone: string | null | undefined
+): string {
+	const tz = referenceTimezone || 'America/New_York';
+	const dayStartInTz = toZonedTime(dayStart, tz);
+	const dayOfWeek = dayStartInTz.getDay(); // 0=Sun, 1=Mon ... 6=Sat
+	const diffToMonday = (dayOfWeek + 6) % 7;
+	const monday = new Date(dayStartInTz);
+	monday.setDate(dayStartInTz.getDate() - diffToMonday);
+	return monday.toISOString().split('T')[0];
+}
+
+// Timesheet statuses that are still "open" — a workday may attach to one of
+// these, and the cron/proactive linker should reuse it rather than spawn a new
+// timesheet. Terminal statuses (APPROVED, VOID, REJECTED) are excluded so a
+// disconnected/late workday forms a fresh DRAFT instead of re-joining them.
+export const OPEN_TIMESHEET_STATUSES = ['DRAFT', 'PENDING', 'DISCREPANCY'] as const;
 
 export async function getCompanyByRequisitionIdAdmin(id: number) {
 	try {

@@ -16,12 +16,61 @@
 		toUTCDateString,
 		formatTimezoneName
 	} from '$lib/_helpers/UTCTimezoneUtils';
-	import { Plus, PlusIcon } from 'lucide-svelte';
+	import { Plus, PlusIcon, Check, ChevronsUpDown, MapPin } from 'lucide-svelte';
+	import * as Command from '$lib/components/ui/command';
+	import * as Popover from '$lib/components/ui/popover';
+	import { cn } from '$lib/utils';
+
+	type QualifiedPro = {
+		candidateId: string;
+		firstName: string;
+		lastName: string;
+		distance?: string | number;
+		disciplineAbbr?: string;
+	};
 
 	export let requisition: Requisition;
 	export let company;
 	export let location;
 	export let form;
+	// Admin-only direct-assign. When `isAdmin` and a candidate is picked, the
+	// new day(s) are created FILLED and the professional is notified to verify.
+	export let isAdmin = false;
+	export let qualifiedProfessionals: QualifiedPro[] = [];
+
+	let selectedCandidateId = '';
+	let comboOpen = false;
+
+	// "Show more" extension: fetch candidates outside the requisition's
+	// experience-level filter on demand, then dedupe against the reductive set
+	// (server filter is reductive, so the extended set is a strict superset).
+	let extendedProfessionals: QualifiedPro[] = [];
+	let loadingExtended = false;
+	let extendedLoaded = false;
+	let extendedError: string | null = null;
+
+	$: allProfessionals = [...qualifiedProfessionals, ...extendedProfessionals];
+	$: selectedPro = allProfessionals.find((p) => p.candidateId === selectedCandidateId) ?? null;
+
+	async function loadAllExperienceCandidates() {
+		if (loadingExtended || extendedLoaded) return;
+		loadingExtended = true;
+		extendedError = null;
+		try {
+			const res = await fetch(
+				`/api/requisitions/${requisition.id}/qualified-candidates?includeAllExperience=true`
+			);
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const all: QualifiedPro[] = await res.json();
+			const existingIds = new Set(qualifiedProfessionals.map((p) => p.candidateId));
+			extendedProfessionals = all.filter((p) => !existingIds.has(p.candidateId));
+			extendedLoaded = true;
+		} catch (err) {
+			extendedError = err instanceof Error ? err.message : 'Failed to load';
+		} finally {
+			loadingExtended = false;
+		}
+	}
 
 	const { enhance, submitting } = superForm(form, {
 		onResult({ result }) {
@@ -78,6 +127,11 @@
 			lunchStartTime: '',
 			lunchEndTime: ''
 		};
+		selectedCandidateId = '';
+		comboOpen = false;
+		extendedProfessionals = [];
+		extendedLoaded = false;
+		extendedError = null;
 		isOpen = false;
 	}
 
@@ -380,8 +434,117 @@
 				</div>
 			{/if}
 
+			{#if isAdmin}
+				<div class="mt-6 border-t pt-4">
+					<Label class="font-semibold">Assign a professional (optional)</Label>
+					<p class="text-xs text-gray-500 mt-1 mb-2">
+						Admins only. Assigning marks the selected day(s) as Filled and sends the professional one
+						notification to log in and verify their shift start times.
+					</p>
+
+					<Popover.Root bind:open={comboOpen}>
+						<Popover.Trigger asChild let:builder>
+							<Button
+								builders={[builder]}
+								variant="outline"
+								role="combobox"
+								aria-expanded={comboOpen}
+								class="w-full justify-between font-normal"
+							>
+								{#if selectedPro}
+									<span class="truncate">
+										{selectedPro.firstName}
+										{selectedPro.lastName}{selectedPro.distance
+											? ` — ${selectedPro.distance} mi`
+											: ''}
+									</span>
+								{:else}
+									<span class="text-muted-foreground">Leave open (notify all qualified)</span>
+								{/if}
+								<ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
+							</Button>
+						</Popover.Trigger>
+						<Popover.Content class="w-[320px] p-0">
+							<Command.Root>
+								<Command.Input placeholder="Search professionals..." />
+								<Command.List>
+									<Command.Empty>No professional found.</Command.Empty>
+									<Command.Group>
+										<Command.Item
+											value="leave open unassigned notify all qualified"
+											onSelect={() => {
+												selectedCandidateId = '';
+												comboOpen = false;
+											}}
+										>
+											<Check
+												class={cn(
+													'mr-2 h-4 w-4',
+													selectedCandidateId === '' ? 'opacity-100' : 'opacity-0'
+												)}
+											/>
+											Leave open (notify all qualified)
+										</Command.Item>
+										{#each allProfessionals as pro (pro.candidateId)}
+											<Command.Item
+												value={`${pro.firstName} ${pro.lastName} ${pro.disciplineAbbr ?? ''}`}
+												onSelect={() => {
+													selectedCandidateId = pro.candidateId;
+													comboOpen = false;
+												}}
+											>
+												<Check
+													class={cn(
+														'mr-2 h-4 w-4 shrink-0',
+														selectedCandidateId === pro.candidateId ? 'opacity-100' : 'opacity-0'
+													)}
+												/>
+												<div class="flex flex-col min-w-0">
+													<span class="truncate">{pro.firstName} {pro.lastName}</span>
+													<span class="text-xs text-muted-foreground flex items-center gap-2">
+														{#if pro.distance}
+															<span class="flex items-center gap-0.5">
+																<MapPin class="h-3 w-3" />{pro.distance} mi
+															</span>
+														{/if}
+														{#if pro.disciplineAbbr}<span>{pro.disciplineAbbr}</span>{/if}
+													</span>
+												</div>
+											</Command.Item>
+										{/each}
+									</Command.Group>
+
+									{#if !extendedLoaded}
+										<div class="border-t p-1">
+											<button
+												type="button"
+												class="w-full rounded-sm px-2 py-1.5 text-left text-sm text-[#2a93d1] hover:bg-accent disabled:opacity-50"
+												on:click={loadAllExperienceCandidates}
+												disabled={loadingExtended}
+											>
+												{loadingExtended
+													? 'Loading…'
+													: 'Show more — include all experience levels'}
+											</button>
+											{#if extendedError}
+												<p class="px-2 py-1 text-xs text-red-600">Failed to load: {extendedError}</p>
+											{/if}
+										</div>
+									{:else}
+										<p class="border-t px-3 py-1.5 text-xs text-muted-foreground">
+											Showing candidates of all experience levels.
+										</p>
+									{/if}
+								</Command.List>
+							</Command.Root>
+						</Popover.Content>
+					</Popover.Root>
+				</div>
+			{/if}
+
 			<form use:enhance method="POST" action="?/addRecurrenceDays" class="mt-auto pb-4">
 				<input type="hidden" name="recurrenceDays" value={JSON.stringify(finalDateValue)} />
+				<input type="hidden" name="candidateId" value={selectedCandidateId} />
 
 				<Sheet.Footer class="mt-4">
 					<Sheet.Close asChild let:builder>
@@ -395,9 +558,9 @@
 						class="bg-blue-800 hover:bg-blue-900"
 					>
 						{#if $submitting}
-							Adding...
+							{selectedCandidateId ? 'Assigning...' : 'Adding...'}
 						{:else}
-							Add Days
+							{selectedCandidateId ? 'Assign & Add Days' : 'Add Days'}
 						{/if}
 					</Button>
 				</Sheet.Footer>

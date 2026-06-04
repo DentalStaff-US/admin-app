@@ -13,7 +13,8 @@ import {
 	getRequisitionDetailsByIdAdmin,
 	closeAllUpcomingRecurrenceDays,
 	createInvoiceRecord,
-	createPaperInvoiceRecord
+	createPaperInvoiceRecord,
+	linkWorkdayToOpenTimesheet
 } from '$lib/server/database/queries/requisitions';
 import { createStripeInvoice } from '$lib/server/stripe';
 import { assertCanAccessLocation } from '$lib/server/scoping';
@@ -39,6 +40,7 @@ import {
 	getLocationByIdForCompany
 } from '$lib/server/database/queries/clients';
 import { getClientProfileByIdAdmin } from '$lib/server/database/queries/admin';
+import { getQualifiedProfessionalsForRequisition } from '$lib/server/database/queries/candidates';
 import type { ClientCompanyStaffProfile } from '$lib/server/database/schemas/client';
 import {
 	convertRecurrenceDayToUTC,
@@ -53,6 +55,7 @@ import {
 	notifyRequisitionCancelled,
 	notifyRequisitionChanged,
 	notifyQualifiedCandidatesOfNewWorkdays,
+	notifyCandidateAssignedToWorkdays,
 	notifyWorkdayChanged,
 	notifyWorkdayDeleted
 } from '$lib/server/notifications/transactional';
@@ -130,6 +133,13 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		// dialog defaults to it rather than always to PAPER.
 		const clientProfile = await getClientProfileByIdAdmin(company.clientId);
 
+		// Admin-only: qualified candidates near this requisition's location, used
+		// by the Add Shifts drawer to optionally assign a pro on creation.
+		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
+			requisition.requisition,
+			location
+		);
+
 		return {
 			user,
 			hasRequisitionRights: true,
@@ -147,6 +157,7 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			disciplines,
 			experienceLevels,
 			locations,
+			qualifiedProfessionals,
 			clientInvoiceMethod: clientProfile?.clientInvoiceMethod ?? 'STRIPE'
 		};
 	}
@@ -309,7 +320,18 @@ export const actions = {
 
 		console.log('Processing addRecurrenceDays action for requisition ID:', idAsNum);
 
-		const form = await superValidate(event, newRecurrenceDaySchema);
+		// Read the body once so we can pull the optional admin `candidateId` field
+		// alongside the validated recurrence-day payload.
+		const formData = await event.request.formData();
+		// Direct-assign is admin-only: a qualified candidate gets dropped onto the
+		// new day(s), which are created FILLED instead of OPEN.
+		const candidateId =
+			user.role === USER_ROLES.SUPERADMIN
+				? (formData.get('candidateId') as string | null) || null
+				: null;
+		const assigning = !!candidateId;
+
+		const form = await superValidate(formData, newRecurrenceDaySchema);
 		console.log(form);
 		if (!form.valid) {
 			console.log(form);
@@ -331,12 +353,53 @@ export const actions = {
 				.map((row) => row?.id)
 				.filter((id): id is string => typeof id === 'string');
 
-			await notifyQualifiedCandidatesOfNewWorkdays(idAsNum, newDayIds);
+			if (assigning && newDayIds.length > 0) {
+				// Create one workday per new day, linking the candidate. Days were
+				// already created FILLED above. One transaction so a partial failure
+				// rolls back the whole assignment.
+				await db.transaction(async (tx) => {
+					for (const day of created) {
+						if (!day?.id) continue;
+						const workdayId = crypto.randomUUID();
+						await tx.insert(workdayTable).values({
+							id: workdayId,
+							candidateId: candidateId!,
+							requisitionId: idAsNum,
+							recurrenceDayId: day.id,
+							createdAt: new Date(),
+							updatedAt: new Date()
+						});
+
+						// Attach to the candidate's open timesheet for this requisition+week
+						// immediately, so days added later in (or after) the week land on
+						// the same timesheet instead of fragmenting into a second one.
+						await linkWorkdayToOpenTimesheet(tx, {
+							workdayId,
+							candidateId: candidateId!,
+							requisitionId: idAsNum,
+							dayStart: day.dayStart,
+							referenceTimezone: requisition.requisition.referenceTimezone
+						});
+					}
+				});
+
+				// ONE notification to the assigned candidate (email + SMS) instead of
+				// the blast-all-qualified notification used for open days.
+				await notifyCandidateAssignedToWorkdays({
+					candidateId: candidateId!,
+					requisitionId: idAsNum,
+					recurrenceDayIds: newDayIds
+				});
+			} else {
+				await notifyQualifiedCandidatesOfNewWorkdays(idAsNum, newDayIds);
+			}
 
 			setFlash(
 				{
 					type: 'success',
-					message: 'Recurrence days created successfully'
+					message: assigning
+						? 'Workdays created and professional assigned successfully'
+						: 'Recurrence days created successfully'
 				},
 				event
 			);
@@ -370,6 +433,8 @@ export const actions = {
 				dayEnd: utcDay.dayEnd,
 				lunchStart: utcDay.lunchStart,
 				lunchEnd: utcDay.lunchEnd,
+				// Direct admin assignment skips the OPEN stage — the day is spoken for.
+				status: assigning ? ('FILLED' as const) : ('OPEN' as const),
 				archived: false
 			};
 
@@ -674,7 +739,7 @@ export const actions = {
 			setFlash({ type: 'error', message: 'Failed to update requisition' }, event);
 			return fail(500, { error: 'Failed to update requisition' });
 		}
-	}
+	},
 	// deleteRequisition: async (request: RequestEvent) => {
 	// 	const user = request.locals.user;
 	// 	if (!user) {
@@ -712,7 +777,6 @@ export const actions = {
 	// 		return setError(form, 'Something went wrong');
 	// 	}
 	// }
-	,
 	// Bulk status change for selected workdays (OPEN / FILLED / UNFULFILLED only —
 	// CANCELED has its own action so notifications + audit fire correctly).
 	bulkUpdateRecurrenceDayStatus: async (request: RequestEvent) => {
@@ -722,7 +786,10 @@ export const actions = {
 		const formData = await request.request.formData();
 		const idsCsv = (formData.get('ids') as string | null) ?? '';
 		const status = formData.get('status') as string | null;
-		const ids = idsCsv.split(',').map((s) => s.trim()).filter(Boolean);
+		const ids = idsCsv
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean);
 		if (ids.length === 0) return fail(400, { error: 'No workdays selected' });
 		if (status !== 'OPEN' && status !== 'FILLED' && status !== 'UNFULFILLED') {
 			return fail(400, { error: 'Invalid status for bulk update' });
@@ -747,7 +814,10 @@ export const actions = {
 
 		const formData = await request.request.formData();
 		const idsCsv = (formData.get('ids') as string | null) ?? '';
-		const ids = idsCsv.split(',').map((s) => s.trim()).filter(Boolean);
+		const ids = idsCsv
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean);
 		if (ids.length === 0) return fail(400, { error: 'No workdays selected' });
 
 		// Snapshot candidate + time data BEFORE the status flip so post-tx
@@ -799,7 +869,10 @@ export const actions = {
 
 		const formData = await request.request.formData();
 		const idsCsv = (formData.get('ids') as string | null) ?? '';
-		const ids = idsCsv.split(',').map((s) => s.trim()).filter(Boolean);
+		const ids = idsCsv
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean);
 		if (ids.length === 0) return fail(400, { error: 'No workdays selected' });
 
 		const snapshots = await db

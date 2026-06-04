@@ -16,6 +16,7 @@ import { and, eq } from 'drizzle-orm';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { notifyWorkdayClaimed } from '$lib/server/notifications/transactional';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
+import { linkWorkdayToOpenTimesheet } from '$lib/server/database/queries/requisitions';
 import { isClientActiveByCompanyId } from '$lib/server/clientStatusGuards';
 import { logger } from '$lib/server/logger';
 
@@ -220,10 +221,18 @@ export const POST: RequestHandler = async ({ request }) => {
 					})
 					.returning();
 
-				// Timesheet creation is owned exclusively by the
-				// processTimesheetCreation cron job. The old Sunday-based
-				// week calculation here was the source of week-boundary drift
-				// vs the cron (which uses Monday in the requisition's tz).
+				// Timesheet CREATION stays owned by the processTimesheetCreation cron
+				// job (single source of week-boundary truth). But if the candidate
+				// already has an OPEN timesheet for this requisition+week, attach this
+				// workday now so it can't fragment into a separate timesheet. No-op
+				// when no open timesheet exists yet — the cron will create one.
+				await linkWorkdayToOpenTimesheet(tx, {
+					workdayId: newWorkday.id,
+					candidateId: candidateProfile.id,
+					requisitionId: recurrenceDay.requisition.id,
+					dayStart: recurrenceDay.recurrenceDay.dayStart,
+					referenceTimezone: recurrenceDay.requisition.referenceTimezone
+				});
 
 				// Change Status of the recurrence day
 				await tx

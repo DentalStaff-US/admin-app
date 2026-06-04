@@ -2,6 +2,19 @@ export const SMS_TEMPLATES = {
 	newRequisitionNotification: () => ({
 		textMessage: `Hello, DTSS has a new job that matches your credentials and availability. Please log into your profile or call us at 888-653-1657 to accept this assignment.`
 	}),
+	candidateAssignedNotification: (vars: {
+		firstName: string;
+		daysLanguage: string;
+		disciplineName: string;
+		requisitionNumber: number;
+		loginUrl: string;
+	}) => ({
+		textMessage: `${vars.firstName}, you have been assigned by DTSS to requisition #${vars.requisitionNumber}: ${vars.disciplineName} for ${vars.daysLanguage}. 
+		
+		Please log in to DTSS to verify your shift start times: ${vars.loginUrl}
+		
+		Thanks for working with Dental Temps Staffing Solutions.`
+	}),
 	workdayFilledNotification: (vars: {
 		scheduledDate: string;
 		requisitionName: string;

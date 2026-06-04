@@ -26,7 +26,8 @@
 		ChevronRight,
 		FileClock,
 		Eye,
-		AlertTriangle
+		AlertTriangle,
+		Ban
 	} from 'lucide-svelte';
 	import { goto } from '$app/navigation';
 	import { cn } from '$lib/utils';
@@ -44,6 +45,7 @@
 
 	$: user = data.user;
 	$: timesheets = (data.timesheets as TimesheetWithRelations[]) || [];
+	$: voidedTimesheets = (data.voidedTimesheets as TimesheetWithRelations[]) || [];
 	$: isAdmin = user?.role === USER_ROLES.SUPERADMIN;
 
 	$: {
@@ -190,6 +192,11 @@
 	const wagesDueTable = createSvelteTable(wagesDueOptions);
 	const wagesPaidTable = createSvelteTable(wagesPaidOptions);
 
+	// Voided timesheets live in their own table, separate from the active tabs.
+	const voidedOptions = writable<TableOptions<TimesheetWithRelations>>(createTableOptions([]));
+	const voidedTable = createSvelteTable(voidedOptions);
+	$: voidedOptions.update((opts) => ({ ...opts, data: voidedTimesheets, columns }));
+
 	// Get current active table
 	$: currentTable =
 		activeTab === 'all'
@@ -200,7 +207,9 @@
 					? discrepancyTable
 					: activeTab === 'wages-due'
 						? wagesDueTable
-						: wagesPaidTable;
+						: activeTab === 'voided'
+							? voidedTable
+							: wagesPaidTable;
 
 	// Update table data when timesheets change
 	$: {
@@ -256,7 +265,8 @@
 		noDiscrepancy: filterByDiscrepancy(timesheets, false).length,
 		discrepancy: filterByDiscrepancy(timesheets, true).length,
 		wagesDue: filterByWagesStatus(timesheets, 'WAGES_DUE').length,
-		wagesPaid: filterByWagesStatus(timesheets, 'WAGES_PAID').length
+		wagesPaid: filterByWagesStatus(timesheets, 'WAGES_PAID').length,
+		voided: voidedTimesheets.length
 	};
 
 	function getSortingIcon(header: any) {
@@ -333,7 +343,7 @@
 	{:else}
 		<!-- Tabs with Tables -->
 		<Tabs.Root bind:value={activeTab} class="">
-			<Tabs.List class="grid w-full grid-cols-4">
+			<Tabs.List class="grid w-full grid-cols-5">
 				<Tabs.Trigger value="all" class="relative">
 					All Timesheets
 					{#if tabCounts.all > 0}
@@ -368,10 +378,18 @@
 						<Badge class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.wagesDue}></Badge>
 					{/if}
 				</Tabs.Trigger>
+				<Tabs.Trigger value="voided" class="relative">
+					<Ban class="h-4 w-4 mr-1" />
+					Voided
+					{#if tabCounts.voided > 0}
+						<Badge variant="secondary" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.voided}
+						></Badge>
+					{/if}
+				</Tabs.Trigger>
 			</Tabs.List>
 
 			<!-- Tab Contents -->
-			{#each ['all', 'no-discrepancy', 'discrepancy', 'wages-due', 'wages-paid'] as tabValue}
+			{#each ['all', 'no-discrepancy', 'discrepancy', 'wages-due', 'wages-paid', 'voided'] as tabValue}
 				<Tabs.Content value={tabValue} class="">
 					{#if activeTab === tabValue}
 						<div class="bg-white rounded-lg shadow-sm">

@@ -23,9 +23,16 @@ export const OPTIONS: RequestHandler = async () => {
 	});
 };
 
+// Candidates may only (re)submit a timesheet for review — PENDING is the sole
+// legitimate transition from this endpoint. APPROVED/VOID/REJECTED are
+// admin-only billing actions and must never be settable from the candidate app.
 const validateTimesheetSchema = z.object({
-	status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'DISCREPANCY', 'VOID'])
+	status: z.enum(['PENDING'])
 });
+
+// A candidate may only move a timesheet to PENDING from one of these editable
+// states. APPROVED/VOID are terminal and locked.
+const EDITABLE_TIMESHEET_STATUSES = ['DRAFT', 'PENDING', 'DISCREPANCY'];
 
 export const POST: RequestHandler = async ({ request, params }) => {
 	try {
@@ -92,6 +99,19 @@ export const POST: RequestHandler = async ({ request, params }) => {
 				{ status: 404, headers: corsHeaders }
 			);
 		}
+
+		// Lock terminal timesheets — an approved/voided sheet can't be resubmitted
+		// by the candidate. Corrections require an admin to void it first.
+		if (!EDITABLE_TIMESHEET_STATUSES.includes(timesheet.status)) {
+			return json(
+				{
+					success: false,
+					message: `This timesheet is ${timesheet.status.toLowerCase()} and can no longer be edited.`
+				},
+				{ status: 409, headers: corsHeaders }
+			);
+		}
+
 		// Update timesheet status
 		const [result] = await db
 			.update(timeSheetTable)

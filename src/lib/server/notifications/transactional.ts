@@ -129,10 +129,10 @@ function fmtTime(d: Date | string | null | undefined, tz: string): string {
 
 // Date-only strings ('2026-05-15') represent a calendar date in the requisition's
 // timezone, not a UTC instant — format with plain date-fns to avoid tz drift.
-function fmtDate(d: string | null | undefined): string {
+function fmtDate(d: string | null | undefined, showYear: boolean = true): string {
 	if (!d) return 'N/A';
 	try {
-		return format(parseISO(d), 'EEEE, MMM d, yyyy');
+		return format(parseISO(d), showYear ? 'EEEE, MMM d, yyyy' : 'EEEE, MMM d');
 	} catch {
 		return 'N/A';
 	}
@@ -536,6 +536,94 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
 }
 
 /**
+ * Admin assigned a candidate directly to one or more workdays (via the
+ * Add Shifts drawer). Sends ONE notification to the assigned candidate —
+ * email + SMS — instead of blasting every qualified candidate. The day(s)
+ * are already FILLED with workday rows by the caller.
+ */
+export async function notifyCandidateAssignedToWorkdays(args: {
+	candidateId: string;
+	requisitionId: number;
+	recurrenceDayIds: string[];
+}): Promise<void> {
+	const label = 'candidateAssigned';
+	try {
+		const requisition = await getRequisitionById(args.requisitionId);
+		if (!requisition) {
+			console.warn(`[transactional:${label}] aborted: requisition ${args.requisitionId} not found`);
+			return;
+		}
+
+		const [candidate] = await db
+			.select({
+				firstName: userTable.firstName,
+				lastName: userTable.lastName,
+				email: userTable.email,
+				phone: candidateProfileTable.cellPhone
+			})
+			.from(candidateProfileTable)
+			.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+			.where(eq(candidateProfileTable.id, args.candidateId))
+			.limit(1);
+		if (!candidate) {
+			console.warn(`[transactional:${label}] aborted: candidate ${args.candidateId} not found`);
+			return;
+		}
+
+		const discipline = await getDisciplineById(requisition.disciplineId);
+		const disciplineName = discipline?.name ?? `Req #${requisition.id}`;
+
+		// Day language: the single date for one day, or a "from X to Y" span for
+		// a range. Date-only strings are formatted with fmtDate (no tz drift).
+		const days =
+			args.recurrenceDayIds.length === 0
+				? []
+				: await db
+						.select({ date: recurrenceDayTable.date })
+						.from(recurrenceDayTable)
+						.where(inArray(recurrenceDayTable.id, args.recurrenceDayIds))
+						.orderBy(recurrenceDayTable.date);
+
+		let daysLanguage: string;
+		if (days.length === 0) {
+			daysLanguage = 'your upcoming shift';
+		} else if (days.length === 1) {
+			daysLanguage = fmtDate(days[0].date);
+		} else {
+			daysLanguage = `${fmtDate(days[0].date, false)} - ${fmtDate(days[days.length - 1].date, true)}`;
+		}
+
+		const loginUrl = `${CANDIDATE_APP_DOMAIN}/auth/sign-in`;
+
+		await dispatch(label, [
+			safeEmail(label, candidate.email, () => {
+				const t = EMAIL_TEMPLATES.candidateAssignedNotificationEmail(
+					{ firstName: candidate.firstName },
+					{ daysLanguage, disciplineName, requisitionNumber: requisition.id, loginUrl }
+				);
+				return emailService.sendEmail({
+					to: [{ email: candidate.email as string }],
+					subject: t.subject,
+					html: t.htmlEmail,
+					text: t.textEmail
+				});
+			}),
+			safeSms(label, candidate.phone, (phone) =>
+				sms.sendTemplated(phone, 'candidateAssignedNotification', {
+					firstName: candidate.firstName ?? 'there',
+					daysLanguage,
+					disciplineName,
+					requisitionNumber: requisition.id,
+					loginUrl
+				})
+			)
+		]);
+	} catch (e) {
+		console.error('[transactional:candidateAssigned] top-level error:', e);
+	}
+}
+
+/**
  * Shared shape returned by the application-resolver below. `permanentPosition`
  * is the perm-only guard — temp claims don't go through the approve/deny flow.
  */
@@ -568,10 +656,7 @@ async function loadApplicationNotificationContext(
 			eq(candidateProfileTable.id, requisitionApplicationTable.candidateId)
 		)
 		.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
-		.innerJoin(
-			requisitionTable,
-			eq(requisitionTable.id, requisitionApplicationTable.requisitionId)
-		)
+		.innerJoin(requisitionTable, eq(requisitionTable.id, requisitionApplicationTable.requisitionId))
 		.innerJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
 		.innerJoin(clientCompanyTable, eq(clientCompanyTable.id, requisitionTable.companyId))
 		.where(eq(requisitionApplicationTable.id, applicationId))
@@ -1081,8 +1166,8 @@ export async function notifyAdminsOfNewSupportTicket(ticketId: string): Promise<
 			ticketId: row.ticket.id,
 			title: row.ticket.title,
 			body: row.ticket.additionalNotes ?? null,
-			reportedByName: `${row.reporter.firstName ?? ''} ${row.reporter.lastName ?? ''}`.trim() ||
-				'Unknown',
+			reportedByName:
+				`${row.reporter.firstName ?? ''} ${row.reporter.lastName ?? ''}`.trim() || 'Unknown',
 			reportedByEmail: row.reporter.email ?? 'unknown@unknown',
 			reportedByRole: row.reporter.role ?? 'UNKNOWN'
 		};
@@ -1090,7 +1175,9 @@ export async function notifyAdminsOfNewSupportTicket(ticketId: string): Promise<
 		await dispatch(
 			label,
 			admins.map((a) =>
-				safeEmail(label, a.email, () => emailService.sendNewSupportTicketAdminEmail(a.email, details))
+				safeEmail(label, a.email, () =>
+					emailService.sendNewSupportTicketAdminEmail(a.email, details)
+				)
 			)
 		);
 	} catch (e) {
@@ -1174,17 +1261,19 @@ export async function notifyAdminsOfNewClient(clientId: string): Promise<void> {
 		const details = {
 			clientId,
 			companyName: (result.company.companyName as string) ?? 'New business',
-			contactName: `${result.user.firstName ?? ''} ${result.user.lastName ?? ''}`.trim() || 'Unknown',
+			contactName:
+				`${result.user.firstName ?? ''} ${result.user.lastName ?? ''}`.trim() || 'Unknown',
 			contactEmail: result.user.email ?? 'unknown@unknown',
 			contactPhone: result.profile.cellPhone,
-			signedUpAt:
-				result.profile.createdAt instanceof Date ? result.profile.createdAt : new Date()
+			signedUpAt: result.profile.createdAt instanceof Date ? result.profile.createdAt : new Date()
 		};
 
 		await dispatch(
 			label,
 			admins.map((a) =>
-				safeEmail(label, a.email, () => emailService.sendNewClientSignupAdminEmail(a.email, details))
+				safeEmail(label, a.email, () =>
+					emailService.sendNewClientSignupAdminEmail(a.email, details)
+				)
 			)
 		);
 	} catch (e) {

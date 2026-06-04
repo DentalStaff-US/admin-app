@@ -196,7 +196,7 @@
 				</Button>
 			{/if}
 
-			{#if isAdmin && !isPaperInvoice && isOverdue}
+			{#if isAdmin && !isPaperInvoice && isOverdue && invoiceData.invoice.status !== 'void' && invoiceData.invoice.status !== 'uncollectible'}
 				<form
 					use:enhance={() => {
 						processingPayment = true;
@@ -220,7 +220,7 @@
 				</form>
 			{/if}
 
-			{#if isAdmin && isPaperInvoice && !isFullyPaid}
+			{#if isAdmin && isPaperInvoice && !isFullyPaid && invoiceData.invoice.status !== 'void'}
 				<Button
 					size="sm"
 					class="w-full sm:w-fit bg-blue-800 hover:bg-blue-900"
@@ -475,7 +475,7 @@
 								<div class="text-center py-8 text-muted-foreground">
 									<CreditCard class="h-8 w-8 mx-auto mb-2 opacity-50" />
 									<p>No transactions recorded yet</p>
-									{#if !isFullyPaid}
+									{#if !isFullyPaid && invoiceData.invoice.status !== 'void'}
 										<Button
 											variant="outline"
 											size="sm"

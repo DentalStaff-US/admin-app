@@ -78,5 +78,15 @@ export const load = async (event) => {
 		})
 	);
 
-	return { user, timesheets: enhancedTimesheets, searchTerm };
+	// Voided timesheets are segregated into their own table in the UI so the
+	// main list only shows actionable (active) sheets.
+	const activeTimesheets = enhancedTimesheets.filter((t) => t.timesheet.status !== 'VOID');
+	const voidedTimesheets = enhancedTimesheets.filter((t) => t.timesheet.status === 'VOID');
+
+	return {
+		user,
+		timesheets: activeTimesheets,
+		voidedTimesheets,
+		searchTerm
+	};
 };
