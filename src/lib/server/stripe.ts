@@ -125,6 +125,15 @@ export async function voidStripeInvoice(stripeInvoiceId: string): Promise<Stripe
 	if (!stripeInvoiceId) {
 		throw new Error('Stripe invoice ID is required');
 	}
+
+	const invoice = await stripe.invoices.retrieve(stripeInvoiceId);
+	if (invoice.status === 'void' || invoice.status === 'uncollectible') {
+		throw new Error('Stripe invoice is already voided');
+	}
+	if (invoice.status === 'paid') {
+		throw new Error('Stripe invoice is already paid — a refund is required, not a void');
+	}
+
 	return stripe.invoices.voidInvoice(stripeInvoiceId);
 }
 

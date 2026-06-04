@@ -201,6 +201,18 @@ export const load = async (event: RequestEvent) => {
 
 	const addExpenseForm = await superValidate(addExpenseSchema);
 
+	// Approval gate (UI): block the Approve button while any assigned workday in
+	// this timesheet's week has not yet ended. Uses the raw timesheet (which has
+	// associatedCandidateId/weekBeginDate) and matches by the week's date window,
+	// so it counts days that aren't even linked yet — the same check the approve
+	// action enforces server-side.
+	const rawTimesheet = await getTimesheetById(id);
+	const unfinishedWorkdays = rawTimesheet
+		? await getUnfinishedWorkdaysForTimesheetWeek(rawTimesheet)
+		: [];
+	const hasUnfinishedWorkdays = unfinishedWorkdays.length > 0;
+	const unfinishedWorkdayCount = unfinishedWorkdays.length;
+
 	if (user.role === USER_ROLES.SUPERADMIN) {
 		const timesheet = await getTimesheetDetailsAdmin(id);
 		const requisition = await getRequisitionDetailsByIdAdmin(timesheet.requisitionId);
@@ -233,6 +245,8 @@ export const load = async (event: RequestEvent) => {
 			expenses,
 			adminFeeSettings,
 			addExpenseForm,
+			hasUnfinishedWorkdays,
+			unfinishedWorkdayCount,
 			auditHistory: auditHistory.map((h) => h.status === 'fulfilled' && h.value)
 		};
 	}
@@ -261,7 +275,9 @@ export const load = async (event: RequestEvent) => {
 			invoice,
 			expenses,
 			adminFeeSettings,
-			addExpenseForm
+			addExpenseForm,
+			hasUnfinishedWorkdays,
+			unfinishedWorkdayCount
 		};
 	}
 
@@ -287,7 +303,9 @@ export const load = async (event: RequestEvent) => {
 			invoice,
 			expenses,
 			adminFeeSettings,
-			addExpenseForm
+			addExpenseForm,
+			hasUnfinishedWorkdays,
+			unfinishedWorkdayCount
 		};
 	}
 

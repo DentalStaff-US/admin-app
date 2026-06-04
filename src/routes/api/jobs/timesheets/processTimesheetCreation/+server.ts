@@ -8,7 +8,7 @@ import {
 } from '$lib/server/database/schemas/requisition';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { clientCompanyTable } from '$lib/server/database/schemas/client';
-import { and, eq, isNull, lte, inArray } from 'drizzle-orm';
+import { and, eq, isNull, inArray } from 'drizzle-orm';
 import crypto from 'crypto';
 import { CRON_SECRET } from '$env/static/private';
 import { toZonedTime } from 'date-fns-tz';
@@ -55,10 +55,16 @@ export const POST: RequestHandler = async ({ request }) => {
 
 			// Find all workdays where:
 			// - timesheetId is null (not yet linked)
-			// - recurrenceDay.dayStart has passed
 			// - the workday hasn't been cancelled (admin/client-cancelled workdays
 			//   stay in the table for calendar visibility but must not get a
 			//   timesheet created against them)
+			//
+			// NOTE: we intentionally do NOT filter on dayStart here. A timesheet
+			// covers the whole Mon–Sun week, so once the week has started (checked
+			// per-group below) we want EVERY day in it — including future-dated
+			// days like a Thu/Fri shift viewed on Wed — to land on the one
+			// timesheet. The per-group "has the week started?" guard prevents
+			// creating timesheets for weeks that haven't begun yet.
 			const eligibleWorkdays = await db
 				.select({
 					workday: workdayTable,
@@ -70,13 +76,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				.innerJoin(recurrenceDayTable, eq(recurrenceDayTable.id, workdayTable.recurrenceDayId))
 				.innerJoin(requisitionTable, eq(requisitionTable.id, workdayTable.requisitionId))
 				.innerJoin(candidateProfileTable, eq(candidateProfileTable.id, workdayTable.candidateId))
-				.where(
-					and(
-						isNull(workdayTable.timesheetId),
-						isNull(workdayTable.cancelledAt),
-						lte(recurrenceDayTable.dayStart, now)
-					)
-				);
+				.where(and(isNull(workdayTable.timesheetId), isNull(workdayTable.cancelledAt)));
 
 			if (eligibleWorkdays.length === 0) {
 				return json({ success: true, noop: true });
@@ -105,6 +105,12 @@ export const POST: RequestHandler = async ({ request }) => {
 				const monday = new Date(dayStartInTz);
 				monday.setDate(dayStartInTz.getDate() - diffToMonday);
 				const weekBeginDate = monday.toISOString().split('T')[0];
+
+				// Only act on weeks that have already begun. A future week's days
+				// shouldn't spin up a timesheet early; they'll be picked up once that
+				// week's Monday passes. (Mon 00:00 of the week vs now.)
+				const weekStarted = new Date(`${weekBeginDate}T00:00:00Z`) <= now;
+				if (!weekStarted) continue;
 
 				const key = `${row.workday.candidateId}::${row.workday.requisitionId}::${weekBeginDate}`;
 
