@@ -1240,6 +1240,20 @@
 									<Edit class="h-4 w-4" />
 									<span>Edit Hours</span>
 								</Button>
+							{#if !isPending}
+								<Button
+														size="sm"
+														class="w-full bg-blue-800 hover:bg-blue-900"
+														disabled={!canSubmit}
+														on:click={() =>
+															postTimeEntries(
+																isDiscrepancy ? '?/adminResubmitTimesheet' : '?/adminSubmitTimesheet'
+															)}
+													>
+														<CheckCircle2 class="h-4 w-4 mr-2" />
+														Submit on behalf
+													</Button>
+							{/if}
 							{/if}
 
 							{#if isPending && !isEditing}

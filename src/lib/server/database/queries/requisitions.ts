@@ -1271,6 +1271,7 @@ export async function getAllTimesheetsForClient(
 			.where(
 				and(
 					eq(timeSheetTable.associatedClientId, clientId),
+					notInArray(timeSheetTable.status, ['DRAFT']),
 					Array.isArray(locationIds)
 						? inArray(requisitionTable.locationId, locationIds)
 						: undefined,
