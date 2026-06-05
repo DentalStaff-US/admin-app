@@ -241,7 +241,10 @@ export async function getPaginatedUsers({
 		${whereClause}
 	`;
 
-	const [dataResult, countResult] = await Promise.all([db.execute(dataQuery), db.execute(countQuery)]);
+	const [dataResult, countResult] = await Promise.all([
+		db.execute(dataQuery),
+		db.execute(countQuery)
+	]);
 	return {
 		users: dataResult.rows as Array<{
 			id: string;
@@ -371,7 +374,10 @@ export const writeActionHistory = async ({
 	metadata = {}
 }: {
 	table: string;
-	userId: string;
+	// Nullable so automated/system actions (e.g. the 24h auto-approval cron) can
+	// be attributed to no user — the action_history.user_id column is a nullable
+	// FK (SET NULL on user delete).
+	userId: string | null;
 	action: ActionType;
 	entityId: string;
 	beforeState?: Record<string, any>;

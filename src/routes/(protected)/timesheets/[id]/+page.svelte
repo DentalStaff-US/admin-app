@@ -384,6 +384,30 @@
 		loadTimeEntries();
 	}
 
+	// Posts the currently-entered hours to one of the admin actions. Save draft
+	// keeps the sheet DRAFT (no client notification); Submit on behalf moves it to
+	// PENDING for review.
+	function postTimeEntries(action: string) {
+		const form = document.createElement('form');
+		form.method = 'POST';
+		form.action = action;
+
+		const entriesInput = document.createElement('input');
+		entriesInput.type = 'hidden';
+		entriesInput.name = 'entries';
+		entriesInput.value = JSON.stringify(timeEntries);
+
+		const hoursInput = document.createElement('input');
+		hoursInput.type = 'hidden';
+		hoursInput.name = 'totalHours';
+		hoursInput.value = totalHours.toString();
+
+		form.appendChild(entriesInput);
+		form.appendChild(hoursInput);
+		document.body.appendChild(form);
+		form.submit();
+	}
+
 
 	function getCostEstimate() {
 		const hours = parseFloat(data?.timesheet?.totalHoursWorked || '0');
@@ -960,42 +984,30 @@
 											{/each}
 
 											{#if isEditing}
-												<div class="flex justify-end gap-2 pt-2">
+												<div class="flex flex-wrap justify-end gap-2 pt-2">
 													<Button variant="outline" size="sm" on:click={cancelEditing}>
 														Cancel
 													</Button>
 													<Button
+														variant="outline"
 														size="sm"
 														disabled={!canSubmit}
-														on:click={() => {
-															const action = isDraft
-																? '?/adminSubmitTimesheet'
-																: isDiscrepancy
-																	? '?/adminResubmitTimesheet'
-																	: '?/adminSubmitTimesheet';
-
-															const form = document.createElement('form');
-															form.method = 'POST';
-															form.action = action;
-
-															const entriesInput = document.createElement('input');
-															entriesInput.type = 'hidden';
-															entriesInput.name = 'entries';
-															entriesInput.value = JSON.stringify(timeEntries);
-
-															const hoursInput = document.createElement('input');
-															hoursInput.type = 'hidden';
-															hoursInput.name = 'totalHours';
-															hoursInput.value = totalHours.toString();
-
-															form.appendChild(entriesInput);
-															form.appendChild(hoursInput);
-															document.body.appendChild(form);
-															form.submit();
-														}}
+														on:click={() => postTimeEntries('?/adminSaveDraftTimesheet')}
 													>
 														<Save class="h-4 w-4 mr-2" />
-														Save Changes
+														Save draft
+													</Button>
+													<Button
+														size="sm"
+														class="bg-blue-800 hover:bg-blue-900"
+														disabled={!canSubmit}
+														on:click={() =>
+															postTimeEntries(
+																isDiscrepancy ? '?/adminResubmitTimesheet' : '?/adminSubmitTimesheet'
+															)}
+													>
+														<CheckCircle2 class="h-4 w-4 mr-2" />
+														Submit on behalf
 													</Button>
 												</div>
 											{/if}
@@ -1203,8 +1215,9 @@
 					<CardContent class="space-y-4">
 						<p class="text-sm text-muted-foreground">
 							{#if isDraft}
-								This timesheet is in draft status. You can edit and submit it on behalf of the
-								professional.
+								This timesheet is in draft status. Edit Hours to fill it in, then <strong>Save
+									draft</strong> to record hours without notifying the client, or <strong>Submit on
+									behalf</strong> of the professional to send it for approval.
 							{:else if isPending}
 								This timesheet is pending approval. You can approve, reject, or mark a discrepancy.
 							{:else if isDiscrepancy}

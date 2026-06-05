@@ -39,6 +39,12 @@ export const jobs: JobDefinition[] = [
 		rule: () => ny({ minute: [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55] })
 	},
 	{
+		name: 'processTimesheetAutoApproval',
+		endpoint: '/jobs/timesheets/processTimesheetAutoApproval',
+		schedule: 'hourly on the hour',
+		rule: () => ny({ minute: 0, second: 0 })
+	},
+	{
 		name: 'processOutdatedRequisitions',
 		endpoint: '/jobs/requisitions/processPastRequisitions',
 		schedule: 'daily at 1:00 AM ET',

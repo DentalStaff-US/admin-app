@@ -2805,7 +2805,7 @@ export async function getWorkdaysByRecurrenceDayId(
 	}
 }
 
-export async function revertTimesheetToPending(timesheetId: string, userId: string) {
+export async function revertTimesheetToPending(timesheetId: string, userId: string | null) {
 	try {
 		const [original] = await db
 			.select()
@@ -3004,7 +3004,7 @@ export async function rejectTimesheet(
 	}
 }
 
-export async function approveTimesheet(timesheetId: string, userId: string) {
+export async function approveTimesheet(timesheetId: string, userId: string | null) {
 	try {
 		const [original] = await db
 			.select()
@@ -3187,7 +3187,7 @@ export async function createInvoiceRecord(
 		requisitionId?: number;
 		sourceType?: InvoiceSourceType;
 	},
-	userId: string
+	userId: string | null
 ): Promise<Invoice> {
 	try {
 		if (timesheet) {
@@ -3310,7 +3310,7 @@ export async function createPaperInvoiceRecord(
 		candidateId?: string;
 		sourceType?: 'manual' | 'timesheet' | 'recurring' | 'other';
 	},
-	userId: string
+	userId: string | null
 ): Promise<Invoice> {
 	try {
 		// Get next paper invoice number
