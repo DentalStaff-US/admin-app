@@ -15,7 +15,7 @@ import {
 } from '$lib/server/database/schemas/requisition';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
-import { eq, and, inArray, notInArray, or, isNull, isNotNull, sql, gte, lte } from 'drizzle-orm';
+import { eq, and, inArray, notInArray, or, isNull, isNotNull, sql, gte } from 'drizzle-orm';
 import { METERS_PER_MILE } from '$lib/config/constants';
 import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
@@ -167,6 +167,7 @@ export const GET: RequestHandler = async ({ request }) => {
 					disciplineId: requisitionTable.disciplineId,
 					experienceLevelId: requisitionTable.experienceLevelId,
 					permanentPosition: requisitionTable.permanentPosition,
+					referenceTimezone: requisitionTable.referenceTimezone,
 					disciplineName: disciplineTable.name,
 					experienceLevelName: experienceLevelTable.value,
 					experienceLevelOrder: experienceLevelTable.order

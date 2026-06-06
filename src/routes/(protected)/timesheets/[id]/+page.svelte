@@ -116,13 +116,16 @@
 	$: approvedExpenses = expenses.filter((e) => e.status === 'APPROVED');
 	$: rejectedExpenses = expenses.filter((e) => e.status === 'REJECTED');
 	$: approvedExpensesTotal = approvedExpenses.reduce((s, e) => s + e.amountCents / 100, 0);
-	$: billableSubtotal =
-		Number(effectiveHourlyRate) *
-		parseFloat(canEdit ? totalHours.toFixed(2) : data?.timesheet?.totalHoursWorked || '0');
+	$: billableHoursValue = parseFloat(canEdit ? totalHours.toFixed(2) : data?.timesheet?.totalHoursWorked || '0');
+	$: regularHours = Math.min(billableHoursValue, 40);
+	$: overtimeHours = Math.max(0, billableHoursValue - 40);
+	$: regularAmount = Number(effectiveHourlyRate) * regularHours;
+	$: overtimeAmount = overtimeHours * Number(effectiveHourlyRate) * 1.5;
+	$: billableSubtotal = regularAmount + overtimeAmount;
 	$: adminFeeAmount =
 		adminFeeSettings.amount > 0
 			? adminFeeSettings.type === 'PERCENTAGE'
-				? (billableSubtotal * adminFeeSettings.amount) / 100
+				? (regularAmount * adminFeeSettings.amount) / 100
 				: adminFeeSettings.amount
 			: 0;
 	$: invoiceTotal = billableSubtotal + approvedExpensesTotal + adminFeeAmount;
@@ -644,10 +647,21 @@
 						<div class="rounded-lg border bg-gray-50 p-4">
 							<p class="mb-3 text-sm font-medium text-gray-700">Billing Summary</p>
 							<div class="space-y-1.5 text-sm">
-								<div class="flex justify-between">
-									<span class="text-gray-600">Billable Hours Total</span>
-									<span class="font-medium">${billableSubtotal.toFixed(2)}</span>
-								</div>
+								{#if overtimeHours > 0}
+									<div class="flex justify-between">
+										<span class="text-gray-600">Regular hours (40 hrs)</span>
+										<span class="font-medium">${regularAmount.toFixed(2)}</span>
+									</div>
+									<div class="flex justify-between">
+										<span class="text-gray-600">Overtime ({overtimeHours.toFixed(2)} hrs × 1.5×)</span>
+										<span class="font-medium">${overtimeAmount.toFixed(2)}</span>
+									</div>
+								{:else}
+									<div class="flex justify-between">
+										<span class="text-gray-600">Billable Hours Total</span>
+										<span class="font-medium">${billableSubtotal.toFixed(2)}</span>
+									</div>
+								{/if}
 								{#if approvedExpenses.length > 0}
 									<div class="flex justify-between">
 										<span class="text-gray-600"
@@ -1437,18 +1451,31 @@
 						<div class="rounded-lg border bg-gray-50 p-4">
 							<p class="mb-3 text-sm font-medium text-gray-700">Billing Summary</p>
 							<div class="space-y-1.5 text-sm">
-								<div class="flex justify-between">
-									<span class="text-gray-600">Billable Hours Total</span>
-									<span class="font-medium">${getCostEstimate()}</span>
-								</div>
+								{#if overtimeHours > 0}
+									<div class="flex justify-between">
+										<span class="text-gray-600">Regular hours (40 hrs)</span>
+										<span class="font-medium">${regularAmount.toFixed(2)}</span>
+									</div>
+									<div class="flex justify-between">
+										<span class="text-gray-600">Overtime ({overtimeHours.toFixed(2)} hrs × 1.5×)</span>
+										<span class="font-medium">${overtimeAmount.toFixed(2)}</span>
+									</div>
+								{:else}
+									<div class="flex justify-between">
+										<span class="text-gray-600">Billable Hours Total</span>
+										<span class="font-medium">${billableSubtotal.toFixed(2)}</span>
+									</div>
+								{/if}
 								{#if approvedExpenses.length > 0}
 									<div class="flex justify-between">
-										<span class="text-gray-600">Approved Expenses ({approvedExpenses.length})</span>
+										<span class="text-gray-600"
+											>Approved Expenses ({approvedExpenses.length})</span
+										>
 										<span class="font-medium">${approvedExpensesTotal.toFixed(2)}</span>
 									</div>
 								{/if}
 								<div class="flex justify-between">
-									<span class="text-gray-600">{adminFeeLabel}</span>
+									<span class="text-gray-600">{adminFeeLabel} <span class="text-xs text-gray-500">Applies to Regular Hours</span></span>
 									<span class="font-medium">${adminFeeAmount.toFixed(2)}</span>
 								</div>
 								<Separator class="my-2" />
@@ -1460,7 +1487,7 @@
 									<p class="pt-1 text-xs text-amber-700">
 										{pendingExpenses.length} pending expense{pendingExpenses.length === 1
 											? ''
-											: 's'} awaiting review.
+											: 's'} must be resolved before this timesheet can be approved.
 									</p>
 								{/if}
 							</div>
@@ -1587,10 +1614,7 @@
 										<div class="col-span-2 text-right">Hours</div>
 									</div>
 									{#each data?.timesheet?.hoursRaw || [] as entry}
-										{@const recurrenceDay = data?.recurrenceDays.find((day) => {
-											console.log(day.date, entry.date);
-											return day.date === entry.date;
-										})}
+										{@const recurrenceDay = data?.recurrenceDays.find((day) => day.date === entry.date)}
 										<div class="py-3 grid grid-cols-12 items-center">
 											<div class="col-span-4">
 												<p class="font-medium">
@@ -1605,9 +1629,11 @@
 											</div>
 											<div class="col-span-3">
 												<p class="text-sm text-gray-600">
-													{formatTimeInReqZone(recurrenceDay.dayStart)} - {formatTimeInReqZone(
-														recurrenceDay.dayEnd
-													)}
+													{#if recurrenceDay}
+														{formatTimeInReqZone(recurrenceDay.dayStart)} - {formatTimeInReqZone(recurrenceDay.dayEnd)}
+													{:else}
+														—
+													{/if}
 												</p>
 											</div>
 											<div class="col-span-2 text-right">
