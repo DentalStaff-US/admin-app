@@ -1,7 +1,6 @@
 import { USER_ROLES } from '$lib/config/constants';
 import { assertCanAccessLocation } from '$lib/server/scoping';
 import {
-	getClientCompanyByClientId,
 	getClientProfileById,
 	getClientProfileByStaffUserId,
 	getClientProfilebyUserId,
@@ -9,7 +8,6 @@ import {
 } from '$lib/server/database/queries/clients';
 import {
 	adminOverrideTimesheet,
-	approveTimesheet,
 	approveTimesheetExpense,
 	computeHoursBreakdown,
 	createInvoiceRecord,
@@ -32,158 +30,35 @@ import {
 	rejectTimesheetExpense,
 	revertTimesheetToPending,
 	updateTimesheetExpense,
-	updateTimesheetHours,
 	voidTimesheetWithInvoice,
 	createPaperInvoiceRecord
 } from '$lib/server/database/queries/requisitions';
 import { getCandidateProfileById } from '$lib/server/database/queries/candidates';
+import {
+	approveAndInvoiceTimesheet,
+	buildPaperLineItems,
+	buildStripeLineItems,
+	calculateAdminFeeCents
+} from '$lib/server/timesheets/approveTimesheet';
 import type { TimesheetExpenseSelect } from '$lib/server/database/schemas/requisition';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from './$types';
 import { setFlash } from 'sveltekit-flash-message/server';
-import { createStripeInvoice, stripe } from '$lib/server/stripe';
+import { createStripeInvoice } from '$lib/server/stripe';
 import { logger } from '$lib/server/logger';
 import db from '$lib/server/database/drizzle';
 import { desc, eq } from 'drizzle-orm';
 import { adminConfigTable } from '$lib/server/database/schemas/config';
 import { actionHistoryTable } from '$lib/server/database/schemas/admin';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
-import { userTable } from '$lib/server/database/schemas/auth';
 import { getUserById } from '$lib/server/database/queries/users';
-import { timeSheetTable, workdayTable } from '$lib/server/database/schemas/requisition';
+import { timeSheetTable } from '$lib/server/database/schemas/requisition';
 import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import type { RawTimesheetHours } from '$lib/server/database/schemas/requisition';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
-import { clientProfileTable } from '$lib/server/database/schemas/client';
 import { notifyTimesheetSubmitted } from '$lib/server/notifications/transactional';
 import { superValidate } from 'sveltekit-superforms/server';
 import { addExpenseSchema } from '$lib/config/zod-schemas';
-
-const ADMIN_FEE_LINE_DESCRIPTION = 'Administration Fees';
-const OVERTIME_LINE_DESCRIPTION = 'Overtime hours (1.5×)';
-
-// Admin fee is charged on REGULAR hours only — overtime is exempt. Callers pass
-// `regularCents` (not the full billable amount) here.
-function calculateAdminFeeCents(
-	regularCents: number,
-	adminFee: number,
-	adminFeeType: 'PERCENTAGE' | 'FIXED'
-): number {
-	if (!adminFee || adminFee <= 0) return 0;
-	if (adminFeeType === 'PERCENTAGE') {
-		return Math.round((regularCents * adminFee) / 100);
-	}
-	return Math.round(adminFee * 100);
-}
-
-function buildStripeLineItems({
-	regularCents,
-	overtimeCents,
-	overtimeHours,
-	adminFeeCents,
-	hoursDescription,
-	expenses
-}: {
-	regularCents: number;
-	overtimeCents: number;
-	overtimeHours: number;
-	adminFeeCents: number;
-	hoursDescription: string;
-	expenses: TimesheetExpenseSelect[];
-}) {
-	const lineItems: Array<{ amountInCents: number; description: string }> = [
-		{ amountInCents: regularCents, description: hoursDescription }
-	];
-	if (overtimeHours > 0 && overtimeCents > 0) {
-		lineItems.push({ amountInCents: overtimeCents, description: OVERTIME_LINE_DESCRIPTION });
-	}
-	for (const expense of expenses) {
-		lineItems.push({
-			amountInCents: expense.amountCents,
-			description: `Expense: ${expense.description}`
-		});
-	}
-	if (adminFeeCents > 0) {
-		lineItems.push({ amountInCents: adminFeeCents, description: ADMIN_FEE_LINE_DESCRIPTION });
-	}
-	return lineItems;
-}
-
-function buildPaperLineItems({
-	regularHours,
-	overtimeHours,
-	regularCents,
-	overtimeCents,
-	effectiveRateDollars,
-	adminFeeCents,
-	hoursDescription,
-	expenses
-}: {
-	regularHours: number;
-	overtimeHours: number;
-	regularCents: number;
-	overtimeCents: number;
-	effectiveRateDollars: number;
-	adminFeeCents: number;
-	hoursDescription: string;
-	expenses: TimesheetExpenseSelect[];
-}) {
-	const rateCents = Math.round(effectiveRateDollars * 100);
-	const overtimeRateCents = Math.round(effectiveRateDollars * 1.5 * 100);
-	const items = [
-		{
-			id: crypto.randomUUID(),
-			description: hoursDescription,
-			quantity: regularHours,
-			rate: rateCents,
-			unit_amount: rateCents,
-			unit_amount_excluding_tax: rateCents,
-			amount: regularCents,
-			currency: 'usd',
-			type: 'paper' as const
-		}
-	];
-	if (overtimeHours > 0 && overtimeCents > 0) {
-		items.push({
-			id: crypto.randomUUID(),
-			description: OVERTIME_LINE_DESCRIPTION,
-			quantity: overtimeHours,
-			rate: overtimeRateCents,
-			unit_amount: overtimeRateCents,
-			unit_amount_excluding_tax: overtimeRateCents,
-			amount: overtimeCents,
-			currency: 'usd',
-			type: 'paper' as const
-		});
-	}
-	for (const expense of expenses) {
-		items.push({
-			id: crypto.randomUUID(),
-			description: `Expense: ${expense.description}`,
-			quantity: 1,
-			rate: expense.amountCents,
-			unit_amount: expense.amountCents,
-			unit_amount_excluding_tax: expense.amountCents,
-			amount: expense.amountCents,
-			currency: 'usd',
-			type: 'paper' as const
-		});
-	}
-	if (adminFeeCents > 0) {
-		items.push({
-			id: crypto.randomUUID(),
-			description: ADMIN_FEE_LINE_DESCRIPTION,
-			quantity: 1,
-			rate: adminFeeCents,
-			unit_amount: adminFeeCents,
-			unit_amount_excluding_tax: adminFeeCents,
-			amount: adminFeeCents,
-			currency: 'usd',
-			type: 'paper' as const
-		});
-	}
-	return items;
-}
 
 export const load = async (event: RequestEvent) => {
 	const user = event.locals.user;
@@ -250,7 +125,6 @@ export const load = async (event: RequestEvent) => {
 			auditHistory: auditHistory.map((h) => h.status === 'fulfilled' && h.value)
 		};
 	}
-
 
 	if (user.role === USER_ROLES.CLIENT) {
 		if (!user.completedOnboarding) {
@@ -407,7 +281,10 @@ export const actions = {
 					hours: value.hours
 				}));
 
-			const formattedEntries: RawTimesheetHours[] = entriesArray.map((entry) => ({
+			// createUTCDateTime returns Date objects; Drizzle's JSON column serializes
+			// them to ISO strings on write, matching RawTimesheetHours (typed as
+			// strings). Cast through unknown to satisfy the static type.
+			const formattedEntries = entriesArray.map((entry) => ({
 				...entry,
 				startTime: createUTCDateTime(entry.date, entry.startTime, requisition.referenceTimezone),
 				endTime: createUTCDateTime(entry.date, entry.endTime, requisition.referenceTimezone),
@@ -417,7 +294,7 @@ export const actions = {
 				lunchEndTime: entry.lunchEndTime
 					? createUTCDateTime(entry.date, entry.lunchEndTime, requisition.referenceTimezone)
 					: null
-			}));
+			})) as unknown as RawTimesheetHours[];
 
 			const [result] = await db
 				.update(timeSheetTable)
@@ -447,6 +324,107 @@ export const actions = {
 			console.error('Error submitting timesheet:', err);
 			setFlash({ type: 'error', message: 'Failed to submit timesheet' }, event);
 			return fail(500, { error: 'Failed to submit timesheet' });
+		}
+	},
+
+	// Admin saves entered hours on behalf of the professional WITHOUT submitting:
+	// the sheet stays DRAFT and the client is NOT notified. Lets an admin record
+	// e.g. a backfilled day now and submit later.
+	adminSaveDraftTimesheet: async (event: RequestEvent) => {
+		const { id } = event.params;
+		const { user } = event.locals;
+
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			throw error(401, 'Unauthorized');
+		}
+
+		const formData = await event.request.formData();
+		const entries = JSON.parse(formData.get('entries') as string);
+		const totalHours = parseFloat(formData.get('totalHours') as string);
+
+		try {
+			const [timesheet] = await db
+				.select()
+				.from(timeSheetTable)
+				.where(eq(timeSheetTable.id, id))
+				.limit(1);
+
+			if (!timesheet) {
+				throw error(404, 'Timesheet not found');
+			}
+
+			// Approved/void timesheets are locked — no edits.
+			if (timesheet.status === 'APPROVED' || timesheet.status === 'VOID') {
+				setFlash(
+					{
+						type: 'error',
+						message: `This timesheet is ${timesheet.status.toLowerCase()} and can no longer be edited. Void it to make corrections.`
+					},
+					event
+				);
+				return fail(409, { error: 'Timesheet is locked' });
+			}
+
+			const requisition = await getRequisitionById(timesheet.requisitionId);
+
+			if (!requisition || !requisition.referenceTimezone) {
+				throw error(400, 'Requisition timezone not found');
+			}
+
+			const entriesArray = Object.entries(entries)
+				.filter(([_, value]: [string, any]) => value.hours > 0)
+				.map(([date, value]: [string, any]) => ({
+					date,
+					startTime: value.startTime,
+					endTime: value.endTime,
+					lunchStartTime: value.lunchStartTime,
+					lunchEndTime: value.lunchEndTime,
+					hours: value.hours
+				}));
+
+			// createUTCDateTime returns Date objects; Drizzle's JSON column serializes
+			// them to ISO strings on write, matching RawTimesheetHours (typed as
+			// strings). Cast through unknown to satisfy the static type.
+			const formattedEntries = entriesArray.map((entry) => ({
+				...entry,
+				startTime: createUTCDateTime(entry.date, entry.startTime, requisition.referenceTimezone),
+				endTime: createUTCDateTime(entry.date, entry.endTime, requisition.referenceTimezone),
+				lunchStartTime: entry.lunchStartTime
+					? createUTCDateTime(entry.date, entry.lunchStartTime, requisition.referenceTimezone)
+					: null,
+				lunchEndTime: entry.lunchEndTime
+					? createUTCDateTime(entry.date, entry.lunchEndTime, requisition.referenceTimezone)
+					: null
+			})) as unknown as RawTimesheetHours[];
+
+			const [result] = await db
+				.update(timeSheetTable)
+				.set({
+					totalHoursWorked: totalHours.toString(),
+					hoursRaw: formattedEntries,
+					// Keep/return to DRAFT — this is a save, not a submission.
+					status: 'DRAFT',
+					updatedAt: new Date()
+				})
+				.where(eq(timeSheetTable.id, id))
+				.returning();
+
+			await writeActionHistory({
+				action: 'UPDATE',
+				userId: user.id,
+				entityId: result.id,
+				table: 'TIMESHEETS',
+				beforeState: timesheet,
+				afterState: result,
+				metadata: { editType: 'ADMIN_SAVE_DRAFT' }
+			});
+
+			setFlash({ type: 'success', message: 'Draft saved' }, event);
+			return { success: true };
+		} catch (err) {
+			console.error('Error saving timesheet draft:', err);
+			setFlash({ type: 'error', message: 'Failed to save draft' }, event);
+			return fail(500, { error: 'Failed to save draft' });
 		}
 	},
 
@@ -503,7 +481,10 @@ export const actions = {
 					hours: value.hours
 				}));
 
-			const formattedEntries: RawTimesheetHours[] = entriesArray.map((entry) => ({
+			// createUTCDateTime returns Date objects; Drizzle's JSON column serializes
+			// them to ISO strings on write, matching RawTimesheetHours (typed as
+			// strings). Cast through unknown to satisfy the static type.
+			const formattedEntries = entriesArray.map((entry) => ({
 				...entry,
 				startTime: createUTCDateTime(entry.date, entry.startTime, requisition.referenceTimezone),
 				endTime: createUTCDateTime(entry.date, entry.endTime, requisition.referenceTimezone),
@@ -513,7 +494,7 @@ export const actions = {
 				lunchEndTime: entry.lunchEndTime
 					? createUTCDateTime(entry.date, entry.lunchEndTime, requisition.referenceTimezone)
 					: null
-			}));
+			})) as unknown as RawTimesheetHours[];
 
 			const [result] = await db
 				.update(timeSheetTable)
@@ -583,153 +564,28 @@ export const actions = {
 		if (user === null) {
 			redirect(302, '/auth/sign-in');
 		}
-		try {
-			const [adminConfig] = await db.select().from(adminConfigTable).limit(1);
 
-			const existingExpenses = await listTimesheetExpenses(id);
-			const pendingExpenses = existingExpenses.filter((e) => e.status === 'PENDING');
-			if (pendingExpenses.length > 0) {
-				setFlash(
-					{
-						type: 'error',
-						message: `Cannot approve timesheet: ${pendingExpenses.length} expense${pendingExpenses.length === 1 ? ' is' : 's are'} still pending review.`
-					},
-					event
-				);
-				return fail(400, { error: 'Resolve all pending expenses before approving' });
-			}
+		const result = await approveAndInvoiceTimesheet(id, { actorUserId: user.id });
 
-			// Approval gate: every assigned (non-cancelled) workday for this
-			// candidate's week must have ended before we bill — otherwise a shift
-			// added later in the week could spawn a second timesheet/invoice.
-			const preApproval = await getTimesheetById(id);
-			if (!preApproval) {
-				return fail(404, { error: 'Timesheet not found' });
-			}
-			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheetWeek(preApproval);
-			if (unfinishedWorkdays.length > 0) {
-				setFlash(
-					{
-						type: 'error',
-						message: `Cannot approve yet: ${unfinishedWorkdays.length} assigned workday(s) this week have not ended.`
-					},
-					event
-				);
-				return fail(400, { error: 'All assigned workdays for the week must end before approval' });
-			}
-
-			const timesheet = await approveTimesheet(id, user.id);
-			const requisition = timesheet.requisitionId
-				? await getRequisitionById(timesheet.requisitionId)
-				: null;
-			if (!requisition) {
-				throw new Error('Requisition not found for timesheet');
-			}
-
-			const approvedExpenses = existingExpenses.filter((e) => e.status === 'APPROVED');
-			const expensesTotalCents = approvedExpenses.reduce((sum, e) => sum + e.amountCents, 0);
-
-			const effectiveRate = timesheet.adjustedHourlyRate ?? requisition.hourlyRate;
-
-			const breakdown = computeHoursBreakdown(timesheet.totalHoursWorked || 0, effectiveRate);
-			const amountInCents = breakdown.billableCents;
-
-			// Admin fee applies to regular hours only — overtime is exempt.
-			const adminFeeCents = calculateAdminFeeCents(
-				breakdown.regularCents,
-				adminConfig.adminPaymentFee,
-				adminConfig.adminPaymentFeeType
-			);
-
-			const finalAmt = Math.round(amountInCents + expensesTotalCents + adminFeeCents);
-
-			if (finalAmt <= 0) {
-				setFlash(
-					{
-						type: 'error',
-						message:
-							'Cannot approve timesheet: Invoice amount is $0.00. Please verify hours worked and hourly rate.'
-					},
-					event
-				);
-				await revertTimesheetToPending(id, user.id);
-				return fail(400, { error: 'Invoice amount must be greater than $0.00' });
-			}
-
-			// Only ever put the candidate/professional's name on the invoice — never
-			// the logged-in admin's.
-			const { candidate } = await getCandidateProfileById(timesheet.associatedCandidateId);
-			const candidateName = `${candidate.user.firstName} ${candidate.user.lastName}`;
-
-			const clientProfile = await getClientProfileById(timesheet.associatedClientId);
-			const isPaperBilling = clientProfile?.profile.clientInvoiceMethod === 'PAPER';
-
-			if (isPaperBilling) {
-				const effectiveRateDollars = effectiveRate ?? 0;
-
-				await createPaperInvoiceRecord(
-					{
-						clientId: timesheet.associatedClientId,
-						amountInDollars: (finalAmt / 100).toFixed(2),
-						sourceType: 'timesheet',
-						timesheetId: timesheet.id,
-						requisitionId: timesheet.requisitionId ?? undefined,
-						candidateId: timesheet.associatedCandidateId,
-						description: `Dental Temp Staffing Solutions invoice: Hours worked for ${candidateName}`,
-						lineItems: buildPaperLineItems({
-							regularHours: breakdown.regularHours,
-							overtimeHours: breakdown.overtimeHours,
-							regularCents: breakdown.regularCents,
-							overtimeCents: breakdown.overtimeCents,
-							effectiveRateDollars,
-							adminFeeCents,
-							hoursDescription: `Regular hours worked for ${candidateName}`,
-							expenses: approvedExpenses
-						})
-					},
-					user.id
-				);
-			} else {
-				const stripeCustomerId =
-					(await getClientSubscription(timesheet.associatedClientId)) || user.stripeCustomerId;
-
-				const stripeInvoice = await createStripeInvoice(
-					stripeCustomerId,
-					buildStripeLineItems({
-						regularCents: breakdown.regularCents,
-						overtimeCents: breakdown.overtimeCents,
-						overtimeHours: breakdown.overtimeHours,
-						adminFeeCents,
-						hoursDescription: `Regular hours worked for ${candidateName}`,
-						expenses: approvedExpenses
-					}),
-					{ userId: user.id, timesheetId: timesheet.id, clientId: timesheet.associatedClientId },
-					`Dental Temp Staffing Solutions invoice: Hours worked for ${candidateName}`
-				);
-
-				await createInvoiceRecord(
-					{
-						clientId: timesheet.associatedClientId,
-						timesheet,
-						stripeInvoice,
-						amountInDollars: (stripeInvoice.amount_due / 100).toFixed(2)
-					},
-					user.id
-				);
-			}
-
+		if (result.ok) {
 			setFlash({ type: 'success', message: 'Timesheet approved' }, event);
-			return { success: true, message: 'Timesheet approved', timesheet };
-		} catch (err) {
-			await revertTimesheetToPending(id, user?.id);
-			logger.error('timesheet approve failed', {
-				error: err,
-				timesheetId: id,
-				distinctId: user?.id
-			});
-			setFlash({ type: 'error', message: 'Error approving timesheet' }, event);
-			return { success: false };
+			return { success: true, message: 'Timesheet approved', timesheet: result.timesheet };
 		}
+
+		const message =
+			result.reason === 'PENDING_EXPENSES'
+				? `Cannot approve timesheet: ${result.pendingExpenseCount} expense(s) still pending review.`
+				: result.reason === 'UNFINISHED_WORKDAYS'
+					? `Cannot approve yet: ${result.unfinishedCount} assigned workday(s) this week have not ended.`
+					: result.reason === 'ZERO_AMOUNT'
+						? 'Cannot approve timesheet: Invoice amount is $0.00. Please verify hours worked and hourly rate.'
+						: result.reason === 'NO_STRIPE_CUSTOMER'
+							? 'No Stripe customer found for this client.'
+							: result.reason === 'NOT_FOUND'
+								? 'Timesheet not found.'
+								: 'Error approving timesheet';
+		setFlash({ type: 'error', message }, event);
+		return fail(result.reason === 'ERROR' ? 500 : 400, { error: message });
 	},
 
 	// Void a timesheet that HAS an invoice: voids the timesheet + its invoice
@@ -811,7 +667,10 @@ export const actions = {
 			// rather than re-approved.
 			if (timesheet.status === 'APPROVED' || timesheet.status === 'VOID') {
 				setFlash(
-					{ type: 'error', message: `Cannot override a ${timesheet.status.toLowerCase()} timesheet` },
+					{
+						type: 'error',
+						message: `Cannot override a ${timesheet.status.toLowerCase()} timesheet`
+					},
 					event
 				);
 				return fail(409, { error: 'Timesheet is locked' });

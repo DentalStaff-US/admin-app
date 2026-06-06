@@ -343,7 +343,7 @@
 	{:else}
 		<!-- Tabs with Tables -->
 		<Tabs.Root bind:value={activeTab} class="">
-			<Tabs.List class="grid w-full grid-cols-5">
+			<Tabs.List class={`grid w-full grid-cols-${isAdmin ? 5 : 4}`}>
 				<Tabs.Trigger value="all" class="relative">
 					All Timesheets
 					{#if tabCounts.all > 0}
@@ -372,12 +372,14 @@
 						></Badge>
 					{/if}
 				</Tabs.Trigger>
-				<Tabs.Trigger value="wages-due" class="relative">
-					Wages Due
-					{#if tabCounts.wagesDue > 0}
-						<Badge class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.wagesDue}></Badge>
-					{/if}
-				</Tabs.Trigger>
+				{#if isAdmin}
+					<Tabs.Trigger value="wages-due" class="relative">
+						Wages Due
+						{#if tabCounts.wagesDue > 0}
+							<Badge class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.wagesDue}></Badge>
+						{/if}
+					</Tabs.Trigger>
+				{/if}
 				<Tabs.Trigger value="voided" class="relative">
 					<Ban class="h-4 w-4 mr-1" />
 					Voided

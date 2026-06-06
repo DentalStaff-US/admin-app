@@ -46,12 +46,21 @@ export async function executeJob(
 		// reason (ECONNREFUSED, ENOTFOUND, certificate errors, etc.) lives in
 		// `error.cause`. Surface both so PostHog has enough to diagnose.
 		const baseMessage = err instanceof Error ? err.message : String(err);
+		const causeErr = err instanceof Error ? err.cause : undefined;
+		// `AggregateError` (e.g. when undici tries both ::1 and 127.0.0.1 and both
+		// refuse) has an empty top-level message — the real reasons live in
+		// `.errors`. Flatten them so the log says `ECONNREFUSED 127.0.0.1:3000;
+		// ECONNREFUSED ::1:3000` instead of a useless empty AggregateError.
 		const cause =
-			err instanceof Error && err.cause
-				? err.cause instanceof Error
-					? `${err.cause.name}: ${err.cause.message}`
-					: String(err.cause)
-				: undefined;
+			causeErr instanceof AggregateError
+				? causeErr.errors
+						.map((e) => (e instanceof Error ? `${e.name}: ${e.message}` : String(e)))
+						.join('; ')
+				: causeErr instanceof Error
+					? `${causeErr.name}: ${causeErr.message}`
+					: causeErr
+						? String(causeErr)
+						: undefined;
 		return {
 			ok: false,
 			error: cause ? `${baseMessage} (cause: ${cause})` : baseMessage,
