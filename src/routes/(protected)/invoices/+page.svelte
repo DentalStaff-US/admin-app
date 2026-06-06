@@ -49,7 +49,7 @@
 
 	// Helper function to check if invoice is overdue
 	function isOverdue(invoice: InvoiceWithRelations): boolean {
-		if (!invoice.invoice.dueDate || invoice.invoice.status === 'paid') {
+		if (!invoice.invoice.dueDate || invoice.invoice.status === 'paid' || invoice.invoice.status === 'void') {
 			return false;
 		}
 		const dueDate = new Date(invoice.invoice.dueDate);
