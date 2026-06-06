@@ -1451,18 +1451,31 @@
 						<div class="rounded-lg border bg-gray-50 p-4">
 							<p class="mb-3 text-sm font-medium text-gray-700">Billing Summary</p>
 							<div class="space-y-1.5 text-sm">
-								<div class="flex justify-between">
-									<span class="text-gray-600">Billable Hours Total</span>
-									<span class="font-medium">${getCostEstimate()}</span>
-								</div>
+								{#if overtimeHours > 0}
+									<div class="flex justify-between">
+										<span class="text-gray-600">Regular hours (40 hrs)</span>
+										<span class="font-medium">${regularAmount.toFixed(2)}</span>
+									</div>
+									<div class="flex justify-between">
+										<span class="text-gray-600">Overtime ({overtimeHours.toFixed(2)} hrs × 1.5×)</span>
+										<span class="font-medium">${overtimeAmount.toFixed(2)}</span>
+									</div>
+								{:else}
+									<div class="flex justify-between">
+										<span class="text-gray-600">Billable Hours Total</span>
+										<span class="font-medium">${billableSubtotal.toFixed(2)}</span>
+									</div>
+								{/if}
 								{#if approvedExpenses.length > 0}
 									<div class="flex justify-between">
-										<span class="text-gray-600">Approved Expenses ({approvedExpenses.length})</span>
+										<span class="text-gray-600"
+											>Approved Expenses ({approvedExpenses.length})</span
+										>
 										<span class="font-medium">${approvedExpensesTotal.toFixed(2)}</span>
 									</div>
 								{/if}
 								<div class="flex justify-between">
-									<span class="text-gray-600">{adminFeeLabel} <span class="text-xs text-gray-500">Applies to Regular Hours Only</span></span>
+									<span class="text-gray-600">{adminFeeLabel} <span class="text-xs text-gray-500">Applies to Regular Hours</span></span>
 									<span class="font-medium">${adminFeeAmount.toFixed(2)}</span>
 								</div>
 								<Separator class="my-2" />
@@ -1474,7 +1487,7 @@
 									<p class="pt-1 text-xs text-amber-700">
 										{pendingExpenses.length} pending expense{pendingExpenses.length === 1
 											? ''
-											: 's'} awaiting review.
+											: 's'} must be resolved before this timesheet can be approved.
 									</p>
 								{/if}
 							</div>
