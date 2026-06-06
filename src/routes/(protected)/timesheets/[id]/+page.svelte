@@ -1444,28 +1444,17 @@
 							</div>
 							<div class="p-3 bg-gray-50 rounded-lg">
 								<p class="text-sm text-gray-600">Billable (Hours × Rate)</p>
-								<p class="text-xl font-bold">${billableSubtotal.toFixed(2)}</p>
+								<p class="text-xl font-bold">${getCostEstimate()}</p>
 							</div>
 						</div>
 
 						<div class="rounded-lg border bg-gray-50 p-4">
 							<p class="mb-3 text-sm font-medium text-gray-700">Billing Summary</p>
 							<div class="space-y-1.5 text-sm">
-								{#if overtimeHours > 0}
-									<div class="flex justify-between">
-										<span class="text-gray-600">Regular hours (40 hrs)</span>
-										<span class="font-medium">${regularAmount.toFixed(2)}</span>
-									</div>
-									<div class="flex justify-between">
-										<span class="text-gray-600">Overtime ({overtimeHours.toFixed(2)} hrs × 1.5×)</span>
-										<span class="font-medium">${overtimeAmount.toFixed(2)}</span>
-									</div>
-								{:else}
-									<div class="flex justify-between">
-										<span class="text-gray-600">Billable Hours Total</span>
-										<span class="font-medium">${billableSubtotal.toFixed(2)}</span>
-									</div>
-								{/if}
+								<div class="flex justify-between">
+									<span class="text-gray-600">Billable Hours Total</span>
+									<span class="font-medium">${getCostEstimate()}</span>
+								</div>
 								{#if approvedExpenses.length > 0}
 									<div class="flex justify-between">
 										<span class="text-gray-600">Approved Expenses ({approvedExpenses.length})</span>
@@ -1473,7 +1462,7 @@
 									</div>
 								{/if}
 								<div class="flex justify-between">
-									<span class="text-gray-600">{adminFeeLabel}</span>
+									<span class="text-gray-600">{adminFeeLabel} <span class="text-xs text-gray-500">Applies to Regular Hours Only</span></span>
 									<span class="font-medium">${adminFeeAmount.toFixed(2)}</span>
 								</div>
 								<Separator class="my-2" />
