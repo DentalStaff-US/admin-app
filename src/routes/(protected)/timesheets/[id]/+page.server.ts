@@ -12,6 +12,7 @@ import {
 	computeHoursBreakdown,
 	createInvoiceRecord,
 	createTimesheetExpense,
+	getApprovedBilledHoursForWeek,
 	deleteTimesheet,
 	deleteTimesheetExpense,
 	getInvoiceByTimesheetId,
@@ -716,7 +717,22 @@ export const actions = {
 
 			const effectiveRate = overridden.adjustedHourlyRate ?? requisition.hourlyRate;
 
-			const breakdown = computeHoursBreakdown(timesheet.totalHoursWorked || 0, effectiveRate);
+			// Continue weekly overtime across any APPROVED sibling timesheets for
+			// this candidate+requisition+week (split-week handling).
+			const priorWeekHours = overridden.requisitionId
+				? await getApprovedBilledHoursForWeek({
+						candidateId: overridden.associatedCandidateId,
+						requisitionId: overridden.requisitionId,
+						weekBeginDate: overridden.weekBeginDate,
+						excludeTimesheetId: overridden.id
+					})
+				: 0;
+
+			const breakdown = computeHoursBreakdown(
+				timesheet.totalHoursWorked || 0,
+				effectiveRate,
+				priorWeekHours
+			);
 			const amountInCents = breakdown.billableCents;
 
 			// Admin fee applies to regular hours only — overtime is exempt.
@@ -767,7 +783,8 @@ export const actions = {
 							effectiveRateDollars,
 							adminFeeCents,
 							hoursDescription: `Regular hours worked for ${candidateName}`,
-							expenses: approvedExpenses
+							expenses: approvedExpenses,
+							priorWeekHours
 						})
 					},
 					user.id
@@ -782,12 +799,14 @@ export const actions = {
 				const stripeInvoice = await createStripeInvoice(
 					stripeCustomerId,
 					buildStripeLineItems({
+						regularHours: breakdown.regularHours,
 						regularCents: breakdown.regularCents,
 						overtimeCents: breakdown.overtimeCents,
 						overtimeHours: breakdown.overtimeHours,
 						adminFeeCents,
 						hoursDescription: `Regular hours worked for ${candidateName}`,
-						expenses: approvedExpenses
+						expenses: approvedExpenses,
+						priorWeekHours
 					}),
 					{ userId: user.id, timesheetId: overridden.id, clientId: overridden.associatedClientId },
 					`Dental Temp Staffing Solutions invoice: Hours worked for ${candidateName}`

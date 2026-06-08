@@ -139,15 +139,13 @@ export type CompanyLocationSchema = typeof clientCompanyLocationSchema;
 
 export const newDisciplineSchema = z.object({
 	name: z.string().min(1),
-	abbreviation: z.string().min(1),
-	workersCompCode: z.string().optional()
+	abbreviation: z.string().min(1)
 });
 
 export const editDisciplineSchema = z.object({
 	id: z.string().min(1),
 	name: z.string().min(1),
-	abbreviation: z.string().min(1),
-	workersCompCode: z.string().optional()
+	abbreviation: z.string().min(1)
 });
 
 export const deleteDisciplineSchema = z.object({
@@ -299,7 +297,8 @@ export const updateCandidateProfileSchema = z.object({
 	birthday: z.string().optional(),
 	completeAddress: z.string().optional(),
 	lat: z.string().optional(),
-	lon: z.string().optional()
+	lon: z.string().optional(),
+	workersCompCode: z.string().nullable().optional()
 });
 
 export type UpdateCandidateProfileSchema = typeof updateCandidateProfileSchema;

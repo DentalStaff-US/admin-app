@@ -12,6 +12,7 @@ import { authenticateUser } from '$lib/server/serverUtils';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { eq, and, isNull } from 'drizzle-orm';
 import { logger } from '$lib/server/logger';
+import { getApprovedBilledHoursForWeek } from '$lib/server/database/queries/requisitions';
 
 export const GET: RequestHandler = async ({ params, request }) => {
 	const { id } = params;
@@ -75,10 +76,7 @@ export const GET: RequestHandler = async ({ params, request }) => {
 			.leftJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
 			.leftJoin(
 				workdayTable,
-				and(
-					eq(workdayTable.timesheetId, timeSheetTable.id),
-					isNull(workdayTable.cancelledAt)
-				)
+				and(eq(workdayTable.timesheetId, timeSheetTable.id), isNull(workdayTable.cancelledAt))
 			)
 			.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
 			.where(
@@ -93,7 +91,22 @@ export const GET: RequestHandler = async ({ params, request }) => {
 			throw error(404, 'Timesheet not found or access denied');
 		}
 
-		return json(timesheet);
+		// Hours already billed for this candidate's week on OTHER approved
+		// timesheets. Lets the candidate UI show the correct regular/overtime
+		// split when a week is split across timesheets (overtime is per-week).
+		const priorWeekHours = timesheet.requisition?.id
+			? await getApprovedBilledHoursForWeek({
+					candidateId: candidateProfile.id,
+					requisitionId: timesheet.requisition.id,
+					weekBeginDate: timesheet.timesheet.weekBeginDate,
+					excludeTimesheetId: id
+				})
+			: 0;
+
+		return json({
+			...timesheet,
+			timesheet: { ...timesheet.timesheet, priorWeekHours }
+		});
 	} catch (err) {
 		logger.error('timesheets.getTimesheetDetails failed', { error: err, timesheetId: params.id });
 		throw error(500, 'Internal server error');

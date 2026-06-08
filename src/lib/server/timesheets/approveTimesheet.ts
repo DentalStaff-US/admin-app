@@ -9,6 +9,7 @@ import {
 	computeHoursBreakdown,
 	createInvoiceRecord,
 	createPaperInvoiceRecord,
+	getApprovedBilledHoursForWeek,
 	getRequisitionById,
 	getTimesheetById,
 	getUnfinishedWorkdaysForTimesheetWeek,
@@ -23,6 +24,15 @@ import { logger } from '$lib/server/logger';
 
 const ADMIN_FEE_LINE_DESCRIPTION = 'Administration Fees';
 const OVERTIME_LINE_DESCRIPTION = 'Overtime hours (1.5×)';
+
+// When a week is split across timesheets, explain on the invoice why these hours
+// are overtime (the week's 40h regular allotment was already used on a prior
+// timesheet).
+function overtimeLineDescription(priorWeekHours: number): string {
+	return priorWeekHours > 0
+		? `${OVERTIME_LINE_DESCRIPTION} — week already at ${priorWeekHours.toFixed(2)} hrs on a prior timesheet`
+		: OVERTIME_LINE_DESCRIPTION;
+}
 
 // Admin fee is charged on REGULAR hours only — overtime is exempt. Callers pass
 // `regularCents` (not the full billable amount) here.
@@ -39,25 +49,35 @@ export function calculateAdminFeeCents(
 }
 
 export function buildStripeLineItems({
+	regularHours,
 	regularCents,
 	overtimeCents,
 	overtimeHours,
 	adminFeeCents,
 	hoursDescription,
-	expenses
+	expenses,
+	priorWeekHours = 0
 }: {
+	regularHours: number;
 	regularCents: number;
 	overtimeCents: number;
 	overtimeHours: number;
 	adminFeeCents: number;
 	hoursDescription: string;
 	expenses: TimesheetExpenseSelect[];
+	priorWeekHours?: number;
 }) {
-	const lineItems: Array<{ amountInCents: number; description: string }> = [
-		{ amountInCents: regularCents, description: hoursDescription }
-	];
+	const lineItems: Array<{ amountInCents: number; description: string }> = [];
+	// Skip the regular line entirely when this timesheet is all overtime (the
+	// week's 40h was already used on a prior sheet) — no $0 "Regular hours" line.
+	if (regularHours > 0) {
+		lineItems.push({ amountInCents: regularCents, description: hoursDescription });
+	}
 	if (overtimeHours > 0 && overtimeCents > 0) {
-		lineItems.push({ amountInCents: overtimeCents, description: OVERTIME_LINE_DESCRIPTION });
+		lineItems.push({
+			amountInCents: overtimeCents,
+			description: overtimeLineDescription(priorWeekHours)
+		});
 	}
 	for (const expense of expenses) {
 		lineItems.push({
@@ -79,7 +99,8 @@ export function buildPaperLineItems({
 	effectiveRateDollars,
 	adminFeeCents,
 	hoursDescription,
-	expenses
+	expenses,
+	priorWeekHours = 0
 }: {
 	regularHours: number;
 	overtimeHours: number;
@@ -89,11 +110,25 @@ export function buildPaperLineItems({
 	adminFeeCents: number;
 	hoursDescription: string;
 	expenses: TimesheetExpenseSelect[];
+	priorWeekHours?: number;
 }) {
 	const rateCents = Math.round(effectiveRateDollars * 100);
 	const overtimeRateCents = Math.round(effectiveRateDollars * 1.5 * 100);
-	const items = [
-		{
+	const items: Array<{
+		id: string;
+		description: string;
+		quantity: number;
+		rate: number;
+		unit_amount: number;
+		unit_amount_excluding_tax: number;
+		amount: number;
+		currency: string;
+		type: 'paper';
+	}> = [];
+	// Skip the regular line when this timesheet is all overtime (week's 40h
+	// already used on a prior sheet).
+	if (regularHours > 0) {
+		items.push({
 			id: crypto.randomUUID(),
 			description: hoursDescription,
 			quantity: regularHours,
@@ -102,13 +137,13 @@ export function buildPaperLineItems({
 			unit_amount_excluding_tax: rateCents,
 			amount: regularCents,
 			currency: 'usd',
-			type: 'paper' as const
-		}
-	];
+			type: 'paper'
+		});
+	}
 	if (overtimeHours > 0 && overtimeCents > 0) {
 		items.push({
 			id: crypto.randomUUID(),
-			description: OVERTIME_LINE_DESCRIPTION,
+			description: overtimeLineDescription(priorWeekHours),
 			quantity: overtimeHours,
 			rate: overtimeRateCents,
 			unit_amount: overtimeRateCents,
@@ -214,7 +249,24 @@ export async function approveAndInvoiceTimesheet(
 
 		const effectiveRate = timesheet.adjustedHourlyRate ?? requisition.hourlyRate;
 
-		const breakdown = computeHoursBreakdown(timesheet.totalHoursWorked || 0, effectiveRate);
+		// Overtime is per-week: continue the 40h regular allotment across any
+		// APPROVED sibling timesheets for this candidate+requisition+week, so a
+		// backfilled day on a new timesheet bills as overtime when the week is
+		// already past 40h.
+		const priorWeekHours = timesheet.requisitionId
+			? await getApprovedBilledHoursForWeek({
+					candidateId: timesheet.associatedCandidateId,
+					requisitionId: timesheet.requisitionId,
+					weekBeginDate: timesheet.weekBeginDate,
+					excludeTimesheetId: timesheet.id
+				})
+			: 0;
+
+		const breakdown = computeHoursBreakdown(
+			timesheet.totalHoursWorked || 0,
+			effectiveRate,
+			priorWeekHours
+		);
 		const amountInCents = breakdown.billableCents;
 
 		// Admin fee applies to regular hours only — overtime is exempt.
@@ -256,7 +308,8 @@ export async function approveAndInvoiceTimesheet(
 						effectiveRateDollars,
 						adminFeeCents,
 						hoursDescription: `Regular hours worked for ${candidateName}`,
-						expenses: approvedExpenses
+						expenses: approvedExpenses,
+						priorWeekHours
 					})
 				},
 				actorUserId
@@ -271,12 +324,14 @@ export async function approveAndInvoiceTimesheet(
 			const stripeInvoice = await createStripeInvoice(
 				stripeCustomerId,
 				buildStripeLineItems({
+					regularHours: breakdown.regularHours,
 					regularCents: breakdown.regularCents,
 					overtimeCents: breakdown.overtimeCents,
 					overtimeHours: breakdown.overtimeHours,
 					adminFeeCents,
 					hoursDescription: `Regular hours worked for ${candidateName}`,
-					expenses: approvedExpenses
+					expenses: approvedExpenses,
+					priorWeekHours
 				}),
 				{
 					userId: actorUserId ?? 'system',
