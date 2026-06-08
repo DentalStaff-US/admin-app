@@ -8,6 +8,47 @@ export const EMAIL_TEMPLATES: Record<
 	string,
 	(...args: any[]) => { textEmail: string; htmlEmail: string; subject: string }
 > = {
+	// Sent when an admin (or the client) requests a billing/payment setup link.
+	// Lets the customer finish adding their payment method even if they were
+	// interrupted and never returned.
+	billingSetupLinkEmail: (details: { clientName: string; setupLink: string }) => {
+		return {
+			textEmail: `
+            Hello ${details.clientName},
+
+            To finish setting up billing for your account, please add your payment method using the secure link below:
+
+            ${details.setupLink}
+
+            This lets you securely enter your payment details so we can process invoices for completed work. If you've already completed setup, you can safely ignore this email.
+
+            For any questions, contact us at ${env.COMPANY_REPLY_TO_EMAIL} or call us at ${env.COMPANY_PHONE_NUMBER}.
+
+            Thank you,
+
+            Dental Temps Staffing Solutions`,
+			htmlEmail: `
+            <p>Hello ${details.clientName},</p>
+
+            <p>To finish setting up billing for your account, please add your payment method using the secure link below:</p>
+
+            <p>
+              <a href="${details.setupLink}" style="display:inline-block;padding:12px 20px;background:#1e40af;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;">Complete Payment Setup</a>
+            </p>
+
+            <p>Or copy and paste this link into your browser:<br />
+            <a href="${details.setupLink}">${details.setupLink}</a></p>
+
+            <p>This lets you securely enter your payment details so we can process invoices for completed work. If you've already completed setup, you can safely ignore this email.</p>
+
+            <p>For any questions, contact us at <a href="mailto:${env.COMPANY_REPLY_TO_EMAIL}">${env.COMPANY_REPLY_TO_EMAIL}</a> or call us at ${env.COMPANY_PHONE_NUMBER}.</p>
+
+            <p>Thank you,</p>
+            <p>Dental Temps Staffing Solutions</p>
+            `.trim(),
+			subject: `Complete Your Payment Setup | ${APP_NAME}`
+		};
+	},
 	welcomeEmail: () => {
 		const textEmail = `
             Thanks for verifying your account with ${APP_NAME}.

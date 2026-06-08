@@ -72,8 +72,8 @@
 
 	type StatusKey = 'PENDING' | 'ACTIVE' | 'INACTIVE' | 'DENIED';
 	const TABS: { value: StatusKey; label: string }[] = [
-		{ value: 'PENDING', label: 'Pending' },
 		{ value: 'ACTIVE', label: 'Active' },
+		{ value: 'PENDING', label: 'Pending' },
 		{ value: 'INACTIVE', label: 'Inactive' },
 		{ value: 'DENIED', label: 'Denied' }
 	];
@@ -81,7 +81,7 @@
 	let searchTerm = data.searchTerm || '';
 	let addDialogOpen = false;
 
-	$: activeTab = (data.status as StatusKey) || 'PENDING';
+	$: activeTab = (data.status as StatusKey) || 'ACTIVE';
 	$: clients = (data.clients as ClientData[]) || [];
 	$: statusCounts = data.statusCounts as Record<StatusKey, number>;
 

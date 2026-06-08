@@ -152,10 +152,33 @@ export async function ensureStripeCustomer(opts: {
 	existingCustomerId?: string | null;
 }): Promise<string> {
 	if (opts.existingCustomerId) {
-		// Trust our DB pointer. If Stripe later 404s on this id, the caller
-		// will surface that error; we don't speculatively `retrieve` here to
-		// keep this hot path cheap.
-		return opts.existingCustomerId;
+		// Verify the stored pointer still resolves in THIS Stripe account/mode.
+		// A stale id — created under a different key/mode (test vs live) or deleted
+		// in the dashboard — would otherwise blow up downstream calls like
+		// createSetupCheckoutSession with "No such customer", and the client could
+		// never complete setup. If it's gone, fall through and create a fresh
+		// customer; the caller persists the returned id back to our DB.
+		try {
+			const existing = await stripe.customers.retrieve(opts.existingCustomerId);
+			if (!existing.deleted) {
+				return opts.existingCustomerId;
+			}
+			logger.warn?.('ensureStripeCustomer: stored customer is deleted in Stripe — recreating', {
+				stripe_customer_id: opts.existingCustomerId,
+				clientId: opts.clientId
+			});
+		} catch (err) {
+			const stripeErr = err as Stripe.errors.StripeError;
+			if (stripeErr?.code !== 'resource_missing') {
+				// A real Stripe/transport error (auth, network, rate limit) — don't
+				// mask it by creating a duplicate customer.
+				throw err;
+			}
+			logger.warn?.('ensureStripeCustomer: stored customer not found in Stripe — recreating', {
+				stripe_customer_id: opts.existingCustomerId,
+				clientId: opts.clientId
+			});
+		}
 	}
 	const customer = await stripe.customers.create({
 		email: opts.email,

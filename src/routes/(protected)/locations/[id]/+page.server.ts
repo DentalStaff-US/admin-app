@@ -14,6 +14,7 @@ import {
 	getClientStaffProfilebyClientId,
 	getClientStaffProfilebyUserId,
 	getLocationByIdForCompany,
+	getLocationTimezone,
 	getPendingInvitesForLocation,
 	getStaffLocationsWithMeta,
 	getStaffProfilesForLocation,
@@ -453,6 +454,13 @@ export const actions = {
 			return { form };
 		}
 		const { id } = event.params;
+
+		// Stamp every day's timezone from the location's authoritative `timezone`
+		// column so saved hours never drift back to a stale/hardcoded zone.
+		const locationTimezone = await getLocationTimezone(id);
+		for (const day of Object.values(jsonHours)) {
+			day.timezone = locationTimezone;
+		}
 
 		try {
 			console.log('Updating operating hours:', jsonHours);
