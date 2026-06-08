@@ -245,7 +245,8 @@ export async function getRequisitionsForClient(
 						searchTerm ? ilike(companyOfficeLocationTable.name, `%${searchTerm}%`) : undefined,
 						searchTerm ? ilike(clientCompanyTable.companyName, `%${searchTerm}%`) : undefined,
 						searchTerm ? ilike(companyOfficeLocationTable.city, `%${searchTerm}%`) : undefined,
-						searchTerm ? ilike(companyOfficeLocationTable.state, `%${searchTerm}%`) : undefined
+						searchTerm ? ilike(companyOfficeLocationTable.state, `%${searchTerm}%`) : undefined,
+						searchTerm ? eq(requisitionTable.id, parseInt(searchTerm)) : undefined
 					)
 				)
 			)
@@ -333,7 +334,8 @@ export async function getRequisitionsAdmin(searchTerm?: string) {
 						searchTerm ? ilike(companyOfficeLocationTable.name, `%${searchTerm}%`) : undefined,
 						searchTerm ? ilike(clientCompanyTable.companyName, `%${searchTerm}%`) : undefined,
 						searchTerm ? ilike(companyOfficeLocationTable.city, `%${searchTerm}%`) : undefined,
-						searchTerm ? ilike(companyOfficeLocationTable.state, `%${searchTerm}%`) : undefined
+						searchTerm ? ilike(companyOfficeLocationTable.state, `%${searchTerm}%`) : undefined,
+						searchTerm ? eq(requisitionTable.id, parseInt(searchTerm)) : undefined
 					)
 				)
 			)
@@ -3396,10 +3398,17 @@ export type HoursBreakdown = {
  * at `baseRate`; hours beyond 40 bill at `baseRate × 1.5`. `baseRate` is in
  * dollars. Returns each portion in cents plus the combined `billableCents`
  * (which equals what `convertToStripeAmount` returns).
+ *
+ * `priorWeekHours` is the number of hours already billed for this candidate's
+ * week on OTHER (approved) timesheets. Overtime is a per-WEEK concept, so when a
+ * week is split across parallel timesheets the regular-hour allotment must
+ * continue rather than restart: the 40h threshold is reduced by `priorWeekHours`.
+ * Defaults to 0 (the normal single-timesheet case — fully back-compatible).
  */
 export function computeHoursBreakdown(
 	totalHoursWorked: string | number,
-	rateOfPayBase: string | number | null
+	rateOfPayBase: string | number | null,
+	priorWeekHours = 0
 ): HoursBreakdown {
 	if (!rateOfPayBase) throw new Error('Base rate is required');
 
@@ -3412,9 +3421,15 @@ export function computeHoursBreakdown(
 	if (isNaN(baseRate) || baseRate < 0) {
 		throw new Error('Invalid rateOfPayBase: must be a valid positive number');
 	}
+	if (isNaN(priorWeekHours) || priorWeekHours < 0) {
+		throw new Error('Invalid priorWeekHours: must be a valid non-negative number');
+	}
 
-	const regularHours = Math.min(hours, STANDARD_HOURS_THRESHOLD);
-	const overtimeHours = Math.max(0, hours - STANDARD_HOURS_THRESHOLD);
+	// Regular-hour allotment left for the week after hours already billed on
+	// sibling timesheets. Once the week has hit 40h, everything here is overtime.
+	const remainingRegular = Math.max(0, STANDARD_HOURS_THRESHOLD - priorWeekHours);
+	const regularHours = Math.min(hours, remainingRegular);
+	const overtimeHours = Math.max(0, hours - regularHours);
 
 	const regularCents = Math.round(regularHours * baseRate * 100);
 	const overtimeCents = Math.round(overtimeHours * baseRate * OVERTIME_MULTIPLIER * 100);
@@ -3440,6 +3455,36 @@ export function convertToStripeAmount(
 	_rateOfPayWithOvertime?: string | number | null
 ): number {
 	return computeHoursBreakdown(totalHoursWorked, rateOfPayBase).billableCents;
+}
+
+/**
+ * Hours already billed for this candidate's week on OTHER timesheets — i.e. the
+ * sum of `totalHoursBilled` across APPROVED timesheets for the same
+ * candidate+requisition+week, excluding the one being approved. Feeds
+ * `computeHoursBreakdown`'s `priorWeekHours` so overtime continues correctly when
+ * a week is split across parallel timesheets. Only APPROVED counts as "billed";
+ * VOID/REJECTED don't, so a void→regenerated sheet starts fresh.
+ */
+export async function getApprovedBilledHoursForWeek(args: {
+	candidateId: string;
+	requisitionId: number;
+	weekBeginDate: string;
+	excludeTimesheetId: string;
+}): Promise<number> {
+	const rows = await db
+		.select({ billed: timeSheetTable.totalHoursBilled })
+		.from(timeSheetTable)
+		.where(
+			and(
+				eq(timeSheetTable.associatedCandidateId, args.candidateId),
+				eq(timeSheetTable.requisitionId, args.requisitionId),
+				eq(timeSheetTable.weekBeginDate, args.weekBeginDate),
+				eq(timeSheetTable.status, 'APPROVED'),
+				ne(timeSheetTable.id, args.excludeTimesheetId)
+			)
+		);
+
+	return rows.reduce((sum, r) => sum + (parseFloat(String(r.billed ?? 0)) || 0), 0);
 }
 
 /**

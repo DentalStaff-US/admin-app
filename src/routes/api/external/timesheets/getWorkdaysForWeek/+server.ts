@@ -40,10 +40,18 @@ export const POST: RequestHandler = async ({ request }) => {
 		const body = await request.json().catch(() => null);
 		const weekStartDate = typeof body?.weekStartDate === 'string' ? body.weekStartDate : null;
 		const requisitionId = Number(body?.requisitionId);
+		// When viewing a specific timesheet, scope to the workdays LINKED to that
+		// timesheet rather than the whole week. This is what makes a split-week
+		// second timesheet (e.g. just Saturday) show only its own day(s) instead
+		// of every day in the week.
+		const timesheetId = typeof body?.timesheetId === 'string' ? body.timesheetId : null;
 
-		if (!weekStartDate || !Number.isInteger(requisitionId)) {
+		if (!timesheetId && (!weekStartDate || !Number.isInteger(requisitionId))) {
 			return json(
-				{ success: false, message: 'Week start date and requisition ID required' },
+				{
+					success: false,
+					message: 'Week start date and requisition ID (or timesheet ID) required'
+				},
 				{ status: 400, headers: corsHeaders }
 			);
 		}
@@ -67,15 +75,25 @@ export const POST: RequestHandler = async ({ request }) => {
 			);
 		}
 
-		// Calculate week end date. Caller passes the timesheet's stored
-		// `weekBeginDate`; the cron now anchors that to Monday so weekEnd is
-		// the following Sunday. Legacy Sunday-anchored rows search Sun→Sat
-		// (the same way they always did) — fixing that needs a data-side
-		// reconciliation, out of scope for this endpoint.
-		const weekStart = new Date(weekStartDate);
-		const weekEnd = addDays(weekStart, 6);
-		const weekStartStr = weekStart.toISOString().split('T')[0];
-		const weekEndStr = weekEnd.toISOString().split('T')[0];
+		// Day-scoping: either to the timesheet's own linked workdays (preferred,
+		// when timesheetId is given) or to the week's date range (legacy/`_new`
+		// flow). Always scoped to the auth'd candidate's own, non-cancelled rows.
+		// (Cancelled workdays stay in the DB for calendar visibility but must not
+		// surface as enterable rows — hours typed against them would skew totals.)
+		const scopeConditions = timesheetId
+			? // The timesheet covers a specific set of workdays — return exactly those.
+				[eq(workdayTable.timesheetId, timesheetId)]
+			: (() => {
+					// Caller passes the timesheet's stored `weekBeginDate`; the cron
+					// anchors that to Monday so weekEnd is the following Sunday.
+					const weekStart = new Date(weekStartDate as string);
+					const weekEnd = addDays(weekStart, 6);
+					return [
+						eq(workdayTable.requisitionId, requisitionId),
+						gte(recurrenceDayTable.date, weekStart.toISOString().split('T')[0]),
+						lte(recurrenceDayTable.date, weekEnd.toISOString().split('T')[0])
+					];
+				})();
 
 		const workdays = await db
 			.select({
@@ -90,18 +108,9 @@ export const POST: RequestHandler = async ({ request }) => {
 			.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
 			.where(
 				and(
-					eq(workdayTable.requisitionId, requisitionId),
-					// Scope to the auth'd candidate's own workdays. Without this
-					// the query returned other candidates' shifts on the same
-					// requisition+week.
 					eq(workdayTable.candidateId, candidateProfile.id),
-					// Cancelled workdays stay in the DB for calendar visibility
-					// but must not surface as enterable rows in the timesheet
-					// UI — hours typed against a cancelled day would otherwise
-					// land in hoursRaw and skew totals.
 					isNull(workdayTable.cancelledAt),
-					gte(recurrenceDayTable.date, weekStartStr),
-					lte(recurrenceDayTable.date, weekEndStr)
+					...scopeConditions
 				)
 			);
 
