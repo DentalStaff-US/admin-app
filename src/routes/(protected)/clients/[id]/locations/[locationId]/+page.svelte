@@ -139,7 +139,10 @@
 	}
 
 	$: JSONHours = JSON.parse($hoursForm.operatingHours) || {};
-	$: stringifiedHours = JSON.stringify($hoursForm.operatingHours) || {};
+	// $hoursForm.operatingHours is already a JSON string — submit it as-is.
+	// Re-stringifying here double-encoded it, so the server parsed it back to a
+	// string (not an object) and the jsonb write silently corrupted the value.
+	$: stringifiedHours = $hoursForm.operatingHours || '{}';
 
 	let selectedAddress: AddressResult | null = null;
 

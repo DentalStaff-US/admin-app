@@ -555,6 +555,21 @@ export async function getLocationByIdForCompany(locationId: string, companyId: s
 	return result[0] || null;
 }
 
+/**
+ * Authoritative timezone for a location, read from its own `timezone` column.
+ * Used to stamp the per-day `timezone` on operating hours at save time so the
+ * stored schedule never drifts to a stale or hardcoded zone. Falls back to
+ * America/New_York only when the column itself is empty.
+ */
+export async function getLocationTimezone(locationId: string | undefined): Promise<string> {
+	if (!locationId) return 'America/New_York';
+	const [loc] = await db
+		.select({ timezone: companyOfficeLocationTable.timezone })
+		.from(companyOfficeLocationTable)
+		.where(eq(companyOfficeLocationTable.id, locationId));
+	return loc?.timezone || 'America/New_York';
+}
+
 export async function getAllClientLocationsByCompanyId(
 	companyId: string
 ): Promise<ClientCompanyLocationSelect[]> {

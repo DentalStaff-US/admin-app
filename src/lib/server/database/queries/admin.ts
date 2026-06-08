@@ -891,8 +891,10 @@ export async function bulkCreateClients(tx: any, users: ImportUser[]): Promise<B
 				timezone: 'America/New_York', // Default, will be updated
 				lat: null, // Will be updated by geocoding job
 				lon: null, // Will be updated by geocoding job
-				completeAddress: user.address || null,
-				operatingHours: null
+				completeAddress: user.address || null
+				// operatingHours intentionally omitted so the column DEFAULT
+				// (full 7-day schedule) applies — passing null hides the
+				// Operating Hours card on the location page.
 			});
 
 			// Store job data for background geocoding

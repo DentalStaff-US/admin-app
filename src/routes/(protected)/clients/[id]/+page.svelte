@@ -45,6 +45,8 @@
 	// Lucide Icons
 	import {
 		AlertCircle,
+		AlertTriangle,
+		CheckCircle,
 		Briefcase,
 		Building,
 		Calendar as CalendarIcon,
@@ -125,6 +127,8 @@
 	let setupCustomerLoading = false;
 	let showSetupLinkDialog = false;
 	let setupLink = '';
+	let setupLinkEmailed = false;
+	let setupLinkEmailedTo = '';
 	let drawerExpanded = false;
 	let locationDrawerExpanded = false;
 
@@ -577,8 +581,10 @@
 				throw new Error(error.message || 'Failed to create setup session');
 			}
 
-			const { url } = await response.json();
+			const { url, emailed, emailedTo } = await response.json();
 			setupLink = url;
+			setupLinkEmailed = !!emailed;
+			setupLinkEmailedTo = emailedTo ?? client?.user.email ?? '';
 			showSetupLinkDialog = true;
 		} catch (error) {
 			console.error('Error setting up customer:', error);
@@ -2213,14 +2219,36 @@
 	<Dialog bind:open={showSetupLinkDialog}>
 		<DialogContent class="sm:max-w-[550px]">
 			<DialogHeader>
-				<DialogTitle>Payment Setup Link Created</DialogTitle>
+				<DialogTitle>{setupLinkEmailed ? 'Payment Setup Link Sent' : 'Payment Setup Link Created'}</DialogTitle>
 				<DialogDescription>
-					Share this link with {client.user.firstName}
-					{client.user.lastName} to complete payment setup
+					{#if setupLinkEmailed}
+						We emailed the setup link to {client.user.firstName}
+						{client.user.lastName}. You can also share it directly below.
+					{:else}
+						Share this link with {client.user.firstName}
+						{client.user.lastName} to complete payment setup
+					{/if}
 				</DialogDescription>
 			</DialogHeader>
 
 			<div class="space-y-4 py-4">
+				<!-- Email status -->
+				{#if setupLinkEmailed}
+					<div
+						class="bg-green-50 border border-green-100 rounded-lg p-3 flex items-center gap-2 text-sm text-green-800"
+					>
+						<CheckCircle class="h-4 w-4 flex-shrink-0" />
+						<span>Setup link emailed to <strong>{setupLinkEmailedTo}</strong>.</span>
+					</div>
+				{:else}
+					<div
+						class="bg-amber-50 border border-amber-100 rounded-lg p-3 flex items-center gap-2 text-sm text-amber-800"
+					>
+						<AlertTriangle class="h-4 w-4 flex-shrink-0" />
+						<span>We couldn't email the link automatically — please share it below.</span>
+					</div>
+				{/if}
+
 				<!-- Client Info -->
 				<div class="bg-gray-50 rounded-lg p-3 flex items-center gap-3">
 					<div class="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
@@ -2264,7 +2292,11 @@
 						<span>What happens next?</span>
 					</h4>
 					<ol class="text-xs text-blue-800 space-y-1.5 list-decimal list-inside ml-1">
-						<li>Send this link to the client via email or text</li>
+						<li>
+							{setupLinkEmailed
+								? 'The client receives this link by email (you can also resend or copy it here)'
+								: 'Send this link to the client via email or text'}
+						</li>
 						<li>Client opens the link and enters payment information</li>
 						<li>Stripe securely saves their payment method</li>
 						<li>You can now create and charge invoices</li>

@@ -4,6 +4,7 @@ import {
 	getClientProfileById,
 	getLocationByIdForCompany,
 	getLocationContactDestinations,
+	getLocationTimezone,
 	updateCompanyLocation
 } from '$lib/server/database/queries/clients';
 import { fail, redirect } from '@sveltejs/kit';
@@ -185,6 +186,13 @@ export const actions = {
 			return { form };
 		}
 		const { locationId } = event.params;
+
+		// Stamp every day's timezone from the location's authoritative `timezone`
+		// column so saved hours never drift back to a stale/hardcoded zone.
+		const locationTimezone = await getLocationTimezone(locationId);
+		for (const day of Object.values(jsonHours)) {
+			day.timezone = locationTimezone;
+		}
 
 		try {
 			await updateCompanyLocation(locationId, { operatingHours: jsonHours });

@@ -1186,8 +1186,12 @@
 													<div class="flex items-start justify-between">
 														<div>
 															<p class="font-medium">
-																{record.user.firstName}
-																{record.user.lastName}
+																{#if record?.user}
+																{record?.user?.firstName}
+																{record?.user?.lastName}
+																{:else}
+																System (Automated)
+																{/if}
 																<span class="font-regular text-sm">
 																	{#if record.action === 'CREATE'}created{/if}
 																	{#if record.action === 'UPDATE'}updated{/if}

@@ -27,7 +27,7 @@ export const load: PageServerLoad = async (event) => {
 	const status: ClientStatus =
 		statusParam && statusParam in CLIENT_STATUS
 			? (statusParam as ClientStatus)
-			: CLIENT_STATUS.PENDING;
+			: CLIENT_STATUS.ACTIVE;
 
 	setHeaders({
 		'cache-control': 'max-age=60'

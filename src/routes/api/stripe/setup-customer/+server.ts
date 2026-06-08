@@ -9,16 +9,15 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import {
-	ensureStripeCustomer,
-	createSetupCheckoutSession
-} from '$lib/server/stripe';
+import { ensureStripeCustomer, createSetupCheckoutSession } from '$lib/server/stripe';
 import { getClientProfileById } from '$lib/server/database/queries/clients';
 import {
 	recordBillingSetupPending,
 	syncBillingFromStripe
 } from '$lib/server/database/queries/billing';
 import { logger } from '$lib/server/logger';
+import { EmailService } from '$lib/server/email/emailService';
+import { EMAIL_TEMPLATES } from '$lib/server/email/templates';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const user = locals.user;
@@ -76,7 +75,40 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			stripeCustomerId: customerId
 		});
 
-		return json({ url });
+		// Email the link to the customer so they can finish setup even when they're
+		// not in front of an admin (the whole point of "Resend Setup Link"). Don't
+		// fail the request if the email errors — the admin still gets the copyable
+		// link in the response.
+		let emailed = false;
+		try {
+			const emailService = new EmailService();
+			const t = EMAIL_TEMPLATES.billingSetupLinkEmail({
+				clientName: `${clientData.user.firstName} ${clientData.user.lastName}`,
+				setupLink: url
+			});
+			const result = await emailService.sendEmail({
+				to: [{ email: clientData.user.email }],
+				subject: t.subject,
+				html: t.htmlEmail,
+				text: t.textEmail
+			});
+			emailed = result.success;
+			if (!result.success) {
+				logger.error('setup-customer: setup link email did not send', {
+					clientId,
+					email: clientData.user.email,
+					result
+				});
+			}
+		} catch (emailErr) {
+			logger.error('setup-customer: failed to email setup link', {
+				error: emailErr,
+				clientId,
+				email: clientData.user.email
+			});
+		}
+
+		return json({ url, emailed, emailedTo: clientData.user.email });
 	} catch (err) {
 		// Pass through SvelteKit HttpErrors (400/403/404) — they're expected client errors.
 		if (err && typeof err === 'object' && 'status' in err && 'body' in err) {
