@@ -109,8 +109,6 @@ export const load = async (event: RequestEvent) => {
 			})
 		);
 
-		console.log(requisition, 'requisition');
-
 		return {
 			user,
 			timesheet,

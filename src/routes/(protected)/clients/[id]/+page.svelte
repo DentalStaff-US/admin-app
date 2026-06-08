@@ -559,6 +559,7 @@
 	$: isInternalInstance = env.PUBLIC_APP_ENV === 'INTERNAL';
 	$: needsCustomerSetup =
 		isInternalInstance &&
+		selectedInvoiceMethod === 'STRIPE' &&
 		(!data.client?.subscription?.stripeCustomerId ||
 			data.client?.subscription?.stripeCustomerSetupPending);
 
