@@ -611,6 +611,16 @@
 											/>
 										</div>
 
+										<div class="space-y-2">
+											<Label for="workersCompCode">Workers' Comp Code</Label>
+											<Input
+												id="workersCompCode"
+												name="workersCompCode"
+												value={candidate.profile.workersCompCode ?? ''}
+												placeholder="e.g., 8021..."
+											/>
+										</div>
+
 										<div class="flex gap-2 pt-4">
 											<Button
 												type="submit"
@@ -677,6 +687,13 @@
 											<h3 class="text-sm font-medium text-muted-foreground">Date of Birth</h3>
 											<p class="mt-1">{format(birthdate, 'P')}</p>
 										</div>
+
+										{#if isAdmin}
+											<div>
+												<h3 class="text-sm font-medium text-muted-foreground">Workers' Comp Code</h3>
+												<p class="mt-1">{candidate.profile.workersCompCode || 'None specified'}</p>
+											</div>
+										{/if}
 									</div>
 								{/if}
 							</CardContent>

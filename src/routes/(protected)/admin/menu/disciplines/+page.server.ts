@@ -47,8 +47,7 @@ export const actions = {
 				createdAt: new Date(),
 				updatedAt: new Date(),
 				name: form.data.name,
-				abbreviation: form.data.abbreviation,
-				workersCompCode: form.data.workersCompCode ?? null
+				abbreviation: form.data.abbreviation
 			});
 
 			if (newDiscipline) {
@@ -79,7 +78,6 @@ export const actions = {
 				.set({
 					name: form.data.name,
 					abbreviation: form.data.abbreviation,
-					workersCompCode: form.data.workersCompCode ?? null,
 					updatedAt: new Date()
 				})
 				.where(eq(disciplineTable.id, form.data.id));

@@ -122,7 +122,7 @@ export const actions = {
 			return fail(400, { form });
 		}
 		console.log('Form data:', form.data);
-		const { email, lastName, firstName, birthday, cellPhone } = form.data;
+		const { email, lastName, firstName, birthday, cellPhone, workersCompCode } = form.data;
 
 		try {
 			const candidateResult = await getCandidateProfileById(id);
@@ -142,6 +142,7 @@ export const actions = {
 			const profileData: Record<string, unknown> = { updatedAt: new Date() };
 			if (birthday !== undefined) profileData.birthday = birthday ?? null;
 			if (cellPhone !== undefined) profileData.cellPhone = cellPhone || null;
+			if (workersCompCode !== undefined) profileData.workersCompCode = workersCompCode || null;
 			const addr = form.data.completeAddress;
 			if (addr && addr !== 'undefined') {
 				profileData.completeAddress = addr;

@@ -22,8 +22,7 @@ export async function getAllDisciplines(searchTerm?: string) {
 				searchTerm
 					? or(
 							ilike(disciplineTable.name, `%${searchTerm}%`),
-							ilike(disciplineTable.abbreviation, `%${searchTerm}%`),
-							ilike(disciplineTable.workersCompCode, `%${searchTerm}%`)
+							ilike(disciplineTable.abbreviation, `%${searchTerm}%`)
 						)
 					: undefined
 			)

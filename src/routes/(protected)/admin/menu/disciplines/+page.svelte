@@ -47,7 +47,7 @@
 		onResult: ({ result }) => {
 			if (result.type === 'success') {
 				dialogOpen = false;
-				$disciplineForm = { name: '', abbreviation: '', workersCompCode: '' };
+				$disciplineForm = { name: '', abbreviation: '' };
 			}
 		}
 	});
@@ -82,7 +82,6 @@
 		id: string;
 		name: string;
 		abbreviation: string;
-		workersCompCode: string | null;
 		createdAt: Date;
 		updatedAt: Date;
 	};
@@ -103,8 +102,7 @@
 		$editDisciplineForm = {
 			id: discipline.id,
 			name: discipline.name,
-			abbreviation: discipline.abbreviation,
-			workersCompCode: discipline.workersCompCode ?? ''
+			abbreviation: discipline.abbreviation
 		};
 		editDialogOpen = true;
 	}
@@ -135,17 +133,6 @@
 				(rowA.original.abbreviation?.toLowerCase() || '').localeCompare(
 					rowB.original.abbreviation?.toLowerCase() || ''
 				)
-		},
-		{
-			header: "Workers' Comp Code",
-			id: 'workersCompCode',
-			accessorKey: 'workersCompCode',
-			enableSorting: true,
-			sortingFn: (rowA, rowB) =>
-				(rowA.original.workersCompCode?.toLowerCase() || '').localeCompare(
-					rowB.original.workersCompCode?.toLowerCase() || ''
-				),
-			cell: ({ getValue }) => (getValue() as string) || '—'
 		},
 		{
 			header: 'Created',
@@ -375,16 +362,6 @@
 						<Form.Validation />
 					</Form.Item>
 				</Form.Field>
-				<Form.Field
-					config={{ form: superForm(data.form), schema: newDisciplineSchema }}
-					name="workersCompCode"
-				>
-					<Form.Item>
-						<Form.Label>Workers' Comp Code</Form.Label>
-						<Form.Input placeholder="e.g., 8021..." />
-						<Form.Validation />
-					</Form.Item>
-				</Form.Field>
 			</div>
 			<Dialog.Footer>
 				<Button variant="outline" type="button" on:click={() => (dialogOpen = false)}>Cancel</Button
@@ -429,15 +406,6 @@
 					/>
 				</div>
 
-				<div class="space-y-2">
-					<label class="text-sm font-medium" for="edit-workersCompCode">Workers' Comp Code</label>
-					<Input
-						id="edit-workersCompCode"
-						name="workersCompCode"
-						bind:value={$editDisciplineForm.workersCompCode}
-						placeholder="e.g., 8021..."
-					/>
-				</div>
 			</div>
 			<Dialog.Footer>
 				<Button variant="outline" type="button" on:click={() => (editDialogOpen = false)}>
