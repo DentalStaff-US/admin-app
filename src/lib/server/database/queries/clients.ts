@@ -878,6 +878,7 @@ export async function getCalendarEventsForClient(
 			and(
 				eq(requisitionTable.companyId, clientCompanyResult[0].company.id),
 				eq(requisitionTable.archived, false),
+				eq(recurrenceDayTable.archived, false),
 				Array.isArray(locationIds)
 					? inArray(requisitionTable.locationId, locationIds)
 					: undefined

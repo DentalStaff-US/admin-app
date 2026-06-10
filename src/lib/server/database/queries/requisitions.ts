@@ -714,6 +714,92 @@ export async function createNewRecurrenceDay(values: RecurrenceDay, userId: stri
 	}
 }
 
+/**
+ * Find-or-reuse a recurrence day for (requisitionId, date), enforcing one active
+ * row per date. There is at most one non-archived row per date:
+ *  - if it's an active OPEN/FILLED day, a re-add is a no-op (don't clobber it);
+ *  - if it's CANCELED (or only archived rows exist), that row is reopened in
+ *    place — times refreshed, status reset, un-archived, and any prior workday
+ *    assignment deleted — instead of inserting a duplicate.
+ * This replaces the old createNewRecurrenceDay insert, whose `.onConflictDoNothing`
+ * was dead code (no unique constraint) and which stacked a new row on every reopen.
+ */
+export async function findOrReuseRecurrenceDay(
+	values: RecurrenceDay,
+	userId: string
+): Promise<{ row: RecurrenceDaySelect; outcome: 'inserted' | 'reopened' | 'noop-active' }> {
+	try {
+		return await db.transaction(async (tx) => {
+			const existing = await tx
+				.select()
+				.from(recurrenceDayTable)
+				.where(
+					and(
+						eq(recurrenceDayTable.requisitionId, Number(values.requisitionId)),
+						eq(recurrenceDayTable.date, values.date)
+					)
+				);
+
+			// An active (non-archived, non-canceled) row blocks a duplicate add.
+			const active = existing.find((r) => !r.archived && r.status !== 'CANCELED');
+			if (active) {
+				return { row: active, outcome: 'noop-active' as const };
+			}
+
+			// Prefer reopening the surviving non-archived CANCELED row; else the most
+			// recently archived row for this date.
+			const reusable =
+				existing.find((r) => !r.archived) ??
+				existing.slice().sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+
+			if (reusable) {
+				const [row] = await tx
+					.update(recurrenceDayTable)
+					.set({
+						status: values.status,
+						dayStart: values.dayStart,
+						dayEnd: values.dayEnd,
+						lunchStart: values.lunchStart,
+						lunchEnd: values.lunchEnd,
+						archived: false,
+						archivedDate: null,
+						updatedAt: new Date()
+					})
+					.where(eq(recurrenceDayTable.id, reusable.id))
+					.returning();
+
+				// Reopening clears any prior assignment so a stale workday doesn't
+				// linger under the reopened day (matches the candidate-cancel convention).
+				await tx.delete(workdayTable).where(eq(workdayTable.recurrenceDayId, reusable.id));
+
+				await writeActionHistory({
+					table: 'RECURRENCE_DAYS',
+					userId,
+					action: 'UPDATE',
+					entityId: row.id,
+					beforeState: reusable,
+					afterState: row
+				});
+
+				return { row, outcome: 'reopened' as const };
+			}
+
+			const [row] = await tx.insert(recurrenceDayTable).values(values).returning();
+			await writeActionHistory({
+				table: 'RECURRENCE_DAYS',
+				userId,
+				action: 'CREATE',
+				entityId: row.id,
+				afterState: row
+			});
+			return { row, outcome: 'inserted' as const };
+		});
+	} catch (err) {
+		console.error('Error creating/reusing recurrence day', err);
+		return error(500, 'Error creating recurrence day');
+	}
+}
+
 export async function editRecurrenceDay(id: string, values: UpdateRecurrenceDay, userId: string) {
 	try {
 		const [existing] = await db
@@ -743,29 +829,40 @@ export async function editRecurrenceDay(id: string, values: UpdateRecurrenceDay,
 
 export async function deleteRecurrenceDay(id: string, userId: string) {
 	try {
-		const [original] = await db
-			.select()
-			.from(recurrenceDayTable)
-			.where(eq(recurrenceDayTable.id, id));
+		return await db.transaction(async (tx) => {
+			const [original] = await tx
+				.select()
+				.from(recurrenceDayTable)
+				.where(eq(recurrenceDayTable.id, id));
 
-		const [update] = await db
-			.update(recurrenceDayTable)
-			.set({ archived: true, archivedDate: new Date() })
-			.where(eq(recurrenceDayTable.id, id))
-			.returning();
+			const [update] = await tx
+				.update(recurrenceDayTable)
+				.set({ archived: true, archivedDate: new Date(), updatedAt: new Date() })
+				.where(eq(recurrenceDayTable.id, id))
+				.returning();
 
-		await writeActionHistory({
-			table: 'RECURRENCE_DAYS',
-			userId,
-			entityId: id,
-			beforeState: original,
-			afterState: update,
-			action: 'DELETE'
+			// Soft-deleting the day must also retire its still-active workdays: flag
+			// them cancelled (so the candidate calendar can still surface the lost
+			// shift) and detach from any timesheet so they stop feeding the
+			// timesheet-regeneration cron.
+			await tx
+				.update(workdayTable)
+				.set({ cancelledAt: new Date(), timesheetId: null, updatedAt: new Date() })
+				.where(and(eq(workdayTable.recurrenceDayId, id), isNull(workdayTable.cancelledAt)));
+
+			await writeActionHistory({
+				table: 'RECURRENCE_DAYS',
+				userId,
+				entityId: id,
+				beforeState: original,
+				afterState: update,
+				action: 'DELETE'
+			});
+
+			return update;
 		});
-
-		return update;
 	} catch (error) {
-		console.error('Error deleting recurrence day');
+		console.error('Error deleting recurrence day', error);
 	}
 }
 

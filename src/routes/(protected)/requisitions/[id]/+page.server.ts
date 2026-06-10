@@ -2,7 +2,7 @@ import type { PageServerLoad, RequestEvent } from './$types';
 import {
 	changeRequisitionStatus,
 	updateRequisition,
-	createNewRecurrenceDay,
+	findOrReuseRecurrenceDay,
 	deleteRecurrenceDay,
 	editRecurrenceDay,
 	getCompanyByRequisitionIdAdmin,
@@ -349,17 +349,20 @@ export const actions = {
 			const created = await Promise.all(
 				Array.isArray(daysToAdd) ? daysToAdd.map(processDay) : [processDay(daysToAdd)]
 			);
-			const newDayIds = created
-				.map((row) => row?.id)
-				.filter((id): id is string => typeof id === 'string');
+			// Skip days that were a no-op reuse (the date already had an active
+			// OPEN/FILLED row) — they get no new workday and no notification.
+			const actionableDays = created
+				.filter((c): c is NonNullable<typeof c> => !!c?.row?.id)
+				.filter((c) => c.outcome !== 'noop-active')
+				.map((c) => c.row);
+			const newDayIds = actionableDays.map((row) => row.id);
 
 			if (assigning && newDayIds.length > 0) {
-				// Create one workday per new day, linking the candidate. Days were
-				// already created FILLED above. One transaction so a partial failure
-				// rolls back the whole assignment.
+				// Create one workday per new/reopened day, linking the candidate. Days
+				// were already created FILLED above. One transaction so a partial
+				// failure rolls back the whole assignment.
 				await db.transaction(async (tx) => {
-					for (const day of created) {
-						if (!day?.id) continue;
+					for (const day of actionableDays) {
 						const workdayId = crypto.randomUUID();
 						await tx.insert(workdayTable).values({
 							id: workdayId,
@@ -440,7 +443,7 @@ export const actions = {
 
 			console.log('values gping into db', values);
 
-			return createNewRecurrenceDay(values, user!.id);
+			return findOrReuseRecurrenceDay(values, user!.id);
 		}
 	},
 	editRecurrenceDay: async (request: RequestEvent) => {

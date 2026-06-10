@@ -13,6 +13,7 @@ import {
 	primaryKey,
 	json,
 	index,
+	uniqueIndex,
 	uuid,
 	jsonb
 } from 'drizzle-orm/pg-core';
@@ -128,7 +129,14 @@ export const recurrenceDayTable = pgTable('recurrence_days', {
 	archivedDate: timestamp('archived_at', {
 		mode: 'date'
 	})
-});
+}, (table) => ({
+	// Enforce one active (non-archived) recurrence day per requisition+date. The
+	// reuse-on-reopen path keeps a date to a single live row; archived history is
+	// excluded so canceled-then-reopened cycles don't violate it.
+	reqDateActiveUidx: uniqueIndex('recurrence_days_req_date_active_uidx')
+		.on(table.requisitionId, table.date)
+		.where(sql`${table.archived} = false`)
+}));
 
 export const invoiceStatusEnum = pgEnum('invoice_status', [
 	'draft', // Matching Stripe's status values
