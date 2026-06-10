@@ -7,7 +7,7 @@ import {
 } from '$lib/server/database/schemas/requisition';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { clientCompanyTable } from '$lib/server/database/schemas/client';
-import { and, eq, isNull, inArray } from 'drizzle-orm';
+import { and, eq, isNull, inArray, ne } from 'drizzle-orm';
 import crypto from 'crypto';
 import { notifyTimesheetCreated } from '$lib/server/notifications/transactional';
 import { logger } from '$lib/server/logger';
@@ -63,7 +63,16 @@ export function findUnlinkedWorkdays() {
 		.innerJoin(recurrenceDayTable, eq(recurrenceDayTable.id, workdayTable.recurrenceDayId))
 		.innerJoin(requisitionTable, eq(requisitionTable.id, workdayTable.requisitionId))
 		.innerJoin(candidateProfileTable, eq(candidateProfileTable.id, workdayTable.candidateId))
-		.where(and(isNull(workdayTable.timesheetId), isNull(workdayTable.cancelledAt)));
+		.where(
+			and(
+				isNull(workdayTable.timesheetId),
+				isNull(workdayTable.cancelledAt),
+				// Don't regenerate timesheets for soft-deleted or canceled days — their
+				// workdays are orphans (a genuinely FILLED active day still passes).
+				eq(recurrenceDayTable.archived, false),
+				ne(recurrenceDayTable.status, 'CANCELED')
+			)
+		);
 }
 
 export type UnlinkedWorkdayRow = Awaited<ReturnType<typeof findUnlinkedWorkdays>>[number];

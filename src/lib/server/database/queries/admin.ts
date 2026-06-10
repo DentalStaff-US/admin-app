@@ -327,7 +327,12 @@ export async function getCalendarEventsForAdmin(userId: string) {
 			companyOfficeLocationTable,
 			eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 		)
-		.where(eq(requisitionTable.archived, false));
+		.where(
+			and(
+				eq(requisitionTable.archived, false),
+				eq(recurrenceDayTable.archived, false)
+			)
+		);
 
 	const recurrenceDayEvents = recurrenceDays.map((recurrenceDay) =>
 		convertRecurrenceDayToEvent(
