@@ -43,7 +43,7 @@ export const jobs: JobDefinition[] = [
 		endpoint: '/jobs/timesheets/processTimesheetAutoApproval',
 		schedule: 'hourly on the hour',
 		rule: () => ny({ minute: 0, second: 0 }),
-		enabled: false
+		enabled: true
 	},
 	{
 		name: 'processOutdatedRequisitions',
