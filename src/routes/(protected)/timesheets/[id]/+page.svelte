@@ -349,7 +349,10 @@
 	$: canEdit =
 		user?.role === USER_ROLES.SUPERADMIN ? isEditing : isDraft || (isDiscrepancy && isEditing);
 
-	$: showEditButton = user?.role === USER_ROLES.SUPERADMIN && !isEditing;
+	// Admins may only edit hours in editable states — a DRAFT, or a DISCREPANCY
+	// sent back for correction. Never edit a PENDING/APPROVED/VOID/REJECTED sheet.
+	$: showEditButton =
+		user?.role === USER_ROLES.SUPERADMIN && !isEditing && (isDraft || isDiscrepancy);
 
 	function updateTimeEntry(
 		dateKey: string,
@@ -1335,8 +1338,9 @@
 								</Alert>
 							{/if}
 
-							{#if !isEditing && !isVoid}
-								{#if data.invoice}
+							{#if !isEditing}
+								{#if isApproved && data.invoice}
+									<!-- Approved sheets are voided (with their invoice), never deleted. -->
 									<Button
 										variant="outline"
 										class="w-full border-red-200 text-red-700 hover:bg-red-50 gap-2"
@@ -1345,7 +1349,8 @@
 										<Ban class="h-4 w-4" />
 										<span>Void Timesheet &amp; Invoice</span>
 									</Button>
-								{:else}
+								{:else if !isApproved && !isVoid}
+									<!-- Pre-approval only: an error/corrupt sheet that should regenerate. -->
 									<Button
 										variant="outline"
 										class="w-full border-red-200 text-red-700 hover:bg-red-50 gap-2"
@@ -1689,7 +1694,8 @@
 			</div>
 
 			<div class="space-y-6">
-				{#if data?.timesheet?.status !== 'APPROVED'}
+				{#if isPending}
+					<!-- Clients can only act on a submitted (PENDING) timesheet. -->
 					<Card>
 						<CardHeader>
 							<CardTitle>Timesheet Approval</CardTitle>
@@ -1715,7 +1721,6 @@
 									variant="outline"
 									class="w-full border-red-200 text-red-700 hover:bg-red-50 gap-2"
 									on:click={() => (rejectionDialogOpen = true)}
-									disabled={data.timesheet?.status === 'APPROVED'}
 								>
 									<X class="h-4 w-4" />
 									<span>Reject Timesheet</span>
@@ -1737,22 +1742,12 @@
 							{#if hasDiscrepancies()}
 								<Alert variant="default" class="mt-3">
 									<AlertCircle class="h-4 w-4" />
-									<AlertDescription>
-										{#if data.timesheet?.status !== 'APPROVED'}
-											{#if hasDiscrepancies()}
-												This timesheet has unresolved discrepancies.
-											{:else}
-												This timesheet is currently under review
-											{/if}
-										{:else}
-											This timesheet has been approved.
-										{/if}
-									</AlertDescription>
+									<AlertDescription>This timesheet has unresolved discrepancies.</AlertDescription>
 								</Alert>
 							{/if}
 						</CardContent>
 					</Card>
-				{:else}
+				{:else if isApproved}
 					<Card>
 						<CardHeader>
 							<CardTitle>Approval Status</CardTitle>
@@ -1764,9 +1759,39 @@
 									<p class="font-medium text-green-800">Timesheet Approved</p>
 									<p class="text-sm text-green-700">
 										This timesheet was approved on {format(
-											parseISO(data?.timesheet?.updatedAt.toISOString()),
+											parseISO(
+												(data?.timesheet?.approvedAt ?? data?.timesheet?.updatedAt).toISOString()
+											),
 											'MMM d, yyyy'
 										)}
+									</p>
+								</div>
+							</div>
+						</CardContent>
+					</Card>
+				{:else}
+					<!-- Not awaiting the client: draft not yet submitted, sent back, voided, etc. -->
+					<Card>
+						<CardHeader>
+							<CardTitle>Approval Status</CardTitle>
+						</CardHeader>
+						<CardContent>
+							<div class="p-4 bg-gray-50 rounded-lg flex items-start gap-3">
+								<AlertCircle class="h-5 w-5 text-gray-500 mt-0.5" />
+								<div>
+									<p class="font-medium text-gray-800">Not awaiting your review</p>
+									<p class="text-sm text-gray-600">
+										{#if isDraft}
+											This timesheet hasn't been submitted yet.
+										{:else if isDiscrepancy}
+											This timesheet was sent back and is awaiting correction.
+										{:else if isVoid}
+											This timesheet has been voided.
+										{:else if isRejected}
+											This timesheet was rejected.
+										{:else}
+											This timesheet is not currently awaiting approval.
+										{/if}
 									</p>
 								</div>
 							</div>

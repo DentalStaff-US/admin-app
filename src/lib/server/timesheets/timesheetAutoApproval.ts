@@ -1,50 +1,43 @@
 import db from '$lib/server/database/drizzle';
-import {
-	recurrenceDayTable,
-	timeSheetTable,
-	workdayTable
-} from '$lib/server/database/schemas/requisition';
-import { and, eq, isNull } from 'drizzle-orm';
+import { timeSheetTable, workdayTable } from '$lib/server/database/schemas/requisition';
+import { and, eq, isNull, isNotNull, lt } from 'drizzle-orm';
 import { logger } from '$lib/server/logger';
 import { approveAndInvoiceTimesheet } from '$lib/server/timesheets/approveTimesheet';
 
 const APPROVAL_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-export type AutoApproveCandidate = { timesheetId: string; lastWorkdayEndedAt: Date };
+export type AutoApproveCandidate = { timesheetId: string; submittedAt: Date };
 
 /**
- * PENDING timesheets eligible for "silence = consent" auto-approval: those whose
- * latest non-cancelled workday ended more than 24h ago. The inner joins also
- * guarantee the timesheet has at least one non-cancelled workday (we never
- * auto-approve an empty/orphaned sheet). Only PENDING qualifies, so a sheet
- * reopened to DRAFT by a late-added day is skipped.
+ * PENDING timesheets eligible for "silence = consent" auto-approval: those
+ * submitted (status DRAFT/DISCREPANCY → PENDING) more than 24h ago, measured from
+ * `submittedAt` — NOT the last workday's end. The inner join guarantees at least
+ * one non-cancelled workday (we never auto-approve an empty/orphaned sheet), and
+ * selectDistinct collapses the per-workday fan-out. Only PENDING qualifies, so a
+ * sheet reopened to DRAFT by a late-added day is skipped, and every (re)submission
+ * resets `submittedAt`, restarting the 24h clock.
  */
 export async function findTimesheetsToAutoApprove(now: Date): Promise<AutoApproveCandidate[]> {
 	const cutoff = new Date(now.getTime() - APPROVAL_WINDOW_MS);
 
 	const rows = await db
-		.select({ timesheetId: timeSheetTable.id, dayEnd: recurrenceDayTable.dayEnd })
+		.selectDistinct({ timesheetId: timeSheetTable.id, submittedAt: timeSheetTable.submittedAt })
 		.from(timeSheetTable)
 		.innerJoin(
 			workdayTable,
 			and(eq(workdayTable.timesheetId, timeSheetTable.id), isNull(workdayTable.cancelledAt))
 		)
-		.innerJoin(recurrenceDayTable, eq(recurrenceDayTable.id, workdayTable.recurrenceDayId))
-		.where(eq(timeSheetTable.status, 'PENDING'));
+		.where(
+			and(
+				eq(timeSheetTable.status, 'PENDING'),
+				isNotNull(timeSheetTable.submittedAt),
+				lt(timeSheetTable.submittedAt, cutoff)
+			)
+		);
 
-	// Reduce to the latest workday end per timesheet, then keep only those whose
-	// last shift ended before the 24h cutoff.
-	const lastEndByTimesheet = new Map<string, Date>();
-	for (const row of rows) {
-		const current = lastEndByTimesheet.get(row.timesheetId);
-		if (!current || row.dayEnd > current) {
-			lastEndByTimesheet.set(row.timesheetId, row.dayEnd);
-		}
-	}
-
-	return [...lastEndByTimesheet.entries()]
-		.filter(([, lastEnd]) => lastEnd < cutoff)
-		.map(([timesheetId, lastWorkdayEndedAt]) => ({ timesheetId, lastWorkdayEndedAt }));
+	return rows
+		.filter((r): r is { timesheetId: string; submittedAt: Date } => r.submittedAt !== null)
+		.map((r) => ({ timesheetId: r.timesheetId, submittedAt: r.submittedAt }));
 }
 
 /**
@@ -60,11 +53,11 @@ export async function autoApproveTimesheets(
 	const approved: string[] = [];
 	const skipped: Array<{ timesheetId: string; reason: string }> = [];
 
-	for (const { timesheetId, lastWorkdayEndedAt } of candidates) {
+	for (const { timesheetId, submittedAt } of candidates) {
 		try {
 			const result = await approveAndInvoiceTimesheet(timesheetId, {
 				actorUserId: null,
-				autoApproved: { lastWorkdayEndedAt }
+				autoApproved: { submittedAt }
 			});
 			if (result.ok) {
 				approved.push(timesheetId);

@@ -2912,9 +2912,15 @@ export async function revertTimesheetToPending(timesheetId: string, userId: stri
 			.from(timeSheetTable)
 			.where(eq(timeSheetTable.id, timesheetId));
 
+		// NOTE: do NOT touch submittedAt here. This helper is only ever a
+		// failure-rollback (a failed approve/reject flips back to PENDING) — not a
+		// genuine resubmission. Resetting submittedAt on a transient invoicing
+		// failure would push the 24h auto-approval window forward every time and
+		// could defer auto-approval indefinitely. Real (re)submissions reset
+		// submittedAt in their own submit handlers.
 		const [result] = await db
 			.update(timeSheetTable)
-			.set({ status: 'PENDING' })
+			.set({ status: 'PENDING', updatedAt: new Date() })
 			.where(eq(timeSheetTable.id, timesheetId))
 			.returning();
 
@@ -3115,13 +3121,17 @@ export async function approveTimesheet(timesheetId: string, userId: string | nul
 			throw error(404, 'Timesheet not found');
 		}
 
-		// Update timesheet status to APPROVED
+		// Update timesheet status to APPROVED. Record who approved and when —
+		// approvedByUserId is null for the system/auto-approval path.
 		const [result] = await db
 			.update(timeSheetTable)
 			.set({
 				status: 'APPROVED',
 				totalHoursBilled: original.totalHoursWorked,
-				wagesStatus: 'WAGES_DUE'
+				wagesStatus: 'WAGES_DUE',
+				approvedAt: new Date(),
+				approvedByUserId: userId,
+				updatedAt: new Date()
 			})
 			.where(eq(timeSheetTable.id, timesheetId))
 			.returning();
@@ -3221,7 +3231,10 @@ export const adminOverrideTimesheet = async (
 			...values,
 			totalHoursBilled: original.totalHoursWorked,
 			status: 'APPROVED',
-			wagesStatus: 'WAGES_DUE' // add this
+			wagesStatus: 'WAGES_DUE', // add this
+			approvedAt: new Date(),
+			approvedByUserId: userId,
+			updatedAt: new Date()
 		};
 
 		const [result] = await db
