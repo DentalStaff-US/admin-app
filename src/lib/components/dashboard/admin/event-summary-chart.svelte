@@ -2,9 +2,9 @@
 	import { cn } from '$lib/utils';
 
 	let data = [
-		{ color: 'bg-green-500', name: 'Filled', value: 120 },
-		{ color: 'bg-blue-500', name: 'Open', value: 100 },
-		{ color: 'bg-red-500', name: 'Canceled', value: 50 },
+		{ color: 'bg-success', name: 'Filled', value: 120 },
+		{ color: 'bg-primary', name: 'Open', value: 100 },
+		{ color: 'bg-destructive', name: 'Canceled', value: 50 },
 		{ color: 'bg-orange-400', name: 'Unfilled', value: 20 }
 	];
 

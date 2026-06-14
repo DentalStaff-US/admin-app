@@ -164,10 +164,10 @@
                     value: original.getValue(),
                     class: cn(
                         original.getValue() === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-                        original.getValue() === 'OPEN' && 'bg-blue-500 hover:bg-blue-600',
-                        original.getValue() === 'FILLED' && 'bg-green-400 hover:bg-bg-green-500',
+                        original.getValue() === 'OPEN' && 'bg-primary hover:bg-primary/90',
+                        original.getValue() === 'FILLED' && 'bg-green-400 hover:bg-bg-success',
                         original.getValue() === 'UNFULFILLED' && 'bg-orange-400 hover:bg-orange-500',
-                        original.getValue() === 'CANCELED' && 'bg-red-500 hover:bg-red-600'
+                        original.getValue() === 'CANCELED' && 'bg-destructive hover:bg-destructive/90'
                     )
                 })
         },
@@ -418,7 +418,7 @@
                                             <Button
                                                     type="submit"
                                                     size="sm"
-                                                    class="gap-2 bg-green-500 hover:bg-green-600 text-white"
+                                                    class="gap-2 bg-primary hover:bg-primary/90 text-white"
                                                     disabled={$isAddressSubmitting}
                                             >
                                                 <Save class="h-4 w-4"/>
@@ -426,7 +426,7 @@
                                             </Button>
                                             <Button
                                                     type="button"
-                                                    variant="outline"
+                                                    variant="destructiveOutline"
                                                     size="sm"
                                                     on:click={() => cancelEdit('location')}
                                                     class="gap-2 border-red-500 text-red-500 hover:bg-red-50 hover:text-red-500"
@@ -577,7 +577,7 @@
                                         {/if}
                                         <div class="flex gap-2 pt-4">
                                             <Button type="submit" size="sm"
-                                                    class="gap-2 bg-green-500 hover:bg-green-600">
+                                                    class="gap-2 bg-primary hover:bg-primary/90">
                                                 <Save class="h-4 w-4"/>
                                                 {#if $isHoursSubmitting}
                                                     Saving...
@@ -587,7 +587,7 @@
                                             </Button>
                                             <Button
                                                     type="button"
-                                                    variant="outline"
+                                                    variant="destructiveOutline"
                                                     size="sm"
                                                     on:click={() => cancelEdit('hours')}
                                                     class="gap-2 text-red-500 border-red-500 hover:bg-red-50 hover:text-red-500"
@@ -764,7 +764,7 @@
                                         on:click={() => {
 										drawerExpanded = true;
 									}}
-                                        class="bg-blue-800 hover:bg-blue-900 text-white"
+                                        class="bg-primary hover:bg-primary/90 text-white"
                                 >
                                     <Plus class="inline mr-2" size={18}/>
                                     New Requisition

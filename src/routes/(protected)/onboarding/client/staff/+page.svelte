@@ -141,7 +141,7 @@
 							{/each}
 						</Select>
 						<Button
-							class="col-span-12 md:col-span-2 bg-green-400 hover:bg-green-500"
+							class="col-span-12 md:col-span-2 bg-primary hover:bg-primary/90"
 							type="button"
 							disabled={!inviteEmail || !inviteRole}
 							on:click={() => handleAddInvite(inviteEmail)}
@@ -178,7 +178,7 @@
 				<Card.Footer>
 					<Button
 						type="submit"
-						class="ml-auto bg-blue-800 hover:bg-blue-900"
+						class="ml-auto bg-primary hover:bg-primary/90"
 						disabled={submitting || $form.invitees.length === 0}
 					>
 						{#if submitting}

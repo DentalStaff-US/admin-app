@@ -99,7 +99,9 @@ export const GET: RequestHandler = async ({ params, request }) => {
 					candidateId: candidateProfile.id,
 					requisitionId: timesheet.requisition.id,
 					weekBeginDate: timesheet.timesheet.weekBeginDate,
-					excludeTimesheetId: id
+					excludeTimesheetId: id,
+					// Only count earlier sheets so an approved sheet's split stays stable.
+					createdBefore: timesheet.timesheet.createdAt
 				})
 			: 0;
 

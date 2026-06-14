@@ -17,7 +17,7 @@
 				<p class="text-muted-foreground text-sm">
 					We apologize for the inconvenience, and are investigating the issue.
 				</p>
-				<Button on:click={() => window.history.back()} class="bg-blue-800 hover:bg-blue-900"
+				<Button on:click={() => window.history.back()} class="bg-primary hover:bg-primary/90"
 					>Go Back</Button
 				>
 			</div>

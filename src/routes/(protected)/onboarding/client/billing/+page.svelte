@@ -84,7 +84,7 @@
 			<Card.Footer>
 				<Button
 					type="button"
-					class="bg-blue-700 hover:bg-blue-800 gap-2"
+					class="bg-primary hover:bg-primary/90 gap-2"
 					disabled={setupSubmitting}
 					on:click={startSetup}
 				>

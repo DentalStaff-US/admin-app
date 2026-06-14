@@ -117,8 +117,11 @@
 	$: rejectedExpenses = expenses.filter((e) => e.status === 'REJECTED');
 	$: approvedExpensesTotal = approvedExpenses.reduce((s, e) => s + e.amountCents / 100, 0);
 	$: billableHoursValue = parseFloat(canEdit ? totalHours.toFixed(2) : data?.timesheet?.totalHoursWorked || '0');
-	$: regularHours = Math.min(billableHoursValue, 40);
-	$: overtimeHours = Math.max(0, billableHoursValue - 40);
+	// Weekly overtime continues across split timesheets: subtract hours already
+	// billed on earlier sheets this week (priorWeekHours) from the 40h allotment.
+	$: priorWeekHours = data?.priorWeekHours ?? 0;
+	$: regularHours = Math.min(billableHoursValue, Math.max(0, 40 - priorWeekHours));
+	$: overtimeHours = Math.max(0, billableHoursValue - regularHours);
 	$: regularAmount = Number(effectiveHourlyRate) * regularHours;
 	$: overtimeAmount = overtimeHours * Number(effectiveHourlyRate) * 1.5;
 	$: billableSubtotal = regularAmount + overtimeAmount;
@@ -602,7 +605,7 @@
 										<Button
 											type="submit"
 											size="sm"
-											class="h-7 px-2 bg-[#2a93d1] hover:bg-blue-500"
+											class="h-7 px-2 bg-primary hover:bg-primary/90"
 											disabled={rateSaving}
 										>
 											{rateSaving ? '...' : 'Save'}
@@ -620,7 +623,7 @@
 								{:else}
 									<div class="flex items-center gap-1">
 										{#if adjustedHourlyRate != null}
-											<p class="text-xl font-bold text-[#2a93d1]">${adjustedHourlyRate}</p>
+											<p class="text-xl font-bold text-primary">${adjustedHourlyRate}</p>
 											<p class="text-sm text-muted-foreground line-through">
 												${data?.timesheet?.hourlyRate}
 											</p>
@@ -651,12 +654,17 @@
 							<p class="mb-3 text-sm font-medium text-gray-700">Billing Summary</p>
 							<div class="space-y-1.5 text-sm">
 								{#if overtimeHours > 0}
+									{#if regularHours > 0}
+										<div class="flex justify-between">
+											<span class="text-gray-600">Regular hours ({regularHours.toFixed(2)} hrs)</span>
+											<span class="font-medium">${regularAmount.toFixed(2)}</span>
+										</div>
+									{/if}
 									<div class="flex justify-between">
-										<span class="text-gray-600">Regular hours (40 hrs)</span>
-										<span class="font-medium">${regularAmount.toFixed(2)}</span>
-									</div>
-									<div class="flex justify-between">
-										<span class="text-gray-600">Overtime ({overtimeHours.toFixed(2)} hrs × 1.5×)</span>
+										<span class="text-gray-600">
+											Overtime ({overtimeHours.toFixed(2)} hrs × 1.5×){#if priorWeekHours > 0}
+												— week already at {priorWeekHours.toFixed(2)} hrs{/if}
+										</span>
 										<span class="font-medium">${overtimeAmount.toFixed(2)}</span>
 									</div>
 								{:else}
@@ -760,7 +768,7 @@
 								<Button
 									type="submit"
 									size="sm"
-									class="bg-[#2a93d1] hover:bg-blue-500 sm:w-auto"
+									class="bg-primary hover:bg-primary/90 sm:w-auto"
 									disabled={$addExpenseSubmitting}
 								>
 									{#if $addExpenseSubmitting}
@@ -1002,7 +1010,7 @@
 
 											{#if isEditing}
 												<div class="flex flex-wrap justify-end gap-2 pt-2">
-													<Button variant="outline" size="sm" on:click={cancelEditing}>
+													<Button variant="destructiveOutline" size="sm" on:click={cancelEditing}>
 														Cancel
 													</Button>
 													<Button
@@ -1016,7 +1024,7 @@
 													</Button>
 													<Button
 														size="sm"
-														class="bg-blue-800 hover:bg-blue-900"
+														class="bg-primary hover:bg-primary/90"
 														disabled={!canSubmit}
 														on:click={() =>
 															postTimeEntries(
@@ -1264,7 +1272,7 @@
 							{#if !isPending}
 								<Button
 														size="sm"
-														class="w-full bg-blue-800 hover:bg-blue-900"
+														class="w-full bg-primary hover:bg-primary/90"
 														disabled={!canSubmit}
 														on:click={() =>
 															postTimeEntries(
@@ -1279,7 +1287,7 @@
 
 							{#if isPending && !isEditing}
 								<Button
-									class="w-full bg-green-700 hover:bg-green-800 gap-2"
+									class="w-full bg-success hover:bg-success/90 gap-2"
 									disabled={hasDiscrepancies() || data.hasUnfinishedWorkdays}
 									on:click={() => (approvalDialogOpen = true)}
 								>
@@ -1461,12 +1469,17 @@
 							<p class="mb-3 text-sm font-medium text-gray-700">Billing Summary</p>
 							<div class="space-y-1.5 text-sm">
 								{#if overtimeHours > 0}
+									{#if regularHours > 0}
+										<div class="flex justify-between">
+											<span class="text-gray-600">Regular hours ({regularHours.toFixed(2)} hrs)</span>
+											<span class="font-medium">${regularAmount.toFixed(2)}</span>
+										</div>
+									{/if}
 									<div class="flex justify-between">
-										<span class="text-gray-600">Regular hours (40 hrs)</span>
-										<span class="font-medium">${regularAmount.toFixed(2)}</span>
-									</div>
-									<div class="flex justify-between">
-										<span class="text-gray-600">Overtime ({overtimeHours.toFixed(2)} hrs × 1.5×)</span>
+										<span class="text-gray-600">
+											Overtime ({overtimeHours.toFixed(2)} hrs × 1.5×){#if priorWeekHours > 0}
+												— week already at {priorWeekHours.toFixed(2)} hrs{/if}
+										</span>
 										<span class="font-medium">${overtimeAmount.toFixed(2)}</span>
 									</div>
 								{:else}
@@ -1709,7 +1722,7 @@
 
 							<div class="space-y-2">
 								<Button
-									class="w-full bg-green-700 hover:bg-green-800 gap-2"
+									class="w-full bg-success hover:bg-success/90 gap-2"
 									on:click={() => (approvalDialogOpen = true)}
 									disabled={hasDiscrepancies() || data.hasUnfinishedWorkdays}
 								>
@@ -1820,7 +1833,7 @@
 				<Button
 					type="submit"
 					variant="default"
-					class="bg-green-500 hover:bg-green-600 text-white"
+					class="bg-success hover:bg-success/90 text-white"
 					on:click={() => (approvalDialogOpen = false)}
 				>
 					Approve Timesheet
@@ -1843,13 +1856,13 @@
 		</DialogHeader>
 		<DialogFooter class="mt-4">
 			<form method="POST" action="?/voidTimesheet" use:enhance>
-				<Button type="button" variant="outline" on:click={() => (voidDialogOpen = false)}>
+				<Button type="button" variant="destructiveOutline" on:click={() => (voidDialogOpen = false)}>
 					Cancel
 				</Button>
 				<Button
 					type="submit"
 					variant="default"
-					class="bg-red-600 hover:bg-red-700 text-white"
+					class="bg-destructive hover:bg-destructive/90 text-white"
 					on:click={() => (voidDialogOpen = false)}
 				>
 					Void Timesheet &amp; Invoice
@@ -1870,13 +1883,13 @@
 		</DialogHeader>
 		<DialogFooter class="mt-4">
 			<form method="POST" action="?/deleteTimesheet" use:enhance>
-				<Button type="button" variant="outline" on:click={() => (deleteDialogOpen = false)}>
+				<Button type="button" variant="destructiveOutline" on:click={() => (deleteDialogOpen = false)}>
 					Cancel
 				</Button>
 				<Button
 					type="submit"
 					variant="default"
-					class="bg-red-600 hover:bg-red-700 text-white"
+					class="bg-destructive hover:bg-destructive/90 text-white"
 					on:click={() => (deleteDialogOpen = false)}
 				>
 					Delete Timesheet
@@ -1926,7 +1939,7 @@
 			<DialogFooter>
 				<Button
 					type="button"
-					variant="outline"
+					variant="destructiveOutline"
 					on:click={() => {
 						rejectionDialogOpen = false;
 						rejectionNote = '';
@@ -1990,7 +2003,7 @@
 			<DialogFooter>
 				<Button
 					type="button"
-					variant="outline"
+					variant="destructiveOutline"
 					on:click={() => {
 						rejectExpenseId = null;
 						rejectExpenseReason = '';
@@ -2017,7 +2030,7 @@
 			</DialogHeader>
 			<DialogFooter class="mt-4">
 				<form method="POST" use:enhance action="?/adminOverrideTimesheet">
-					<Button type="button" variant="outline">Cancel</Button>
+					<Button type="button" variant="destructiveOutline">Cancel</Button>
 					<Button
 						on:click={() => (overrideDialogOpen = false)}
 						type="submit"

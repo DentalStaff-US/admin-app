@@ -305,7 +305,7 @@
 		/>
 		<Button
 			size="sm"
-			class="bg-blue-800 hover:bg-blue-900"
+			class="bg-primary hover:bg-primary/90"
 			on:click={() => handleSearch(searchTerm)}
 		>
 			Search
@@ -328,7 +328,7 @@
 					{/if}
 				</Card.Description>
 				{#if !searchTerm}
-					<Button on:click={() => (open = true)} class="bg-blue-800 hover:bg-blue-900 mt-4">
+					<Button on:click={() => (open = true)} class="bg-primary hover:bg-primary/90 mt-4">
 						<UserPlus class="h-4 w-4 mr-2" />
 						Invite First Staff Member
 					</Button>

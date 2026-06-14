@@ -25,15 +25,12 @@
 // pass through. Scoped staff must have the location in their set or we
 // throw a 403.
 
-import type { User } from 'lucia';
+import type { AppUser as User } from '$lib/server/auth';
 import { error } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import db from './database/drizzle';
 import { USER_ROLES } from '$lib/config/constants';
-import {
-	clientStaffLocationTable,
-	clientStaffProfileTable
-} from './database/schemas/client';
+import { clientStaffLocationTable, clientStaffProfileTable } from './database/schemas/client';
 
 export async function getClientStaffScopedLocationIds(
 	user: Pick<User, 'id' | 'role'> | null | undefined

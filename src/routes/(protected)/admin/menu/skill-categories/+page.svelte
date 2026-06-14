@@ -157,7 +157,7 @@
 
 		<Dialog.Root bind:open={dialogOpen}>
 			<Dialog.Trigger asChild>
-				<Button class="bg-blue-800 hover:bg-blue-900" on:click={() => (dialogOpen = true)}
+				<Button class="bg-primary hover:bg-primary/90" on:click={() => (dialogOpen = true)}
 					>Add New Category</Button
 				>
 			</Dialog.Trigger>
@@ -180,10 +180,10 @@
 						</Form.Field>
 					</div>
 					<Dialog.Footer>
-						<Button variant="outline" type="button" on:click={() => (dialogOpen = false)}>
+						<Button variant="destructiveOutline" type="button" on:click={() => (dialogOpen = false)}>
 							Cancel
 						</Button>
-						<Form.Button class="bg-blue-800 hover:bg-blue-900" disabled={$submitting}>
+						<Form.Button class="bg-primary hover:bg-primary/90" disabled={$submitting}>
 							{#if $submitting}
 								<Loader2 class="mr-2 h-4 w-4 animate-spin" />
 							{/if}
@@ -200,7 +200,7 @@
 		<Input bind:value={searchTerm} placeholder="Search categories..." class="bg-white max-w-xs" />
 		<Button
 			size="sm"
-			class="bg-blue-800 hover:bg-blue-900"
+			class="bg-primary hover:bg-primary/90"
 			on:click={() => handleSearch(searchTerm)}>Search</Button
 		>
 	</form>

@@ -6,6 +6,7 @@
 	} from '$lib/config/constants';
 	import { superForm } from 'sveltekit-superforms/client';
 	import { cn } from '$lib/utils';
+	import TwoFactorSettings from '$lib/components/settings/two-factor-settings.svelte';
 	import * as Alert from '$lib/components/ui/alert';
 	import {
 		AlertCircle,
@@ -676,7 +677,7 @@
 		{#if selectedTab === SETTINGS_MENU_OPTIONS.CLIENT.STAFF}
 			<h2 class="text-3xl font-semibold">Team Management</h2>
 			<p class="text-gray-500">Manage your team members and their roles here.</p>
-			<Button class="bg-blue-800 hover:bg-blue-900" on:click={() => (inviteDialogOpen = true)}>
+			<Button class="bg-primary hover:bg-primary/90" on:click={() => (inviteDialogOpen = true)}>
 				<PlusIcon class="mr-2" size={16} />
 				Invite Staff
 			</Button>
@@ -915,6 +916,10 @@
 					<Button type="submit">Save Changes</Button>
 				</div>
 			</form>
+
+			<div class="mt-10 max-w-2xl">
+				<TwoFactorSettings enabled={Boolean(user?.twoFactorEnabled)} />
+			</div>
 		{/if}
 		{#if selectedTab === SETTINGS_MENU_OPTIONS.CLIENT.BILLING}
 			<div class="space-y-6">
@@ -987,7 +992,7 @@
 								<div class="flex flex-wrap gap-2">
 									<Button
 										type="button"
-										class="bg-blue-600 hover:bg-blue-700"
+										class="bg-primary hover:bg-primary/90"
 										disabled={billingSetupSubmitting}
 										on:click={startBillingSetup}
 									>
@@ -1026,7 +1031,7 @@
 						{:else}
 							<!-- State 3: customer + subscription -->
 							<Button
-								class="w-fit bg-blue-600 hover:bg-blue-700"
+								class="w-fit bg-primary hover:bg-primary/90"
 								on:click={async () => {
 									try {
 										const response = await fetch('/api/stripe/create-portal-session', {
@@ -1092,7 +1097,7 @@
 			<div class="flex justify-between items-center">
 				<p class="text-gray-500 text-sm">Upload and manage your company documents.</p>
 				<Button
-					class="bg-blue-800 hover:bg-blue-900 gap-1"
+					class="bg-primary hover:bg-primary/90 gap-1"
 					on:click={() => (uploadDocDialogOpen = true)}
 				>
 					<Plus class="h-4 w-4" />
@@ -1123,7 +1128,7 @@
 					/>
 					<Button
 						type="button"
-						variant="outline"
+						variant="destructiveOutline"
 						size="sm"
 						on:click={() => (uploadDocDialogOpen = false)}
 					>
@@ -1280,7 +1285,7 @@
 			{#if selectedProfile}
 				<Button
 					type="button"
-					class="bg-blue-700 hover:bg-blue-800 gap-1 w-full"
+					class="bg-primary hover:bg-primary/90 gap-1 w-full"
 					on:click={() => {
 						const sp = selectedProfile;
 						if (!sp) return;
@@ -1323,7 +1328,7 @@
 					{/each}
 				</Select>
 				<Button
-					class="col-span-12 md:col-span-2 bg-green-400 hover:bg-green-500"
+					class="col-span-12 md:col-span-2 bg-primary hover:bg-primary/90"
 					type="button"
 					disabled={!inviteEmail || !inviteRole}
 					on:click={() => handleAddInvite(inviteEmail)}
@@ -1360,7 +1365,7 @@
 			<Dialog.Footer>
 				<Button
 					type="submit"
-					class="ml-auto bg-blue-800 hover:bg-blue-900"
+					class="ml-auto bg-primary hover:bg-primary/90"
 					disabled={submitting || $inviteForm.invitees.length === 0}
 				>
 					{#if submitting}

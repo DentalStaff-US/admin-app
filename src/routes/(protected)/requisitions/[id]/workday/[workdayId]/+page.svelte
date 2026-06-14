@@ -271,7 +271,7 @@
 					<CardTitle>Professional:</CardTitle>
 					{#if !candidate && recurrenceDay?.recurrenceDay?.status === 'OPEN' && isAdmin}
 						<Button
-							class="gap-2 bg-[#2a93d1] hover:bg-blue-500"
+							class="gap-2 bg-primary hover:bg-primary/90"
 							on:click={() => (assignDialogOpen = true)}
 						>
 							<UserPlus class="h-5" />Assign ({qualifiedProfessionals.length})
@@ -390,12 +390,12 @@
 						<div class="flex gap-2 pt-2">
 							<Button
 								type="submit"
-								class="flex-1 bg-[#2a93d1] hover:bg-blue-500"
+								class="flex-1 bg-primary hover:bg-primary/90"
 								disabled={$scheduleSubmitting}
 							>
 								{$scheduleSubmitting ? 'Saving...' : 'Save Changes'}
 							</Button>
-							<Button type="button" variant="outline" on:click={() => (editingSchedule = false)}>
+							<Button type="button" variant="destructiveOutline" on:click={() => (editingSchedule = false)}>
 								Cancel
 							</Button>
 						</div>
@@ -500,7 +500,7 @@
 							<span class="font-medium">Hourly Rate:</span>
 							<div class="flex items-center gap-2">
 								{#if timesheet?.adjustedHourlyRate != null}
-									<span class="font-semibold text-[#2a93d1]">
+									<span class="font-semibold text-primary">
 										${timesheet.adjustedHourlyRate}/hr
 									</span>
 									<span class="text-xs text-muted-foreground line-through">
@@ -658,7 +658,7 @@
 							<input type="hidden" name="candidateId" value={professional.candidateId} />
 							<input type="hidden" name="recurrenceDayId" value={recurrenceDay?.recurrenceDay.id} />
 							<Button
-								class="bg-blue-500 hover:bg-blue-600"
+								class="bg-primary hover:bg-primary/90"
 								type="submit"
 								size="sm"
 								disabled={assigningCandidateId === professional.candidateId}
@@ -678,7 +678,7 @@
 			<DialogFooter class="sm:justify-center mt-2">
 				<button
 					type="button"
-					class="text-sm text-[#2a93d1] hover:underline disabled:opacity-50"
+					class="text-sm text-primary hover:underline disabled:opacity-50"
 					on:click={loadAllExperienceCandidates}
 					disabled={loadingExtended}
 				>
@@ -759,7 +759,7 @@
 									value={recurrenceDay?.recurrenceDay.id}
 								/>
 								<Button
-									class="bg-blue-500 hover:bg-blue-600"
+									class="bg-primary hover:bg-primary/90"
 									type="submit"
 									size="sm"
 									disabled={reassigningCandidateId === professional.candidateId}
@@ -782,7 +782,7 @@
 			{#if !extendedLoaded}
 				<button
 					type="button"
-					class="text-sm text-[#2a93d1] hover:underline disabled:opacity-50 sm:mr-auto"
+					class="text-sm text-primary hover:underline disabled:opacity-50 sm:mr-auto"
 					on:click={loadAllExperienceCandidates}
 					disabled={loadingExtended}
 				>
@@ -791,7 +791,7 @@
 						: 'Show more — include candidates of any experience level'}
 				</button>
 			{/if}
-			<Button variant="outline" on:click={() => (reassignDialogOpen = false)}>Cancel</Button>
+			<Button variant="destructiveOutline" on:click={() => (reassignDialogOpen = false)}>Cancel</Button>
 		</DialogFooter>
 		{#if extendedError}
 			<p class="text-sm text-red-600 text-center">Failed to load: {extendedError}</p>
@@ -828,7 +828,7 @@
 				}}
 			>
 				<input type="hidden" name="recurrenceDayId" value={recurrenceDay?.recurrenceDay.id} />
-				<AlertDialogAction type="submit" class="bg-red-500 hover:bg-red-600 text-white">
+				<AlertDialogAction type="submit" class="bg-destructive hover:bg-destructive/90 text-white">
 					Unassign
 				</AlertDialogAction>
 			</form>
@@ -863,7 +863,7 @@
 				}}
 			>
 				<input type="hidden" name="recurrenceDayId" value={recurrenceDay?.recurrenceDay.id} />
-				<AlertDialogAction type="submit" class="bg-red-500 hover:bg-red-600 text-white">
+				<AlertDialogAction type="submit" class="bg-destructive hover:bg-destructive/90 text-white">
 					Cancel Workday
 				</AlertDialogAction>
 			</form>
@@ -899,7 +899,7 @@
 			>
 				<AlertDialogAction
 					type="submit"
-					class="bg-red-500 hover:bg-red-600 text-white"
+					class="bg-destructive hover:bg-destructive/90 text-white"
 					disabled={deletingWorkday}
 				>
 					{deletingWorkday ? 'Deleting...' : 'Delete Workday'}

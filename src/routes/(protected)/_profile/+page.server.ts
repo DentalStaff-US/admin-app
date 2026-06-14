@@ -8,6 +8,7 @@ import {
 } from '$lib/config/zod-schemas';
 import { updateUser } from '$lib/server/database/queries/users';
 import { EmailService } from '$lib/server/email/emailService';
+import { auth } from '$lib/server/auth';
 
 const profileSchema = userSchema.pick({
 	firstName: true,
@@ -64,12 +65,11 @@ export const actions = {
 					await updateUser(user?.userId, {
 						verified: false
 					});
-					// await updateEmailAddressSuccessEmail(form.data.email, user?.email, user?.token);
-					await emailService.sendEmailAddressUpdateSuccessEmail(
-						form.data.email,
-						user?.email,
-						user?.token
-					);
+					// New address must be re-verified — Better Auth issues the link.
+					await auth.api.sendVerificationEmail({
+						headers: event.request.headers,
+						body: { email: form.data.email, callbackURL: '/auth/verify/success' }
+					});
 					await emailService.sendPossibleHijackEmail(form.data.email, user?.email);
 				}
 			}

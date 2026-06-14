@@ -47,9 +47,9 @@
             class: cn(
               getValue() === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
             getValue() === 'DISCREPANCY' && 'bg-orange-400 hover:bg-bg-orange-500',
-            getValue() === 'APPROVED' && 'bg-green-400 hover:bg-green-600',
+            getValue() === 'APPROVED' && 'bg-green-400 hover:bg-success/90',
             getValue() === 'VOID' && 'bg-gray-200 hover:bg-gray-300',
-            getValue() === 'REJECTED' && 'bg-red-500 hover:bg-red-500'
+            getValue() === 'REJECTED' && 'bg-destructive hover:bg-destructive/90'
             ),
             value: getValue()
           }

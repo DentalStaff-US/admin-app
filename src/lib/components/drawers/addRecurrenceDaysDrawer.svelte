@@ -279,7 +279,7 @@
 
 <Sheet.Root bind:open={isOpen}>
 	<Sheet.Trigger asChild let:builder>
-		<Button builders={[builder]} class="bg-blue-800 hover:bg-blue-900 mb-4">
+		<Button builders={[builder]} class="bg-primary hover:bg-primary/90 mb-4">
 			<PlusIcon class="w-4 h-4 mr-2" />
 			Add Shifts
 		</Button>
@@ -518,7 +518,7 @@
 										<div class="border-t p-1">
 											<button
 												type="button"
-												class="w-full rounded-sm px-2 py-1.5 text-left text-sm text-[#2a93d1] hover:bg-accent disabled:opacity-50"
+												class="w-full rounded-sm px-2 py-1.5 text-left text-sm text-primary hover:bg-accent disabled:opacity-50"
 												on:click={loadAllExperienceCandidates}
 												disabled={loadingExtended}
 											>
@@ -548,14 +548,14 @@
 
 				<Sheet.Footer class="mt-4">
 					<Sheet.Close asChild let:builder>
-						<Button builders={[builder]} variant="outline" type="button" on:click={resetForm}>
+						<Button builders={[builder]} variant="destructiveOutline" type="button" on:click={resetForm}>
 							Cancel
 						</Button>
 					</Sheet.Close>
 					<Button
 						type="submit"
 						disabled={!isFormValid || $submitting}
-						class="bg-blue-800 hover:bg-blue-900"
+						class="bg-primary hover:bg-primary/90"
 					>
 						{#if $submitting}
 							{selectedCandidateId ? 'Assigning...' : 'Adding...'}

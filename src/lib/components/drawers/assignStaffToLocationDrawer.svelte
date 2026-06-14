@@ -22,7 +22,7 @@
 
 <Sheet.Root>
 	<Sheet.Trigger asChild let:builder>
-		<Button builders={[builder]} class="bg-blue-800 hover:bg-blue-900 mb-4">
+		<Button builders={[builder]} class="bg-primary hover:bg-primary/90 mb-4">
 			Add Staff Member
 		</Button>
 	</Sheet.Trigger>
@@ -60,7 +60,7 @@
 			</div>
 			<Sheet.Footer>
 				<Sheet.Close asChild let:builder>
-					<Button class="bg-blue-800 hover:bg-blue-900 mb-4" type="submit">Add Staff Member</Button>
+					<Button class="bg-primary hover:bg-primary/90 mb-4" type="submit">Add Staff Member</Button>
 				</Sheet.Close>
 			</Sheet.Footer>
 		</form>

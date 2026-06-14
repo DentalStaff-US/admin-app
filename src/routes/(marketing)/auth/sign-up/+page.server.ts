@@ -1,16 +1,17 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { setError, superValidate } from 'sveltekit-superforms/server';
-import { Argon2id } from 'oslo/password';
-import { lucia } from '$lib/server/lucia';
-import { createUser } from '$lib/server/database/queries/users';
+import { auth } from '$lib/server/auth';
+import { APIError } from 'better-auth/api';
 
 import { userSchema } from '$lib/config/zod-schemas';
-// import { sendVerificationEmail } from '$lib/config/email-messages';
-import { EmailService } from '$lib/server/email/emailService';
 import db from '$lib/server/database/drizzle';
 import { eq } from 'drizzle-orm';
-import { companyStaffInviteLocations, userInviteTable } from '$lib/server/database/schemas/auth';
+import {
+	companyStaffInviteLocations,
+	userInviteTable,
+	userTable
+} from '$lib/server/database/schemas/auth';
 import {
 	clientStaffLocationTable,
 	clientStaffProfileTable
@@ -59,25 +60,19 @@ export const actions = {
 			});
 		}
 
-		const emailService = new EmailService();
-
 		try {
-			const password = await new Argon2id().hash(form.data.password);
-			const id = crypto.randomUUID();
 			let inviteData = null;
-			const token = crypto.randomUUID();
 
-			// Check for staff invite
+			// Check for staff / admin invite cookies (admin takes precedence).
 			const staffInviteCookie = event.cookies.get('staff_invite');
 			const adminInviteCookie = event.cookies.get('admin_invite');
-			// If there's an admin invite, we should not proceed with staff invite logic
 			if (adminInviteCookie) {
 				inviteData = await JSON.parse(adminInviteCookie);
 			} else if (staffInviteCookie) {
 				inviteData = await JSON.parse(staffInviteCookie);
 			}
 
-			// Verify the invite email matches the registration email
+			// Verify the invite email matches the registration email.
 			if (inviteData && inviteData?.email?.toLowerCase() !== form.data?.email?.toLowerCase()) {
 				setFlash(
 					{
@@ -89,60 +84,61 @@ export const actions = {
 				return setError(form, 'email', 'Please use the email address from your invitation.');
 			}
 
-			const user = {
-				id: id,
-				email: form.data.email.toLowerCase(),
-				firstName: form.data.firstName,
-				lastName: form.data.lastName,
-				password: password,
-				role: inviteData ? inviteData.invitedRole : USER_ROLES.CLIENT, // Use invite role if available
-				verified: inviteData ? true : false, // Auto-verify invited users since they came through an email link
-				receiveEmail: true,
-				token,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-				provider: 'email',
-				providerId: '',
-				avatarUrl: null,
-				// all invites for now don't need onboarding
-				completedOnboarding: inviteData ? true : false,
-				blacklisted: null,
-				onboardingStep: 1,
-				stripeCustomerId: null,
-				timezone: getUserTimezone()
-			};
+			const email = form.data.email.toLowerCase();
+			// Invited users get their invited role + are auto-verified (they arrived
+			// via an email link) and skip onboarding; everyone else is a CLIENT.
+			const role = inviteData ? inviteData.invitedRole : USER_ROLES.CLIENT;
+			const verified = Boolean(inviteData);
+			const completedOnboarding = Boolean(inviteData);
 
-			const newUser = await db.transaction(async (tx) => {
-				// First create the user
-				const createdUser = await createUser(user, tx); // Make sure createUser uses the transaction
-
-				if (!createdUser) {
-					throw new Error('Failed to create user');
+			// Create the user + credential account + session via Better Auth.
+			// The custom Argon2id hasher in auth.ts is used for the password.
+			// sveltekitCookies sets the session cookie automatically.
+			const signUpResult = await auth.api.signUpEmail({
+				headers: event.request.headers,
+				body: {
+					email,
+					password: form.data.password,
+					name: `${form.data.firstName} ${form.data.lastName}`.trim(),
+					firstName: form.data.firstName,
+					lastName: form.data.lastName
 				}
+			});
 
-				// If this was an invite-based registration, handle the additional setup
+			const newUserId = signUpResult.user.id;
+
+			// Apply the fields Better Auth signUp can't set directly (role is
+			// admin-plane; verified/onboarding are input:false), plus invite setup.
+			await db.transaction(async (tx) => {
+				await tx
+					.update(userTable)
+					.set({
+						role,
+						verified,
+						completedOnboarding,
+						timezone: getUserTimezone(),
+						updatedAt: new Date()
+					})
+					.where(eq(userTable.id, newUserId));
+
 				if (inviteData) {
-					if (inviteData.invitedRole === 'CLIENT_STAFF') {
-						//This is a client staff invite
+					if (inviteData.invitedRole === USER_ROLES.CLIENT_STAFF) {
 						const clientId = await getClientIdByCompanyId(inviteData.companyId);
-
 						if (!clientId) {
 							throw new Error(`No client found for company ID: ${inviteData.companyId}`);
 						}
 
-						// Now create the staff profile
 						const [staffProfile] = await tx
 							.insert(clientStaffProfileTable)
 							.values({
 								id: crypto.randomUUID(),
-								userId: createdUser.id, // Make sure we're using the created user's ID
+								userId: newUserId,
 								companyId: inviteData.companyId,
 								clientId: clientId,
 								staffRole: inviteData.staffRole
 							})
 							.returning();
 
-						// Add location associations
 						await tx.insert(clientStaffLocationTable).values(
 							inviteData.locations.map((locationId: string) => ({
 								id: crypto.randomUUID(),
@@ -158,72 +154,60 @@ export const actions = {
 							.set({ token: null })
 							.where(eq(companyStaffInviteLocations.token, inviteData.token));
 					}
-					// Mark the invites as used
+					// Mark the invite as used.
 					await tx
 						.update(userInviteTable)
 						.set({ token: null })
 						.where(eq(userInviteTable.token, inviteData.token));
 				}
-
-				return createdUser;
 			});
 
-			if (newUser) {
-				// Create session
-				const session = await lucia.createSession(newUser.id, {});
-				const sessionCookie = lucia.createSessionCookie(session.id);
-				event.cookies.set(sessionCookie.name, sessionCookie.value, {
-					path: '.',
-					...sessionCookie.attributes
-				});
+			// Clear invite cookies.
+			if (staffInviteCookie) event.cookies.delete('staff_invite', { path: '/' });
+			if (adminInviteCookie) event.cookies.delete('admin_invite', { path: '/' });
 
-				// Clear the invite cookie if it exists
-				if (staffInviteCookie) {
-					event.cookies.delete('staff_invite', { path: '/' });
-				}
-				if (adminInviteCookie) {
-					event.cookies.delete('admin_invite', { path: '/' });
-				}
+			logger.event('user_signed_up', {
+				distinctId: newUserId,
+				role,
+				via_invite: Boolean(inviteData),
+				invited_role: inviteData?.invitedRole ?? null,
+				$set: { role }
+			});
 
-				logger.event('user_signed_up', {
-					distinctId: newUser.id,
-					role: user.role,
-					via_invite: Boolean(inviteData),
-					invited_role: inviteData?.invitedRole ?? null,
-					$set: { role: user.role }
-				});
-
-				// Set appropriate flash message
-				if (inviteData) {
-					setFlash(
-						{
-							type: 'success',
-							message: 'Account created successfully. Welcome to the team!'
-						},
-						event
-					);
-				} else {
-					const verificationResult = await emailService.sendVerificationEmail(
-						newUser.email,
-						user.token
-					);
-					if (!verificationResult.success) {
-						logger.error('verification email send failed at signup', {
-							error: verificationResult.error,
-							distinctId: newUser.id,
-							email: newUser.email
-						});
-					}
-					setFlash(
-						{
-							type: 'success',
-							message: 'Account created. Please check your email to verify your account.'
-						},
-						event
-					);
+			if (inviteData) {
+				setFlash(
+					{ type: 'success', message: 'Account created successfully. Welcome to the team!' },
+					event
+				);
+			} else {
+				// Non-invited users must verify their email — Better Auth issues the
+				// link via the sendVerificationEmail callback in auth.ts.
+				try {
+					await auth.api.sendVerificationEmail({
+						headers: event.request.headers,
+						body: { email, callbackURL: '/auth/verify/success' }
+					});
+				} catch (err) {
+					logger.error('verification email send failed at signup', {
+						error: err,
+						distinctId: newUserId,
+						email
+					});
 				}
+				setFlash(
+					{
+						type: 'success',
+						message: 'Account created. Please check your email to verify your account.'
+					},
+					event
+				);
 			}
 		} catch (e) {
+			// Better Auth surfaces duplicate email / weak password as APIError.
+			if (e instanceof APIError) {
+				logger.error('auth.sign-up failed', { error: e.message, email: form.data.email });
+				return setError(form, 'email', 'A user with that email already exists.');
+			}
 			logger.error('auth.sign-up failed', { error: e, email: form.data.email });
 			setFlash({ type: 'error', message: 'Account was not able to be created.' }, event);
 			return setError(form, 'email', 'A user with that email already exists.');

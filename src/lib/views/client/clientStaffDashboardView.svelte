@@ -39,7 +39,7 @@
 			<Card.Root>
 				<Card.Content class="p-2 md:p-4">
 					<div class="flex gap-4 items-center">
-						<div class="bg-blue-800 p-2 rounded-full">
+						<div class="bg-primary p-2 rounded-full">
 							<FileClock size={24} color={'white'} />
 						</div>
 						<div class="space-y-2">
@@ -54,7 +54,7 @@
 			<Card.Root>
 				<Card.Content class="p-2 md:p-4">
 					<div class="flex gap-4 items-center">
-						<div class="bg-blue-800 p-2 rounded-full">
+						<div class="bg-primary p-2 rounded-full">
 							<AlertCircle size={24} color={'white'} />
 						</div>
 						<div class="space-y-2">
@@ -69,7 +69,7 @@
 			<Card.Root>
 				<Card.Content class="p-2 md:p-4">
 					<div class="flex gap-4 items-center">
-						<div class="bg-blue-800 p-2 rounded-full">
+						<div class="bg-primary p-2 rounded-full">
 							<UserPlus size={24} color={'white'} />
 						</div>
 						<div class="space-y-2">
@@ -84,7 +84,7 @@
 			<Card.Root>
 				<Card.Header class="flex flex-row justify-between items-center flex-wrap">
 					<Card.Title class="text-xl md:text-2xl">Requisitions</Card.Title>
-					<Button class="bg-blue-900 hover:bg-blue-800"
+					<Button class="bg-primary hover:bg-primary/90"
 						><PlusIcon size={20} class="mr-2" /> New Requisition</Button
 					>
 				</Card.Header>
@@ -117,7 +117,7 @@
 					</Table.Root>
 				</Card.Content>
 				<Card.Footer class="">
-					<Button class="bg-blue-900 hover:bg-blue-800" href="/requisitions">See All</Button>
+					<Button class="bg-primary hover:bg-primary/90" href="/requisitions">See All</Button>
 				</Card.Footer>
 			</Card.Root>
 		</div>
@@ -162,7 +162,7 @@
 					</Table.Root>
 				</Card.Content>
 				<Card.Footer>
-					<Button class="bg-blue-900 hover:bg-blue-800" href={'/support'}>See All</Button>
+					<Button class="bg-primary hover:bg-primary/90" href={'/support'}>See All</Button>
 				</Card.Footer>
 			</Card.Root>
 		</div>
@@ -170,7 +170,7 @@
 			<Card.Root>
 				<Card.Header class="flex flex-row justify-between items-center flex-wrap">
 					<Card.Title class="text-xl md:text-2xl">Timesheets Due</Card.Title>
-					<Button class="bg-blue-900 hover:bg-blue-800" href={'/timesheets'}>See All</Button>
+					<Button class="bg-primary hover:bg-primary/90" href={'/timesheets'}>See All</Button>
 				</Card.Header>
 				<Card.Content class="p-2 md:p-4">
 					<Table.Root>

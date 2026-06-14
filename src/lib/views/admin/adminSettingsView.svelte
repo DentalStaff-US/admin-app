@@ -8,6 +8,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
 	import AvatarUpload from "$lib/components/avatar-upload.svelte";
+	import TwoFactorSettings from '$lib/components/settings/two-factor-settings.svelte';
 
 	export let userProfileForm;
 	export let passwordForm;
@@ -119,6 +120,10 @@
 					<Button type="submit">Save Changes</Button>
 				</div>
 			</form>
+
+			<div class="mt-10 max-w-2xl">
+				<TwoFactorSettings enabled={Boolean(user?.twoFactorEnabled)} />
+			</div>
 		{/if}
 	</div>
 </div>

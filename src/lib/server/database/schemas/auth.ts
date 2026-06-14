@@ -2,7 +2,7 @@ import { pgTable, text, timestamp, boolean, pgEnum, integer } from 'drizzle-orm/
 
 export const userRolesEnum = pgEnum('user_roles', [
 	'SUPERADMIN',
-	// 'ADMIN',
+	'ADMIN',
 	'CLIENT',
 	'CLIENT_STAFF',
 	'CANDIDATE'
@@ -13,6 +13,9 @@ export const userTable = pgTable('users', {
 	provider: text('provider').notNull().default('email'),
 	providerId: text('provider_id').notNull().default(''),
 	email: text('email').notNull().unique(),
+	// Better Auth core requires a `name` field; we keep first_name/last_name as the
+	// app-facing split and populate `name` as "first last" on signup.
+	name: text('name'),
 	firstName: text('first_name').notNull(),
 	lastName: text('last_name').notNull(),
 	avatarUrl: text('avatar_url'),
@@ -33,7 +36,13 @@ export const userTable = pgTable('users', {
 	onboardingStep: integer('onboarding_step').default(1),
 	blacklisted: boolean('blacklisted').default(false),
 	stripeCustomerId: text('stripe_customer_id').unique(),
-	timezone: text('timezone').default('America/New_York')
+	timezone: text('timezone').default('America/New_York'),
+	// Better Auth admin plugin fields
+	banned: boolean('banned').default(false),
+	banReason: text('ban_reason'),
+	banExpires: timestamp('ban_expires', { withTimezone: true, mode: 'date' }),
+	// Better Auth two-factor plugin flag
+	twoFactorEnabled: boolean('two_factor_enabled').default(false)
 });
 
 export const sessionTable = pgTable('sessions', {
@@ -44,7 +53,60 @@ export const sessionTable = pgTable('sessions', {
 	expiresAt: timestamp('expires_at', {
 		withTimezone: true,
 		mode: 'date'
-	}).notNull()
+	}).notNull(),
+	// Better Auth session fields (Lucia only had id/user_id/expires_at)
+	token: text('token').unique(),
+	ipAddress: text('ip_address'),
+	userAgent: text('user_agent'),
+	// admin plugin: set when an admin is impersonating this user
+	impersonatedBy: text('impersonated_by'),
+	createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow()
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Better Auth tables (new). `account` holds credential + future social logins,
+// `verification` backs email-verify / password-reset / OTP, `two_factor` stores
+// TOTP secrets + backup codes. All keyed by Better Auth model name in auth.ts.
+// ──────────────────────────────────────────────────────────────────────────
+
+export const accountTable = pgTable('account', {
+	id: text('id').notNull().primaryKey(),
+	accountId: text('account_id').notNull(),
+	providerId: text('provider_id').notNull(),
+	userId: text('user_id')
+		.notNull()
+		.references(() => userTable.id, { onDelete: 'cascade' }),
+	accessToken: text('access_token'),
+	refreshToken: text('refresh_token'),
+	idToken: text('id_token'),
+	accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true, mode: 'date' }),
+	refreshTokenExpiresAt: timestamp('refresh_token_expires_at', {
+		withTimezone: true,
+		mode: 'date'
+	}),
+	scope: text('scope'),
+	password: text('password'),
+	createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow()
+});
+
+export const verificationTable = pgTable('verification', {
+	id: text('id').notNull().primaryKey(),
+	identifier: text('identifier').notNull(),
+	value: text('value').notNull(),
+	expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+	createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).defaultNow()
+});
+
+export const twoFactorTable = pgTable('two_factor', {
+	id: text('id').notNull().primaryKey(),
+	userId: text('user_id')
+		.notNull()
+		.references(() => userTable.id, { onDelete: 'cascade' }),
+	secret: text('secret'),
+	backupCodes: text('backup_codes')
 });
 
 export const userInviteTable = pgTable('user_invites', {
@@ -85,5 +147,9 @@ export type NewUser = typeof userTable.$inferInsert;
 export type UpdateUser = Partial<typeof userTable.$inferInsert>;
 export type Session = typeof sessionTable.$inferSelect;
 export type NewSession = typeof sessionTable.$inferInsert;
+export type Account = typeof accountTable.$inferSelect;
+export type NewAccount = typeof accountTable.$inferInsert;
+export type Verification = typeof verificationTable.$inferSelect;
+export type TwoFactor = typeof twoFactorTable.$inferSelect;
 export type NewUserInvite = typeof userInviteTable.$inferInsert;
 export type NewStaffLocationInvite = typeof companyStaffInviteLocations.$inferInsert;

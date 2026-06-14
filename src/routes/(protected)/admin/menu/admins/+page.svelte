@@ -154,7 +154,7 @@
 
 		<Dialog bind:open={dialogOpen}>
 			<DialogTrigger asChild>
-				<Button on:click={() => (dialogOpen = true)} class="bg-blue-800 hover:bg-blue-900"
+				<Button on:click={() => (dialogOpen = true)} class="bg-primary hover:bg-primary/90"
 					><Plus class="mr-2" size={20} /> Invite Admin</Button
 				>
 			</DialogTrigger>
@@ -167,11 +167,11 @@
 					</div>
 					<DialogFooter>
 						<DialogClose asChild
-							><Button type="button" on:click={() => (dialogOpen = false)} variant="outline"
+							><Button type="button" on:click={() => (dialogOpen = false)} variant="destructiveOutline"
 								>Cancel</Button
 							></DialogClose
 						>
-						<Button class="bg-green-500 hover:bg-green-600" type="submit"
+						<Button class="bg-primary hover:bg-primary/90" type="submit"
 							>{#if $submitting}
 								Sending...
 							{:else}
@@ -189,7 +189,7 @@
 		<Input bind:value={searchTerm} placeholder="Search admin users..." class="bg-white max-w-xs" />
 		<Button
 			size="sm"
-			class="bg-blue-800 hover:bg-blue-900"
+			class="bg-primary hover:bg-primary/90"
 			on:click={() => handleSearch(searchTerm)}
 		>
 			Search

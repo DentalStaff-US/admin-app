@@ -105,7 +105,7 @@
 
 		<Dialog.Root bind:open={dialogOpen}>
 			<Dialog.Trigger asChild>
-				<Button on:click={() => (dialogOpen = true)} class="bg-blue-800 hover:bg-blue-900">
+				<Button on:click={() => (dialogOpen = true)} class="bg-primary hover:bg-primary/90">
 					<PlusIcon size={20} class="mr-2" />Add New Experience Level
 				</Button>
 			</Dialog.Trigger>
@@ -131,7 +131,7 @@
 						</Form.Field>
 					</div>
 					<Dialog.Footer>
-						<Button variant="outline" type="button" on:click={() => (dialogOpen = false)}>
+						<Button variant="destructiveOutline" type="button" on:click={() => (dialogOpen = false)}>
 							Cancel
 						</Button>
 						<Form.Button disabled={$submitting}>
@@ -155,7 +155,7 @@
 		/>
 		<Button
 			size="sm"
-			class="bg-blue-800 hover:bg-blue-900"
+			class="bg-primary hover:bg-primary/90"
 			on:click={() => handleSearch(searchTerm)}
 		>
 			<Search size={16} class="mr-2" />
@@ -181,7 +181,7 @@
 				<Button
 					type="submit"
 					disabled={!isDirty || savingOrder}
-					class="bg-blue-800 hover:bg-blue-900"
+					class="bg-primary hover:bg-primary/90"
 				>
 					{#if savingOrder}
 						<Loader2 class="mr-2 h-4 w-4 animate-spin" />

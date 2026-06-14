@@ -30,9 +30,12 @@
 		Trash2,
 		Check,
 		X,
-		ExternalLink
+		ExternalLink,
+		UserCog,
+		Ban,
+		ShieldCheck
 	} from 'lucide-svelte';
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { enhance } from '$app/forms';
 	import { USER_ROLES } from '$lib/config/constants';
 
@@ -46,6 +49,9 @@
 		role: string;
 		verified: boolean;
 		completedOnboarding: boolean;
+		banned: boolean | null;
+		banReason: string | null;
+		banExpires: string | Date | null;
 		createdAt: string | Date;
 		companyName: string | null;
 		city: string | null;
@@ -66,6 +72,24 @@
 	let deleteDialogOpen = false;
 	let pendingDeleteUser: UserRow | null = null;
 	let deleting = false;
+
+	// Ban dialog state
+	let banDialogOpen = false;
+	let pendingBanUser: UserRow | null = null;
+	let banReason = '';
+	let banDays = '';
+	let banning = false;
+
+	function openBan(row: UserRow) {
+		pendingBanUser = row;
+		banReason = '';
+		banDays = '';
+		banDialogOpen = true;
+	}
+
+	function canImpersonate(row: UserRow): boolean {
+		return row.id !== data.user?.id && row.role !== USER_ROLES.SUPERADMIN;
+	}
 
 	// Profile-page link per role. Routes expect the PROFILE id (not user.id):
 	//   /professionals/[id] reads candidate_profiles.id
@@ -188,7 +212,7 @@
 			placeholder="Search by name, email, role, company, address, or id..."
 			class="bg-white max-w-lg"
 		/>
-		<Button size="sm" class="bg-blue-800 hover:bg-blue-900" type="submit">Search</Button>
+		<Button size="sm" class="bg-primary hover:bg-primary/90" type="submit">Search</Button>
 		{#if searchTerm}
 			<Button
 				size="sm"
@@ -258,6 +282,78 @@
 												<ExternalLink class="h-4 w-4" />
 											</Button>
 										{/if}
+
+										<!-- Impersonate (cross-app for candidates opens a new tab) -->
+										{#if canImpersonate(row.original)}
+											<form
+												method="POST"
+												action="?/impersonate"
+												target={row.original.role === USER_ROLES.CANDIDATE ? '_blank' : '_self'}
+												use:enhance={() => {
+													return async ({ result, update }) => {
+														if (
+															result.type === 'success' &&
+															result.data &&
+															typeof result.data.handoffUrl === 'string'
+														) {
+															// Candidate: open the candidate-domain handoff in a new tab.
+															window.open(result.data.handoffUrl, '_blank');
+															return;
+														}
+														await update();
+													};
+												}}
+											>
+												<input type="hidden" name="id" value={row.original.id} />
+												<input type="hidden" name="role" value={row.original.role} />
+												<Button
+													variant="ghost"
+													size="sm"
+													type="submit"
+													class="text-blue-700 hover:bg-blue-50"
+													title="Impersonate user"
+												>
+													<UserCog class="h-4 w-4" />
+												</Button>
+											</form>
+										{/if}
+
+										<!-- Ban / Unban -->
+										{#if row.original.banned}
+											<form
+												method="POST"
+												action="?/unbanUser"
+												use:enhance={() => async ({ update }) => {
+													await update();
+													await invalidateAll();
+												}}
+											>
+												<input type="hidden" name="id" value={row.original.id} />
+												<Button
+													variant="ghost"
+													size="sm"
+													type="submit"
+													class="text-green-700 hover:bg-green-50"
+													title="Reinstate user"
+												>
+													<ShieldCheck class="h-4 w-4" />
+												</Button>
+											</form>
+										{:else}
+											<Button
+												variant="ghost"
+												size="sm"
+												class="text-amber-700 hover:bg-amber-50"
+												on:click={() => openBan(row.original)}
+												disabled={row.original.id === data.user?.id}
+												title={row.original.id === data.user?.id
+													? 'You cannot suspend your own account'
+													: 'Suspend user'}
+											>
+												<Ban class="h-4 w-4" />
+											</Button>
+										{/if}
+
 										<Button
 											variant="ghost"
 											size="sm"
@@ -319,6 +415,61 @@
 	</div>
 </section>
 
+<!-- ─── Ban / suspend ───────────────────────────────────────────────────────── -->
+<AlertDialog bind:open={banDialogOpen}>
+	<AlertDialogContent>
+		<AlertDialogHeader>
+			<AlertDialogTitle>Suspend user?</AlertDialogTitle>
+			<AlertDialogDescription>
+				{#if pendingBanUser}
+					This will suspend <strong>
+						{pendingBanUser.firstName ?? ''} {pendingBanUser.lastName ?? ''}
+					</strong> ({pendingBanUser.email}). They will be signed out and blocked from logging in,
+					and shown the reason + duration below.
+				{/if}
+			</AlertDialogDescription>
+		</AlertDialogHeader>
+
+		<div class="grid gap-3 py-2">
+			<label class="text-sm font-medium" for="ban-reason">Reason (shown to the user)</label>
+			<Input id="ban-reason" bind:value={banReason} placeholder="e.g. Terms of service violation" />
+			<label class="text-sm font-medium" for="ban-days">Duration in days (blank = permanent)</label>
+			<Input id="ban-days" type="number" min="1" bind:value={banDays} placeholder="Permanent" />
+		</div>
+
+		<AlertDialogFooter>
+			<AlertDialogCancel>Cancel</AlertDialogCancel>
+			<form
+				method="POST"
+				action="?/banUser"
+				use:enhance={() => {
+					banning = true;
+					return async ({ result, update }) => {
+						banning = false;
+						if (result.type === 'success') {
+							banDialogOpen = false;
+							pendingBanUser = null;
+						}
+						await update();
+						await invalidateAll();
+					};
+				}}
+			>
+				<input type="hidden" name="id" value={pendingBanUser?.id ?? ''} />
+				<input type="hidden" name="reason" value={banReason} />
+				<input type="hidden" name="days" value={banDays} />
+				<AlertDialogAction
+					type="submit"
+					class="bg-amber-600 hover:bg-amber-700 text-white"
+					disabled={banning}
+				>
+					{banning ? 'Suspending...' : 'Suspend'}
+				</AlertDialogAction>
+			</form>
+		</AlertDialogFooter>
+	</AlertDialogContent>
+</AlertDialog>
+
 <!-- ─── Delete confirmation ─────────────────────────────────────────────────── -->
 <AlertDialog bind:open={deleteDialogOpen}>
 	<AlertDialogContent>
@@ -354,7 +505,7 @@
 				<input type="hidden" name="id" value={pendingDeleteUser?.id ?? ''} />
 				<AlertDialogAction
 					type="submit"
-					class="bg-red-500 hover:bg-red-600 text-white"
+					class="bg-destructive hover:bg-destructive/90 text-white"
 					disabled={deleting}
 				>
 					{deleting ? 'Deleting...' : 'Delete'}

@@ -315,7 +315,7 @@
 		<Input bind:value={searchTerm} placeholder="Search timesheets..." class="bg-white max-w-xs" />
 		<Button
 			size="sm"
-			class="bg-blue-800 hover:bg-blue-900"
+			class="bg-primary hover:bg-primary/90"
 			on:click={() => handleSearch(searchTerm)}
 		>
 			Search

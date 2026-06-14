@@ -89,7 +89,7 @@
 					</div>
 				</Card.Content>
 				<Card.Footer>
-					<Button class="bg-green-500 hover:bg-green-600 ml-auto" type="submit">
+					<Button class="bg-primary hover:bg-primary/90 ml-auto" type="submit">
 						<Save class="mr-2" />
 						{#if $submitting}
 							<Loader2 class="animate-spin" /> Saving...

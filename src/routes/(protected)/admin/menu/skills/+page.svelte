@@ -173,7 +173,7 @@
 
 		<Dialog.Root bind:open={dialogOpen}>
 			<Dialog.Trigger asChild>
-				<Button on:click={() => (dialogOpen = true)} class="bg-blue-800 hover:bg-blue-900"
+				<Button on:click={() => (dialogOpen = true)} class="bg-primary hover:bg-primary/90"
 					><PlusIcon size={20} class="mr-2" />Add New Skill</Button
 				>
 			</Dialog.Trigger>
@@ -214,7 +214,7 @@
 						</Form.Field>
 					</div>
 					<Dialog.Footer>
-						<Button variant="outline" type="button" on:click={() => (dialogOpen = false)}>
+						<Button variant="destructiveOutline" type="button" on:click={() => (dialogOpen = false)}>
 							Cancel
 						</Button>
 						<Form.Button disabled={$submitting}>
@@ -234,7 +234,7 @@
 		<Input bind:value={searchTerm} placeholder="Search skills..." class="bg-white max-w-xs" />
 		<Button
 			size="sm"
-			class="bg-blue-800 hover:bg-blue-900"
+			class="bg-primary hover:bg-primary/90"
 			on:click={() => handleSearch(searchTerm)}>Search</Button
 		>
 	</form>

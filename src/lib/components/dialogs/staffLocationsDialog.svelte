@@ -140,12 +140,12 @@
 			{/if}
 
 			<Dialog.Footer class="pt-4">
-				<Button type="button" variant="outline" on:click={() => (open = false)} disabled={submitting}>
+				<Button type="button" variant="destructiveOutline" on:click={() => (open = false)} disabled={submitting}>
 					Cancel
 				</Button>
 				<Button
 					type="submit"
-					class="bg-blue-700 hover:bg-blue-800"
+					class="bg-primary hover:bg-primary/90"
 					disabled={submitting ||
 						!hasChanges ||
 						(selectedIds.size > 0 && !primaryId) ||

@@ -255,7 +255,7 @@
 
 		<div class="flex items-center gap-3">
 			{#if data.canCreateRequisitions}
-				<Button on:click={() => (drawerExpanded = true)} class="bg-blue-800 hover:bg-blue-900">
+				<Button on:click={() => (drawerExpanded = true)} class="bg-primary hover:bg-primary/90">
 					<Plus class="h-4 w-4 mr-2" />
 					New Requisition
 				</Button>
@@ -285,7 +285,7 @@
 		<Input bind:value={searchTerm} placeholder="Search requisitions..." class="bg-white max-w-xs" />
 		<Button
 			size="sm"
-			class="bg-blue-800 hover:bg-blue-900"
+			class="bg-primary hover:bg-primary/90"
 			on:click={() => handleSearch(searchTerm)}>Search</Button
 		>
 	</form>
@@ -296,7 +296,7 @@
 			<Tabs.Trigger value="open" class="relative">
 				Open
 				{#if tabCounts.open > 0}
-					<Badge variant="secondary" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.open}
+					<Badge variant="destructive" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.open}
 					></Badge>
 				{/if}
 			</Tabs.Trigger>

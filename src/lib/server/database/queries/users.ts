@@ -1,7 +1,7 @@
 import { asc, eq, or } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import { userInviteTable, userTable } from '$lib/server/database/schemas/auth';
-import type { User, UpdateUser, NewUserInvite } from '$lib/server/database/schemas/auth';
+import type { NewUser, UpdateUser, NewUserInvite } from '$lib/server/database/schemas/auth';
 import { clientCompanyTable, clientProfileTable, clientStaffProfileTable } from '../schemas/client';
 
 export const getUserByEmail = async (email: string) => {
@@ -31,7 +31,7 @@ export const updateUser = async (id: string, user: UpdateUser) => {
 	}
 };
 
-export const createUser = async (values: User, tx?: any) => {
+export const createUser = async (values: NewUser, tx?: any) => {
 	try {
 		const query = tx || db; // Use transaction if provided, otherwise use db
 

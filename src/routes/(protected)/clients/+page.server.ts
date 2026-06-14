@@ -14,7 +14,7 @@ import db from '$lib/server/database/drizzle';
 import { createCandidateProfile } from '$lib/server/database/queries/candidates';
 import { createUser } from '$lib/server/database/queries/users';
 import type { CandidateProfile } from '$lib/server/database/schemas/candidate';
-import type { User } from '$lib/server/database/schemas/auth';
+import type { NewUser } from '$lib/server/database/schemas/auth';
 import { Argon2id } from 'oslo/password';
 import { setFlash } from 'sveltekit-flash-message/server';
 import type { ClientProfile } from '$lib/server/database/schemas/client';
@@ -81,7 +81,7 @@ export const actions = {
 		let createdProfileId: string | null = null;
 
 		try {
-			const newUserData: User = {
+			const newUserData: NewUser = {
 				id: crypto.randomUUID(),
 				createdAt: new Date(),
 				updatedAt: new Date(),

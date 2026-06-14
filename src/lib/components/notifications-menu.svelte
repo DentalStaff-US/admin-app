@@ -15,7 +15,7 @@
 				<Bell size={30} />
 				{#if notifications.length > 0}
 					<div
-						class="absolute -bottom-1 left-3 bg-red-500 px-2 rounded-full text-white text-[10px]"
+						class="absolute -bottom-1 left-3 bg-destructive px-2 rounded-full text-white text-[10px]"
 					>
 						{notifications.length > 20 ? '20+' : notifications.length}
 					</div>

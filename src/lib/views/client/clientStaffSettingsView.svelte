@@ -10,6 +10,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
 	import { Switch } from '$lib/components/ui/switch';
+	import TwoFactorSettings from '$lib/components/settings/two-factor-settings.svelte';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import AvatarUpload from '$lib/components/avatar-upload.svelte';
 
@@ -110,7 +111,7 @@
 					</div>
 				</div>
 				<div class="mt-8">
-					<Button class="bg-blue-800 hover:bg-blue-900" type="submit">Save Changes</Button>
+					<Button class="bg-primary hover:bg-primary/90" type="submit">Save Changes</Button>
 				</div>
 			</form>
 		{/if}
@@ -180,7 +181,7 @@
 				</div>
 
 				<div class="mt-8">
-					<Button class="bg-blue-800 hover:bg-blue-900" type="submit">Save Changes</Button>
+					<Button class="bg-primary hover:bg-primary/90" type="submit">Save Changes</Button>
 				</div>
 			</form>
 		{/if}
@@ -219,9 +220,13 @@
 					</div>
 				</div>
 				<div class="mt-8">
-					<Button class="bg-blue-800 hover:bg-blue-900" type="submit">Save Changes</Button>
+					<Button class="bg-primary hover:bg-primary/90" type="submit">Save Changes</Button>
 				</div>
 			</form>
+
+			<div class="mt-10 max-w-2xl">
+				<TwoFactorSettings enabled={Boolean(user?.twoFactorEnabled)} />
+			</div>
 		{/if}
 	</div>
 </div>

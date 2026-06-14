@@ -220,7 +220,7 @@
 			/>
 			<Button
 				size="sm"
-				class="bg-blue-800 hover:bg-blue-900"
+				class="bg-primary hover:bg-primary/90"
 				on:click={() => handleSearch(searchTerm)}
 			>
 				<Search class="h-4 w-4" />
@@ -233,7 +233,7 @@
 				variant={selectedDocumentType === 'ALL' ? 'default' : 'outline'}
 				size="sm"
 				on:click={() => (selectedDocumentType = 'ALL')}
-				class={cn(selectedDocumentType === 'ALL' && 'bg-blue-800 hover:bg-blue-900')}
+				class={cn(selectedDocumentType === 'ALL' && 'bg-primary hover:bg-primary/90')}
 			>
 				All
 			</Button>
@@ -241,7 +241,7 @@
 				variant={selectedDocumentType === 'RESUME' ? 'default' : 'outline'}
 				size="sm"
 				on:click={() => (selectedDocumentType = 'RESUME')}
-				class={cn(selectedDocumentType === 'RESUME' && 'bg-blue-500 hover:bg-blue-600')}
+				class={cn(selectedDocumentType === 'RESUME' && 'bg-primary hover:bg-primary/90')}
 			>
 				Resume
 			</Button>
@@ -249,7 +249,7 @@
 				variant={selectedDocumentType === 'LICENSE' ? 'default' : 'outline'}
 				size="sm"
 				on:click={() => (selectedDocumentType = 'LICENSE')}
-				class={cn(selectedDocumentType === 'LICENSE' && 'bg-green-500 hover:bg-green-600')}
+				class={cn(selectedDocumentType === 'LICENSE' && 'bg-primary hover:bg-primary/90')}
 			>
 				License
 			</Button>

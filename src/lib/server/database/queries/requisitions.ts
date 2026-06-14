@@ -14,6 +14,7 @@ import {
 	ilike,
 	inArray,
 	gt,
+	lt,
 	like,
 	ne,
 	notInArray,
@@ -3581,19 +3582,28 @@ export async function getApprovedBilledHoursForWeek(args: {
 	requisitionId: number;
 	weekBeginDate: string;
 	excludeTimesheetId: string;
+	// Optional: only count siblings created before this timestamp. Used for the
+	// DISPLAY of an already-approved timesheet so its regular/overtime split stays
+	// stable (it reflects the sheets that preceded it, not ones approved later).
+	// Omit it for the billing path, where "all currently-approved siblings" is
+	// what yields the correct weekly total at approval time.
+	createdBefore?: Date;
 }): Promise<number> {
+	const conditions = [
+		eq(timeSheetTable.associatedCandidateId, args.candidateId),
+		eq(timeSheetTable.requisitionId, args.requisitionId),
+		eq(timeSheetTable.weekBeginDate, args.weekBeginDate),
+		eq(timeSheetTable.status, 'APPROVED'),
+		ne(timeSheetTable.id, args.excludeTimesheetId)
+	];
+	if (args.createdBefore) {
+		conditions.push(lt(timeSheetTable.createdAt, args.createdBefore));
+	}
+
 	const rows = await db
 		.select({ billed: timeSheetTable.totalHoursBilled })
 		.from(timeSheetTable)
-		.where(
-			and(
-				eq(timeSheetTable.associatedCandidateId, args.candidateId),
-				eq(timeSheetTable.requisitionId, args.requisitionId),
-				eq(timeSheetTable.weekBeginDate, args.weekBeginDate),
-				eq(timeSheetTable.status, 'APPROVED'),
-				ne(timeSheetTable.id, args.excludeTimesheetId)
-			)
-		);
+		.where(and(...conditions));
 
 	return rows.reduce((sum, r) => sum + (parseFloat(String(r.billed ?? 0)) || 0), 0);
 }

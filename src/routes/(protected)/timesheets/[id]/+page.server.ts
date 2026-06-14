@@ -89,6 +89,22 @@ export const load = async (event: RequestEvent) => {
 	const hasUnfinishedWorkdays = unfinishedWorkdays.length > 0;
 	const unfinishedWorkdayCount = unfinishedWorkdays.length;
 
+	// Hours already billed on EARLIER timesheets for this candidate's week, so the
+	// billing-summary preview continues the weekly overtime split instead of
+	// restarting at 40 on a secondary (split-week) timesheet. `createdBefore`
+	// keeps an approved sheet's displayed split stable (it doesn't shift when a
+	// later sibling is approved).
+	const priorWeekHours =
+		rawTimesheet && rawTimesheet.requisitionId
+			? await getApprovedBilledHoursForWeek({
+					candidateId: rawTimesheet.associatedCandidateId,
+					requisitionId: rawTimesheet.requisitionId,
+					weekBeginDate: rawTimesheet.weekBeginDate,
+					excludeTimesheetId: rawTimesheet.id,
+					createdBefore: rawTimesheet.createdAt
+				})
+			: 0;
+
 	if (user.role === USER_ROLES.SUPERADMIN) {
 		const timesheet = await getTimesheetDetailsAdmin(id);
 		const requisition = await getRequisitionDetailsByIdAdmin(timesheet.requisitionId);
@@ -121,6 +137,7 @@ export const load = async (event: RequestEvent) => {
 			addExpenseForm,
 			hasUnfinishedWorkdays,
 			unfinishedWorkdayCount,
+			priorWeekHours,
 			auditHistory: auditHistory.map((h) => h.status === 'fulfilled' && h.value)
 		};
 	}
@@ -150,7 +167,8 @@ export const load = async (event: RequestEvent) => {
 			adminFeeSettings,
 			addExpenseForm,
 			hasUnfinishedWorkdays,
-			unfinishedWorkdayCount
+			unfinishedWorkdayCount,
+			priorWeekHours
 		};
 	}
 
@@ -178,7 +196,8 @@ export const load = async (event: RequestEvent) => {
 			adminFeeSettings,
 			addExpenseForm,
 			hasUnfinishedWorkdays,
-			unfinishedWorkdayCount
+			unfinishedWorkdayCount,
+			priorWeekHours
 		};
 	}
 

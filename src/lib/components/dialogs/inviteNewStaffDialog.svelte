@@ -27,7 +27,7 @@
 
 <Dialog.Root {open}>
 	<Dialog.Trigger
-		class={cn(buttonVariants({ variant: 'default' }), 'bg-blue-800 hover:bg-blue-900 mb-4')}
+		class={cn(buttonVariants({ variant: 'default' }), 'bg-primary hover:bg-primary/90 mb-4')}
 		on:click={() => {
 			// form = data.form;
 			open = true;
@@ -106,7 +106,7 @@
 				</Dialog.Close>
 				<Dialog.Close asChild>
 					<Button
-						class="bg-green-500 hover:bg-green-600 w-full"
+						class="bg-primary hover:bg-primary/90 w-full"
 						type="submit"
 						disabled={$submitting}
 						>{#if $submitting}

@@ -169,7 +169,7 @@
 				<!-- File selected but upload not started -->
 				<div class="flex gap-2 justify-center mt-2">
 					<Button
-						class="bg-blue-800 hover:bg-blue-900"
+						class="bg-primary hover:bg-primary/90"
 						on:click={() =>
 							multiple ? onFileDrop(files.accepted || []) : onFileDrop(files.accepted?.[0])}
 					>
@@ -185,7 +185,7 @@
 		<!-- No file selected yet -->
 		<div class="flex flex-col items-center gap-2">
 			<Upload size={24} class="text-blue-600" />
-			<Button class="bg-blue-800 hover:bg-blue-900">Select {multiple ? 'files' : 'file'}</Button>
+			<Button class="bg-primary hover:bg-primary/90">Select {multiple ? 'files' : 'file'}</Button>
 			<p class="text-sm text-gray-500">or drop {multiple ? 'files' : 'a file'} here</p>
 			<p class="text-xs text-gray-400">
 				Supported files: {accept.join(', ')} (max {maxSizeMB}MB{multiple

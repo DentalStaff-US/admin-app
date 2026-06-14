@@ -328,7 +328,7 @@
 			</div>
 			<input type="hidden" name="userIDs" bind:value={stringifiedUserIds} />
 			<Dialog.Footer>
-				<Button type="button" variant="outline" on:click={() => (showNewMessageDialog = false)}
+				<Button type="button" variant="destructiveOutline" on:click={() => (showNewMessageDialog = false)}
 					>Cancel</Button
 				>
 				<Button type="submit" disabled={selectedUsers.length === 0}>

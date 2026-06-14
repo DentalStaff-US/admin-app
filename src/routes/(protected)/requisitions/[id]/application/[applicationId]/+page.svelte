@@ -115,7 +115,7 @@
 								on:click={() => ($approvalFormId = application.application.id)}
 								formaction="?/approveApplication"
 								value={application.application.id}
-								class="bg-green-500 hover:bg-green-600"
+								class="bg-primary hover:bg-primary/90"
 							>
 								{#if application.application.status === 'APPROVED'}
 									<Check class="h-4 w-4 mr-2" />

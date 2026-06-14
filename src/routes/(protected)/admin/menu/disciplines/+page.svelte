@@ -199,7 +199,7 @@
 			<h1 class="text-3xl font-bold tracking-tight">Disciplines</h1>
 			<p class="text-muted-foreground">Manage professional disciplines and specialties</p>
 		</div>
-		<Button on:click={() => (dialogOpen = true)} class="bg-blue-800 hover:bg-blue-900">
+		<Button on:click={() => (dialogOpen = true)} class="bg-primary hover:bg-primary/90">
 			<PlusIcon size={20} class="mr-2" />Add New Discipline
 		</Button>
 	</div>
@@ -209,7 +209,7 @@
 		<Input bind:value={searchTerm} placeholder="Search disciplines..." class="bg-white max-w-xs" />
 		<Button
 			size="sm"
-			class="bg-blue-800 hover:bg-blue-900"
+			class="bg-primary hover:bg-primary/90"
 			on:click={() => handleSearch(searchTerm)}
 		>
 			Search
@@ -364,7 +364,7 @@
 				</Form.Field>
 			</div>
 			<Dialog.Footer>
-				<Button variant="outline" type="button" on:click={() => (dialogOpen = false)}>Cancel</Button
+				<Button variant="destructiveOutline" type="button" on:click={() => (dialogOpen = false)}>Cancel</Button
 				>
 				<Form.Button disabled={$submitting}>
 					{#if $submitting}<Loader2 class="mr-2 h-4 w-4 animate-spin" />{/if}
@@ -408,7 +408,7 @@
 
 			</div>
 			<Dialog.Footer>
-				<Button variant="outline" type="button" on:click={() => (editDialogOpen = false)}>
+				<Button variant="destructiveOutline" type="button" on:click={() => (editDialogOpen = false)}>
 					Cancel
 				</Button>
 				<Form.Button disabled={$editSubmitting}>
@@ -433,7 +433,7 @@
 			</Dialog.Header>
 			<input type="hidden" name="id" value={$deleteDisciplineForm.id} />
 			<Dialog.Footer class="pt-4">
-				<Button variant="outline" type="button" on:click={() => (deleteDialogOpen = false)}
+				<Button variant="destructiveOutline" type="button" on:click={() => (deleteDialogOpen = false)}
 					>Cancel</Button
 				>
 				<Form.Button variant="destructive" disabled={$deleteSubmitting}>
