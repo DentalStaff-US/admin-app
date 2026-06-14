@@ -38,6 +38,15 @@ export const handleError: HandleServerError = async ({ error, event, status }) =
 export const handle: Handle = async ({ event, resolve }) => {
 	const { pathname } = event.url;
 
+	// Missing static-asset requests fall through to here. This is almost always a
+	// browser tab from a PRIOR deploy asking for an immutable Vite hash (e.g.
+	// /_app/immutable/assets/2.<hash>.css) that this newer container no longer
+	// ships. Return a clean 404 instead of running session/redirect logic on a
+	// non-route path, which would otherwise throw and surface as a noisy 500.
+	if (pathname.startsWith('/_app/')) {
+		return new Response('Not found', { status: 404 });
+	}
+
 	// Reverse proxy for PostHog — route /ingest requests to PostHog servers
 	if (pathname.startsWith('/ingest')) {
 		const useAssetHost =

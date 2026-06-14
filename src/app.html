@@ -4,6 +4,18 @@
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<!-- Dark mode is removed. Synchronously strip any leftover `dark` class and
+		     clear mode-watcher's persisted preference (localStorage key 'mode') so
+		     users previously stuck in dark mode are healed on their next load,
+		     before anything renders. -->
+		<script>
+			try {
+				document.documentElement.classList.remove('dark');
+				localStorage.removeItem('mode');
+			} catch (e) {
+				/* no-op */
+			}
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
