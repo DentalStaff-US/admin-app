@@ -300,6 +300,16 @@
 															window.open(result.data.handoffUrl, '_blank');
 															return;
 														}
+														if (result.type === 'redirect') {
+															// Client impersonation: the action set a new session cookie and
+															// redirected (303 → /dashboard). Do a FULL page load, not a soft
+															// update()/client-side goto, so the new impersonation session is
+															// read fresh server-side. Otherwise the banner needs a manual
+															// refresh on deployed (HTTPS / Better Auth cookie-cache). Mirrors
+															// stopImpersonating(), which already reloads.
+															window.location.href = result.location;
+															return;
+														}
 														await update();
 													};
 												}}
