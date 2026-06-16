@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { User } from 'lucia';
+	import type { AppUser as User } from '$lib/server/auth';
 	import { browser } from '$app/environment';
 
 	import {
@@ -27,7 +27,7 @@
 
 {#if browser}
 	<header
-		class="z-20 fixed left-0 top-0 bottom-0 w-20 h-full min-h-screen bg-[#2a93d1] flex flex-col"
+		class="z-20 fixed left-0 top-0 bottom-0 w-20 h-full min-h-screen bg-primary flex flex-col"
 	>
 		<!-- Fixed header section with logo -->
 		<div class="flex-shrink-0 p-3 pt-6 flex justify-center">
@@ -47,7 +47,7 @@
 									href="/dashboard"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<LayoutGrid size={20} class="shrink-0" />
 								</a>
@@ -62,7 +62,7 @@
 									href="/calendar"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<CalendarDays size={20} class="shrink-0" />
 								</a>
@@ -77,7 +77,7 @@
 									href="/inbox"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<MessageCircle size={20} class="shrink-0" />
 								</a>
@@ -92,7 +92,7 @@
 									href="/requisitions"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<Briefcase size={20} class="shrink-0" />
 								</a>
@@ -107,7 +107,7 @@
 									href="/clients"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<Building2 size={20} class="shrink-0" />
 								</a>
@@ -122,7 +122,7 @@
 									href="/professionals"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<SquareUser size={20} class="shrink-0" />
 								</a>
@@ -137,7 +137,7 @@
 									href="/timesheets"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<FileClock size={20} class="shrink-0" />
 								</a>
@@ -152,7 +152,7 @@
 									href="/invoices"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<ScrollText size={20} class="shrink-0" />
 								</a>
@@ -167,7 +167,7 @@
 									href="/admin/menu"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<Shield size={20} class="shrink-0" />
 								</a>
@@ -179,55 +179,55 @@
 					{:else}
 						<a
 							href="/dashboard"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<LayoutGrid size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/calendar"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<CalendarDays size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/inbox"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<MessageCircle size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/requisitions"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<Briefcase size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/clients"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<Building2 size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/professionals"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<SquareUser size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/timesheets"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<FileClock size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/invoices"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<ScrollText size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/admin/menu"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<Shield size={20} class="shrink-0" />
 						</a>
@@ -242,7 +242,7 @@
 									href="/dashboard"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<LayoutGrid size={20} class="shrink-0" />
 								</a>
@@ -257,7 +257,7 @@
 									href="/calendar"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<CalendarDays size={20} class="shrink-0" />
 								</a>
@@ -272,7 +272,7 @@
 									href="/locations"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<Building2 size={20} class="shrink-0" />
 								</a>
@@ -287,7 +287,7 @@
 									href="/requisitions"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<Briefcase size={20} class="shrink-0" />
 								</a>
@@ -302,7 +302,7 @@
 									href="/staff"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<Users size={20} class="shrink-0" />
 								</a>
@@ -317,7 +317,7 @@
 									href="/timesheets"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<FileClock size={20} class="shrink-0" />
 								</a>
@@ -332,7 +332,7 @@
 									href="/invoices"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<ScrollText size={20} class="shrink-0" />
 								</a>
@@ -347,7 +347,7 @@
 									href="/inbox"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<MessageCircle size={20} class="shrink-0" />
 								</a>
@@ -362,7 +362,7 @@
 									href="/support"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<MessageCircleQuestion size={20} class="shrink-0" />
 								</a>
@@ -374,55 +374,55 @@
 					{:else}
 						<a
 							href="/dashboard"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<LayoutGrid size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/calendar"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<CalendarDays size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/locations"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<Building2 size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/requisitions"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<Briefcase size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/staff"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<Users size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/timesheets"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<FileClock size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/invoices"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<ScrollText size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/inbox"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<MessageCircle size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/support"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<MessageCircleQuestion size={20} class="shrink-0" />
 						</a>
@@ -437,7 +437,7 @@
 									href="/dashboard"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<LayoutGrid size={20} class="shrink-0" />
 								</a>
@@ -452,7 +452,7 @@
 									href="/calendar"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<CalendarDays size={20} class="shrink-0" />
 								</a>
@@ -467,7 +467,7 @@
 									href="/requisitions"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<Briefcase size={20} class="shrink-0" />
 								</a>
@@ -482,7 +482,7 @@
 									href="/locations"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<Building2 size={20} class="shrink-0" />
 								</a>
@@ -498,7 +498,7 @@
 										href="/staff"
 										use:builder.action
 										{...builder}
-										class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+										class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 									>
 										<Users size={20} class="shrink-0" />
 									</a>
@@ -513,7 +513,7 @@
 										href="/invoices"
 										use:builder.action
 										{...builder}
-										class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+										class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 									>
 										<ScrollText size={20} class="shrink-0" />
 									</a>
@@ -529,7 +529,7 @@
 									href="/inbox"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<MessageCircle size={20} class="shrink-0" />
 								</a>
@@ -544,7 +544,7 @@
 									href="/support"
 									use:builder.action
 									{...builder}
-									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 								>
 									<MessageCircleQuestion size={20} class="shrink-0" />
 								</a>
@@ -556,51 +556,51 @@
 					{:else}
 						<a
 							href="/dashboard"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<LayoutGrid size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/calendar"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<CalendarDays size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/requisitions"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<Briefcase size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/locations"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<Building2 size={20} class="shrink-0" />
 						</a>
 						{#if isOfficeAdmin}
 							<a
 								href="/staff"
-								class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+								class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 							>
 								<Users size={20} class="shrink-0" />
 							</a>
 							<a
 								href="/invoices"
-								class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+								class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 							>
 								<ScrollText size={20} class="shrink-0" />
 							</a>
 						{/if}
 						<a
 							href="/inbox"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<MessageCircle size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/support"
-							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-[#2a93d1]"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<MessageCircleQuestion size={20} class="shrink-0" />
 						</a>

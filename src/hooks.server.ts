@@ -1,5 +1,7 @@
 /* eslint-disable no-fallthrough */
-import { lucia } from '$lib/server/lucia';
+import { auth } from '$lib/server/auth';
+import { svelteKitHandler } from 'better-auth/svelte-kit';
+import { building } from '$app/environment';
 import { redirect, type Handle } from '@sveltejs/kit';
 import type { HandleServerError } from '@sveltejs/kit';
 
@@ -8,6 +10,7 @@ import { USER_ROLES } from '$lib/config/constants';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { logger } from '$lib/server/logger';
 import { isBotScanPath } from '$lib/server/noise';
+import type { AppUser } from '$lib/server/auth';
 
 export const handleError: HandleServerError = async ({ error, event, status }) => {
 	const errorId = crypto.randomUUID();
@@ -34,6 +37,15 @@ export const handleError: HandleServerError = async ({ error, event, status }) =
 };
 export const handle: Handle = async ({ event, resolve }) => {
 	const { pathname } = event.url;
+
+	// Missing static-asset requests fall through to here. This is almost always a
+	// browser tab from a PRIOR deploy asking for an immutable Vite hash (e.g.
+	// /_app/immutable/assets/2.<hash>.css) that this newer container no longer
+	// ships. Return a clean 404 instead of running session/redirect logic on a
+	// non-route path, which would otherwise throw and surface as a noisy 500.
+	if (pathname.startsWith('/_app/')) {
+		return new Response('Not found', { status: 404 });
+	}
 
 	// Reverse proxy for PostHog — route /ingest requests to PostHog servers
 	if (pathname.startsWith('/ingest')) {
@@ -76,48 +88,45 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const startTimer = Date.now();
 	event.locals.startTimer = startTimer;
 
-	const sessionId = event.cookies.get(lucia.sessionCookieName);
-	if (!sessionId) {
-		event.locals.user = null;
-		event.locals.session = null;
-		return resolve(event);
+	// During build/prerender there's no request session to resolve.
+	if (building) {
+		return svelteKitHandler({ event, resolve, auth, building });
 	}
 
-	const { session, user } = await lucia.validateSession(sessionId);
-
-	// Check if the user is a CANDIDATE before setting cookies or locals
-	if (user && user.role === USER_ROLES.CANDIDATE) {
-		// Invalidate the session for CANDIDATE users
-		await lucia.invalidateSession(session.id);
-
-		// Clear the session cookie
-		const sessionCookie = lucia.createBlankSessionCookie();
-		event.cookies.set(sessionCookie.name, sessionCookie.value, {
-			path: '.',
-			...sessionCookie.attributes
-		});
-
-		// Redirect to the external candidate app
-		redirect(302, CANDIDATE_APP_DOMAIN);
-	}
-
-	if (session && session.fresh) {
-		const sessionCookie = lucia.createSessionCookie(session.id);
-		event.cookies.set(sessionCookie.name, sessionCookie.value, {
-			path: '.',
-			...sessionCookie.attributes
-		});
-	}
-	if (!session) {
-		const sessionCookie = lucia.createBlankSessionCookie();
-		event.cookies.set(sessionCookie.name, sessionCookie.value, {
-			path: '.',
-			...sessionCookie.attributes
-		});
-	}
+	// Validate the Better Auth session and normalise the user into the
+	// Lucia-compatible shape the rest of the app expects (userId/verified/avatarUrl).
+	const authSession = await auth.api.getSession({ headers: event.request.headers });
+	const baUser = authSession?.user ?? null;
+	const user: AppUser | null = baUser
+		? {
+				...baUser,
+				role: baUser.role ?? USER_ROLES.CANDIDATE,
+				userId: baUser.id,
+				verified: baUser.emailVerified,
+				avatarUrl: baUser.image ?? null
+			}
+		: null;
 
 	event.locals.user = user;
-	event.locals.session = session;
+	event.locals.session = authSession?.session ?? null;
+
+	// Let Better Auth own its endpoints (/api/auth/*) — no app gating/redirects.
+	if (event.url.pathname.startsWith('/api/auth')) {
+		return svelteKitHandler({ event, resolve, auth, building });
+	}
+
+	// The admin app refuses CANDIDATE sessions: sign them out here and bounce
+	// them to the candidate app, which is the only place candidates may log in.
+	if (user && user.role === USER_ROLES.CANDIDATE) {
+		try {
+			await auth.api.signOut({ headers: event.request.headers });
+		} catch {
+			// best-effort: even if revocation fails, still redirect away
+		}
+		event.locals.user = null;
+		event.locals.session = null;
+		redirect(302, CANDIDATE_APP_DOMAIN);
+	}
 
 	if (event.route.id?.startsWith('/(protected)')) {
 		if (!user) redirect(302, '/auth/sign-in');
@@ -127,8 +136,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		if (!checkIsAdmin(user?.role)) redirect(302, '/');
 	}
 
-	const response = await resolve(event);
-	return response;
+	return svelteKitHandler({ event, resolve, auth, building });
 };
 
 // Scheduled cron jobs are now run by the dedicated cron service (src/cron/index.ts),

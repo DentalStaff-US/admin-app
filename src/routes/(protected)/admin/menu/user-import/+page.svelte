@@ -417,7 +417,7 @@
 					variant="default"
 					size="sm"
 					on:click={() => triggerGeocoding('geocodeAllPending', 'Geocode All Pending')}
-					class="bg-green-500 hover:bg-green-600 gap-2"
+					class="bg-primary hover:bg-primary/90 gap-2"
 				>
 					<MapPin class="h-4 w-4" />
 					Geocode All (Locations + Candidates)
@@ -499,7 +499,7 @@
 				</div>
 				<!-- Action Buttons -->
 				<div class="actions">
-					<Button type="button" variant="destructive" on:click={resetUpload}>Cancel</Button>
+					<Button type="button" variant="destructiveOutline" on:click={resetUpload}>Cancel</Button>
 					<form
 						method="POST"
 						action="?/importUsers"
@@ -525,7 +525,7 @@
 						<Button
 							type="submit"
 							variant="default"
-							class="bg-green-500 hover:bg-green-600 gap-2"
+							class="bg-primary hover:bg-primary/90 gap-2"
 							disabled={validUsers.length === 0 || importing}
 						>
 							{#if importing}

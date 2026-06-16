@@ -3,7 +3,7 @@
 	import { Button, buttonVariants } from '../ui/button';
 	import * as Dialog from '../ui/dialog';
 	import { cn } from '$lib/utils';
-	import type { User } from 'lucia';
+	import type { AppUser as User } from '$lib/server/auth';
 	import { superForm } from 'sveltekit-superforms/client';
 	import Input from '../ui/input/input.svelte';
 	import Textarea from '../ui/textarea/textarea.svelte';
@@ -19,7 +19,7 @@
 
 <Dialog.Root {open}>
 	<Dialog.Trigger
-		class={cn(buttonVariants({ variant: 'default' }), 'bg-blue-800 hover:bg-blue-900')}
+		class={cn(buttonVariants({ variant: 'default' }), 'bg-primary hover:bg-primary/90')}
 		on:click={() => {
 			// form = data.form;
 			open = true;

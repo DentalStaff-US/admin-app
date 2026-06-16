@@ -13,7 +13,7 @@
     <Card.Description class="max-w-[420px] text-center text-muted-foreground">
         You haven't received any timesheet submissions yet. When requisitions are submitted, timesheets will be submitted by candidates and will appear here.
     </Card.Description>
-    <!-- <Button class="mt-4 bg-blue-800 hover:bg-blue-900" size="lg">
+    <!-- <Button class="mt-4 bg-primary hover:bg-primary/90" size="lg">
       <Plus class="mr-2 h-4 w-4" />
       Create Timesheet
     </Button> -->

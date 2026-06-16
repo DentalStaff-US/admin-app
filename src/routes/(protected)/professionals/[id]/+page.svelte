@@ -626,7 +626,7 @@
 												type="submit"
 												size="sm"
 												disabled={$detailsSubmitting}
-												class="gap-2 bg-green-500 hover:bg-green-600 text-white"
+												class="gap-2 bg-primary hover:bg-primary/90 text-white"
 											>
 												<Save class="h-4 w-4" />
 												{#if $detailsSubmitting}
@@ -637,7 +637,7 @@
 											</Button>
 											<Button
 												type="button"
-												variant="outline"
+												variant="destructiveOutline"
 												size="sm"
 												on:click={() => cancelEdit('personal')}
 												class="gap-2 border-red-500 text-red-500 hover:bg-red-50 hover:text-red-500"
@@ -946,7 +946,7 @@
 												type="submit"
 												size="sm"
 												disabled={$disciplinesSubmitting}
-												class="gap-2 bg-green-500 hover:bg-green-600 text-white"
+												class="gap-2 bg-primary hover:bg-primary/90 text-white"
 											>
 												<Save class="h-4 w-4" />
 												{#if $disciplinesSubmitting}
@@ -957,7 +957,7 @@
 											</Button>
 											<Button
 												type="button"
-												variant="outline"
+												variant="destructiveOutline"
 												size="sm"
 												on:click={cancelDisciplineEdit}
 												class="gap-2 border-red-500 text-red-500 hover:bg-red-50 hover:text-red-500"
@@ -1052,7 +1052,7 @@
 							</CardTitle>
 							<Dialog>
 								<DialogTrigger>
-									<Button class="bg-blue-500 hover:bg-blue-600 gap-2"><Plus />Upload</Button>
+									<Button class="bg-primary hover:bg-primary/90 gap-2"><Plus />Upload</Button>
 								</DialogTrigger>
 								<DialogContent>
 									<DialogHeader>

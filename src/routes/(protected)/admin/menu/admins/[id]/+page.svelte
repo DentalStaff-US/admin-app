@@ -43,7 +43,7 @@
                     </Button>
             </form>
             {/if}
-            <Button on:click={() => handleToggleEdit()} class="bg-blue-800 hover:bg-blue-900">
+            <Button on:click={() => handleToggleEdit()} class="bg-primary hover:bg-primary/90">
                 {#if editing}
                     Cancel
                 {:else}
@@ -68,7 +68,7 @@
                 <Label for="email">Email</Label>
                 <Input bind:value={$form.email} id="email" name="email" type="email" class="bg-white max-w-lg"/>
             </div>
-            <Button type="submit" class="bg-green-500 hover:bg-green-600 mt-4">
+            <Button type="submit" class="bg-primary hover:bg-primary/90 mt-4">
                 {#if $submitting}
                     Saving...
                 {:else}

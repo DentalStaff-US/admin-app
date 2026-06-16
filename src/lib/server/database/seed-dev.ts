@@ -1,5 +1,5 @@
 import { faker } from '@faker-js/faker';
-import { sessionTable, userTable, type User } from './schemas/auth';
+import { sessionTable, userTable, type NewUser } from './schemas/auth';
 import { Argon2id } from 'oslo/password';
 import {
 	CLIENT_STAFF_ROLES,
@@ -53,7 +53,7 @@ import {
 // };
 
 async function generateClientRecords(count: number) {
-	const userRecords: User[] = [];
+	const userRecords: NewUser[] = [];
 	const clientRecords: ClientProfile[] = [];
 	const companyRecords: ClientCompany[] = [];
 
@@ -337,7 +337,7 @@ async function seed() {
 		// await db.delete(workdayTable);
 		// await db.delete(recurrenceDayTable);
 
-		const adminUsers: User[] = [
+		const adminUsers: NewUser[] = [
 			{
 				id: crypto.randomUUID(),
 				token: crypto.randomUUID(),

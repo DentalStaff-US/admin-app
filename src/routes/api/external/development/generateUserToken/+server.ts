@@ -4,8 +4,14 @@ import { generateToken } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { eq, and, inArray } from 'drizzle-orm';
 import { logger } from '$lib/server/logger';
+import { dev } from '$app/environment';
 
 export const POST: RequestHandler = async ({ request }) => {
+	// This endpoint mints a JWT for ANY userId with no authentication — it is a
+	// local development aid only and must never be reachable in a deployed env.
+	if (!dev) {
+		throw error(404, 'Not found');
+	}
 	try {
 		const { userId } = await request.json();
 

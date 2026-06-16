@@ -224,11 +224,11 @@
 			/>
 			<Button
 				size="sm"
-				class="bg-blue-800 hover:bg-blue-900"
+				class="bg-primary hover:bg-primary/90"
 				on:click={() => handleSearch(searchTerm)}>Search</Button
 			>
 		</form>
-		<Button class="bg-blue-800 hover:bg-blue-900 gap-2" on:click={() => (addDialogOpen = true)}
+		<Button class="bg-primary hover:bg-primary/90 gap-2" on:click={() => (addDialogOpen = true)}
 			><Plus />Add Professional</Button
 		>
 	</div>
@@ -418,10 +418,10 @@
 				</div>
 			</div>
 			<Dialog.Footer>
-				<Button type="button" variant="destructive" on:click={() => (addDialogOpen = false)}
+				<Button type="button" variant="destructiveOutline" on:click={() => (addDialogOpen = false)}
 					>Cancel</Button
 				>
-				<Button type="submit" class="bg-green-500 hover:bg-green-600" disabled={$submitting}>
+				<Button type="submit" class="bg-primary hover:bg-primary/90" disabled={$submitting}>
 					{$submitting ? 'Creating...' : 'Submit'}
 				</Button>
 			</Dialog.Footer>

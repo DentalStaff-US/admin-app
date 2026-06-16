@@ -18,7 +18,7 @@
 
 <Sheet.Root>
 	<Sheet.Trigger asChild let:builder>
-		<Button builders={[builder]} class="bg-blue-800 hover:bg-blue-900 mb-4"
+		<Button builders={[builder]} class="bg-primary hover:bg-primary/90 mb-4"
 			><PlusIcon size={20} class="mr-2" />Invite Staff</Button
 		>
 	</Sheet.Trigger>
@@ -43,12 +43,12 @@
 			</div>
 			<Sheet.Footer class="mt-auto">
 				<Sheet.Close asChild let:builder
-					><Button class="bg-red-500 hover:bg-red-600 mb-4" builders={[builder]} type="button"
+					><Button class="bg-destructive hover:bg-destructive/90 mb-4" builders={[builder]} type="button"
 						>Cancel</Button
 					></Sheet.Close
 				>
 				<Sheet.Close asChild let:builder>
-					<Button class="bg-green-500 hover:bg-green-600 mb-4" builders={[builder]} type="submit"
+					<Button class="bg-primary hover:bg-primary/90 mb-4" builders={[builder]} type="submit"
 						>Invite Staff Member</Button
 					>
 				</Sheet.Close>

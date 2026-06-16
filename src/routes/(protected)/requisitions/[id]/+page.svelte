@@ -549,7 +549,7 @@
 						</div>
 						{#if hasRequisitionRights}
 							<Button
-								variant="outline"
+								variant="destructiveOutline"
 								size="sm"
 								class="gap-1"
 								on:click={() => (editPanelOpen = !editPanelOpen)}
@@ -655,7 +655,7 @@
 								<div class="flex justify-end gap-2">
 									<Button
 										type="button"
-										variant="outline"
+										variant="destructiveOutline"
 										size="sm"
 										on:click={() => {
 											editPanelOpen = false;
@@ -667,7 +667,7 @@
 									<Button
 										type="submit"
 										size="sm"
-										class="bg-blue-900 hover:bg-blue-800"
+										class="bg-primary hover:bg-primary/90"
 										disabled={editSaving}
 									>
 										{#if editSaving}
@@ -808,16 +808,16 @@
 											class={cn(
 												selectedWorkDayStatus === s &&
 													s === 'OPEN' &&
-													'bg-blue-500 hover:bg-blue-600',
+													'bg-primary hover:bg-primary/90',
 												selectedWorkDayStatus === s &&
 													s === 'FILLED' &&
-													'bg-green-500 hover:bg-green-600',
+													'bg-primary hover:bg-primary/90',
 												selectedWorkDayStatus === s &&
 													s === 'UNFULFILLED' &&
 													'bg-orange-500 hover:bg-orange-600',
 												selectedWorkDayStatus === s &&
 													s === 'CANCELED' &&
-													'bg-red-500 hover:bg-red-600'
+													'bg-destructive hover:bg-destructive/90'
 											)}
 										>
 											{s.charAt(0) + s.slice(1).toLowerCase()} — {recurrenceDaysTableData.filter(
@@ -916,7 +916,7 @@
 													/>
 													<Button
 														type="submit"
-														variant="outline"
+														variant="destructiveOutline"
 														size="sm"
 														class="border-orange-400 text-orange-700 hover:bg-orange-50"
 														disabled={bulkActionSubmitting}
@@ -1217,7 +1217,7 @@
 				</div>
 
 				<Dialog.Footer>
-					<Button type="button" variant="outline" on:click={() => (showInvoiceDialog = false)}>
+					<Button type="button" variant="destructiveOutline" on:click={() => (showInvoiceDialog = false)}>
 						Cancel
 					</Button>
 					<Button type="submit" disabled={$invoiceSubmitting}>
@@ -1263,7 +1263,7 @@
 				/>
 				<AlertDialogAction
 					type="submit"
-					class="bg-red-500 hover:bg-red-600"
+					class="bg-destructive hover:bg-destructive/90"
 					disabled={bulkActionSubmitting}
 				>
 					{bulkActionSubmitting ? 'Deleting...' : 'Delete'}

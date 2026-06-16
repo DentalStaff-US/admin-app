@@ -9,9 +9,8 @@ const config = {
 
 	kit: {
 		adapter: adapter(),
-		// Required for PostHog session replay to work correctly with SSR
-		paths: {
-			relative: false
+		version: {
+			pollInterval: 60000
 		}
 	}
 };

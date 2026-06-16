@@ -154,6 +154,9 @@ export const POST: RequestHandler = async ({ request }) => {
 					totalHoursWorked: parsedBody.data.totalHours.toString(),
 					hoursRaw: formattedEntries,
 					status: 'PENDING', // ✅ Change from DRAFT to PENDING
+					// Stamp the submission time — the 24h auto-approval window is measured
+					// from this, and it must be reset on every (re)submission.
+					submittedAt: new Date(),
 					updatedAt: new Date()
 				})
 				.where(eq(timeSheetTable.id, existingTimesheet.id))

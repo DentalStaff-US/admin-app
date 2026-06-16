@@ -89,6 +89,22 @@ export const load = async (event: RequestEvent) => {
 	const hasUnfinishedWorkdays = unfinishedWorkdays.length > 0;
 	const unfinishedWorkdayCount = unfinishedWorkdays.length;
 
+	// Hours already billed on EARLIER timesheets for this candidate's week, so the
+	// billing-summary preview continues the weekly overtime split instead of
+	// restarting at 40 on a secondary (split-week) timesheet. `createdBefore`
+	// keeps an approved sheet's displayed split stable (it doesn't shift when a
+	// later sibling is approved).
+	const priorWeekHours =
+		rawTimesheet && rawTimesheet.requisitionId
+			? await getApprovedBilledHoursForWeek({
+					candidateId: rawTimesheet.associatedCandidateId,
+					requisitionId: rawTimesheet.requisitionId,
+					weekBeginDate: rawTimesheet.weekBeginDate,
+					excludeTimesheetId: rawTimesheet.id,
+					createdBefore: rawTimesheet.createdAt
+				})
+			: 0;
+
 	if (user.role === USER_ROLES.SUPERADMIN) {
 		const timesheet = await getTimesheetDetailsAdmin(id);
 		const requisition = await getRequisitionDetailsByIdAdmin(timesheet.requisitionId);
@@ -121,6 +137,7 @@ export const load = async (event: RequestEvent) => {
 			addExpenseForm,
 			hasUnfinishedWorkdays,
 			unfinishedWorkdayCount,
+			priorWeekHours,
 			auditHistory: auditHistory.map((h) => h.status === 'fulfilled' && h.value)
 		};
 	}
@@ -150,7 +167,8 @@ export const load = async (event: RequestEvent) => {
 			adminFeeSettings,
 			addExpenseForm,
 			hasUnfinishedWorkdays,
-			unfinishedWorkdayCount
+			unfinishedWorkdayCount,
+			priorWeekHours
 		};
 	}
 
@@ -178,7 +196,8 @@ export const load = async (event: RequestEvent) => {
 			adminFeeSettings,
 			addExpenseForm,
 			hasUnfinishedWorkdays,
-			unfinishedWorkdayCount
+			unfinishedWorkdayCount,
+			priorWeekHours
 		};
 	}
 
@@ -301,6 +320,7 @@ export const actions = {
 					totalHoursWorked: totalHours.toString(),
 					hoursRaw: formattedEntries,
 					status: 'PENDING',
+					submittedAt: new Date(),
 					updatedAt: new Date()
 				})
 				.where(eq(timeSheetTable.id, id))
@@ -502,6 +522,7 @@ export const actions = {
 					hoursRaw: formattedEntries,
 					status: 'PENDING',
 					discrepancyNote: null,
+					submittedAt: new Date(),
 					updatedAt: new Date()
 				})
 				.where(eq(timeSheetTable.id, id))
@@ -536,7 +557,30 @@ export const actions = {
 			redirect(302, '/auth/sign-in');
 		}
 
+		// Only admins and clients may reject, and only a submitted (PENDING) sheet —
+		// you can't reject a draft, an already-approved, or a voided timesheet.
+		if (
+			user.role !== USER_ROLES.SUPERADMIN &&
+			user.role !== USER_ROLES.CLIENT &&
+			user.role !== USER_ROLES.CLIENT_STAFF
+		) {
+			return fail(403, { error: 'Forbidden' });
+		}
+
 		const { id } = event.params;
+
+		const existing = await getTimesheetById(id);
+		if (!existing) {
+			return fail(404, { error: 'Timesheet not found' });
+		}
+		if (existing.status !== 'PENDING') {
+			setFlash(
+				{ type: 'error', message: 'Only a submitted (pending) timesheet can be rejected.' },
+				event
+			);
+			return fail(400, { error: 'Timesheet is not pending' });
+		}
+
 		const formData = await event.request.formData();
 		const discrepancyNote = formData.get('discrepancyNote') as string;
 
@@ -564,6 +608,16 @@ export const actions = {
 			redirect(302, '/auth/sign-in');
 		}
 
+		// Only admins and clients may approve. (Status is guarded inside
+		// approveAndInvoiceTimesheet, which rejects anything not PENDING/DISCREPANCY.)
+		if (
+			user.role !== USER_ROLES.SUPERADMIN &&
+			user.role !== USER_ROLES.CLIENT &&
+			user.role !== USER_ROLES.CLIENT_STAFF
+		) {
+			return fail(403, { error: 'Forbidden' });
+		}
+
 		const result = await approveAndInvoiceTimesheet(id, { actorUserId: user.id });
 
 		if (result.ok) {
@@ -582,7 +636,9 @@ export const actions = {
 							? 'No Stripe customer found for this client.'
 							: result.reason === 'NOT_FOUND'
 								? 'Timesheet not found.'
-								: 'Error approving timesheet';
+								: result.reason === 'NOT_PENDING'
+									? 'Cannot approve: the timesheet must be submitted (PENDING) first.'
+									: 'Error approving timesheet';
 		setFlash({ type: 'error', message }, event);
 		return fail(result.reason === 'ERROR' ? 500 : 400, { error: message });
 	},
@@ -624,8 +680,23 @@ export const actions = {
 		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
 			redirect(302, '/auth/sign-in');
 		}
+		const { id } = event.params;
+
+		// Delete is only for pre-approval sheets (generated in error / corrupt data
+		// that should regenerate). Once approved it must be VOIDed, not deleted.
+		const existing = await getTimesheetById(id);
+		if (!existing) {
+			return fail(404, { error: 'Timesheet not found' });
+		}
+		if (existing.status === 'APPROVED' || existing.status === 'VOID') {
+			setFlash(
+				{ type: 'error', message: 'Approved timesheets must be voided, not deleted.' },
+				event
+			);
+			return fail(400, { error: 'Cannot delete an approved or voided timesheet' });
+		}
+
 		try {
-			const { id } = event.params;
 			await deleteTimesheet(id, user.id);
 			setFlash({ type: 'success', message: 'Timesheet deleted' }, event);
 		} catch (err) {

@@ -121,7 +121,7 @@
 					<Button
 						type="button"
 						size="sm"
-						class="bg-blue-700 hover:bg-blue-800"
+						class="bg-primary hover:bg-primary/90"
 						disabled={billingSetupSubmitting}
 						on:click={startBillingSetup}
 					>
@@ -152,7 +152,7 @@
 			<Card.Root>
 				<Card.Content class="p-2 md:p-4">
 					<div class="flex gap-4 items-center">
-						<div class="bg-blue-800 p-2 rounded-full">
+						<div class="bg-primary p-2 rounded-full">
 							<FileClock size={24} color={'white'} />
 						</div>
 						<div class="space-y-2">
@@ -182,7 +182,7 @@
 			<Card.Root>
 				<Card.Content class="p-2 md:p-4">
 					<div class="flex gap-4 items-center">
-						<div class="bg-blue-800 p-2 rounded-full">
+						<div class="bg-primary p-2 rounded-full">
 							<UserPlus size={24} color={'white'} />
 						</div>
 						<div class="space-y-2">
@@ -199,7 +199,7 @@
 			<Card.Root>
 				<Card.Content class="p-2 md:p-4">
 					<div class="flex gap-4 items-center">
-						<div class="bg-green-700 p-2 rounded-full">
+						<div class="bg-success p-2 rounded-full">
 							<DollarSign size={24} color={'white'} />
 						</div>
 						<div class="space-y-2">
@@ -229,7 +229,7 @@
 			<Card.Root>
 				<Card.Content class="p-2 md:p-4">
 					<div class="flex gap-4 items-center">
-						<div class="bg-red-600 p-2 rounded-full">
+						<div class="bg-destructive p-2 rounded-full">
 							<AlertCircle size={24} color={'white'} />
 						</div>
 						<div class="space-y-2">
@@ -250,7 +250,7 @@
 						<Button
 							on:click={() => (drawerExpanded = true)}
 							size="sm"
-							class="bg-blue-900 hover:bg-blue-800"
+							class="bg-primary hover:bg-primary/90"
 						>
 							<PlusIcon size={16} class="mr-1" /> New Requisition
 						</Button>
@@ -350,7 +350,7 @@
 					</Table.Root>
 				</Card.Content>
 				<Card.Footer>
-					<Button size="sm" class="bg-blue-900 hover:bg-blue-800" href="/requisitions"
+					<Button size="sm" class="bg-primary hover:bg-primary/90" href="/requisitions"
 						>See All</Button
 					>
 				</Card.Footer>
@@ -433,7 +433,7 @@
 					</Table.Root>
 				</Card.Content>
 				<Card.Footer>
-					<Button class="bg-blue-900 hover:bg-blue-800" href="/invoices">See All</Button>
+					<Button class="bg-primary hover:bg-primary/90" href="/invoices">See All</Button>
 				</Card.Footer>
 			</Card.Root>
 		</div>
@@ -443,7 +443,7 @@
 			<Card.Root>
 				<Card.Header class="flex flex-row justify-between items-center flex-wrap">
 					<Card.Title class="text-xl md:text-2xl">Timesheets Due</Card.Title>
-					<Button size="sm" class="bg-blue-900 hover:bg-blue-800" href={'/timesheets'}
+					<Button size="sm" class="bg-primary hover:bg-primary/90" href={'/timesheets'}
 						>See All</Button
 					>
 				</Card.Header>

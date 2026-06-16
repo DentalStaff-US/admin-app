@@ -90,7 +90,7 @@
 			<Button
 				type="submit"
 				size="sm"
-				class="bg-blue-900 hover:bg-blue-800"
+				class="bg-primary hover:bg-primary/90"
 				disabled={submitting || !commentBody.trim()}
 			>
 				{submitting ? 'Posting...' : 'Add comment'}

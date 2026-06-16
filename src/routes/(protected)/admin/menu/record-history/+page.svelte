@@ -323,7 +323,7 @@
 
 		<!-- Action Buttons -->
 		<div class="flex gap-2">
-			<Button size="sm" class="bg-blue-800 hover:bg-blue-900" on:click={handleSearch}>
+			<Button size="sm" class="bg-primary hover:bg-primary/90" on:click={handleSearch}>
 				<Search class="h-4 w-4 mr-2" />
 				Search
 			</Button>

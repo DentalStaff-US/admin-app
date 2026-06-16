@@ -223,7 +223,7 @@
 			{#if isAdmin && isPaperInvoice && !isFullyPaid && invoiceData.invoice.status !== 'void'}
 				<Button
 					size="sm"
-					class="w-full sm:w-fit bg-blue-800 hover:bg-blue-900"
+					class="w-full sm:w-fit bg-primary hover:bg-primary/90"
 					on:click={() => (recordTransactionOpen = true)}
 				>
 					<CreditCard class="h-4 w-4 mr-2" />
@@ -770,7 +770,7 @@
 				<Dialog.DialogFooter>
 					<Button
 						type="button"
-						variant="outline"
+						variant="destructiveOutline"
 						on:click={() => (recordTransactionOpen = false)}
 						disabled={recordingTransaction}
 					>

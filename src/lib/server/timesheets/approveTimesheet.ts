@@ -189,6 +189,7 @@ export type ApproveTimesheetResult =
 			reason:
 				| 'PENDING_EXPENSES'
 				| 'NOT_FOUND'
+				| 'NOT_PENDING'
 				| 'UNFINISHED_WORKDAYS'
 				| 'ZERO_AMOUNT'
 				| 'NO_STRIPE_CUSTOMER'
@@ -208,7 +209,7 @@ export type ApproveTimesheetResult =
  */
 export async function approveAndInvoiceTimesheet(
 	timesheetId: string,
-	opts: { actorUserId: string | null; autoApproved?: { lastWorkdayEndedAt: Date } }
+	opts: { actorUserId: string | null; autoApproved?: { submittedAt: Date } }
 ): Promise<ApproveTimesheetResult> {
 	const { actorUserId } = opts;
 	try {
@@ -226,6 +227,12 @@ export async function approveAndInvoiceTimesheet(
 		const preApproval = await getTimesheetById(timesheetId);
 		if (!preApproval) {
 			return { ok: false, reason: 'NOT_FOUND' };
+		}
+		// Only a submitted sheet can be approved — never skip PENDING. A DRAFT must
+		// be submitted first; an already-APPROVED/VOID sheet can't be re-approved.
+		// (DISCREPANCY is allowed: admin can approve a flagged sheet directly.)
+		if (preApproval.status !== 'PENDING' && preApproval.status !== 'DISCREPANCY') {
+			return { ok: false, reason: 'NOT_PENDING' };
 		}
 		const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheetWeek(preApproval);
 		if (unfinishedWorkdays.length > 0) {
@@ -369,7 +376,7 @@ export async function approveAndInvoiceTimesheet(
 					reason:
 						'Client did not approve within the 24-hour window — auto-approved (silence = consent).',
 					approvalWindowHours: 24,
-					lastWorkdayEndedAt: opts.autoApproved.lastWorkdayEndedAt,
+					submittedAt: opts.autoApproved.submittedAt,
 					autoApprovedAt: new Date()
 				}
 			});

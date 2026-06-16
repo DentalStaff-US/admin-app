@@ -310,8 +310,8 @@
 					value: status,
 					class: cn(
 						status === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-						status === 'NEW' && 'bg-green-400 hover:bg-bg-green-500',
-						status === 'CLOSED' && 'bg-red-500 hover:bg-red-600'
+						status === 'NEW' && 'bg-green-400 hover:bg-bg-success',
+						status === 'CLOSED' && 'bg-destructive hover:bg-destructive/90'
 					)
 				});
 			}
@@ -416,8 +416,8 @@
 				return flexRender(Badge, {
 					value: status.toLocaleUpperCase(),
 					class: cn(
-						status === 'open' && 'bg-blue-500 hover:bg-blue-600',
-						status === 'paid' && 'bg-green-400 hover:bg-bg-green-500',
+						status === 'open' && 'bg-primary hover:bg-primary/90',
+						status === 'paid' && 'bg-green-400 hover:bg-bg-success',
 						status === 'void' && 'bg-gray-300 hover:bg-gray-400'
 					)
 				});
@@ -702,7 +702,7 @@
 										<Button
 											type="button"
 											size="sm"
-											variant="outline"
+											variant="destructiveOutline"
 											on:click={cancelEdit}
 											disabled={$updateSubmitting}
 										>
@@ -984,7 +984,7 @@
 						</div>
 
 						<DialogFooter>
-							<Button type="button" variant="outline" on:click={() => (showInvoiceDialog = false)}
+							<Button type="button" variant="destructiveOutline" on:click={() => (showInvoiceDialog = false)}
 								>Cancel
 							</Button>
 							<Button type="submit" disabled={$invoiceFormSubmitting}>
@@ -1096,7 +1096,7 @@
 												<Button
 													type="button"
 													size="sm"
-													variant="outline"
+													variant="destructiveOutline"
 													on:click={cancelEdit}
 													disabled={$updateSubmitting}
 												>
@@ -1230,7 +1230,7 @@
 												<Button
 													type="button"
 													size="sm"
-													variant="outline"
+													variant="destructiveOutline"
 													on:click={cancelEdit}
 													disabled={$updateSubmitting}
 												>
@@ -1386,7 +1386,7 @@
 								{#if isAdmin}
 									<Button
 										size="sm"
-										class="bg-blue-700 hover:bg-blue-800 gap-1"
+										class="bg-primary hover:bg-primary/90 gap-1"
 										on:click={() => (inviteStaffDialogOpen = true)}
 										disabled={!data.client?.locations?.length}
 										title={data.client?.locations?.length
@@ -1652,7 +1652,7 @@
 										class={cn(
 											'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
 											requisitionView === 'table'
-												? 'bg-blue-500 text-white'
+												? 'bg-primary text-white'
 												: 'text-gray-600 hover:text-gray-900'
 										)}
 										on:click={() => (requisitionView = 'table')}
@@ -1663,7 +1663,7 @@
 										class={cn(
 											'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
 											requisitionView === 'calendar'
-												? 'bg-blue-500 text-white'
+												? 'bg-primary text-white'
 												: 'text-gray-600 hover:text-gray-900'
 										)}
 										on:click={() => (requisitionView = 'calendar')}
@@ -1676,7 +1676,7 @@
 									<Button
 										on:click={() => (drawerExpanded = true)}
 										size="sm"
-										class="gap-1 bg-blue-500 hover:bg-blue-600"
+										class="gap-1 bg-primary hover:bg-primary/90"
 									>
 										<Plus class="h-4 w-4" />
 										<span>New Requisition</span>
@@ -1736,13 +1736,13 @@
 																			row.original.status === 'PENDING' &&
 																				'bg-yellow-300 hover:bg-yellow-400 text-white',
 																			row.original.status === 'OPEN' &&
-																				'bg-blue-500 hover:bg-blue-600 text-white',
+																				'bg-primary hover:bg-primary/90 text-white',
 																			row.original.status === 'FILLED' &&
-																				'bg-green-400 hover:bg-green-500 text-white',
+																				'bg-green-400 hover:bg-success/90 text-white',
 																			row.original.status === 'UNFULFILLED' &&
 																				'bg-orange-400 hover:bg-orange-500 text-white',
 																			row.original.status === 'CANCELED' &&
-																				'bg-red-500 hover:bg-red-600 text-white'
+																				'bg-destructive hover:bg-destructive/90 text-white'
 																		)}
 																	/>
 																{:else if cellIndex === 2}
@@ -1842,7 +1842,7 @@
 									<DialogTrigger>
 										<Button
 											size="sm"
-											class="gap-1 bg-blue-500 hover:bg-blue-600"
+											class="gap-1 bg-primary hover:bg-primary/90"
 											on:click={() => (uploadDocumentDialogOpen = true)}
 										>
 											<Plus class="h-4 w-4" />

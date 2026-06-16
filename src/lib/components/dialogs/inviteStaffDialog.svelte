@@ -141,7 +141,7 @@
 				</div>
 				<Button
 					type="button"
-					class="col-span-12 md:col-span-2 bg-green-500 hover:bg-green-600"
+					class="col-span-12 md:col-span-2 bg-primary hover:bg-primary/90"
 					disabled={!inviteEmail || !inviteRole || !isValidEmail(inviteEmail)}
 					on:click={handleAdd}
 				>
@@ -183,12 +183,12 @@
 			{/if}
 
 			<Dialog.Footer>
-				<Button type="button" variant="outline" on:click={() => (open = false)} disabled={submitting}>
+				<Button type="button" variant="destructiveOutline" on:click={() => (open = false)} disabled={submitting}>
 					Cancel
 				</Button>
 				<Button
 					type="submit"
-					class="bg-blue-700 hover:bg-blue-800"
+					class="bg-primary hover:bg-primary/90"
 					disabled={submitting || invitees.length === 0 || !selectedLocationId}
 				>
 					{#if submitting}

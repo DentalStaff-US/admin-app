@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { sql, count, eq, desc, lt, and, ne, ilike, or, sum } from 'drizzle-orm';
 import db from '../drizzle';
-import { userTable, type UpdateUser, type User } from '$lib/server/database/schemas/auth';
+import { userTable, type UpdateUser, type NewUser } from '$lib/server/database/schemas/auth';
 import { DEFAULT_MAX_RECORD_LIMIT, USER_ROLES } from '$lib/config/constants';
 import {
 	invoiceTable,
@@ -219,6 +219,9 @@ export async function getPaginatedUsers({
 			u.role,
 			u.verified,
 			u.completed_onboarding AS "completedOnboarding",
+			u.banned,
+			u.ban_reason AS "banReason",
+			u.ban_expires AS "banExpires",
 			u.created_at AS "createdAt",
 			cc.company_name AS "companyName",
 			COALESCE(cand.city, loc.city) AS city,
@@ -254,6 +257,9 @@ export async function getPaginatedUsers({
 			role: string;
 			verified: boolean;
 			completedOnboarding: boolean;
+			banned: boolean | null;
+			banReason: string | null;
+			banExpires: Date | null;
 			createdAt: Date;
 			companyName: string | null;
 			city: string | null;
@@ -327,12 +333,7 @@ export async function getCalendarEventsForAdmin(userId: string) {
 			companyOfficeLocationTable,
 			eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 		)
-		.where(
-			and(
-				eq(requisitionTable.archived, false),
-				eq(recurrenceDayTable.archived, false)
-			)
-		);
+		.where(and(eq(requisitionTable.archived, false), eq(recurrenceDayTable.archived, false)));
 
 	const recurrenceDayEvents = recurrenceDays.map((recurrenceDay) =>
 		convertRecurrenceDayToEvent(
@@ -776,7 +777,7 @@ interface ImportUser {
 export async function bulkCreateSuperadmins(tx: any, users: ImportUser[]) {
 	const hashedPassword = await new Argon2id().hash('dtssadminuser');
 
-	const userRecords: User[] = users.map((user) => ({
+	const userRecords: NewUser[] = users.map((user) => ({
 		id: crypto.randomUUID(),
 		createdAt: new Date(),
 		updatedAt: new Date(),
@@ -822,7 +823,7 @@ export interface BulkCreateResult {
 export async function bulkCreateClients(tx: any, users: ImportUser[]): Promise<BulkCreateResult> {
 	const hashedPassword = await new Argon2id().hash('dtssclientuser');
 
-	const userRecords: User[] = [];
+	const userRecords: NewUser[] = [];
 	const profileRecords: ClientProfile[] = [];
 	const companyRecords: ClientCompany[] = [];
 	const locationRecords: ClientCompanyLocation[] = [];
@@ -932,7 +933,7 @@ export async function bulkCreateCandidates(
 	users: ImportUser[]
 ): Promise<BulkCreateResult> {
 	const hashedPassword = await new Argon2id().hash('dtssprofessionaluser');
-	const userRecords: User[] = [];
+	const userRecords: NewUser[] = [];
 	const candidateRecords: CandidateProfile[] = [];
 	const candidateExperienceRecords: CandidateDisciplineExperience[] = [];
 	const candidateJobData: Array<{

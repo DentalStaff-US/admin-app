@@ -394,7 +394,7 @@
 										/>
 									</div>
 									<div class="flex gap-2 pt-4">
-										<Button type="submit" size="sm" class="gap-2 bg-green-400 hover:bg-green-500">
+										<Button type="submit" size="sm" class="gap-2 bg-primary hover:bg-primary/90">
 											<Save class="h-4 w-4" />
 											{#if $isAddressSubmitting}
 												Saving...
@@ -404,7 +404,7 @@
 										</Button>
 										<Button
 											type="button"
-											variant="outline"
+											variant="destructiveOutline"
 											size="sm"
 											on:click={() => cancelEdit('address')}
 											class="gap-2 border-red-500 text-red-500 hover:bg-red-50 hover:text-red-500"
@@ -475,7 +475,7 @@
 									</div>
 
 									<div class="flex gap-2 pt-4">
-										<Button type="submit" size="sm" class="gap-2 bg-green-400 hover:bg-green-500">
+										<Button type="submit" size="sm" class="gap-2 bg-primary hover:bg-primary/90">
 											<Save class="h-4 w-4" />
 											{#if $isContactSubmitting}
 												Saving...
@@ -485,7 +485,7 @@
 										</Button>
 										<Button
 											type="button"
-											variant="outline"
+											variant="destructiveOutline"
 											size="sm"
 											on:click={() => cancelEdit('contact')}
 											class="gap-2 border-red-500 text-red-500 hover:bg-red-50 hover:text-red-500"
@@ -665,7 +665,7 @@
 										<Button
 											type="submit"
 											size="sm"
-											class="gap-2 bg-green-400 hover:bg-green-500"
+											class="gap-2 bg-primary hover:bg-primary/90"
 											disabled={$isDestinationSubmitting}
 										>
 											<Plus class="h-4 w-4" />
@@ -765,7 +765,7 @@
 											</div>
 										{/if}
 										<div class="flex gap-2 pt-4">
-											<Button type="submit" size="sm" class="gap-2 bg-green-400 hover:bg-green-500">
+											<Button type="submit" size="sm" class="gap-2 bg-primary hover:bg-primary/90">
 												<Save class="h-4 w-4" />
 												{#if $isHoursSubmitting}
 													Saving...
@@ -775,7 +775,7 @@
 											</Button>
 											<Button
 												type="button"
-												variant="outline"
+												variant="destructiveOutline"
 												size="sm"
 												on:click={() => cancelEdit('hours')}
 												class="gap-2 text-red-500 border-red-500 hover:bg-red-50 hover:text-red-500"
@@ -929,7 +929,7 @@
 									</div>
 
 									<div class="flex gap-2 pt-4">
-										<Button type="submit" size="sm" class="gap-2 bg-green-400 hover:bg-green-500">
+										<Button type="submit" size="sm" class="gap-2 bg-primary hover:bg-primary/90">
 											<Save class="h-4 w-4" />
 											{#if $isLocationSubmitting}
 												Saving...
@@ -939,7 +939,7 @@
 										</Button>
 										<Button
 											type="button"
-											variant="outline"
+											variant="destructiveOutline"
 											size="sm"
 											on:click={() => cancelEdit('settings')}
 											class="gap-2 border-red-500 text-red-500 hover:bg-red-50 hover:text-red-500"

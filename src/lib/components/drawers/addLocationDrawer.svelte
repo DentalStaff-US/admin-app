@@ -50,7 +50,7 @@
 
 <Sheet.Root {open} on:openChange={(e) => (open = !open)}>
 	<Sheet.Trigger asChild>
-		<Button on:click={() => (open = true)} class="bg-blue-800 hover:bg-blue-900 mb-4">
+		<Button on:click={() => (open = true)} class="bg-primary hover:bg-primary/90 mb-4">
 			<PlusIcon size={20} class="mr-2" />
 			New Location
 		</Button>
@@ -118,7 +118,7 @@
 				<Sheet.Close asChild>
 					<Button
 						on:click={() => (open = false)}
-						class="bg-red-500 hover:bg-red-600 mb-4"
+						class="bg-destructive hover:bg-destructive/90 mb-4"
 						type="button"
 						>Cancel
 					</Button>
@@ -126,7 +126,7 @@
 				<Sheet.Close asChild>
 					<Button
 						on:click={() => (open = false)}
-						class="bg-green-500 hover:bg-green-600 mb-4"
+						class="bg-primary hover:bg-primary/90 mb-4"
 						type="submit"
 					>
 						{#if $submitting}

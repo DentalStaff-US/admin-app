@@ -338,7 +338,7 @@
 							<Button
 								on:click={() => (drawerExpanded = true)}
 								size="sm"
-								class="bg-blue-900 hover:bg-blue-800"
+								class="bg-primary hover:bg-primary/90"
 							>
 								<PlusIcon size={16} class="mr-1" /> New Requisition
 							</Button>
@@ -650,7 +650,7 @@
 									New Professionals
 								</Card.Title>
 								<Button
-									class="bg-blue-800 hover:bg-blue-900 gap-2"
+									class="bg-primary hover:bg-primary/90 gap-2"
 									on:click={() => (addDialogOpen = true)}><Plus />Add Professional</Button
 								>
 							</div>
@@ -705,7 +705,7 @@
 									New Clients
 								</Card.Title>
 								<Button
-									class="bg-blue-800 hover:bg-blue-900 gap-2"
+									class="bg-primary hover:bg-primary/90 gap-2"
 									on:click={() => (addClientDialogOpen = true)}><Plus />Add Client</Button
 								>
 							</div>
@@ -809,10 +809,10 @@
 				</div>
 			</div>
 			<Dialog.Footer>
-				<Button type="button" variant="destructive" on:click={() => (addDialogOpen = false)}
+				<Button type="button" variant="destructiveOutline" on:click={() => (addDialogOpen = false)}
 					>Cancel</Button
 				>
-				<Button type="submit" class="bg-green-500 hover:bg-green-600" disabled={$submitting}>
+				<Button type="submit" class="bg-primary hover:bg-primary/90" disabled={$submitting}>
 					{$submitting ? 'Creating...' : 'Submit'}
 				</Button>
 			</Dialog.Footer>
@@ -868,10 +868,10 @@
 				</div>
 			</div>
 			<Dialog.Footer>
-				<Button type="button" variant="destructive" on:click={() => (addDialogOpen = false)}
+				<Button type="button" variant="destructiveOutline" on:click={() => (addDialogOpen = false)}
 					>Cancel</Button
 				>
-				<Button type="submit" class="bg-green-500 hover:bg-green-600" disabled={$submitting}>
+				<Button type="submit" class="bg-primary hover:bg-primary/90" disabled={$submitting}>
 					{$submitting ? 'Creating...' : 'Submit'}
 				</Button>
 			</Dialog.Footer>

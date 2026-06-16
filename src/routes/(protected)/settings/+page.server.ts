@@ -1,6 +1,7 @@
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { setError, superValidate, message } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
+import { auth } from '$lib/server/auth';
 import {
 	clientCompanySchema,
 	clientProfileSchema,
@@ -313,7 +314,11 @@ export const actions = {
 					await updateUser(user?.userId, {
 						verified: false
 					});
-					await emailService.sendEmailAddressUpdateSuccessEmail(userForm.data.email, user?.token);
+					// New address must be re-verified — Better Auth issues the link.
+					await auth.api.sendVerificationEmail({
+						headers: event.request.headers,
+						body: { email: userForm.data.email, callbackURL: '/auth/verify/success' }
+					});
 					await emailService.sendPossibleHijackEmail(userForm.data.email, user?.email);
 				}
 			}
@@ -583,9 +588,7 @@ export const actions = {
 		// teammates' locations.
 		const isClient = user.role === USER_ROLES.CLIENT;
 		const staffSelf =
-			user.role === USER_ROLES.CLIENT_STAFF
-				? await getClientStaffProfilebyUserId(user.id)
-				: null;
+			user.role === USER_ROLES.CLIENT_STAFF ? await getClientStaffProfilebyUserId(user.id) : null;
 		const isClientAdmin = staffSelf?.staffRole === 'CLIENT_ADMIN';
 		if (!isClient && !isClientAdmin) {
 			return fail(403, { error: 'Not allowed' });
@@ -617,9 +620,8 @@ export const actions = {
 				staffId,
 				companyId: company.id,
 				locationIds,
-				primaryLocationId: primaryLocationId && primaryLocationId.length > 0
-					? primaryLocationId
-					: null
+				primaryLocationId:
+					primaryLocationId && primaryLocationId.length > 0 ? primaryLocationId : null
 			});
 			setFlash({ type: 'success', message: 'Staff locations updated' }, event);
 			return { success: true };
@@ -639,9 +641,7 @@ export const actions = {
 
 		const isClient = user.role === USER_ROLES.CLIENT;
 		const staffSelf =
-			user.role === USER_ROLES.CLIENT_STAFF
-				? await getClientStaffProfilebyUserId(user.id)
-				: null;
+			user.role === USER_ROLES.CLIENT_STAFF ? await getClientStaffProfilebyUserId(user.id) : null;
 		const isClientAdmin = staffSelf?.staffRole === 'CLIENT_ADMIN';
 		if (!isClient && !isClientAdmin) return fail(403, { error: 'Not allowed' });
 
@@ -678,9 +678,7 @@ export const actions = {
 
 		const isClient = user.role === USER_ROLES.CLIENT;
 		const staffSelf =
-			user.role === USER_ROLES.CLIENT_STAFF
-				? await getClientStaffProfilebyUserId(user.id)
-				: null;
+			user.role === USER_ROLES.CLIENT_STAFF ? await getClientStaffProfilebyUserId(user.id) : null;
 		const isClientAdmin = staffSelf?.staffRole === 'CLIENT_ADMIN';
 		if (!isClient && !isClientAdmin) return fail(403, { error: 'Not allowed' });
 

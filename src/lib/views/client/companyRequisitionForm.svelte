@@ -228,7 +228,7 @@
 			tabindex={drawerExpanded ? 0 : -1}
 			type="button"
 			on:click={handleDrawerClose}
-			class="bg-white hover:bg-red-500 hover:text-white border border-red-500 text-red-500 rounded-md"
+			class="bg-white hover:bg-destructive/90 hover:text-white border border-red-500 text-red-500 rounded-md"
 		>
 			Cancel
 		</Button>
@@ -236,7 +236,7 @@
 			tabindex={drawerExpanded ? 0 : -1}
 			type="submit"
 			disabled={$submitting}
-			class="px-4 py-2 border border-green-400 bg-green-400 hover:bg-green-400 text-white rounded-md"
+			class="px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-md"
 		>
 			{$submitting ? 'Submitting...' : 'Create Requisition'}
 		</Button>

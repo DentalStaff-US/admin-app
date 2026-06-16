@@ -197,7 +197,7 @@
 							class={cn(
 								'px-4 py-2 rounded-2xl max-w-sm word-wrap break-words',
 								message.senderId === user?.id
-									? 'bg-blue-600 text-primary-foreground rounded-br-md'
+									? 'bg-primary text-primary-foreground rounded-br-md'
 									: 'bg-muted rounded-bl-md'
 							)}
 						>

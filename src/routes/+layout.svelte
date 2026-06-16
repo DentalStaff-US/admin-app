@@ -1,7 +1,8 @@
 <script lang="ts">
 	import type { LayoutData } from './$types';
 	import '../app.pcss';
-	import { page } from '$app/stores';
+	import { page, updated } from '$app/stores';
+	import { beforeNavigate } from '$app/navigation';
 	import { ModeWatcher } from 'mode-watcher';
 	import { getFlash } from 'sveltekit-flash-message';
 	import { Toaster } from '$lib/components/ui/sonner';
@@ -35,9 +36,20 @@
 	}
 	import { setMode } from 'mode-watcher';
 	setMode("light");
+
+	// If a newer deploy has shipped while this tab was open, do a full-page load on
+	// the next navigation instead of a client-side one. The fresh HTML references
+	// the current immutable asset hashes, so we never try to preload a CSS/JS chunk
+	// from the previous build that this container no longer serves.
+	beforeNavigate((nav) => {
+		if ($updated && nav.to?.url && !nav.willUnload) {
+			nav.cancel();
+			window.location.href = nav.to.url.href;
+		}
+	});
 </script>
 
-<ModeWatcher />
+<ModeWatcher defaultMode="light" />
 <Toaster richColors />
 <div class="relative flex min-h-screen flex-col overflow-hidden">
 	<slot />

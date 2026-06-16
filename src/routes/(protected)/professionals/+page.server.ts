@@ -7,7 +7,7 @@ import {
 } from '$lib/server/database/queries/candidates';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { Argon2id } from 'oslo/password';
-import type { User } from '$lib/server/database/schemas/auth';
+import type { NewUser } from '$lib/server/database/schemas/auth';
 import { createUser } from '$lib/server/database/queries/users';
 import db from '$lib/server/database/drizzle';
 import type { CandidateProfile } from '$lib/server/database/schemas/candidate';
@@ -76,7 +76,7 @@ export const actions = {
 		let createdProfileId: string | null = null;
 
 		try {
-			const newUserData: User = {
+			const newUserData: NewUser = {
 				id: crypto.randomUUID(),
 				createdAt: new Date(),
 				updatedAt: new Date(),

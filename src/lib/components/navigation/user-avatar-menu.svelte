@@ -7,7 +7,7 @@
 	import * as Avatar from '$lib/components/ui/avatar';
 	import convertNameToInitials from '$lib/_helpers/convertNameToInitials';
 	import { setMode, resetMode } from 'mode-watcher';
-	import type { User } from 'lucia';
+	import type { AppUser as User } from '$lib/server/auth';
 
 	export let user: User | null;
 
