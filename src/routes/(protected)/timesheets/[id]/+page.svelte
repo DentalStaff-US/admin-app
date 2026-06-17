@@ -342,6 +342,13 @@
 			? hasHoursEntered && totalHours > 0
 			: hasHoursEntered && totalHours > 0 && latestShiftEnded;
 
+	// Submitting (admin "Submit on behalf" included) additionally requires the
+	// last scheduled day of the workweek to have ended — you can't send a sheet
+	// for approval before the work is done. `canSubmit` stays looser so admins
+	// can still "Save draft" mid-week. For non-admins this matches `canSubmit`
+	// (which already requires latestShiftEnded).
+	$: canSubmitOnBehalf = canSubmit && latestShiftEnded;
+
 	$: isDraft = data?.timesheet?.status === 'DRAFT';
 	$: isPending = data?.timesheet?.status === 'PENDING';
 	$: isDiscrepancy = data?.timesheet?.status === 'DISCREPANCY';
@@ -1025,7 +1032,7 @@
 													<Button
 														size="sm"
 														class="bg-primary hover:bg-primary/90"
-														disabled={!canSubmit}
+														disabled={!canSubmitOnBehalf}
 														on:click={() =>
 															postTimeEntries(
 																isDiscrepancy ? '?/adminResubmitTimesheet' : '?/adminSubmitTimesheet'
@@ -1273,7 +1280,7 @@
 								<Button
 														size="sm"
 														class="w-full bg-primary hover:bg-primary/90"
-														disabled={!canSubmit}
+														disabled={!canSubmitOnBehalf}
 														on:click={() =>
 															postTimeEntries(
 																isDiscrepancy ? '?/adminResubmitTimesheet' : '?/adminSubmitTimesheet'
@@ -1282,6 +1289,11 @@
 														<CheckCircle2 class="h-4 w-4 mr-2" />
 														Submit on behalf
 													</Button>
+													{#if canSubmit && !latestShiftEnded}
+														<p class="text-xs text-muted-foreground">
+															Can't submit until the last scheduled day of this week has ended.
+														</p>
+													{/if}
 							{/if}
 							{/if}
 
