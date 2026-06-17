@@ -568,7 +568,7 @@
 							<div class="p-3 bg-gray-50 rounded-lg">
 								<p class="text-sm text-gray-600">Total Hours</p>
 								<p class="text-xl font-bold">
-									{canEdit ? totalHours.toFixed(2) : data?.timesheet?.totalHoursWorked}
+									{canEdit ? totalHours.toFixed(2) : parseFloat(data?.timesheet?.totalHoursWorked || "0").toFixed(2)}
 								</p>
 							</div>
 
@@ -1453,7 +1453,7 @@
 						<div class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center">
 							<div class="p-3 bg-gray-50 rounded-lg">
 								<p class="text-sm text-gray-600">Total Hours</p>
-								<p class="text-xl font-bold">{data?.timesheet?.totalHoursWorked}</p>
+								<p class="text-xl font-bold">{parseFloat(data?.timesheet?.totalHoursWorked || "0").toFixed(2)}</p>
 							</div>
 							<div class="p-3 bg-gray-50 rounded-lg">
 								<p class="text-sm text-gray-600">Hourly Rate</p>
@@ -1666,7 +1666,7 @@
 									<div class="py-3 grid grid-cols-12 items-center bg-gray-50">
 										<div class="col-span-9 font-bold">Total</div>
 										<div class="col-span-3 text-right font-bold">
-											{data?.timesheet?.totalHoursWorked} hrs
+											{parseFloat(data?.timesheet?.totalHoursWorked || "0").toFixed(2)} hrs
 										</div>
 									</div>
 								</div>

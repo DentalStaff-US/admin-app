@@ -82,10 +82,11 @@
 	let assigningCandidateId: string | null = null;
 	let reassigningCandidateId: string | null = null;
 
-	// "Show all discipline matches" extension: fetched on-demand from
-	// /api/requisitions/[id]/qualified-candidates?includeAllExperience=true,
-	// then deduped against qualifiedProfessionals (server-side filter is reductive,
-	// so the extended set is a strict superset — we just append the new ones).
+	// "Show more" extension: fetched on-demand from
+	// /api/requisitions/[id]/qualified-candidates?includeAllExperience=true&includeOutsidePayRange=true,
+	// which relaxes BOTH the experience-level and pay-range gates. Deduped against
+	// qualifiedProfessionals (the extended set is a strict superset of the default,
+	// so we just append the new ones).
 	let extendedProfessionals: typeof qualifiedProfessionals = [];
 	let loadingExtended = false;
 	let extendedLoaded = false;
@@ -99,7 +100,7 @@
 		try {
 			const requisitionId = data.requisition?.requisition?.id;
 			const res = await fetch(
-				`/api/requisitions/${requisitionId}/qualified-candidates?includeAllExperience=true`
+				`/api/requisitions/${requisitionId}/qualified-candidates?includeAllExperience=true&includeOutsidePayRange=true`
 			);
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const all = await res.json();
@@ -607,7 +608,7 @@
 			<DialogTitle>Assign Professional to Workday</DialogTitle>
 			<DialogDescription>
 				{allProfessionals.length} qualified professionals within {defaultSearchRadiusMiles} miles{extendedLoaded
-					? ' (incl. all experience levels)'
+					? ' (incl. all experience levels & pay ranges)'
 					: ''}
 			</DialogDescription>
 		</DialogHeader>
@@ -684,7 +685,7 @@
 				>
 					{loadingExtended
 						? 'Loading…'
-						: 'Show more — include candidates of any experience level'}
+						: 'Show more — include candidates outside the pay range or experience level'}
 				</button>
 			</DialogFooter>
 		{/if}
@@ -702,7 +703,7 @@
 			<DialogDescription>
 				Currently assigned to <strong>{candidate?.firstName} {candidate?.lastName}</strong>. Select
 				a replacement from {allProfessionals.length} qualified professionals within {defaultSearchRadiusMiles} miles{extendedLoaded
-					? ' (incl. all experience levels)'
+					? ' (incl. all experience levels & pay ranges)'
 					: ''}.
 			</DialogDescription>
 		</DialogHeader>
@@ -788,7 +789,7 @@
 				>
 					{loadingExtended
 						? 'Loading…'
-						: 'Show more — include candidates of any experience level'}
+						: 'Show more — include candidates outside the pay range or experience level'}
 				</button>
 			{/if}
 			<Button variant="destructiveOutline" on:click={() => (reassignDialogOpen = false)}>Cancel</Button>

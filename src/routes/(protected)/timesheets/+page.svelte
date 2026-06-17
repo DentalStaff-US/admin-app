@@ -133,8 +133,8 @@
 				return hoursA - hoursB;
 			},
 			cell: ({ getValue }) => {
-				const hours = getValue() as number;
-				return `${hours} hrs`;
+				const hours = Number(getValue()) || 0;
+				return `${hours.toFixed(2)} hrs`;
 			}
 		},
 		{

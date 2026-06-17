@@ -388,7 +388,7 @@ export async function uploadCandidateDocuments(data: unknown, candidateId: strin
 export async function getQualifiedProfessionalsForRequisition(
 	requisition: any,
 	location: any,
-	options: { includeAllExperience?: boolean } = {}
+	options: { includeAllExperience?: boolean; includeOutsidePayRange?: boolean } = {}
 ) {
 	try {
 		// Get location coordinates
@@ -420,6 +420,21 @@ export async function getQualifiedProfessionalsForRequisition(
 			requiredOrder = requiredLevel?.order ?? null;
 		}
 
+		// Pay-range filter: the requisition's posted rate must fall within the
+		// candidate's preferred range FOR THIS DISCIPLINE (preferred_hourly_min/max
+		// on candidate_discipline_experience). This mirrors gate #3 in
+		// `checkCandidateQualified` (qualifyCandidate.ts) — the single source of
+		// truth for what a candidate can see/apply to. Without it the admin list
+		// and the new-workdays notification blast over-include candidates who
+		// price themselves out of the shift and therefore never see it.
+		//
+		// Skipped when the requisition has no rate (malformed/permanent — nothing
+		// to compare against) or when the caller opts into the extended search
+		// ("Show more"), which intentionally ignores the pay range.
+		const requisitionRate: number | null =
+			typeof requisition.hourlyRate === 'number' ? requisition.hourlyRate : null;
+		const applyPayFilter = requisitionRate !== null && !options.includeOutsidePayRange;
+
 		// Query candidates using PostGIS ST_DWithin and ST_Distance
 		const candidates = await db
 			.select({
@@ -450,6 +465,10 @@ export async function getQualifiedProfessionalsForRequisition(
 				disciplineAbbr: disciplineTable.abbreviation,
 				experienceLevelId: candidateDisciplineExperienceTable.experienceLevelId,
 				experienceLevelOrder: experienceLevelTable.order,
+				// Per-discipline preferred rate range — the authoritative pay range
+				// used for qualification (NOT the profile-level hourlyRateMin/Max above).
+				preferredHourlyMin: candidateDisciplineExperienceTable.preferredHourlyMin,
+				preferredHourlyMax: candidateDisciplineExperienceTable.preferredHourlyMax,
 
 				// Calculate distance in miles using PostGIS
 				// ST_Distance returns meters, convert to miles
@@ -482,6 +501,13 @@ export async function getQualifiedProfessionalsForRequisition(
 					// required level order. Skipped when requisition has no level (null).
 					requiredOrder !== null
 						? sql`${experienceLevelTable.order} >= ${requiredOrder}`
+						: undefined,
+					// Reductive pay-range filter: posted rate within the candidate's
+					// preferred range for this discipline. Mirrors checkCandidateQualified
+					// (reject when rate < min OR rate > max). Skipped for the extended
+					// search and when the requisition has no rate.
+					applyPayFilter
+						? sql`${requisitionRate} >= ${candidateDisciplineExperienceTable.preferredHourlyMin} AND ${requisitionRate} <= ${candidateDisciplineExperienceTable.preferredHourlyMax}`
 						: undefined,
 					// Must be approved/active. `approved` is kept in sync with status
 					// via updateStatus, so checking status alone is the source of truth.
