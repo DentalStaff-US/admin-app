@@ -342,6 +342,13 @@
 			? hasHoursEntered && totalHours > 0
 			: hasHoursEntered && totalHours > 0 && latestShiftEnded;
 
+	// Submitting (admin "Submit on behalf" included) additionally requires the
+	// last scheduled day of the workweek to have ended — you can't send a sheet
+	// for approval before the work is done. `canSubmit` stays looser so admins
+	// can still "Save draft" mid-week. For non-admins this matches `canSubmit`
+	// (which already requires latestShiftEnded).
+	$: canSubmitOnBehalf = canSubmit && latestShiftEnded;
+
 	$: isDraft = data?.timesheet?.status === 'DRAFT';
 	$: isPending = data?.timesheet?.status === 'PENDING';
 	$: isDiscrepancy = data?.timesheet?.status === 'DISCREPANCY';
@@ -568,7 +575,7 @@
 							<div class="p-3 bg-gray-50 rounded-lg">
 								<p class="text-sm text-gray-600">Total Hours</p>
 								<p class="text-xl font-bold">
-									{canEdit ? totalHours.toFixed(2) : data?.timesheet?.totalHoursWorked}
+									{canEdit ? totalHours.toFixed(2) : parseFloat(data?.timesheet?.totalHoursWorked || "0").toFixed(2)}
 								</p>
 							</div>
 
@@ -1025,7 +1032,7 @@
 													<Button
 														size="sm"
 														class="bg-primary hover:bg-primary/90"
-														disabled={!canSubmit}
+														disabled={!canSubmitOnBehalf}
 														on:click={() =>
 															postTimeEntries(
 																isDiscrepancy ? '?/adminResubmitTimesheet' : '?/adminSubmitTimesheet'
@@ -1273,7 +1280,7 @@
 								<Button
 														size="sm"
 														class="w-full bg-primary hover:bg-primary/90"
-														disabled={!canSubmit}
+														disabled={!canSubmitOnBehalf}
 														on:click={() =>
 															postTimeEntries(
 																isDiscrepancy ? '?/adminResubmitTimesheet' : '?/adminSubmitTimesheet'
@@ -1282,6 +1289,11 @@
 														<CheckCircle2 class="h-4 w-4 mr-2" />
 														Submit on behalf
 													</Button>
+													{#if canSubmit && !latestShiftEnded}
+														<p class="text-xs text-muted-foreground">
+															Can't submit until the last scheduled day of this week has ended.
+														</p>
+													{/if}
 							{/if}
 							{/if}
 
@@ -1453,7 +1465,7 @@
 						<div class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center">
 							<div class="p-3 bg-gray-50 rounded-lg">
 								<p class="text-sm text-gray-600">Total Hours</p>
-								<p class="text-xl font-bold">{data?.timesheet?.totalHoursWorked}</p>
+								<p class="text-xl font-bold">{parseFloat(data?.timesheet?.totalHoursWorked || "0").toFixed(2)}</p>
 							</div>
 							<div class="p-3 bg-gray-50 rounded-lg">
 								<p class="text-sm text-gray-600">Hourly Rate</p>
@@ -1666,7 +1678,7 @@
 									<div class="py-3 grid grid-cols-12 items-center bg-gray-50">
 										<div class="col-span-9 font-bold">Total</div>
 										<div class="col-span-3 text-right font-bold">
-											{data?.timesheet?.totalHoursWorked} hrs
+											{parseFloat(data?.timesheet?.totalHoursWorked || "0").toFixed(2)} hrs
 										</div>
 									</div>
 								</div>

@@ -2919,9 +2919,22 @@ export async function revertTimesheetToPending(timesheetId: string, userId: stri
 		// failure would push the 24h auto-approval window forward every time and
 		// could defer auto-approval indefinitely. Real (re)submissions reset
 		// submittedAt in their own submit handlers.
+		// Fully undo what `approveTimesheet` set, not just the status. Otherwise a
+		// failed approve (e.g. Stripe invoice throws) leaves the sheet PENDING but
+		// still carrying WAGES_DUE, an approval timestamp/approver, and billed
+		// hours — a contradictory state. Every caller of this helper is a
+		// failure-rollback, so clearing the approval-derived fields is always
+		// correct (a PENDING sheet should never have them set).
 		const [result] = await db
 			.update(timeSheetTable)
-			.set({ status: 'PENDING', updatedAt: new Date() })
+			.set({
+				status: 'PENDING',
+				wagesStatus: null,
+				totalHoursBilled: null,
+				approvedAt: null,
+				approvedByUserId: null,
+				updatedAt: new Date()
+			})
 			.where(eq(timeSheetTable.id, timesheetId))
 			.returning();
 

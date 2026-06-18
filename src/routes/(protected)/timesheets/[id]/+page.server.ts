@@ -282,6 +282,23 @@ export const actions = {
 				return fail(409, { error: 'Timesheet is locked' });
 			}
 
+			// A sheet can't be sent for approval before the work is done. Mirror the
+			// approval gate (and the client-side `canSubmitOnBehalf`): every assigned
+			// workday in this week must have ended first. Draft saves are exempt.
+			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheetWeek(timesheet);
+			if (unfinishedWorkdays.length > 0) {
+				setFlash(
+					{
+						type: 'error',
+						message: `Cannot submit yet: ${unfinishedWorkdays.length} assigned workday(s) this week have not ended.`
+					},
+					event
+				);
+				return fail(400, {
+					error: 'All assigned workdays for the week must end before submitting'
+				});
+			}
+
 			const requisition = await getRequisitionById(timesheet.requisitionId);
 
 			if (!requisition || !requisition.referenceTimezone) {
@@ -481,6 +498,23 @@ export const actions = {
 					event
 				);
 				return fail(409, { error: 'Timesheet is locked' });
+			}
+
+			// A sheet can't be sent for approval before the work is done. Mirror the
+			// approval gate (and the client-side `canSubmitOnBehalf`): every assigned
+			// workday in this week must have ended first. Draft saves are exempt.
+			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheetWeek(timesheet);
+			if (unfinishedWorkdays.length > 0) {
+				setFlash(
+					{
+						type: 'error',
+						message: `Cannot submit yet: ${unfinishedWorkdays.length} assigned workday(s) this week have not ended.`
+					},
+					event
+				);
+				return fail(400, {
+					error: 'All assigned workdays for the week must end before submitting'
+				});
 			}
 
 			const requisition = await getRequisitionById(timesheet.requisitionId);

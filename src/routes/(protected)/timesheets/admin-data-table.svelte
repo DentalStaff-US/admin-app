@@ -59,7 +59,7 @@
       header: "Hours Worked",
       accessorFn: row => row.timesheet.totalHoursWorked,
       cell: ({ getValue }) => {
-        return Number(getValue());
+        return (Number(getValue()) || 0).toFixed(2);
       }
     },
     {

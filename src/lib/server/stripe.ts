@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 import * as dotenv from 'dotenv';
-import { logger } from '$lib/server/logger';
+// import { logger } from '$lib/server/logger';
 dotenv.config();
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -89,7 +89,7 @@ export async function createStripeInvoice(
 		}
 		await stripe.invoices.sendInvoice(finalizedInvoice.id);
 
-		logger.event('stripe_invoice_created', {
+		console.log('stripe_invoice_created', {
 			stripe_invoice_id: finalizedInvoice.id,
 			stripe_customer_id: stripeCustomerId,
 			amount_due: finalizedInvoice.amount_due / 100,
@@ -101,7 +101,7 @@ export async function createStripeInvoice(
 		return finalizedInvoice;
 	} catch (error) {
 		const stripeError = error as Stripe.errors.StripeError;
-		logger.error('createStripeInvoice failed', {
+		console.error('createStripeInvoice failed', {
 			error,
 			stage,
 			stripe_invoice_id: invoiceId,
@@ -163,7 +163,7 @@ export async function ensureStripeCustomer(opts: {
 			if (!existing.deleted) {
 				return opts.existingCustomerId;
 			}
-			logger.warn?.('ensureStripeCustomer: stored customer is deleted in Stripe — recreating', {
+			console.warn?.('ensureStripeCustomer: stored customer is deleted in Stripe — recreating', {
 				stripe_customer_id: opts.existingCustomerId,
 				clientId: opts.clientId
 			});
@@ -174,7 +174,7 @@ export async function ensureStripeCustomer(opts: {
 				// mask it by creating a duplicate customer.
 				throw err;
 			}
-			logger.warn?.('ensureStripeCustomer: stored customer not found in Stripe — recreating', {
+			console.warn?.('ensureStripeCustomer: stored customer not found in Stripe — recreating', {
 				stripe_customer_id: opts.existingCustomerId,
 				clientId: opts.clientId
 			});
@@ -204,7 +204,7 @@ export async function customerHasDefaultPaymentMethod(customerId: string): Promi
 		const defaultPm = customer.invoice_settings?.default_payment_method;
 		return defaultPm != null;
 	} catch (err) {
-		logger.warn?.('customerHasDefaultPaymentMethod lookup failed', {
+		console.warn?.('customerHasDefaultPaymentMethod lookup failed', {
 			error: err,
 			stripe_customer_id: customerId
 		});

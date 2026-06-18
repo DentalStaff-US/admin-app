@@ -20,6 +20,7 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 	if (!Number.isFinite(requisitionId)) error(400, 'Invalid requisition id');
 
 	const includeAllExperience = url.searchParams.get('includeAllExperience') === 'true';
+	const includeOutsidePayRange = url.searchParams.get('includeOutsidePayRange') === 'true';
 
 	const requisition = await getRequisitionDetailsById(requisitionId);
 	if (!requisition?.requisition) error(404, 'Requisition not found');
@@ -51,7 +52,7 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
 	const candidates = await getQualifiedProfessionalsForRequisition(
 		requisition.requisition,
 		location,
-		{ includeAllExperience }
+		{ includeAllExperience, includeOutsidePayRange }
 	);
 
 	return json(candidates);

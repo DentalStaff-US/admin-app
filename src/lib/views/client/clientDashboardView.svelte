@@ -487,7 +487,7 @@
 									</Table.Cell>
 									<Table.Cell>
 										<span class="text-gray-500">
-											{timesheet.timesheet.totalHoursWorked}
+											{parseFloat(timesheet.timesheet.totalHoursWorked || '0').toFixed(2)}
 										</span>
 									</Table.Cell>
 								</Table.Row>
