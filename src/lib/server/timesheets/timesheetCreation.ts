@@ -3,7 +3,8 @@ import {
 	workdayTable,
 	recurrenceDayTable,
 	requisitionTable,
-	timeSheetTable
+	timeSheetTable,
+	type RawTimesheetHours
 } from '$lib/server/database/schemas/requisition';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { clientCompanyTable } from '$lib/server/database/schemas/client';
@@ -42,6 +43,57 @@ export async function releaseVoidOrphanedWorkdays(): Promise<number> {
 		logger.event?.('timesheet_cron_released_voided_workdays', { count: released.length });
 	}
 	return released.length;
+}
+
+/**
+ * Self-heal: prune `hours_raw` entries that no longer correspond to a live
+ * (non-cancelled) workday linked to the sheet. The removal paths strip entries
+ * inline, but this catches anything left behind by an older code path or a
+ * legacy row, and keeps `totalHoursWorked` honest.
+ *
+ * Only touches OPEN sheets (DRAFT/PENDING/DISCREPANCY) — APPROVED/VOID/REJECTED
+ * are immutable billing records. Entries without a `workdayId` (legacy, pre-key)
+ * are left alone since they can't be safely identified. Returns the number of
+ * entries pruned.
+ */
+export async function pruneOrphanedHoursRawEntries(): Promise<number> {
+	const sheets = await db
+		.select({ id: timeSheetTable.id, hoursRaw: timeSheetTable.hoursRaw })
+		.from(timeSheetTable)
+		.where(inArray(timeSheetTable.status, ['DRAFT', 'PENDING', 'DISCREPANCY']));
+
+	let pruned = 0;
+	for (const sheet of sheets) {
+		const hoursRaw = (sheet.hoursRaw ?? []) as RawTimesheetHours[];
+		if (hoursRaw.length === 0) continue;
+
+		const liveWorkdays = await db
+			.select({ id: workdayTable.id })
+			.from(workdayTable)
+			.where(and(eq(workdayTable.timesheetId, sheet.id), isNull(workdayTable.cancelledAt)));
+		const liveIds = new Set(liveWorkdays.map((w) => w.id));
+
+		const filtered = hoursRaw.filter((entry) => {
+			if (!entry.workdayId) return true; // legacy entry — can't identify, keep
+			return liveIds.has(entry.workdayId);
+		});
+
+		if (filtered.length === hoursRaw.length) continue;
+
+		const totalHoursWorked = filtered
+			.reduce((sum, e) => sum + (Number(e.hours) || 0), 0)
+			.toString();
+		await db
+			.update(timeSheetTable)
+			.set({ hoursRaw: filtered, totalHoursWorked, updatedAt: new Date() })
+			.where(eq(timeSheetTable.id, sheet.id));
+		pruned += hoursRaw.length - filtered.length;
+	}
+
+	if (pruned > 0) {
+		logger.event?.('timesheet_cron_pruned_orphaned_hours', { count: pruned });
+	}
+	return pruned;
 }
 
 /**

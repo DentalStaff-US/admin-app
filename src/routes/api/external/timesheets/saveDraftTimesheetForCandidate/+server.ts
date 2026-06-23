@@ -129,6 +129,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		const formattedEntries = (
 			requisition
 				? entries.map((entry) => ({
+						// Stable key back to the workday — see RawTimesheetHours.workdayId.
+						workdayId: entry.workdayId,
 						hours: entry.hours,
 						date: entry.date,
 						startTime: createUTCDateTime(

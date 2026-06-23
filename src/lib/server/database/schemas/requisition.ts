@@ -32,6 +32,14 @@ import type { InvoiceLineItem } from '../queries/requisitions';
 
 export type RawTimesheetHours = {
 	date: string;
+	/**
+	 * Stable link back to the workday this entry's hours belong to. Lets removal
+	 * paths strip exactly the right entry (instead of deleting the whole sheet)
+	 * and lets the creation cron prune orphaned entries. Optional only for
+	 * legacy rows written before this field existed — new writes always set it.
+	 */
+	workdayId?: string;
+	recurrenceDayId?: string;
 	hours: number;
 	startTime: string;
 	endTime: string;

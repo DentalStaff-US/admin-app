@@ -12,7 +12,7 @@ import {
 	getApprovedBilledHoursForWeek,
 	getRequisitionById,
 	getTimesheetById,
-	getUnfinishedWorkdaysForTimesheetWeek,
+	getUnfinishedWorkdaysForTimesheet,
 	listTimesheetExpenses,
 	revertTimesheetToPending
 } from '$lib/server/database/queries/requisitions';
@@ -221,9 +221,10 @@ export async function approveAndInvoiceTimesheet(
 			return { ok: false, reason: 'PENDING_EXPENSES', pendingExpenseCount: pendingExpenses.length };
 		}
 
-		// Approval gate: every assigned (non-cancelled) workday for this candidate's
-		// week must have ended before we bill — otherwise a shift added later in the
-		// week could spawn a second timesheet/invoice.
+		// Approval gate: every shift LINKED TO THIS timesheet (non-cancelled) must
+		// have ended before we bill. A shift added later lands on a new sheet
+		// (APPROVED) or reopens this one to DRAFT (PENDING), so it no longer needs
+		// to block approval by being counted here.
 		const preApproval = await getTimesheetById(timesheetId);
 		if (!preApproval) {
 			return { ok: false, reason: 'NOT_FOUND' };
@@ -234,7 +235,7 @@ export async function approveAndInvoiceTimesheet(
 		if (preApproval.status !== 'PENDING' && preApproval.status !== 'DISCREPANCY') {
 			return { ok: false, reason: 'NOT_PENDING' };
 		}
-		const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheetWeek(preApproval);
+		const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheet(preApproval.id);
 		if (unfinishedWorkdays.length > 0) {
 			return {
 				ok: false,

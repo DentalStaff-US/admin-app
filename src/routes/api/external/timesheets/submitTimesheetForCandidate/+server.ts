@@ -15,7 +15,10 @@ import { env } from '$env/dynamic/private';
 import { getClientIdByCompanyId } from '$lib/server/database/queries/clients';
 import { getCandidateProfileByUserId } from '$lib/server/database/queries/candidates';
 import { z } from 'zod';
-import { getRequisitionByWorkdayId } from '$lib/server/database/queries/requisitions';
+import {
+	getRequisitionByWorkdayId,
+	getUnfinishedWorkdaysForTimesheet
+} from '$lib/server/database/queries/requisitions';
 import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
 import { getPostHogClient } from '$lib/server/posthog';
@@ -101,6 +104,9 @@ export const POST: RequestHandler = async ({ request }) => {
 		const workdayIds = entries.map((entry) => entry.workdayId);
 
 		const timesheetEntries: RawTimesheetHours[] = entries.map((entry) => ({
+			// Stable key back to the workday so removal paths can strip exactly this
+			// entry and the cron can prune it if the workday goes away.
+			workdayId: entry.workdayId,
 			hours: entry.hours,
 			startTime: entry.startTime,
 			endTime: entry.endTime,
@@ -113,6 +119,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		const requisition = await getRequisitionByWorkdayId(workdayId);
 		const weekStart = new Date(weekStartDate).toISOString().split('T')[0];
 
+		// createUTCDateTime returns Date objects; Drizzle's JSON column serializes
+		// them to ISO strings on write, matching RawTimesheetHours (typed as
+		// strings). Cast through unknown to satisfy the static type — same pattern
+		// the saveDraft endpoint uses.
 		const formattedEntries = timesheetEntries.map((entry) => ({
 			...entry,
 			startTime: createUTCDateTime(entry.date, entry.startTime, requisition!.referenceTimezone),
@@ -124,7 +134,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			lunchEndTime: entry.lunchEndTime
 				? createUTCDateTime(entry.date, entry.lunchEndTime, requisition!.referenceTimezone)
 				: null
-		}));
+		})) as unknown as RawTimesheetHours[];
 
 		console.log('Formatted Entries:', formattedEntries);
 
@@ -146,6 +156,22 @@ export const POST: RequestHandler = async ({ request }) => {
 		let result;
 
 		if (existingTimesheet) {
+			// Submission gate (server-side — the candidate UI also enforces this, but
+			// the API must too): a sheet can't be submitted until its own last linked
+			// shift has ended. `dayEnd` is a timestamptz, so the instant compare in
+			// getUnfinishedWorkdaysForTimesheet already answers "has 5pm in the req
+			// timezone passed?".
+			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheet(existingTimesheet.id);
+			if (unfinishedWorkdays.length > 0) {
+				return json(
+					{
+						success: false,
+						message: `Cannot submit yet: ${unfinishedWorkdays.length} shift(s) on this timesheet have not ended.`
+					},
+					{ status: 409, headers: corsHeaders }
+				);
+			}
+
 			console.log('Existing Timesheet:', existingTimesheet);
 			// ✅ UPDATE EXISTING DRAFT TIMESHEET
 			[result] = await db

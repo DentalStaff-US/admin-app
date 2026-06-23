@@ -116,8 +116,14 @@ export interface Timesheet {
 	validated: boolean | null;
 	awaitingClientSignature: boolean | null;
 	hourlyRate: number | null;
-	hoursRaw: { date: string; startTime: string; endTime: string; hours: number }[];
-	// workdayId removed
+	hoursRaw: {
+		date: string;
+		workdayId?: string;
+		recurrenceDayId?: string;
+		startTime: string;
+		endTime: string;
+		hours: number;
+	}[];
 	status: string;
 	candidate:
 		| (CandidateProfileSelect & {
@@ -1716,46 +1722,30 @@ export async function getWorkdaysForTimesheet(timesheet: any) {
 }
 
 /**
- * Approval gate: returns the non-cancelled workdays for this timesheet's
- * candidate+requisition+week whose shift has NOT yet ended (recurrenceDay.dayEnd
- * in the future). Matches by week keys (candidate/requisition/weekBeginDate) —
- * the same keys the cron groups on — rather than by timesheetId, so a shift
- * assigned later in the week that isn't linked yet still blocks approval. A
- * non-empty result means approval must be refused (premature → double-charge
- * risk).
+ * Submission/approval gate: returns the non-cancelled workdays LINKED TO THIS
+ * timesheet whose shift has NOT yet ended (recurrenceDay.dayEnd in the future).
+ * A timesheet becomes submittable/approvable once its own last linked shift has
+ * ended — not once the whole calendar week is over. `dayEnd` is a timestamptz,
+ * so comparing the instant in UTC already answers "has 5pm in the req timezone
+ * passed?" — no timezone math needed.
+ *
+ * Late-added shifts are handled elsewhere by the reuse/reopen rules (APPROVED →
+ * new sheet; PENDING → reopened to DRAFT), so they no longer need to block this
+ * sheet by being counted here.
  */
-export async function getUnfinishedWorkdaysForTimesheetWeek(timesheet: {
-	associatedCandidateId: string;
-	requisitionId: number | null;
-	weekBeginDate: string;
-}) {
-	if (!timesheet.requisitionId) return [];
+export async function getUnfinishedWorkdaysForTimesheet(timesheetId: string) {
 	const now = new Date();
-
-	// Match by the Mon–Sun date window rather than by timesheet link, so workdays
-	// that exist for this candidate+requisition+week but aren't linked to a
-	// timesheet yet (e.g. future-dated days the cron hasn't picked up) still count
-	// — those are exactly the late-week shifts we must not approve over.
-	const weekStart = timesheet.weekBeginDate; // 'YYYY-MM-DD' (Monday)
-	const weekEndDate = new Date(`${weekStart}T00:00:00Z`);
-	weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 6);
-	const weekEnd = weekEndDate.toISOString().split('T')[0];
-
-	const rows = await db
+	return db
 		.select({ workday: workdayTable, recurrenceDay: recurrenceDayTable })
 		.from(workdayTable)
 		.innerJoin(recurrenceDayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
 		.where(
 			and(
-				eq(workdayTable.candidateId, timesheet.associatedCandidateId),
-				eq(workdayTable.requisitionId, timesheet.requisitionId),
+				eq(workdayTable.timesheetId, timesheetId),
 				isNull(workdayTable.cancelledAt),
-				gte(recurrenceDayTable.date, weekStart),
-				lte(recurrenceDayTable.date, weekEnd),
 				gt(recurrenceDayTable.dayEnd, now)
 			)
 		);
-	return rows;
 }
 
 /**
@@ -1942,6 +1932,9 @@ export function validateTimesheet(
 	const discrepancies: TimesheetDiscrepancy[] = [];
 	// Create a mapping of workdays by recurrenceDayId for lookup
 	const workdayMap = new Map(workdays.map((wd) => [wd.recurrenceDayId, wd]));
+	// Direct lookups for the stable-key path (entries carrying a workdayId).
+	const workdayById = new Map(workdays.map((wd) => [wd.id, wd]));
+	const recurrenceDayById = new Map(recurrenceDays.map((rd) => [rd.id, rd]));
 
 	// Group recurrence days by date for better lookup, keeping all IDs for each date
 	const recurrenceDaysByDate = new Map();
@@ -1980,15 +1973,27 @@ export function validateTimesheet(
 				continue;
 			}
 
-			// Validate against workdays
+			// Validate against workdays. Prefer the entry's stable workdayId when
+			// present — it pins the exact workday regardless of date, so an orphaned
+			// entry (its workday unassigned/cancelled) is caught directly. Fall back
+			// to the date→recurrence-day match for legacy entries without a key.
 			let hasApprovedWorkday = false;
 			let validRecurrenceDay = null;
 
-			for (const rd of recurrenceDaysForDate) {
-				if (workdayMap.has(rd.id)) {
+			if (entry.workdayId) {
+				const wd = workdayById.get(entry.workdayId);
+				const rd = wd ? recurrenceDayById.get(wd.recurrenceDayId) : null;
+				if (wd && rd) {
 					hasApprovedWorkday = true;
 					validRecurrenceDay = rd;
-					break;
+				}
+			} else {
+				for (const rd of recurrenceDaysForDate) {
+					if (workdayMap.has(rd.id)) {
+						hasApprovedWorkday = true;
+						validRecurrenceDay = rd;
+						break;
+					}
 				}
 			}
 
@@ -3172,6 +3177,8 @@ export async function updateTimesheetHours(
 	updateData: {
 		hoursRaw: Array<{
 			date: string;
+			workdayId?: string;
+			recurrenceDayId?: string;
 			hours: number;
 			startTime: string;
 			endTime: string;

@@ -9,7 +9,8 @@ import { env } from '$env/dynamic/private';
 import { notifyWorkdayReposted } from '$lib/server/notifications/transactional';
 import {
 	maybeCleanupOrphanTimesheet,
-	recordRecurrenceDayCancellation
+	recordRecurrenceDayCancellation,
+	stripWorkdayFromTimesheet
 } from '$lib/server/cancellations';
 import { logger } from '$lib/server/logger';
 
@@ -117,6 +118,15 @@ export const POST: RequestHandler = async ({ request, params }) => {
 						.from(recurrenceDayTable)
 						.where(eq(recurrenceDayTable.id, existingWorkday.recurrenceDayId))
 						.limit(1);
+
+					// Strip the surrendered day's hours from the sheet (keeps the other
+					// days intact) so they don't linger in hours_raw or bill. Runs
+					// every time, not just Sundays — unlike the empty-sheet sweep.
+					await stripWorkdayFromTimesheet(tx, {
+						timesheetId,
+						workdayId: existingWorkday.id,
+						date: recurrenceDay?.date
+					});
 
 					if (recurrenceDay?.date) {
 						await maybeCleanupOrphanTimesheet(tx, {
