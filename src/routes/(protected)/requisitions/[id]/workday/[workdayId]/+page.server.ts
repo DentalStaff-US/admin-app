@@ -268,13 +268,17 @@ export const actions = {
 
 		try {
 			const newWorkdayId = await db.transaction(async (tx) => {
-				const existingWorkday = await tx
+				const [existingWorkday] = await tx
 					.select()
 					.from(workdayTable)
 					.where(eq(workdayTable.recurrenceDayId, recurrenceDayId))
 					.limit(1);
 
-				if (existingWorkday.length > 0) {
+				// A still-active workday means the day is genuinely already filled.
+				// A soft-cancelled one must NOT block (re)assignment — it has to be
+				// revived below, otherwise its lingering `cancelledAt` keeps the day
+				// invisible to the timesheet cron forever (no sheet ever generates).
+				if (existingWorkday && !existingWorkday.cancelledAt) {
 					throw new Error('Workday already assigned');
 				}
 
@@ -296,15 +300,33 @@ export const actions = {
 
 				if (!requisition) throw new Error('Requisition not found');
 
-				const workdayId = crypto.randomUUID();
-				await tx.insert(workdayTable).values({
-					id: workdayId,
-					candidateId,
-					requisitionId,
-					recurrenceDayId,
-					createdAt: new Date(),
-					updatedAt: new Date()
-				});
+				let workdayId: string;
+				if (existingWorkday) {
+					// Revive the soft-cancelled workday instead of orphaning it beside a
+					// new row: clear the cancel, (re)assign the candidate, and drop any
+					// stale timesheet link so the cron relinks or builds a fresh sheet.
+					// This is the missing inverse of cancelWorkday.
+					workdayId = existingWorkday.id;
+					await tx
+						.update(workdayTable)
+						.set({
+							candidateId,
+							cancelledAt: null,
+							timesheetId: null,
+							updatedAt: new Date()
+						})
+						.where(eq(workdayTable.id, workdayId));
+				} else {
+					workdayId = crypto.randomUUID();
+					await tx.insert(workdayTable).values({
+						id: workdayId,
+						candidateId,
+						requisitionId,
+						recurrenceDayId,
+						createdAt: new Date(),
+						updatedAt: new Date()
+					});
+				}
 
 				// Proactively attach to the candidate's open timesheet for this
 				// requisition+week (if any) so a day assigned after the timesheet
