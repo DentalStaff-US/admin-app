@@ -35,17 +35,17 @@ import { logger } from '$lib/server/logger';
 const draftTimesheetSchema = z.object({
 	userId: z.string().min(1, 'User ID is required'),
 	weekStartDate: z.string().min(1, 'Week start date is required'),
-	// `hours` allowed to be 0 so the candidate can save a row they cleared.
-	// startTime/endTime stay required because we won't be able to convert
-	// to UTC without them, and a row with no times shouldn't make it into
-	// hoursRaw anyway — the candidate-side action filters those out before
-	// sending.
+	// `hours` allowed to be 0 so the candidate can save a row they cleared, or a
+	// partial clock-in. `startTime` stays required (the row's anchor, and we need
+	// it to convert to UTC), but `endTime` is optional for drafts — a prof can
+	// save a clock-in now and add the end time later. Submit re-validates that
+	// the end time is present.
 	entries: z.array(
 		z.object({
 			workdayId: z.string().min(1, 'Workday ID is required'),
 			hours: z.number().min(0),
 			startTime: z.string().min(1, 'Start time is required'),
-			endTime: z.string().min(1, 'End time is required'),
+			endTime: z.string().optional(),
 			lunchStartTime: z.string().optional(),
 			lunchEndTime: z.string().optional(),
 			date: z.string().min(1, 'Date is required')
@@ -129,6 +129,8 @@ export const POST: RequestHandler = async ({ request }) => {
 		const formattedEntries = (
 			requisition
 				? entries.map((entry) => ({
+						// Stable key back to the workday — see RawTimesheetHours.workdayId.
+						workdayId: entry.workdayId,
 						hours: entry.hours,
 						date: entry.date,
 						startTime: createUTCDateTime(
@@ -136,7 +138,10 @@ export const POST: RequestHandler = async ({ request }) => {
 							entry.startTime,
 							requisition.referenceTimezone
 						),
-						endTime: createUTCDateTime(entry.date, entry.endTime, requisition.referenceTimezone),
+						// Optional on drafts — a partial clock-in may have no end time yet.
+						endTime: entry.endTime
+							? createUTCDateTime(entry.date, entry.endTime, requisition.referenceTimezone)
+							: null,
 						lunchStartTime: entry.lunchStartTime
 							? createUTCDateTime(
 									entry.date,

@@ -24,7 +24,7 @@ import {
 	getTimesheetDetails,
 	getTimesheetDetailsAdmin,
 	getTimesheetExpenseById,
-	getUnfinishedWorkdaysForTimesheetWeek,
+	getUnfinishedWorkdaysForTimesheet,
 	getWorkdaysForTimesheet,
 	listTimesheetExpenses,
 	rejectTimesheet,
@@ -77,15 +77,12 @@ export const load = async (event: RequestEvent) => {
 
 	const addExpenseForm = await superValidate(addExpenseSchema);
 
-	// Approval gate (UI): block the Approve button while any assigned workday in
-	// this timesheet's week has not yet ended. Uses the raw timesheet (which has
-	// associatedCandidateId/weekBeginDate) and matches by the week's date window,
-	// so it counts days that aren't even linked yet — the same check the approve
-	// action enforces server-side.
+	// Approval gate (UI): block the Approve button while any shift LINKED TO THIS
+	// timesheet has not yet ended. A sheet is submittable/approvable once its own
+	// last linked shift ends — not once the whole calendar week is over. Same
+	// check the submit/approve actions enforce server-side.
 	const rawTimesheet = await getTimesheetById(id);
-	const unfinishedWorkdays = rawTimesheet
-		? await getUnfinishedWorkdaysForTimesheetWeek(rawTimesheet)
-		: [];
+	const unfinishedWorkdays = rawTimesheet ? await getUnfinishedWorkdaysForTimesheet(id) : [];
 	const hasUnfinishedWorkdays = unfinishedWorkdays.length > 0;
 	const unfinishedWorkdayCount = unfinishedWorkdays.length;
 
@@ -283,19 +280,19 @@ export const actions = {
 			}
 
 			// A sheet can't be sent for approval before the work is done. Mirror the
-			// approval gate (and the client-side `canSubmitOnBehalf`): every assigned
-			// workday in this week must have ended first. Draft saves are exempt.
-			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheetWeek(timesheet);
+			// approval gate (and the client-side `canSubmitOnBehalf`): every shift
+			// linked to this timesheet must have ended first. Draft saves are exempt.
+			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheet(timesheet.id);
 			if (unfinishedWorkdays.length > 0) {
 				setFlash(
 					{
 						type: 'error',
-						message: `Cannot submit yet: ${unfinishedWorkdays.length} assigned workday(s) this week have not ended.`
+						message: `Cannot submit yet: ${unfinishedWorkdays.length} shift(s) on this timesheet have not ended.`
 					},
 					event
 				);
 				return fail(400, {
-					error: 'All assigned workdays for the week must end before submitting'
+					error: 'All shifts on this timesheet must end before submitting'
 				});
 			}
 
@@ -309,12 +306,18 @@ export const actions = {
 				.filter(([_, value]: [string, any]) => value.hours > 0)
 				.map(([date, value]: [string, any]) => ({
 					date,
+					// Stable key sent by the client (workdayIdByDate) — persisted so
+					// removal paths can strip exactly this day. See RawTimesheetHours.
+					workdayId: value.workdayId || '',
 					startTime: value.startTime,
 					endTime: value.endTime,
 					lunchStartTime: value.lunchStartTime,
 					lunchEndTime: value.lunchEndTime,
 					hours: value.hours
-				}));
+				}))
+				// Drop any row whose workday didn't resolve rather than writing an
+				// orphaned (un-strippable) hours_raw entry.
+				.filter((entry) => entry.workdayId);
 
 			// createUTCDateTime returns Date objects; Drizzle's JSON column serializes
 			// them to ISO strings on write, matching RawTimesheetHours (typed as
@@ -411,12 +414,18 @@ export const actions = {
 				.filter(([_, value]: [string, any]) => value.hours > 0)
 				.map(([date, value]: [string, any]) => ({
 					date,
+					// Stable key sent by the client (workdayIdByDate) — persisted so
+					// removal paths can strip exactly this day. See RawTimesheetHours.
+					workdayId: value.workdayId || '',
 					startTime: value.startTime,
 					endTime: value.endTime,
 					lunchStartTime: value.lunchStartTime,
 					lunchEndTime: value.lunchEndTime,
 					hours: value.hours
-				}));
+				}))
+				// Drop any row whose workday didn't resolve rather than writing an
+				// orphaned (un-strippable) hours_raw entry.
+				.filter((entry) => entry.workdayId);
 
 			// createUTCDateTime returns Date objects; Drizzle's JSON column serializes
 			// them to ISO strings on write, matching RawTimesheetHours (typed as
@@ -501,19 +510,19 @@ export const actions = {
 			}
 
 			// A sheet can't be sent for approval before the work is done. Mirror the
-			// approval gate (and the client-side `canSubmitOnBehalf`): every assigned
-			// workday in this week must have ended first. Draft saves are exempt.
-			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheetWeek(timesheet);
+			// approval gate (and the client-side `canSubmitOnBehalf`): every shift
+			// linked to this timesheet must have ended first. Draft saves are exempt.
+			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheet(timesheet.id);
 			if (unfinishedWorkdays.length > 0) {
 				setFlash(
 					{
 						type: 'error',
-						message: `Cannot submit yet: ${unfinishedWorkdays.length} assigned workday(s) this week have not ended.`
+						message: `Cannot submit yet: ${unfinishedWorkdays.length} shift(s) on this timesheet have not ended.`
 					},
 					event
 				);
 				return fail(400, {
-					error: 'All assigned workdays for the week must end before submitting'
+					error: 'All shifts on this timesheet must end before submitting'
 				});
 			}
 
@@ -527,12 +536,18 @@ export const actions = {
 				.filter(([_, value]: [string, any]) => value.hours > 0)
 				.map(([date, value]: [string, any]) => ({
 					date,
+					// Stable key sent by the client (workdayIdByDate) — persisted so
+					// removal paths can strip exactly this day. See RawTimesheetHours.
+					workdayId: value.workdayId || '',
 					startTime: value.startTime,
 					endTime: value.endTime,
 					lunchStartTime: value.lunchStartTime,
 					lunchEndTime: value.lunchEndTime,
 					hours: value.hours
-				}));
+				}))
+				// Drop any row whose workday didn't resolve rather than writing an
+				// orphaned (un-strippable) hours_raw entry.
+				.filter((entry) => entry.workdayId);
 
 			// createUTCDateTime returns Date objects; Drizzle's JSON column serializes
 			// them to ISO strings on write, matching RawTimesheetHours (typed as
@@ -780,18 +795,18 @@ export const actions = {
 				return fail(409, { error: 'Timesheet is locked' });
 			}
 
-			// Same approval gate as normal approval — all assigned workdays for the
-			// week must have ended before billing.
-			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheetWeek(timesheet);
+			// Same approval gate as normal approval — every shift linked to this
+			// timesheet must have ended before billing.
+			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheet(timesheet.id);
 			if (unfinishedWorkdays.length > 0) {
 				setFlash(
 					{
 						type: 'error',
-						message: `Cannot approve yet: ${unfinishedWorkdays.length} assigned workday(s) this week have not ended.`
+						message: `Cannot approve yet: ${unfinishedWorkdays.length} shift(s) on this timesheet have not ended.`
 					},
 					event
 				);
-				return fail(400, { error: 'All assigned workdays for the week must end before approval' });
+				return fail(400, { error: 'All shifts on this timesheet must end before approval' });
 			}
 
 			const overridden = await adminOverrideTimesheet(id, user.id, timesheet);

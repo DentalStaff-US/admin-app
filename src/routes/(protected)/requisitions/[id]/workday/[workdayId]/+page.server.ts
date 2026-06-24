@@ -30,7 +30,8 @@ import {
 } from '$lib/server/database/schemas/requisition';
 import {
 	maybeCleanupOrphanTimesheet,
-	recordRecurrenceDayCancellation
+	recordRecurrenceDayCancellation,
+	stripWorkdayFromTimesheet
 } from '$lib/server/cancellations';
 import { and, eq, inArray } from 'drizzle-orm';
 import { setFlash } from 'sveltekit-flash-message/server';
@@ -267,13 +268,17 @@ export const actions = {
 
 		try {
 			const newWorkdayId = await db.transaction(async (tx) => {
-				const existingWorkday = await tx
+				const [existingWorkday] = await tx
 					.select()
 					.from(workdayTable)
 					.where(eq(workdayTable.recurrenceDayId, recurrenceDayId))
 					.limit(1);
 
-				if (existingWorkday.length > 0) {
+				// A still-active workday means the day is genuinely already filled.
+				// A soft-cancelled one must NOT block (re)assignment — it has to be
+				// revived below, otherwise its lingering `cancelledAt` keeps the day
+				// invisible to the timesheet cron forever (no sheet ever generates).
+				if (existingWorkday && !existingWorkday.cancelledAt) {
 					throw new Error('Workday already assigned');
 				}
 
@@ -295,15 +300,33 @@ export const actions = {
 
 				if (!requisition) throw new Error('Requisition not found');
 
-				const workdayId = crypto.randomUUID();
-				await tx.insert(workdayTable).values({
-					id: workdayId,
-					candidateId,
-					requisitionId,
-					recurrenceDayId,
-					createdAt: new Date(),
-					updatedAt: new Date()
-				});
+				let workdayId: string;
+				if (existingWorkday) {
+					// Revive the soft-cancelled workday instead of orphaning it beside a
+					// new row: clear the cancel, (re)assign the candidate, and drop any
+					// stale timesheet link so the cron relinks or builds a fresh sheet.
+					// This is the missing inverse of cancelWorkday.
+					workdayId = existingWorkday.id;
+					await tx
+						.update(workdayTable)
+						.set({
+							candidateId,
+							cancelledAt: null,
+							timesheetId: null,
+							updatedAt: new Date()
+						})
+						.where(eq(workdayTable.id, workdayId));
+				} else {
+					workdayId = crypto.randomUUID();
+					await tx.insert(workdayTable).values({
+						id: workdayId,
+						candidateId,
+						requisitionId,
+						recurrenceDayId,
+						createdAt: new Date(),
+						updatedAt: new Date()
+					});
+				}
 
 				// Proactively attach to the candidate's open timesheet for this
 				// requisition+week (if any) so a day assigned after the timesheet
@@ -402,7 +425,15 @@ export const actions = {
 						.where(eq(workdayTable.timesheetId, timesheetId))
 						.limit(1);
 					if (remaining.length === 0) {
+						// Genuinely empty now — drop the orphan sheet.
 						await tx.delete(timesheetTable).where(eq(timesheetTable.id, timesheetId));
+					} else {
+						// Other days remain — keep the sheet, strip this day's hours.
+						await stripWorkdayFromTimesheet(tx, {
+							timesheetId,
+							workdayId: workday.id,
+							date: recurrenceDay?.date
+						});
 					}
 				}
 
@@ -490,7 +521,6 @@ export const actions = {
 				// Delete old workday
 				await tx.delete(workdayTable).where(eq(workdayTable.id, existingWorkday.id));
 
-				// If the old timesheet has no remaining workdays, delete it
 				if (oldTimesheetId) {
 					const remaining = await tx
 						.select()
@@ -498,7 +528,15 @@ export const actions = {
 						.where(eq(workdayTable.timesheetId, oldTimesheetId))
 						.limit(1);
 					if (remaining.length === 0) {
+						// Genuinely empty now — drop the orphan sheet.
 						await tx.delete(timesheetTable).where(eq(timesheetTable.id, oldTimesheetId));
+					} else {
+						// Other days remain — keep the sheet, just strip this day's hours
+						// so they don't linger (and don't bill) on the old candidate's sheet.
+						await stripWorkdayFromTimesheet(tx, {
+							timesheetId: oldTimesheetId,
+							workdayId: existingWorkday.id
+						});
 					}
 				}
 
@@ -567,6 +605,15 @@ export const actions = {
 					});
 				} else {
 					newTimesheetId = existingTimesheet[0].id;
+					// A reassigned day joined an already-submitted sheet — reopen it so
+					// the new candidate's hours get entered before re-submission. Mirrors
+					// the reopen in linkWorkdayToOpenTimesheet / attachWeeksToTimesheets.
+					if (existingTimesheet[0].status === 'PENDING') {
+						await tx
+							.update(timesheetTable)
+							.set({ status: 'DRAFT', updatedAt: new Date() })
+							.where(eq(timesheetTable.id, newTimesheetId));
+					}
 				}
 
 				// Create new workday for the new candidate, linked to the timesheet
@@ -669,6 +716,15 @@ export const actions = {
 						.update(workdayTable)
 						.set({ cancelledAt: new Date(), updatedAt: new Date() })
 						.where(eq(workdayTable.id, workday.id));
+
+					// Strip the cancelled day's hours from the sheet so they don't
+					// linger in hours_raw (where they'd otherwise read as an
+					// UNAUTHORIZED_WORKDAY discrepancy) and don't bill.
+					await stripWorkdayFromTimesheet(tx, {
+						timesheetId: workday.timesheetId,
+						workdayId: workday.id,
+						date: recurrenceDay?.date
+					});
 				}
 
 				// Audit row. Records WHO cancelled and WHEN, plus a snapshot of

@@ -19,7 +19,8 @@ import {
 	recurrenceDayCancellationTable,
 	recurrenceDayTable,
 	timeSheetTable,
-	workdayTable
+	workdayTable,
+	type RawTimesheetHours
 } from '$lib/server/database/schemas/requisition';
 
 export type CancellationRole = 'SUPERADMIN' | 'CLIENT' | 'CLIENT_STAFF' | 'CANDIDATE';
@@ -127,6 +128,53 @@ export async function maybeCleanupOrphanTimesheet(
 		.returning({ id: timeSheetTable.id });
 
 	return deleted.length > 0;
+}
+
+/**
+ * Remove a single workday's entry from a timesheet's `hours_raw` JSON and
+ * recompute `totalHoursWorked`. This is what lets a day be unassigned/cancelled
+ * WITHOUT deleting the whole timesheet to drop it — the historical workaround
+ * that stranded other days' hours.
+ *
+ * Matches the entry by `workdayId` (the stable key). For legacy entries written
+ * before `workdayId` existed, falls back to a date match when the caller passes
+ * the removed day's `date`. Returns true if an entry was actually stripped.
+ *
+ * Pass `tx` so the rewrite commits/rolls back with the rest of the removal.
+ */
+export async function stripWorkdayFromTimesheet(
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	tx: any,
+	args: { timesheetId: string | null | undefined; workdayId: string; date?: string | null }
+): Promise<boolean> {
+	if (!args.timesheetId) return false;
+
+	const [sheet] = await tx
+		.select({ id: timeSheetTable.id, hoursRaw: timeSheetTable.hoursRaw })
+		.from(timeSheetTable)
+		.where(eq(timeSheetTable.id, args.timesheetId))
+		.limit(1);
+	if (!sheet) return false;
+
+	const hoursRaw = (sheet.hoursRaw ?? []) as RawTimesheetHours[];
+	const filtered = hoursRaw.filter((entry) => {
+		if (entry.workdayId) return entry.workdayId !== args.workdayId;
+		// Legacy entry with no workdayId: drop only on an explicit date match.
+		return args.date ? entry.date !== args.date : true;
+	});
+
+	if (filtered.length === hoursRaw.length) return false; // nothing to strip
+
+	const totalHoursWorked = filtered
+		.reduce((sum, entry) => sum + (Number(entry.hours) || 0), 0)
+		.toString();
+
+	await tx
+		.update(timeSheetTable)
+		.set({ hoursRaw: filtered, totalHoursWorked, updatedAt: new Date() })
+		.where(eq(timeSheetTable.id, args.timesheetId));
+
+	return true;
 }
 
 /**

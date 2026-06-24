@@ -7,6 +7,7 @@ import {
 	attachWeeksToTimesheets,
 	findUnlinkedWorkdays,
 	groupWorkdaysByWeek,
+	pruneOrphanedHoursRawEntries,
 	releaseVoidOrphanedWorkdays
 } from '$lib/server/timesheets/timesheetCreation';
 
@@ -21,6 +22,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			const now = new Date();
 
 			await releaseVoidOrphanedWorkdays();
+			await pruneOrphanedHoursRawEntries();
 
 			const groups = await groupWorkdaysByWeek(await findUnlinkedWorkdays(), now);
 			if (groups.length === 0) {

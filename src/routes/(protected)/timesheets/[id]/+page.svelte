@@ -181,6 +181,7 @@
 			startTime: string;
 			endTime: string;
 			hours: number;
+			workdayId: string;
 			lunchStartTime?: string;
 			lunchEndTime?: string;
 		}
@@ -198,6 +199,15 @@
 	const formattedWeekRange = `${fmt(start)} – ${fmt(end)}, ${start.getFullYear()}`;
 
 	$: workdayDates = data.workdays ? data.workdays.map((wd: any) => wd.recurrenceDay?.date) : [];
+
+	// date (YYYY-MM-DD) → workday.id, from the per-day workdays list. Lets each
+	// entry carry its own workdayId into the POST so the server persists the
+	// stable key (rather than deriving it from date). Mirrors the candidate app.
+	$: workdayIdByDate = Object.fromEntries(
+		(data.workdays ?? [])
+			.filter((wd: any) => wd?.recurrenceDay?.date && wd?.workday?.id)
+			.map((wd: any) => [wd.recurrenceDay.date, wd.workday.id])
+	) as Record<string, string>;
 
 	$: scheduledWorkDays = workdayDates
 		.map((dateStr: string) => {
@@ -219,8 +229,12 @@
 						endTime: '',
 						lunchStartTime: '',
 						lunchEndTime: '',
-						hours: 0
+						hours: 0,
+						workdayId: workdayIdByDate[dateKey] ?? ''
 					};
+				} else if (!timeEntries[dateKey].workdayId) {
+					// Backfill onto an entry created from hoursRaw.
+					timeEntries[dateKey].workdayId = workdayIdByDate[dateKey] ?? '';
 				}
 			});
 		}
@@ -259,7 +273,8 @@
 				endTime: '',
 				lunchStartTime: '',
 				lunchEndTime: '',
-				hours: 0
+				hours: 0,
+				workdayId: workdayIdByDate[dateKey] ?? ''
 			};
 		});
 
@@ -293,7 +308,10 @@
 						endTime,
 						lunchStartTime,
 						lunchEndTime,
-						hours: entry.hours || 0
+						hours: entry.hours || 0,
+						// Prefer the entry's own stored workdayId; fall back to the
+						// by-date map for legacy entries written before it existed.
+						workdayId: entry.workdayId || workdayIdByDate[dateKey] || ''
 					};
 				}
 			});
@@ -343,7 +361,7 @@
 			: hasHoursEntered && totalHours > 0 && latestShiftEnded;
 
 	// Submitting (admin "Submit on behalf" included) additionally requires the
-	// last scheduled day of the workweek to have ended — you can't send a sheet
+	// last shift LINKED TO THIS timesheet to have ended — you can't send a sheet
 	// for approval before the work is done. `canSubmit` stays looser so admins
 	// can still "Save draft" mid-week. For non-admins this matches `canSubmit`
 	// (which already requires latestShiftEnded).
@@ -375,7 +393,8 @@
 				endTime: '',
 				lunchStartTime: '',
 				lunchEndTime: '',
-				hours: 0
+				hours: 0,
+				workdayId: workdayIdByDate[dateKey] ?? ''
 			};
 		}
 
@@ -1291,7 +1310,7 @@
 													</Button>
 													{#if canSubmit && !latestShiftEnded}
 														<p class="text-xs text-muted-foreground">
-															Can't submit until the last scheduled day of this week has ended.
+															Can't submit until the last shift on this timesheet has ended.
 														</p>
 													{/if}
 							{/if}
