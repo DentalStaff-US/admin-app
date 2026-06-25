@@ -255,6 +255,10 @@ export async function getCandidatesByStatus(status: keyof typeof CANDIDATE_STATU
 }
 
 export async function getCandidateByEmail(email: string) {
+	// Match the user by email (case-insensitive — addresses are stored as
+	// entered) and join through to their candidate profile. The previous
+	// version referenced userTable in the where clause without joining it,
+	// which produced invalid SQL and never returned a match.
 	const [result] = await db
 		.select({
 			profile: { ...candidateProfileTable },
@@ -263,11 +267,12 @@ export async function getCandidateByEmail(email: string) {
 				lastName: userTable.lastName,
 				email: userTable.email,
 				avatarUrl: userTable.avatarUrl
-			},
-			discipline: { ...disciplineTable }
+			}
 		})
 		.from(candidateProfileTable)
-		.where(eq(userTable.email, email));
+		.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+		.where(sql`lower(${userTable.email}) = ${email.toLowerCase()}`)
+		.limit(1);
 
 	if (!result) throw error(404, 'Candidate Not Found');
 
@@ -514,6 +519,14 @@ export async function getQualifiedProfessionalsForRequisition(
 					eq(candidateProfileTable.status, 'ACTIVE'),
 					// Must have geometry point
 					isNotNull(candidateProfileTable.geom),
+					// Exclude candidates blacklisted from this requisition's company.
+					// Symmetric blacklist: keeps them out of the assign UI and the
+					// new-workday notification blast for this company.
+					sql`NOT EXISTS (
+						SELECT 1 FROM candidate_blacklists cb
+						WHERE cb.candidate_id = ${candidateProfileTable.id}
+						AND cb.company_id = ${requisition.companyId}
+					)`,
 					// Within 50 miles using PostGIS ST_DWithin (uses spatial index!)
 					sql`ST_DWithin(
 						${candidateProfileTable.geom}::geography,

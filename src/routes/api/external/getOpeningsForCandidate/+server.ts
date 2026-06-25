@@ -160,6 +160,12 @@ export const GET: RequestHandler = async ({ request }) => {
 					eq(requisitionTable.permanentPosition, true),
 					// Owning business must be ACTIVE.
 					clientIsActiveCondition,
+					// Exclude companies that have blacklisted this candidate (symmetric).
+					sql`NOT EXISTS (
+						SELECT 1 FROM candidate_blacklists cb
+						WHERE cb.candidate_id = ${candidate.id}
+						AND cb.company_id = ${requisitionTable.companyId}
+					)`,
 					// Ensure the requisition's discipline matches one of the candidate's disciplines
 					inArray(
 						requisitionTable.disciplineId,

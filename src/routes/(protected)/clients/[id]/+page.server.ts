@@ -54,6 +54,12 @@ import {
 	deleteComment,
 	getCommentsForClient
 } from '$lib/server/database/queries/admin';
+import { getCandidateByEmail } from '$lib/server/database/queries/candidates';
+import {
+	addCandidateToBlacklist,
+	getBlacklistedCandidatesForCompany,
+	removeCandidateFromBlacklist
+} from '$lib/server/database/queries/blacklist';
 // import { getClientBillingInfo } from '$lib/server/database/queries/billing';
 import {
 	getClientDocuments,
@@ -178,6 +184,10 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
 	const comments = await getCommentsForClient(id);
 
+	const blacklistedCandidates = result.company
+		? await getBlacklistedCandidatesForCompany(result.company.id)
+		: [];
+
 	return result
 		? {
 				user,
@@ -200,7 +210,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				updateClientForm,
 				statusForm,
 				comments,
-				documents
+				documents,
+				blacklistedCandidates
 			}
 		: {
 				user,
@@ -823,6 +834,93 @@ export const actions = {
 			console.error(err);
 			setFlash({ type: 'error', message: 'Failed to update document' }, event);
 			return fail(500, { error: 'Failed to update document' });
+		}
+	},
+
+	// Look up a candidate by email so the admin can confirm before blacklisting.
+	// Returns the match in the action result for the card to render.
+	searchBlacklistCandidate: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+
+		const formData = await event.request.formData();
+		const email = String(formData.get('email') ?? '')
+			.trim()
+			.toLowerCase();
+		if (!email) return fail(400, { searchError: 'Enter an email to search.' });
+
+		try {
+			const match = await getCandidateByEmail(email);
+			return {
+				searchResult: {
+					candidateId: match.profile.id,
+					firstName: match.user.firstName,
+					lastName: match.user.lastName,
+					email: match.user.email,
+					avatarUrl: match.user.avatarUrl
+				}
+			};
+		} catch {
+			return fail(404, { searchEmail: email, searchError: 'No candidate found with that email.' });
+		}
+	},
+
+	addBlacklist: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+
+		const { id } = event.params;
+		const formData = await event.request.formData();
+		const candidateId = String(formData.get('candidateId') ?? '').trim();
+		if (!candidateId) return fail(400, { error: 'Missing candidate id' });
+
+		const company = await getClientCompanyByClientId(id);
+		if (!company) return fail(404, { error: 'Company not found' });
+
+		try {
+			const { cancelledWorkdays } = await addCandidateToBlacklist(candidateId, company.id, {
+				actorUserId: user.id,
+				actorRole: 'SUPERADMIN',
+				reason: 'admin'
+			});
+			setFlash(
+				{
+					type: 'success',
+					message:
+						cancelledWorkdays > 0
+							? `Candidate blacklisted. ${cancelledWorkdays} future shift(s) cancelled.`
+							: 'Candidate blacklisted.'
+				},
+				event
+			);
+			return { success: true };
+		} catch (err) {
+			logger.error('addBlacklist failed', { error: err, candidateId, clientId: id });
+			setFlash({ type: 'error', message: 'Failed to blacklist candidate' }, event);
+			return fail(500, { error: 'Failed to blacklist candidate' });
+		}
+	},
+
+	removeBlacklist: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+
+		const { id } = event.params;
+		const formData = await event.request.formData();
+		const candidateId = String(formData.get('candidateId') ?? '').trim();
+		if (!candidateId) return fail(400, { error: 'Missing candidate id' });
+
+		const company = await getClientCompanyByClientId(id);
+		if (!company) return fail(404, { error: 'Company not found' });
+
+		try {
+			await removeCandidateFromBlacklist(candidateId, company.id);
+			setFlash({ type: 'success', message: 'Candidate removed from blacklist' }, event);
+			return { success: true };
+		} catch (err) {
+			logger.error('removeBlacklist failed', { error: err, candidateId, clientId: id });
+			setFlash({ type: 'error', message: 'Failed to remove from blacklist' }, event);
+			return fail(500, { error: 'Failed to remove from blacklist' });
 		}
 	}
 };

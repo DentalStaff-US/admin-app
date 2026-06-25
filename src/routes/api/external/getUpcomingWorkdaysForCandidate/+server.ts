@@ -1,6 +1,6 @@
 import { authenticateUser } from '$lib/server/serverUtils';
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { and, eq, gte } from 'drizzle-orm';
+import { and, eq, gte, isNull, sql } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import db from '$lib/server/database/drizzle';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
@@ -89,7 +89,16 @@ export const GET: RequestHandler = async ({ request }) => {
 		.where(
 			and(
 				eq(workdayTable.candidateId, candidateProfile.id),
-				gte(recurrenceDayTable.dayStart, todayStr)
+				gte(recurrenceDayTable.dayStart, todayStr),
+				// Cancelled shifts (incl. those cleared by a blacklist) drop off.
+				isNull(workdayTable.cancelledAt),
+				// Belt-and-suspenders: hide any future shift for a company that
+				// has since blacklisted this candidate.
+				sql`NOT EXISTS (
+						SELECT 1 FROM candidate_blacklists cb
+						WHERE cb.candidate_id = ${candidateProfile.id}
+						AND cb.company_id = ${requisitionTable.companyId}
+					)`
 			)
 		);
 
