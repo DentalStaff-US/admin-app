@@ -90,7 +90,9 @@ export const load = async (event: RequestEvent) => {
 				and(
 					eq(invoiceTable.clientId, client?.id),
 					lt(invoiceTable.dueDate, new Date()),
-					ne(invoiceTable.status, 'paid')
+					ne(invoiceTable.status, 'paid'),
+					// Voided invoices are not collectible and must never count as overdue.
+					ne(invoiceTable.status, 'void')
 				)
 			);
 
@@ -197,6 +199,8 @@ export const load = async (event: RequestEvent) => {
 							eq(invoiceTable.clientId, client?.id),
 							lt(invoiceTable.dueDate, new Date()),
 							ne(invoiceTable.status, 'paid'),
+							// Voided invoices are not collectible and must never count as overdue.
+							ne(invoiceTable.status, 'void'),
 							Array.isArray(scopedLocationIds)
 								? inArray(requisitionTable.locationId, scopedLocationIds)
 								: undefined
