@@ -518,7 +518,7 @@
 		</div>
 
 		<!-- ── Tabs ────────────────────────────────────────────────────── -->
-		<Tabs class="w-full">
+		<Tabs class="w-full" value={requisition.permanentPosition ? "applications" : "workdays"}>
 			<TabsList
 				class="grid lg:w-fit bg-muted h-fit {requisition.permanentPosition
 					? 'grid-cols-2'
