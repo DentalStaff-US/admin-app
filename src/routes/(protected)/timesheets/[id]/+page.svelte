@@ -244,7 +244,9 @@
 		}
 	}
 
-	function hasLatestShiftEnded(): boolean {
+	// Submission unlocks once the last linked shift has STARTED (approval still
+	// waits for shifts to END — see data.hasUnfinishedWorkdays).
+	function hasLatestShiftStarted(): boolean {
 		if (!dataLoaded) return false;
 		if (!data.workdays || data.workdays.length === 0) return true;
 		if (!reqTimezone) return true;
@@ -256,16 +258,16 @@
 		});
 
 		const latestWorkday = sortedWorkdays[sortedWorkdays.length - 1];
-		if (!latestWorkday?.recurrenceDay?.dayEnd) return true;
+		if (!latestWorkday?.recurrenceDay?.dayStart) return true;
 
 		try {
 			const now = new Date();
 			const nowInReqZone = toZonedTime(now, reqTimezone);
-			const shiftEndTime = new Date(latestWorkday.recurrenceDay.dayEnd);
-			const shiftEndInReqZone = toZonedTime(shiftEndTime, reqTimezone);
-			return nowInReqZone >= shiftEndInReqZone;
+			const shiftStartTime = new Date(latestWorkday.recurrenceDay.dayStart);
+			const shiftStartInReqZone = toZonedTime(shiftStartTime, reqTimezone);
+			return nowInReqZone >= shiftStartInReqZone;
 		} catch (error) {
-			console.error('Error checking shift end time:', error);
+			console.error('Error checking shift start time:', error);
 			return true;
 		}
 	}
@@ -357,19 +359,19 @@
 
 	$: totalHours = Object.values(timeEntries).reduce((sum, entry) => sum + (entry.hours || 0), 0);
 	$: hasHoursEntered = Object.values(timeEntries).some((entry) => entry.hours > 0);
-	$: latestShiftEnded = dataLoaded ? hasLatestShiftEnded() : false;
+	$: latestShiftStarted = dataLoaded ? hasLatestShiftStarted() : false;
 
 	$: canSubmit =
 		user?.role === USER_ROLES.SUPERADMIN
 			? hasHoursEntered && totalHours > 0
-			: hasHoursEntered && totalHours > 0 && latestShiftEnded;
+			: hasHoursEntered && totalHours > 0 && latestShiftStarted;
 
 	// Submitting (admin "Submit on behalf" included) additionally requires the
-	// last shift LINKED TO THIS timesheet to have ended — you can't send a sheet
-	// for approval before the work is done. `canSubmit` stays looser so admins
-	// can still "Save draft" mid-week. For non-admins this matches `canSubmit`
-	// (which already requires latestShiftEnded).
-	$: canSubmitOnBehalf = canSubmit && latestShiftEnded;
+	// last shift LINKED TO THIS timesheet to have STARTED — hours can be sent for
+	// approval while the final shift is underway. (Approval/billing still waits
+	// for shifts to end — that gate is data.hasUnfinishedWorkdays.) `canSubmit`
+	// stays looser so admins can still "Save draft" before then.
+	$: canSubmitOnBehalf = canSubmit && latestShiftStarted;
 
 	$: isDraft = data?.timesheet?.status === 'DRAFT';
 	$: isPending = data?.timesheet?.status === 'PENDING';
@@ -1312,9 +1314,9 @@
 														<CheckCircle2 class="h-4 w-4 mr-2" />
 														Submit on behalf
 													</Button>
-													{#if canSubmit && !latestShiftEnded}
+													{#if canSubmit && !latestShiftStarted}
 														<p class="text-xs text-muted-foreground">
-															Can't submit until the last shift on this timesheet has ended.
+															Can't submit until the last shift on this timesheet has started.
 														</p>
 													{/if}
 							{/if}

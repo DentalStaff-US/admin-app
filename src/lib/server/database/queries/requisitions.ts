@@ -1749,6 +1749,32 @@ export async function getUnfinishedWorkdaysForTimesheet(timesheetId: string) {
 }
 
 /**
+ * Submission gate (looser than the approval gate above): returns the
+ * non-cancelled workdays LINKED TO THIS timesheet whose shift has NOT yet
+ * STARTED (recurrenceDay.dayStart in the future). A timesheet becomes
+ * submittable once its own last linked shift has STARTED — the prof/admin can
+ * enter and submit hours for approval while the final shift is underway, rather
+ * than waiting for it to end. `dayStart` is a timestamptz, so the instant
+ * compare in UTC already answers "has the shift started in the req timezone?".
+ *
+ * Approval/billing stays gated on `dayEnd` via getUnfinishedWorkdaysForTimesheet.
+ */
+export async function getUnstartedWorkdaysForTimesheet(timesheetId: string) {
+	const now = new Date();
+	return db
+		.select({ workday: workdayTable, recurrenceDay: recurrenceDayTable })
+		.from(workdayTable)
+		.innerJoin(recurrenceDayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
+		.where(
+			and(
+				eq(workdayTable.timesheetId, timesheetId),
+				isNull(workdayTable.cancelledAt),
+				gt(recurrenceDayTable.dayStart, now)
+			)
+		);
+}
+
+/**
  * Proactively links a freshly-created workday to the candidate's OPEN timesheet
  * for its requisition+week, if one exists — so shifts assigned after the
  * timesheet was created (or before the shift starts) land on the same timesheet

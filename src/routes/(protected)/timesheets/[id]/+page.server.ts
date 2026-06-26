@@ -25,6 +25,7 @@ import {
 	getTimesheetDetailsAdmin,
 	getTimesheetExpenseById,
 	getUnfinishedWorkdaysForTimesheet,
+	getUnstartedWorkdaysForTimesheet,
 	getWorkdaysForTimesheet,
 	listTimesheetExpenses,
 	rejectTimesheet,
@@ -280,20 +281,20 @@ export const actions = {
 				return fail(409, { error: 'Timesheet is locked' });
 			}
 
-			// A sheet can't be sent for approval before the work is done. Mirror the
-			// approval gate (and the client-side `canSubmitOnBehalf`): every shift
-			// linked to this timesheet must have ended first. Draft saves are exempt.
-			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheet(timesheet.id);
-			if (unfinishedWorkdays.length > 0) {
+			// A sheet can be sent for approval once the work is underway: every shift
+			// linked to this timesheet must have STARTED first (the approval/billing
+			// gate still requires them to have ended). Draft saves are exempt.
+			const unstartedWorkdays = await getUnstartedWorkdaysForTimesheet(timesheet.id);
+			if (unstartedWorkdays.length > 0) {
 				setFlash(
 					{
 						type: 'error',
-						message: `Cannot submit yet: ${unfinishedWorkdays.length} shift(s) on this timesheet have not ended.`
+						message: `Cannot submit yet: ${unstartedWorkdays.length} shift(s) on this timesheet have not started.`
 					},
 					event
 				);
 				return fail(400, {
-					error: 'All shifts on this timesheet must end before submitting'
+					error: 'All shifts on this timesheet must start before submitting'
 				});
 			}
 
@@ -510,20 +511,20 @@ export const actions = {
 				return fail(409, { error: 'Timesheet is locked' });
 			}
 
-			// A sheet can't be sent for approval before the work is done. Mirror the
-			// approval gate (and the client-side `canSubmitOnBehalf`): every shift
-			// linked to this timesheet must have ended first. Draft saves are exempt.
-			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheet(timesheet.id);
-			if (unfinishedWorkdays.length > 0) {
+			// A sheet can be sent for approval once the work is underway: every shift
+			// linked to this timesheet must have STARTED first (the approval/billing
+			// gate still requires them to have ended). Draft saves are exempt.
+			const unstartedWorkdays = await getUnstartedWorkdaysForTimesheet(timesheet.id);
+			if (unstartedWorkdays.length > 0) {
 				setFlash(
 					{
 						type: 'error',
-						message: `Cannot submit yet: ${unfinishedWorkdays.length} shift(s) on this timesheet have not ended.`
+						message: `Cannot submit yet: ${unstartedWorkdays.length} shift(s) on this timesheet have not started.`
 					},
 					event
 				);
 				return fail(400, {
-					error: 'All shifts on this timesheet must end before submitting'
+					error: 'All shifts on this timesheet must start before submitting'
 				});
 			}
 

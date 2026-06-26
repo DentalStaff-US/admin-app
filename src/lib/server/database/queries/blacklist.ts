@@ -13,10 +13,11 @@
  * (cancellations.ts) so the audit trail and timesheet hours stay consistent.
  */
 
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, count, desc, eq, gt, ilike, isNull, or } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import { candidateBlacklistTable, candidateProfileTable } from '../schemas/candidate';
 import { userTable } from '../schemas/auth';
+import { clientCompanyTable } from '../schemas/client';
 import { recurrenceDayTable, requisitionTable, workdayTable } from '../schemas/requisition';
 import {
 	recordRecurrenceDayCancellation,
@@ -186,4 +187,76 @@ export async function getBlacklistedCandidatesForCompany(
 		.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
 		.where(eq(candidateBlacklistTable.companyId, companyId))
 		.orderBy(candidateBlacklistTable.createdAt);
+}
+
+export type BlacklistEntry = {
+	candidateId: string;
+	companyId: string;
+	firstName: string | null;
+	lastName: string | null;
+	email: string;
+	avatarUrl: string | null;
+	companyName: string | null;
+	createdAt: Date;
+};
+
+/**
+ * Master list of every blacklist entry across all companies, for the admin
+ * management page. Supports a free-text search over candidate name/email and
+ * company name, plus offset pagination. Returns the page of entries and the
+ * total matching count.
+ */
+export async function getAllBlacklistEntries(options: {
+	limit: number;
+	offset: number;
+	search?: string;
+}): Promise<{ entries: BlacklistEntry[]; total: number }> {
+	const search = options.search?.trim();
+	const whereClause = search
+		? or(
+				ilike(userTable.firstName, `%${search}%`),
+				ilike(userTable.lastName, `%${search}%`),
+				ilike(userTable.email, `%${search}%`),
+				ilike(clientCompanyTable.companyName, `%${search}%`)
+			)
+		: undefined;
+
+	const base = db
+		.select({
+			candidateId: candidateBlacklistTable.candidateId,
+			companyId: candidateBlacklistTable.companyId,
+			firstName: userTable.firstName,
+			lastName: userTable.lastName,
+			email: userTable.email,
+			avatarUrl: userTable.avatarUrl,
+			companyName: clientCompanyTable.companyName,
+			createdAt: candidateBlacklistTable.createdAt
+		})
+		.from(candidateBlacklistTable)
+		.innerJoin(
+			candidateProfileTable,
+			eq(candidateProfileTable.id, candidateBlacklistTable.candidateId)
+		)
+		.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+		.innerJoin(clientCompanyTable, eq(clientCompanyTable.id, candidateBlacklistTable.companyId));
+
+	const [entries, [{ value: total }]] = await Promise.all([
+		base
+			.where(whereClause)
+			.orderBy(desc(candidateBlacklistTable.createdAt))
+			.limit(options.limit)
+			.offset(options.offset),
+		db
+			.select({ value: count() })
+			.from(candidateBlacklistTable)
+			.innerJoin(
+				candidateProfileTable,
+				eq(candidateProfileTable.id, candidateBlacklistTable.candidateId)
+			)
+			.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+			.innerJoin(clientCompanyTable, eq(clientCompanyTable.id, candidateBlacklistTable.companyId))
+			.where(whereClause)
+	]);
+
+	return { entries, total };
 }
