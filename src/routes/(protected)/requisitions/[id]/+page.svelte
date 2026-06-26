@@ -524,7 +524,6 @@
 					? 'grid-cols-2'
 					: 'grid-cols-3'}"
 			>
-				<TabsTrigger value="details" class="data-[state=active]:bg-background">Details</TabsTrigger>
 				{#if requisition.permanentPosition}
 					<TabsTrigger value="applications" class="data-[state=active]:bg-background"
 						>Applications</TabsTrigger
@@ -537,6 +536,7 @@
 						>Timesheets</TabsTrigger
 					>
 				{/if}
+				<TabsTrigger value="details" class="data-[state=active]:bg-background">Details</TabsTrigger>
 			</TabsList>
 
 			<!-- Details tab -->
