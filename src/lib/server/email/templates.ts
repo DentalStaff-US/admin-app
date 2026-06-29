@@ -852,6 +852,38 @@ ${daysText}
 			subject: `Miscellaneous Transaction Processed | ${APP_NAME}`
 		};
 	},
+	invoiceVoidedNotificationEmail: (voidDetails: { clientName: string; invoiceNumber: string; reason: string }) => {
+		return {
+			textEmail: `
+            Hello ${voidDetails.clientName},
+
+            Invoice ${voidDetails.invoiceNumber} has been voided and is no longer due.
+
+            The following reason was given:
+
+            ${voidDetails.reason}
+
+            For any questions about this invoice, please contact us at ${env.COMPANY_REPLY_TO_EMAIL} or call us at ${env.COMPANY_PHONE_NUMBER}.
+
+            Thank you,
+            Dental Temps Staffing Solutions`,
+			htmlEmail: `
+            <p>Hello ${voidDetails.clientName},</p>
+
+            <p>Invoice <strong>${voidDetails.invoiceNumber}</strong> has been voided and is no longer due.</p>
+
+            <p>The following reason was given:</p>
+
+            <p>${voidDetails.reason}</p>
+
+            <p>For any questions about this invoice, please contact us at <a href="mailto:${env.COMPANY_REPLY_TO_EMAIL}">${env.COMPANY_REPLY_TO_EMAIL}</a> or call us at ${env.COMPANY_PHONE_NUMBER}.</p>
+
+            <p>Thank you,</p>
+            <p>Dental Temps Staffing Solutions</p>
+            `.trim(),
+			subject: `Invoice Voided | ${APP_NAME}`
+		};
+	},
 	supportTicketSubmissionNotificationEmail: () => {
 		return {
 			textEmail: `

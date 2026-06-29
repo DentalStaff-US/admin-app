@@ -1049,6 +1049,36 @@ export async function notifyMiscellaneousTransaction(args: {
 }
 
 /**
+ * Paper invoice was voided — email the client a correction notice.
+ */
+export async function notifyInvoiceVoided(invoiceId: string, reason: string): Promise<void> {
+	try {
+		const invRow = await getInvoiceCoreFields(invoiceId);
+		if (!invRow) return;
+		const client = await getClientContactById(invRow.clientId);
+		if (!client) return;
+
+		await dispatch('invoiceVoided', [
+			safeEmail('invoiceVoided', client.email, () => {
+				const t = EMAIL_TEMPLATES.invoiceVoidedNotificationEmail({
+					clientName: `${client.firstName} ${client.lastName}`,
+					invoiceNumber: invRow.invoiceNumber,
+					reason: reason || 'No reason provided'
+				});
+				return emailService.sendEmail({
+					to: [{ email: client.email }],
+					subject: t.subject,
+					html: t.htmlEmail,
+					text: t.textEmail
+				});
+			})
+		]);
+	} catch (e) {
+		console.error('[transactional:invoiceVoided] top-level error:', e);
+	}
+}
+
+/**
  * Overdue invoice reminder — email the client. (No matching SMS template.)
  */
 export async function notifyOverdueInvoice(invoice: Invoice): Promise<void> {
@@ -1288,6 +1318,7 @@ async function getInvoiceCoreFields(invoiceId: string) {
 			id: invoiceTable.id,
 			clientId: invoiceTable.clientId,
 			requisitionId: invoiceTable.requisitionId,
+			invoiceNumber: invoiceTable.invoiceNumber,
 			amount: invoiceTable.total,
 			customerEmail: invoiceTable.customerEmail
 		})

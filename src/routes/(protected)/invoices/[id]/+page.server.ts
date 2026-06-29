@@ -19,8 +19,10 @@ import {
 import { eq } from 'drizzle-orm';
 import {
 	notifyInvoicePaymentProcessed,
-	notifyMiscellaneousTransaction
+	notifyMiscellaneousTransaction,
+	notifyInvoiceVoided
 } from '$lib/server/notifications/transactional';
+import { writeActionHistory } from '$lib/server/database/queries/admin';
 
 const RecordTransactionSchema = z.object({
 	invoiceId: z.string().min(1),
@@ -32,6 +34,21 @@ const RecordTransactionSchema = z.object({
 	transactionType: z.enum(['PAYMENT', 'REFUND', 'ADJUSTMENT']).default('PAYMENT'),
 	batchNumber: z.string().optional(),
 	notes: z.string().optional()
+});
+
+const ReversePaymentSchema = z.object({
+	invoiceId: z.string().min(1),
+	amount: z.string().transform((val) => {
+		const parsed = parseFloat(val);
+		if (isNaN(parsed) || parsed <= 0) throw new Error('Amount must be a positive number');
+		return parsed;
+	}),
+	reason: z.string().min(1, 'A reason is required')
+});
+
+const VoidInvoiceSchema = z.object({
+	invoiceId: z.string().min(1),
+	reason: z.string().min(1, 'A reason is required')
 });
 
 export const load: PageServerLoad = async (event) => {
@@ -171,7 +188,9 @@ export const actions = {
 					amountRemaining: newRemaining.toFixed(2),
 					amountPaid: newPaid.toFixed(2),
 					status: newStatus,
-					paidAt: newStatus === 'paid' ? new Date() : undefined,
+					// Clear the paid timestamp when a transaction (e.g. a REFUND) reopens
+					// an invoice — `undefined` would leave the stale value in place.
+					paidAt: newStatus === 'paid' ? new Date() : null,
 					updatedAt: new Date()
 				})
 				.where(eq(invoiceTable.id, invoiceId));
@@ -189,6 +208,192 @@ export const actions = {
 			console.error('Error recording paper transaction:', err);
 			setFlash({ type: 'error', message: 'Failed to record transaction' }, event);
 			return { form };
+		}
+	},
+
+	// Reverse an erroneously-recorded paper payment — sends the invoice back to
+	// `open`/owed. Recorded as an ADJUSTMENT ledger row (no new enum value) but with
+	// reversal math (opposite direction to the generic ADJUSTMENT branch above).
+	reversePaperPayment: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/auth/sign-in');
+
+		const form = await superValidate(event, ReversePaymentSchema);
+		if (!form.valid) {
+			setFlash({ type: 'error', message: 'Invalid reversal data' }, event);
+			return fail(400, { form });
+		}
+
+		const { invoiceId, amount, reason } = form.data;
+
+		try {
+			const [currentInvoice] = await db
+				.select({
+					status: invoiceTable.status,
+					invoiceType: invoiceTable.invoiceType,
+					amountRemaining: invoiceTable.amountRemaining,
+					amountPaid: invoiceTable.amountPaid,
+					paidAt: invoiceTable.paidAt
+				})
+				.from(invoiceTable)
+				.where(eq(invoiceTable.id, invoiceId))
+				.limit(1);
+
+			if (!currentInvoice) {
+				setFlash({ type: 'error', message: 'Invoice not found' }, event);
+				return fail(404, { form });
+			}
+			if (currentInvoice.invoiceType !== 'PAPER') {
+				setFlash({ type: 'error', message: 'Only paper invoices can be reversed here' }, event);
+				return fail(400, { form });
+			}
+			if (currentInvoice.status === 'void') {
+				setFlash({ type: 'error', message: 'Cannot reverse a payment on a voided invoice' }, event);
+				return fail(400, { form });
+			}
+
+			const currentRemaining = parseFloat(String(currentInvoice.amountRemaining ?? 0));
+			const currentPaid = parseFloat(String(currentInvoice.amountPaid ?? 0));
+
+			if (currentPaid <= 0) {
+				setFlash({ type: 'error', message: 'There is no recorded payment to reverse' }, event);
+				return fail(400, { form });
+			}
+			if (amount > currentPaid) {
+				setFlash(
+					{ type: 'error', message: 'Reversal amount cannot exceed the amount paid' },
+					event
+				);
+				return fail(400, { form });
+			}
+
+			// Reversal math: add back to what's owed, subtract from what's been paid.
+			const newRemaining = currentRemaining + amount;
+			const newPaid = Math.max(0, currentPaid - amount);
+			const newStatus: 'open' | 'paid' = newRemaining > 0 ? 'open' : 'paid';
+
+			await db.insert(paperInvoiceTransactionTable).values({
+				id: crypto.randomUUID(),
+				invoiceId,
+				timesheetId: null,
+				batchNumber: null,
+				transactionType: 'ADJUSTMENT',
+				status: 'SUCCESSFUL',
+				amount: amount.toFixed(2),
+				details: { notes: reason, reversal: true }
+			});
+
+			await db
+				.update(invoiceTable)
+				.set({
+					amountRemaining: newRemaining.toFixed(2),
+					amountPaid: newPaid.toFixed(2),
+					status: newStatus,
+					paidAt: newStatus === 'paid' ? currentInvoice.paidAt : null,
+					updatedAt: new Date()
+				})
+				.where(eq(invoiceTable.id, invoiceId));
+
+			await writeActionHistory({
+				table: 'INVOICES',
+				userId: user.id,
+				action: 'UPDATE',
+				entityId: invoiceId,
+				beforeState: {
+					status: currentInvoice.status,
+					amountPaid: currentInvoice.amountPaid,
+					amountRemaining: currentInvoice.amountRemaining,
+					paidAt: currentInvoice.paidAt
+				},
+				afterState: {
+					status: newStatus,
+					amountPaid: newPaid.toFixed(2),
+					amountRemaining: newRemaining.toFixed(2),
+					paidAt: newStatus === 'paid' ? currentInvoice.paidAt : null
+				},
+				metadata: { operation: 'REVERSE_PAYMENT', reason, amount: amount.toFixed(2) }
+			});
+
+			await notifyMiscellaneousTransaction({
+				invoiceId,
+				transactionType: 'ADJUSTMENT',
+				amount,
+				notes: reason
+			});
+
+			setFlash({ type: 'success', message: 'Payment reversed successfully' }, event);
+			return message(form, 'Payment reversed successfully');
+		} catch (err) {
+			console.error('Error reversing paper payment:', err);
+			setFlash({ type: 'error', message: 'Failed to reverse payment' }, event);
+			return fail(500, { form });
+		}
+	},
+
+	// Void a paper invoice — marks it dead (mirrors Stripe void semantics: status
+	// change only, no refund/balance change). Leaves the ledger as historical record.
+	voidPaperInvoice: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/auth/sign-in');
+
+		const form = await superValidate(event, VoidInvoiceSchema);
+		if (!form.valid) {
+			setFlash({ type: 'error', message: 'A reason is required to void an invoice' }, event);
+			return fail(400, { form });
+		}
+
+		const { invoiceId, reason } = form.data;
+
+		try {
+			const [currentInvoice] = await db
+				.select({
+					status: invoiceTable.status,
+					invoiceType: invoiceTable.invoiceType
+				})
+				.from(invoiceTable)
+				.where(eq(invoiceTable.id, invoiceId))
+				.limit(1);
+
+			if (!currentInvoice) {
+				setFlash({ type: 'error', message: 'Invoice not found' }, event);
+				return fail(404, { form });
+			}
+			if (currentInvoice.invoiceType !== 'PAPER') {
+				setFlash({ type: 'error', message: 'Only paper invoices can be voided here' }, event);
+				return fail(400, { form });
+			}
+			if (currentInvoice.status === 'void') {
+				setFlash({ type: 'error', message: 'Invoice is already voided' }, event);
+				return fail(400, { form });
+			}
+
+			await db
+				.update(invoiceTable)
+				.set({
+					status: 'void',
+					voidedAt: new Date(),
+					updatedAt: new Date()
+				})
+				.where(eq(invoiceTable.id, invoiceId));
+
+			await writeActionHistory({
+				table: 'INVOICES',
+				userId: user.id,
+				action: 'UPDATE',
+				entityId: invoiceId,
+				beforeState: { status: currentInvoice.status },
+				afterState: { status: 'void' },
+				metadata: { operation: 'VOID', reason }
+			});
+
+			await notifyInvoiceVoided(invoiceId, reason);
+
+			setFlash({ type: 'success', message: 'Invoice voided successfully' }, event);
+			return message(form, 'Invoice voided successfully');
+		} catch (err) {
+			console.error('Error voiding paper invoice:', err);
+			setFlash({ type: 'error', message: 'Failed to void invoice' }, event);
+			return fail(500, { form });
 		}
 	}
 };
