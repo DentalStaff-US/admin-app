@@ -268,7 +268,9 @@ export const newSupportTicketSchema = z.object({
 	expectedResults: z
 		.string({ required_error: 'This field is required' })
 		.min(1, 'This field is required.'),
-	stepsToReproduce: z.string().optional(),
+	stepsToReproduce: z
+		.string({ required_error: 'This field is required' })
+		.min(1, 'This field is required.'),
 	reportedById: z.string()
 });
 

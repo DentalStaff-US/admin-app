@@ -58,7 +58,7 @@
 		extendedError = null;
 		try {
 			const res = await fetch(
-				`/api/requisitions/${requisition.id}/qualified-candidates?includeAllExperience=true`
+				`/api/requisitions/${requisition.id}/qualified-candidates?includeAllExperience=true&includeOutsidePayRange=true`
 			);
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const all: QualifiedPro[] = await res.json();
@@ -524,7 +524,7 @@
 											>
 												{loadingExtended
 													? 'Loading…'
-													: 'Show more — include all experience levels'}
+													: 'Show more — include candidates outside the pay range or experience level'}
 											</button>
 											{#if extendedError}
 												<p class="px-2 py-1 text-xs text-red-600">Failed to load: {extendedError}</p>
@@ -532,7 +532,7 @@
 										</div>
 									{:else}
 										<p class="border-t px-3 py-1.5 text-xs text-muted-foreground">
-											Showing candidates of all experience levels.
+											Showing candidates outside the pay range or experience level.
 										</p>
 									{/if}
 								</Command.List>

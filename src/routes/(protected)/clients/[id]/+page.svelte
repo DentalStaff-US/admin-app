@@ -70,7 +70,8 @@
 		CalendarDays,
 		UserMinus,
 		Trash2,
-		LayoutGrid
+		LayoutGrid,
+		Ban
 	} from 'lucide-svelte';
 
 	// Table library
@@ -106,11 +107,22 @@
 	import PendingInvitesTable from '$lib/components/PendingInvitesTable.svelte';
 	import { UserPlus } from 'lucide-svelte';
 	import AdminProfileComments from '$lib/views/admin/adminProfileComments.svelte';
+	import CandidateBlacklistCard from '$lib/views/admin/candidateBlacklistCard.svelte';
 	import { format } from 'date-fns';
 	import * as Select from '$lib/components/ui/select';
 	import { Trigger } from '$lib/components/ui/accordion';
 
 	export let data: PageData;
+	// Last form action result — used by the blacklist card to show search hits.
+	export let form: Record<string, unknown> | null = null;
+	$: blacklistSearchResult = (form?.searchResult ?? null) as {
+		candidateId: string;
+		firstName: string | null;
+		lastName: string | null;
+		email: string;
+		avatarUrl: string | null;
+	} | null;
+	$: blacklistSearchError = (form?.searchError ?? null) as string | null;
 	$: adminForm = data.requisitionForm;
 	$: newLocationForm = data.locationForm;
 
@@ -1526,6 +1538,26 @@
 										currentUserId={user.id}
 										addAction="?/addComment"
 										deleteAction="?/deleteComment"
+									/>
+								</CardContent>
+							</Card>
+						{/if}
+						{#if isAdmin}
+							<Card class="w-full max-w-none col-span-4">
+								<CardHeader class="pb-3">
+									<CardTitle class="text-red-600 flex items-center gap-2 text-lg">
+										<Ban class="h-4 w-4" />
+										Blacklisted Candidates
+									</CardTitle>
+								</CardHeader>
+								<CardContent class="pt-0">
+									<CandidateBlacklistCard
+										blacklistedCandidates={data.blacklistedCandidates ?? []}
+										searchResult={blacklistSearchResult}
+										searchError={blacklistSearchError}
+										searchAction="?/searchBlacklistCandidate"
+										addAction="?/addBlacklist"
+										removeAction="?/removeBlacklist"
 									/>
 								</CardContent>
 							</Card>

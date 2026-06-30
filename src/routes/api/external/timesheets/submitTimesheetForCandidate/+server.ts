@@ -17,7 +17,7 @@ import { getCandidateProfileByUserId } from '$lib/server/database/queries/candid
 import { z } from 'zod';
 import {
 	getRequisitionByWorkdayId,
-	getUnfinishedWorkdaysForTimesheet
+	getUnstartedWorkdaysForTimesheet
 } from '$lib/server/database/queries/requisitions';
 import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
@@ -157,16 +157,16 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		if (existingTimesheet) {
 			// Submission gate (server-side — the candidate UI also enforces this, but
-			// the API must too): a sheet can't be submitted until its own last linked
-			// shift has ended. `dayEnd` is a timestamptz, so the instant compare in
-			// getUnfinishedWorkdaysForTimesheet already answers "has 5pm in the req
-			// timezone passed?".
-			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheet(existingTimesheet.id);
-			if (unfinishedWorkdays.length > 0) {
+			// the API must too): a sheet can be submitted once its own last linked
+			// shift has STARTED (approval/billing still waits for it to end). dayStart
+			// is a timestamptz, so the instant compare already answers "has the shift
+			// started in the req timezone?".
+			const unstartedWorkdays = await getUnstartedWorkdaysForTimesheet(existingTimesheet.id);
+			if (unstartedWorkdays.length > 0) {
 				return json(
 					{
 						success: false,
-						message: `Cannot submit yet: ${unfinishedWorkdays.length} shift(s) on this timesheet have not ended.`
+						message: `Cannot submit yet: ${unstartedWorkdays.length} shift(s) on this timesheet have not started.`
 					},
 					{ status: 409, headers: corsHeaders }
 				);

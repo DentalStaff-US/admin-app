@@ -20,6 +20,7 @@ import { USER_ROLES } from '$lib/config/constants';
 import { assertCanAccessLocation } from '$lib/server/scoping';
 import { getClientProfileByIdAdmin } from '$lib/server/database/queries/admin';
 import { getQualifiedProfessionalsForRequisition } from '$lib/server/database/queries/candidates';
+import { addCandidateToBlacklist } from '$lib/server/database/queries/blacklist';
 import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
 import db from '$lib/server/database/drizzle';
 import {
@@ -810,7 +811,66 @@ export const actions = {
 	// 	}
 	// },
 
-	blacklistCandidate: async (_event: RequestEvent) => {},
+	// Blacklist the workday's candidate from this requisition's company. Clears
+	// their future shifts for the company and keeps them out of the qualified
+	// search going forward. Candidate + company are resolved server-side.
+	blacklistCandidate: async (event: RequestEvent) => {
+		const { locals, params, request } = event;
+		const user = locals.user;
+		if (!user) return fail(403, { error: 'Not authenticated' });
+		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+			return fail(403, { error: 'Not authorized' });
+		}
+
+		const formData = await request.formData();
+		const requisitionId = Number(params.id);
+
+		// Prefer an explicit candidateId from the form; fall back to the workday.
+		let candidateId = String(formData.get('candidateId') ?? '').trim();
+		if (!candidateId) {
+			const [workday] = await db
+				.select({ candidateId: workdayTable.candidateId })
+				.from(workdayTable)
+				.where(eq(workdayTable.id, params.workdayId))
+				.limit(1);
+			candidateId = workday?.candidateId ?? '';
+		}
+		if (!candidateId) return fail(400, { error: 'No candidate to blacklist' });
+
+		const [requisition] = await db
+			.select({ companyId: requisitionTable.companyId })
+			.from(requisitionTable)
+			.where(eq(requisitionTable.id, requisitionId))
+			.limit(1);
+		if (!requisition) return fail(404, { error: 'Requisition not found' });
+
+		try {
+			const { cancelledWorkdays } = await addCandidateToBlacklist(
+				candidateId,
+				requisition.companyId,
+				{
+					actorUserId: user.id,
+					actorRole: user.role as 'SUPERADMIN' | 'CLIENT' | 'CLIENT_STAFF',
+					reason: 'admin'
+				}
+			);
+			setFlash(
+				{
+					type: 'success',
+					message:
+						cancelledWorkdays > 0
+							? `Candidate blacklisted. ${cancelledWorkdays} future shift(s) cancelled.`
+							: 'Candidate blacklisted.'
+				},
+				event
+			);
+			return { success: true };
+		} catch (err) {
+			console.error('Error blacklisting candidate:', err);
+			setFlash({ type: 'error', message: 'Failed to blacklist candidate' }, event);
+			return fail(500, { error: 'Failed to blacklist candidate' });
+		}
+	},
 
 	// Admin-only hard-archive of this workday. Mirrors the requisition-page
 	// `deleteRecurrenceDay` action (snapshot for notification, soft-delete via

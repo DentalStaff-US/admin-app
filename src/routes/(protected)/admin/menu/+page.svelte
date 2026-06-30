@@ -18,6 +18,7 @@
 		],
 		'Record Management': [
 			{ name: 'Support Tickets', link: '/support' },
+			{ name: 'Candidate Blacklists', link: '/admin/menu/blacklists' },
 			{ name: 'Record History', link: '/admin/menu/record-history' },
 			{ name: 'Documents', link: '/admin/menu/documents' },
 			{ name: 'Application Settings', link: '/admin/menu/application-settings' }

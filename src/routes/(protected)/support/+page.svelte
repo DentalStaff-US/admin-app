@@ -66,6 +66,12 @@
 				})
 		},
 		{
+			header: '#',
+			id: 'ticketNumber',
+			accessorFn: (original) => original.supportTicket.ticketNumber,
+			cell: (original) => `#${original.getValue() ?? ''}`
+		},
+		{
 			header: 'Title',
 			id: 'title',
 			accessorFn: (original) => original.supportTicket.title

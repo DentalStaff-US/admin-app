@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import db from '$lib/server/database/drizzle';
 import {
+	candidateBlacklistTable,
 	candidateDisciplineExperienceTable,
 	candidateProfileTable
 } from '$lib/server/database/schemas/candidate';
@@ -138,6 +139,29 @@ export const POST: RequestHandler = async ({ request }) => {
 
 				// Block claims on shifts whose owning business isn't ACTIVE.
 				if (!(await isClientActiveByCompanyId(recurrenceDay.requisition.companyId))) {
+					return {
+						kind: 'response',
+						response: json(
+							{ success: false, message: 'This shift is not currently available.' },
+							{ status: 403, headers: corsHeaders }
+						)
+					};
+				}
+
+				// Block claims if the candidate is blacklisted from the owning company
+				// (symmetric blacklist). Mirrors the listing-feed exclusion so a stale
+				// client can't apply to a shift that should be hidden from them.
+				const [blacklisted] = await tx
+					.select({ candidateId: candidateBlacklistTable.candidateId })
+					.from(candidateBlacklistTable)
+					.where(
+						and(
+							eq(candidateBlacklistTable.candidateId, candidateProfile.id),
+							eq(candidateBlacklistTable.companyId, recurrenceDay.requisition.companyId)
+						)
+					)
+					.limit(1);
+				if (blacklisted) {
 					return {
 						kind: 'response',
 						response: json(

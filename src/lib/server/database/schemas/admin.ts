@@ -1,4 +1,4 @@
-import { boolean, jsonb, pgEnum, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, jsonb, pgEnum, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
 import { userTable } from './auth';
 import { candidateProfileTable } from './candidate';
 import { clientCompanyTable, clientProfileTable } from './client';
@@ -72,6 +72,12 @@ export const supportTicketStatusEnum = pgEnum('support_ticket_status', [
 
 export const supportTicketTable = pgTable('support_tickets', {
 	id: text('id').notNull().primaryKey(),
+	// Human-friendly sequential reference. The UUID `id` stays the canonical key
+	// (used in routes/links); `ticketNumber` is the short number shown in the UI
+	// (e.g. "Ticket #42"). Serial → Postgres auto-assigns on insert and, when the
+	// column is added to the existing table, backfills current rows and continues
+	// forward. DB-owned, so it's optional on insert ($inferInsert).
+	ticketNumber: serial('ticket_number').notNull().unique(),
 	createdAt: timestamp('created_at', {
 		withTimezone: true,
 		mode: 'date'

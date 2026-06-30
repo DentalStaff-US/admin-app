@@ -25,6 +25,7 @@ import {
 	getTimesheetDetailsAdmin,
 	getTimesheetExpenseById,
 	getUnfinishedWorkdaysForTimesheet,
+	getUnstartedWorkdaysForTimesheet,
 	getWorkdaysForTimesheet,
 	listTimesheetExpenses,
 	rejectTimesheet,
@@ -35,6 +36,7 @@ import {
 	createPaperInvoiceRecord
 } from '$lib/server/database/queries/requisitions';
 import { getCandidateProfileById } from '$lib/server/database/queries/candidates';
+import { addCandidateToBlacklist } from '$lib/server/database/queries/blacklist';
 import {
 	approveAndInvoiceTimesheet,
 	buildPaperLineItems,
@@ -279,20 +281,20 @@ export const actions = {
 				return fail(409, { error: 'Timesheet is locked' });
 			}
 
-			// A sheet can't be sent for approval before the work is done. Mirror the
-			// approval gate (and the client-side `canSubmitOnBehalf`): every shift
-			// linked to this timesheet must have ended first. Draft saves are exempt.
-			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheet(timesheet.id);
-			if (unfinishedWorkdays.length > 0) {
+			// A sheet can be sent for approval once the work is underway: every shift
+			// linked to this timesheet must have STARTED first (the approval/billing
+			// gate still requires them to have ended). Draft saves are exempt.
+			const unstartedWorkdays = await getUnstartedWorkdaysForTimesheet(timesheet.id);
+			if (unstartedWorkdays.length > 0) {
 				setFlash(
 					{
 						type: 'error',
-						message: `Cannot submit yet: ${unfinishedWorkdays.length} shift(s) on this timesheet have not ended.`
+						message: `Cannot submit yet: ${unstartedWorkdays.length} shift(s) on this timesheet have not started.`
 					},
 					event
 				);
 				return fail(400, {
-					error: 'All shifts on this timesheet must end before submitting'
+					error: 'All shifts on this timesheet must start before submitting'
 				});
 			}
 
@@ -509,20 +511,20 @@ export const actions = {
 				return fail(409, { error: 'Timesheet is locked' });
 			}
 
-			// A sheet can't be sent for approval before the work is done. Mirror the
-			// approval gate (and the client-side `canSubmitOnBehalf`): every shift
-			// linked to this timesheet must have ended first. Draft saves are exempt.
-			const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheet(timesheet.id);
-			if (unfinishedWorkdays.length > 0) {
+			// A sheet can be sent for approval once the work is underway: every shift
+			// linked to this timesheet must have STARTED first (the approval/billing
+			// gate still requires them to have ended). Draft saves are exempt.
+			const unstartedWorkdays = await getUnstartedWorkdaysForTimesheet(timesheet.id);
+			if (unstartedWorkdays.length > 0) {
 				setFlash(
 					{
 						type: 'error',
-						message: `Cannot submit yet: ${unfinishedWorkdays.length} shift(s) on this timesheet have not ended.`
+						message: `Cannot submit yet: ${unstartedWorkdays.length} shift(s) on this timesheet have not started.`
 					},
 					event
 				);
 				return fail(400, {
-					error: 'All shifts on this timesheet must end before submitting'
+					error: 'All shifts on this timesheet must start before submitting'
 				});
 			}
 
@@ -690,6 +692,54 @@ export const actions = {
 									: 'Error approving timesheet';
 		setFlash({ type: 'error', message }, event);
 		return fail(result.reason === 'ERROR' ? 500 : 400, { error: message });
+	},
+
+	// Post-approval "experience survey": the client answered that they would NOT
+	// keep working with this candidate. Blacklist the candidate from the company
+	// owning this timesheet so they stop surfacing in the qualified-candidate
+	// search and any future shifts they hold for it are cleared. Candidate +
+	// company are resolved server-side from the timesheet — never trusted from
+	// the client. Admins approving on a client's behalf can use the same survey.
+	submitApprovalSurvey: async (event: RequestEvent) => {
+		const { id } = event.params;
+		const { user } = event.locals;
+		if (!user) {
+			return fail(401, { error: 'Unauthorized' });
+		}
+		if (
+			user.role !== USER_ROLES.SUPERADMIN &&
+			user.role !== USER_ROLES.CLIENT &&
+			user.role !== USER_ROLES.CLIENT_STAFF
+		) {
+			return fail(403, { error: 'Forbidden' });
+		}
+
+		const timesheet = await getTimesheetById(id);
+		if (!timesheet || !timesheet.requisitionId) {
+			return fail(404, { error: 'Timesheet not found' });
+		}
+
+		const requisition = await getRequisitionById(timesheet.requisitionId);
+		if (!requisition) {
+			return fail(404, { error: 'Requisition not found' });
+		}
+
+		try {
+			await addCandidateToBlacklist(timesheet.associatedCandidateId, requisition.companyId, {
+				actorUserId: user.id,
+				actorRole: user.role as 'SUPERADMIN' | 'CLIENT' | 'CLIENT_STAFF',
+				reason: 'experience survey'
+			});
+			setFlash(
+				{ type: 'success', message: "Thanks — this candidate won't be matched here again." },
+				event
+			);
+			return { success: true };
+		} catch (err) {
+			logger.error('submitApprovalSurvey failed', { error: err, timesheetId: id });
+			setFlash({ type: 'error', message: 'Could not save your feedback.' }, event);
+			return fail(500, { error: 'Failed to record feedback' });
+		}
 	},
 
 	// Void a timesheet that HAS an invoice: voids the timesheet + its invoice

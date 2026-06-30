@@ -53,9 +53,22 @@
 	let recordingTransaction = false;
 	let processingPayment = false;
 
+	// Reverse-payment dialog state
+	let reversePaymentOpen = false;
+	let reverseAmount = '';
+	let reverseReason = '';
+	let reversingPayment = false;
+
+	// Void-invoice dialog state
+	let voidInvoiceOpen = false;
+	let voidReason = '';
+	let voidingInvoice = false;
+
 	$: isPaperInvoice = invoiceData.invoice.invoiceType === 'PAPER';
 	$: isFullyPaid = invoiceData.invoice.status === 'paid';
+	$: isVoided = invoiceData.invoice.status === 'void';
 	$: amountRemaining = parseFloat(String(invoiceData.invoice.amountRemaining ?? 0));
+	$: amountPaid = parseFloat(String(invoiceData.invoice.amountPaid ?? 0));
 
 	$: user = data.user;
 	$: invoiceData = data.invoice as InvoiceWithRelations;
@@ -228,6 +241,37 @@
 				>
 					<CreditCard class="h-4 w-4 mr-2" />
 					Record Transaction
+				</Button>
+			{/if}
+
+			{#if isAdmin && isPaperInvoice && amountPaid > 0 && !isVoided}
+				<Button
+					size="sm"
+					variant="outline"
+					class="w-full sm:w-fit"
+					on:click={() => {
+						reverseAmount = amountPaid.toFixed(2);
+						reverseReason = '';
+						reversePaymentOpen = true;
+					}}
+				>
+					<Undo2 class="h-4 w-4 mr-2" />
+					Reverse Payment
+				</Button>
+			{/if}
+
+			{#if isAdmin && isPaperInvoice && !isVoided}
+				<Button
+					size="sm"
+					variant="destructiveOutline"
+					class="w-full sm:w-fit"
+					on:click={() => {
+						voidReason = '';
+						voidInvoiceOpen = true;
+					}}
+				>
+					<XCircle class="h-4 w-4 mr-2" />
+					Void Invoice
 				</Button>
 			{/if}
 
@@ -784,6 +828,165 @@
 							<Loader2 class="mr-2 h-4 w-4 animate-spin" />
 						{/if}
 						Record Transaction
+					</Button>
+				</Dialog.DialogFooter>
+			</form>
+		</Dialog.DialogContent>
+	</Dialog.Root>
+
+	<!-- Reverse Payment -->
+	<Dialog.Root bind:open={reversePaymentOpen}>
+		<Dialog.DialogContent class="sm:max-w-[425px]">
+			<form
+				method="POST"
+				action="?/reversePaperPayment"
+				use:enhance={() => {
+					reversingPayment = true;
+					return async ({ result, update }) => {
+						reversingPayment = false;
+						if (result.type === 'success') {
+							reversePaymentOpen = false;
+							reverseAmount = '';
+							reverseReason = '';
+							await invalidateAll();
+						}
+						await update();
+					};
+				}}
+			>
+				<Dialog.DialogHeader>
+					<Dialog.DialogTitle>Reverse Payment</Dialog.DialogTitle>
+					<Dialog.DialogDescription>
+						Undo a payment recorded in error on invoice #{invoiceData.invoice.invoiceNumber}. The
+						invoice returns to <strong>open</strong> with the balance owed again. Amount paid: {formatCurrency(
+							amountPaid
+						)}
+					</Dialog.DialogDescription>
+				</Dialog.DialogHeader>
+
+				<input type="hidden" name="invoiceId" value={invoiceData.invoice.id} />
+
+				<div class="space-y-4 py-4">
+					<div class="space-y-2">
+						<Label for="reverseAmount">Amount to Reverse</Label>
+						<div class="relative">
+							<span class="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+							<Input
+								id="reverseAmount"
+								name="amount"
+								type="number"
+								step="0.01"
+								min="0.01"
+								max={amountPaid}
+								bind:value={reverseAmount}
+								class="pl-7"
+								placeholder="0.00"
+								required
+							/>
+						</div>
+						{#if parseFloat(reverseAmount) > amountPaid}
+							<p class="text-xs text-orange-600">
+								Amount exceeds the amount paid of {formatCurrency(amountPaid)}
+							</p>
+						{/if}
+					</div>
+
+					<div class="space-y-2">
+						<Label for="reverseReason">Reason <span class="text-red-600">*</span></Label>
+						<Textarea
+							id="reverseReason"
+							name="reason"
+							bind:value={reverseReason}
+							placeholder="Why is this payment being reversed?"
+							rows={2}
+							required
+						/>
+					</div>
+				</div>
+
+				<Dialog.DialogFooter>
+					<Button
+						type="button"
+						variant="destructiveOutline"
+						on:click={() => (reversePaymentOpen = false)}
+						disabled={reversingPayment}
+					>
+						Cancel
+					</Button>
+					<Button
+						type="submit"
+						disabled={reversingPayment ||
+							!reverseReason.trim() ||
+							!reverseAmount ||
+							parseFloat(reverseAmount) > amountPaid}
+					>
+						{#if reversingPayment}
+							<Loader2 class="mr-2 h-4 w-4 animate-spin" />
+						{/if}
+						Reverse Payment
+					</Button>
+				</Dialog.DialogFooter>
+			</form>
+		</Dialog.DialogContent>
+	</Dialog.Root>
+
+	<!-- Void Invoice -->
+	<Dialog.Root bind:open={voidInvoiceOpen}>
+		<Dialog.DialogContent class="sm:max-w-[425px]">
+			<form
+				method="POST"
+				action="?/voidPaperInvoice"
+				use:enhance={() => {
+					voidingInvoice = true;
+					return async ({ result, update }) => {
+						voidingInvoice = false;
+						if (result.type === 'success') {
+							voidInvoiceOpen = false;
+							voidReason = '';
+							await invalidateAll();
+						}
+						await update();
+					};
+				}}
+			>
+				<Dialog.DialogHeader>
+					<Dialog.DialogTitle>Void Invoice</Dialog.DialogTitle>
+					<Dialog.DialogDescription>
+						Voiding invoice #{invoiceData.invoice.invoiceNumber} marks it as no longer due and stops
+						further collection. This cannot be undone.
+					</Dialog.DialogDescription>
+				</Dialog.DialogHeader>
+
+				<input type="hidden" name="invoiceId" value={invoiceData.invoice.id} />
+
+				<div class="space-y-4 py-4">
+					<div class="space-y-2">
+						<Label for="voidReason">Reason <span class="text-red-600">*</span></Label>
+						<Textarea
+							id="voidReason"
+							name="reason"
+							bind:value={voidReason}
+							placeholder="Why is this invoice being voided?"
+							rows={2}
+							required
+						/>
+					</div>
+				</div>
+
+				<Dialog.DialogFooter>
+					<Button
+						type="button"
+						variant="outline"
+						on:click={() => (voidInvoiceOpen = false)}
+						disabled={voidingInvoice}
+					>
+						Cancel
+					</Button>
+					<Button type="submit" variant="destructive" disabled={voidingInvoice || !voidReason.trim()}>
+						{#if voidingInvoice}
+							<Loader2 class="mr-2 h-4 w-4 animate-spin" />
+						{/if}
+						Void Invoice
 					</Button>
 				</Dialog.DialogFooter>
 			</form>

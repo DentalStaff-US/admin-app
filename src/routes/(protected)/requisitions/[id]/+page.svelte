@@ -518,13 +518,12 @@
 		</div>
 
 		<!-- ── Tabs ────────────────────────────────────────────────────── -->
-		<Tabs class="w-full">
+		<Tabs class="w-full" value={requisition.permanentPosition ? "applications" : "workdays"}>
 			<TabsList
 				class="grid lg:w-fit bg-muted h-fit {requisition.permanentPosition
 					? 'grid-cols-2'
 					: 'grid-cols-3'}"
 			>
-				<TabsTrigger value="details" class="data-[state=active]:bg-background">Details</TabsTrigger>
 				{#if requisition.permanentPosition}
 					<TabsTrigger value="applications" class="data-[state=active]:bg-background"
 						>Applications</TabsTrigger
@@ -537,6 +536,7 @@
 						>Timesheets</TabsTrigger
 					>
 				{/if}
+				<TabsTrigger value="details" class="data-[state=active]:bg-background">Details</TabsTrigger>
 			</TabsList>
 
 			<!-- Details tab -->
