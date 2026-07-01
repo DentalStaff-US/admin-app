@@ -204,8 +204,11 @@ export function convertRecurrenceDayToUTC(day: Record<string, any>, userTimezone
 		? createUTCDateTime(localDate, localLunchEnd, userTimezone)
 		: null;
 
-	// Extract the UTC date for the 'date' field (using the day start to determine UTC date)
-	const utcDateStr = dayStart ? dayStart.toISOString().split('T')[0] : localDate;
+	// The 'date' column must match the calendar date the user actually picked.
+	// Deriving it from the UTC timestamp shifts it a day forward for shifts that
+	// cross midnight in UTC (evening shifts in behind-UTC timezones), so use the
+	// selected local date directly.
+	const utcDateStr = localDate;
 
 	// Return data formatted for your PostgreSQL schema
 	return {

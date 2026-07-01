@@ -210,27 +210,150 @@ export const clientRequisitionSchema = z.object({
 
 export type ClientRequisitionSchema = typeof clientRequisitionSchema;
 
-const recurrenceDaySchema = z.object({
-	requisitionId: z.number(),
-	date: z.string(),
-	dayStartTime: z.string(),
-	dayEndTime: z.string(),
-	lunchStartTime: z.string(),
-	lunchEndTime: z.string()
-});
+// 24-hour HH:mm (e.g. "08:30", "17:00"). Shift times are stored/submitted in
+// this format; anything else is a malformed input.
+const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const toMinutes = (t: string) => {
+	const [h, m] = t.split(':').map(Number);
+	return h * 60 + m;
+};
 
-export const editRecurrenceDaySchema = z.object({
-	date: z.string(),
-	startTime: z.string(),
-	endTime: z.string(),
-	lunchStartTime: z.string().optional(),
-	lunchEndTime: z.string().optional()
-});
+/**
+ * Cross-field validation for a shift's start/end/lunch times. `start`/`end` are
+ * required HH:mm strings; lunch fields are optional ('' or undefined = no lunch).
+ *
+ * Rejects malformed times, a non-positive shift (e.g. an AM/PM-inverted 8:30 PM
+ * start with a 5:00 PM end — the class of misinput that put a July-2 shift on
+ * July 1), and lunch that falls outside the shift window. Objective checks only:
+ * no business-hours assumptions, since client operating hours aren't reliable.
+ *
+ * Returns a `superRefine` callback; `fields` maps the logical roles onto the
+ * concrete field names used by each schema.
+ */
+function refineShiftTimes(fields: {
+	start: string;
+	end: string;
+	lunchStart: string;
+	lunchEnd: string;
+}) {
+	return (val: Record<string, unknown>, ctx: z.RefinementCtx) => {
+		const start = val[fields.start] as string | undefined;
+		const end = val[fields.end] as string | undefined;
+		const lunchStart = val[fields.lunchStart] as string | undefined;
+		const lunchEnd = val[fields.lunchEnd] as string | undefined;
+
+		const valid = (v: string | undefined): v is string => !!v && HHMM_RE.test(v);
+		const present = (v: string | undefined): v is string => !!v && v.length > 0;
+
+		if (!valid(start)) {
+			ctx.addIssue({ code: 'custom', path: [fields.start], message: 'Enter a valid start time' });
+		}
+		if (!valid(end)) {
+			ctx.addIssue({ code: 'custom', path: [fields.end], message: 'Enter a valid end time' });
+		}
+		if (valid(start) && valid(end) && toMinutes(end) <= toMinutes(start)) {
+			ctx.addIssue({
+				code: 'custom',
+				path: [fields.end],
+				message: 'End time must be after start time'
+			});
+		}
+
+		// Lunch is optional; only validate when the fields are actually filled in.
+		if (present(lunchStart) && !HHMM_RE.test(lunchStart)) {
+			ctx.addIssue({
+				code: 'custom',
+				path: [fields.lunchStart],
+				message: 'Enter a valid lunch start time'
+			});
+		}
+		if (present(lunchEnd) && !HHMM_RE.test(lunchEnd)) {
+			ctx.addIssue({
+				code: 'custom',
+				path: [fields.lunchEnd],
+				message: 'Enter a valid lunch end time'
+			});
+		}
+		if (valid(lunchStart) && valid(lunchEnd)) {
+			if (toMinutes(lunchEnd) <= toMinutes(lunchStart)) {
+				ctx.addIssue({
+					code: 'custom',
+					path: [fields.lunchEnd],
+					message: 'Lunch end must be after lunch start'
+				});
+			}
+			if (
+				valid(start) &&
+				valid(end) &&
+				(toMinutes(lunchStart) < toMinutes(start) || toMinutes(lunchEnd) > toMinutes(end))
+			) {
+				ctx.addIssue({
+					code: 'custom',
+					path: [fields.lunchStart],
+					message: 'Lunch must fall within the shift'
+				});
+			}
+		}
+	};
+}
+
+const recurrenceDaySchema = z
+	.object({
+		requisitionId: z.number(),
+		date: z.string(),
+		dayStartTime: z.string(),
+		dayEndTime: z.string(),
+		lunchStartTime: z.string(),
+		lunchEndTime: z.string()
+	})
+	.superRefine(
+		refineShiftTimes({
+			start: 'dayStartTime',
+			end: 'dayEndTime',
+			lunchStart: 'lunchStartTime',
+			lunchEnd: 'lunchEndTime'
+		})
+	);
+
+export const editRecurrenceDaySchema = z
+	.object({
+		date: z.string(),
+		startTime: z.string(),
+		endTime: z.string(),
+		lunchStartTime: z.string().optional(),
+		lunchEndTime: z.string().optional()
+	})
+	.superRefine(
+		refineShiftTimes({
+			start: 'startTime',
+			end: 'endTime',
+			lunchStart: 'lunchStartTime',
+			lunchEnd: 'lunchEndTime'
+		})
+	);
 
 export const newRecurrenceDaySchema = z.object({
-	recurrenceDays: z.string().transform((str) => {
-		const parsed = JSON.parse(str);
-		return z.array(recurrenceDaySchema).parse(Array.isArray(parsed) ? parsed : [parsed]);
+	// The drawer submits the day list as a JSON string in a hidden field. Parse
+	// and validate each day, surfacing any issue through `ctx.addIssue` (never a
+	// thrown ZodError) so superforms reports an invalid form instead of 500ing.
+	recurrenceDays: z.string().transform((str, ctx) => {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(str);
+		} catch {
+			ctx.addIssue({ code: 'custom', message: 'Invalid recurrence day data' });
+			return z.NEVER;
+		}
+		const result = z
+			.array(recurrenceDaySchema)
+			.safeParse(Array.isArray(parsed) ? parsed : [parsed]);
+		if (!result.success) {
+			for (const issue of result.error.issues) {
+				ctx.addIssue(issue);
+			}
+			return z.NEVER;
+		}
+		return result.data;
 	})
 });
 

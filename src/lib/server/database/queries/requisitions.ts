@@ -844,7 +844,15 @@ export async function deleteRecurrenceDay(id: string, userId: string) {
 
 			const [update] = await tx
 				.update(recurrenceDayTable)
-				.set({ archived: true, archivedDate: new Date(), updatedAt: new Date() })
+				// Also flip status to CANCELED (not just archived) so the row is
+				// self-consistent: any query that filters on status alone still
+				// excludes it, even if it forgets the archived check.
+				.set({
+					archived: true,
+					archivedDate: new Date(),
+					status: 'CANCELED',
+					updatedAt: new Date()
+				})
 				.where(eq(recurrenceDayTable.id, id))
 				.returning();
 

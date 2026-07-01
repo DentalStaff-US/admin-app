@@ -39,6 +39,7 @@ import { setFlash } from 'sveltekit-flash-message/server';
 import { editRecurrenceDaySchema } from '$lib/config/zod-schemas';
 import { superValidate, message, setError } from 'sveltekit-superforms/server';
 import { convertRecurrenceDayToUTC } from '$lib/_helpers/UTCTimezoneUtils';
+import { formatInTimeZone } from 'date-fns-tz';
 import { z } from 'zod';
 import {
 	notifyWorkdayClaimed,
@@ -50,6 +51,41 @@ const adjustedHourlyRateSchema = z.object({
 	timesheetId: z.string().min(1),
 	adjustedHourlyRate: z.coerce.number().int().min(0).nullable()
 });
+
+/**
+ * Prefill values for the "Edit scheduled time/date" form. The DB stores UTC
+ * timestamps; the inputs are `type="date"`/`type="time"`, so we render the date
+ * from the stored `date` column and the times as HH:mm in the requisition's
+ * reference timezone. This round-trips losslessly through the save action's
+ * `convertRecurrenceDayToUTC` and replaces the old `dayStart.toString()` prefill,
+ * which produced full JS Date strings the inputs couldn't display (blank form).
+ */
+function buildScheduleFormPrefill(
+	recurrenceDay: {
+		date: string | Date;
+		dayStart: Date;
+		dayEnd: Date;
+		lunchStart: Date | null;
+		lunchEnd: Date | null;
+	},
+	referenceTimezone: string | null | undefined
+) {
+	const tz = referenceTimezone || 'America/New_York';
+	return {
+		date:
+			typeof recurrenceDay.date === 'string'
+				? recurrenceDay.date
+				: formatInTimeZone(recurrenceDay.date, tz, 'yyyy-MM-dd'),
+		startTime: formatInTimeZone(recurrenceDay.dayStart, tz, 'HH:mm'),
+		endTime: formatInTimeZone(recurrenceDay.dayEnd, tz, 'HH:mm'),
+		lunchStartTime: recurrenceDay.lunchStart
+			? formatInTimeZone(recurrenceDay.lunchStart, tz, 'HH:mm')
+			: undefined,
+		lunchEndTime: recurrenceDay.lunchEnd
+			? formatInTimeZone(recurrenceDay.lunchEnd, tz, 'HH:mm')
+			: undefined
+	};
+}
 
 export async function load(event: RequestEvent) {
 	const user = event.locals.user;
@@ -80,11 +116,10 @@ export async function load(event: RequestEvent) {
 
 		editWorkdayScheduleForm.data = {
 			...editWorkdayScheduleForm.data,
-			date: recurrenceDay.recurrenceDay.date,
-			startTime: recurrenceDay.recurrenceDay.dayStart.toString(),
-			endTime: recurrenceDay.recurrenceDay.dayEnd.toString(),
-			lunchStartTime: recurrenceDay.recurrenceDay.lunchStart?.toString() ?? undefined,
-			lunchEndTime: recurrenceDay.recurrenceDay.lunchEnd?.toString() ?? undefined
+			...buildScheduleFormPrefill(
+				recurrenceDay.recurrenceDay,
+				requisition.requisition.referenceTimezone
+			)
 		};
 
 		return {
@@ -122,11 +157,10 @@ export async function load(event: RequestEvent) {
 
 		editWorkdayScheduleForm.data = {
 			...editWorkdayScheduleForm.data,
-			date: recurrenceDay.recurrenceDay.date,
-			startTime: recurrenceDay.recurrenceDay.dayStart.toString(),
-			endTime: recurrenceDay.recurrenceDay.dayEnd.toString(),
-			lunchStartTime: recurrenceDay.recurrenceDay.lunchStart?.toString() ?? undefined,
-			lunchEndTime: recurrenceDay.recurrenceDay.lunchEnd?.toString() ?? undefined
+			...buildScheduleFormPrefill(
+				recurrenceDay.recurrenceDay,
+				requisition.requisition.referenceTimezone
+			)
 		};
 
 		return {
@@ -164,11 +198,10 @@ export async function load(event: RequestEvent) {
 
 		editWorkdayScheduleForm.data = {
 			...editWorkdayScheduleForm.data,
-			date: recurrenceDay.recurrenceDay.date,
-			startTime: recurrenceDay.recurrenceDay.dayStart.toString(),
-			endTime: recurrenceDay.recurrenceDay.dayEnd.toString(),
-			lunchStartTime: recurrenceDay.recurrenceDay.lunchStart?.toString() ?? undefined,
-			lunchEndTime: recurrenceDay.recurrenceDay.lunchEnd?.toString() ?? undefined
+			...buildScheduleFormPrefill(
+				recurrenceDay.recurrenceDay,
+				requisition.requisition.referenceTimezone
+			)
 		};
 
 		return {

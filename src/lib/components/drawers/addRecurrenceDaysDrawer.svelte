@@ -257,6 +257,26 @@
 		}
 	})();
 
+	// Live shift-duration preview: surfaces an AM/PM slip (negative duration)
+	// before submit, complementing the schema validation on save.
+	const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+	function shiftDurationLabel(
+		start: string | undefined,
+		end: string | undefined
+	): { text: string; invalid: boolean } | null {
+		if (!start || !end || !HHMM_RE.test(start) || !HHMM_RE.test(end)) return null;
+		const toMin = (t: string) => {
+			const [h, m] = t.split(':').map(Number);
+			return h * 60 + m;
+		};
+		const mins = toMin(end) - toMin(start);
+		if (mins <= 0) return { text: 'Ends before it starts', invalid: true };
+		const h = Math.floor(mins / 60);
+		const m = mins % 60;
+		return { text: `Shift: ${h}h${m ? ` ${m}m` : ''}`, invalid: false };
+	}
+	$: sharedDuration = shiftDurationLabel(sharedTimes.dayStartTime, sharedTimes.dayEndTime);
+
 	function getDatesInRange(start: Date, end: Date): Date[] {
 		const dates = [];
 		const current = new Date(start);
@@ -346,10 +366,23 @@
 								<Input id="shared-lunch-end" type="time" bind:value={sharedTimes.lunchEndTime} />
 							</div>
 						</div>
+						{#if sharedDuration}
+							<p
+								class="mt-2 text-sm {sharedDuration.invalid
+									? 'font-medium text-destructive'
+									: 'text-muted-foreground'}"
+							>
+								{#if sharedDuration.invalid}⚠ {/if}{sharedDuration.text}
+							</p>
+						{/if}
 					{:else}
 						{#each filteredDates as date}
 							{@const key = toUTCDateString(date)}
 							{#if perDayTimes[key]}
+								{@const perDayDuration = shiftDurationLabel(
+									perDayTimes[key].dayStartTime,
+									perDayTimes[key].dayEndTime
+								)}
 								<div class="mt-4">
 									<p class="font-semibold">Date: {date.toLocaleDateString()}</p>
 									<div class="grid grid-cols-2 gap-4">
@@ -388,6 +421,15 @@
 											/>
 										</div>
 									</div>
+									{#if perDayDuration}
+										<p
+											class="mt-2 text-sm {perDayDuration.invalid
+												? 'font-medium text-destructive'
+												: 'text-muted-foreground'}"
+										>
+											{#if perDayDuration.invalid}⚠ {/if}{perDayDuration.text}
+										</p>
+									{/if}
 								</div>
 							{/if}
 						{/each}
@@ -419,6 +461,16 @@
 							<Input id="single-lunch-end" type="time" bind:value={sharedTimes.lunchEndTime} />
 						</div>
 					</div>
+
+					{#if sharedDuration}
+						<p
+							class="mt-2 text-sm {sharedDuration.invalid
+								? 'font-medium text-destructive'
+								: 'text-muted-foreground'}"
+						>
+							{#if sharedDuration.invalid}⚠ {/if}{sharedDuration.text}
+						</p>
+					{/if}
 
 					<div class="mt-4">
 						<Button type="button" on:click={addDummyTimes} variant="secondary" size="sm">
