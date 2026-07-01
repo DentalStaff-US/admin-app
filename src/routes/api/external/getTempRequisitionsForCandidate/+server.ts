@@ -216,6 +216,10 @@ export const GET: RequestHandler = async ({ request }) => {
 				and(
 					inArray(requisitionTable.locationId, officeLocationIds),
 					notInArray(recurrenceDayTable.status, ['CANCELED', 'UNFULFILLED', 'FILLED']),
+					// Soft-deleted days keep status OPEN, so status alone isn't enough —
+					// exclude archived days too (matches getCalendarEventsForClient), or
+					// deleted shifts leak to professionals as blue open shifts.
+					eq(recurrenceDayTable.archived, false),
 					eq(requisitionTable.status, 'OPEN'),
 					eq(requisitionTable.archived, false),
 					eq(requisitionTable.permanentPosition, false),

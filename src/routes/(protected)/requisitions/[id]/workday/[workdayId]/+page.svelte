@@ -118,13 +118,33 @@
 		form,
 		enhance: scheduleEnhance,
 		submitting: scheduleSubmitting
-	} = superForm(editWorkdayScheduleForm, {
+	} = superForm(data.editWorkdayScheduleForm!, {
 		onResult({ result }) {
 			if (result.type === 'success') {
 				editingSchedule = false;
 			}
 		}
 	});
+
+	// Live shift-duration preview: surfaces an AM/PM slip (negative duration)
+	// before the user submits, in addition to the schema validation on save.
+	const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+	function shiftDurationLabel(
+		start: string | undefined,
+		end: string | undefined
+	): { text: string; invalid: boolean } | null {
+		if (!start || !end || !HHMM_RE.test(start) || !HHMM_RE.test(end)) return null;
+		const toMin = (t: string) => {
+			const [h, m] = t.split(':').map(Number);
+			return h * 60 + m;
+		};
+		const mins = toMin(end) - toMin(start);
+		if (mins <= 0) return { text: 'Ends before it starts', invalid: true };
+		const h = Math.floor(mins / 60);
+		const m = mins % 60;
+		return { text: `Shift: ${h}h${m ? ` ${m}m` : ''}`, invalid: false };
+	}
+	$: scheduleDuration = shiftDurationLabel($form.startTime, $form.endTime);
 
 </script>
 
@@ -366,6 +386,16 @@
 								/>
 							</div>
 						</div>
+
+						{#if scheduleDuration}
+							<p
+								class="text-sm {scheduleDuration.invalid
+									? 'font-medium text-destructive'
+									: 'text-muted-foreground'}"
+							>
+								{#if scheduleDuration.invalid}⚠ {/if}{scheduleDuration.text}
+							</p>
+						{/if}
 
 						<div class="grid grid-cols-2 gap-3">
 							<div class="space-y-1">
