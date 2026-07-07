@@ -57,8 +57,11 @@ export const clientProfileTable = pgTable('client_profiles', {
 	// New clients start as PENDING. Only admins can flip to ACTIVE. Requisition
 	// creation by CLIENT/CLIENT_STAFF is gated on status === 'ACTIVE'; admins
 	// can still create on a client's behalf regardless.
-	status: clientStatusEnum('client_status').notNull().default('PENDING')
+	status: clientStatusEnum('client_status').notNull().default('PENDING'),
 	// stripeCustomerId: text('stripe_customer_id')
+	// Last time a mass notification reached this client. Null = never contacted.
+	// Used by the "stale / not contacted in 30 days" segment filter.
+	lastContactedAt: timestamp('last_contacted_at', { withTimezone: true, mode: 'date' })
 });
 
 export const clientSubscriptionTable = pgTable('client_subscriptions', {

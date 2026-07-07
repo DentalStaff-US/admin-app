@@ -68,7 +68,10 @@ export const candidateProfileTable = pgTable('candidate_profiles', {
 		.unique()
 		.default(sql`nextval('puid_seq')`),
 	ssnLast4: text('ssn_last4'),
-	workersCompCode: text('workers_comp_code')
+	workersCompCode: text('workers_comp_code'),
+	// Last time a mass notification reached this candidate. Null = never
+	// contacted. Used by the "stale / not contacted in 30 days" segment filter.
+	lastContactedAt: timestamp('last_contacted_at', { withTimezone: true, mode: 'date' })
 });
 
 export const candidateRatingTable = pgTable('candidate_ratings', {

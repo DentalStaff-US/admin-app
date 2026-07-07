@@ -51,16 +51,16 @@ routes/+layout.js
 PostHog AI
 
 ```javascript
-import posthog from 'posthog-js'
+import posthog from 'posthog-js';
 import { browser } from '$app/environment';
 export const load = async () => {
-  if (browser) {
-    posthog.init('<ph_project_token>', {
-      api_host: 'https://us.i.posthog.com',
-      defaults: '2026-01-30',
-    })
-  }
-  return
+	if (browser) {
+		posthog.init('<ph_project_token>', {
+			api_host: 'https://us.i.posthog.com',
+			defaults: '2026-01-30'
+		});
+	}
+	return;
 };
 ```
 
@@ -135,12 +135,12 @@ PostHog AI
 ```javascript
 import { PostHog } from 'posthog-node';
 export async function load() {
-  const posthog = new PostHog('<ph_project_token>', { host: 'https://us.i.posthog.com' });
-  posthog.capture({
-    distinctId: 'distinct_id_of_the_user',
-    event: 'event_name',
-  })
-  await posthog.shutdown()
+	const posthog = new PostHog('<ph_project_token>', { host: 'https://us.i.posthog.com' });
+	posthog.capture({
+		distinctId: 'distinct_id_of_the_user',
+		event: 'event_name'
+	});
+	await posthog.shutdown();
 }
 ```
 
@@ -179,19 +179,13 @@ PostHog AI
 
 ```javascript
 import { PostHog } from 'posthog-node';
-const client = new PostHog(
-  '<ph_project_token>',
-  { host: 'https://us.i.posthog.com' }
-);
+const client = new PostHog('<ph_project_token>', { host: 'https://us.i.posthog.com' });
 export async function load() {
-  const distinctId = 'distinct_id_of_the_user';
-  const megaFeature = await client.isFeatureEnabled(
-    'mega-feature',
-    distinctId
-  );
-  return {
-    megaFeature
-  };
+	const distinctId = 'distinct_id_of_the_user';
+	const megaFeature = await client.isFeatureEnabled('mega-feature', distinctId);
+	return {
+		megaFeature
+	};
 }
 ```
 
@@ -217,13 +211,13 @@ kit: {
 
 ## Next steps
 
-For any technical questions for how to integrate specific PostHog features into Svelte (such as analytics, feature flags, A/B testing, surveys, etc.), have a look at our [JavaScript Web](/docs/libraries/js/features.md) and [Node]((/docs/libraries/node)) SDK docs.
+For any technical questions for how to integrate specific PostHog features into Svelte (such as analytics, feature flags, A/B testing, surveys, etc.), have a look at our [JavaScript Web](/docs/libraries/js/features.md) and [Node](<(/docs/libraries/node)>) SDK docs.
 
 Alternatively, the following tutorials can help you get started:
 
--   [How to set up Svelte analytics, feature flags, and more](/tutorials/svelte-analytics.md)
--   [How to set up A/B tests in Svelte](/tutorials/svelte-ab-tests.md)
--   [How to set up surveys in Svelte](/tutorials/svelte-surveys.md)
+- [How to set up Svelte analytics, feature flags, and more](/tutorials/svelte-analytics.md)
+- [How to set up A/B tests in Svelte](/tutorials/svelte-ab-tests.md)
+- [How to set up surveys in Svelte](/tutorials/svelte-surveys.md)
 
 ### Community questions
 

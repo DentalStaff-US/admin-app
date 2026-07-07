@@ -382,6 +382,7 @@ export const actions = {
 							amountInCents: Math.round(item.amount * 100),
 							description: item.description || '',
 							quantity: item.quantity || 1,
+							unitAmountInCents: Math.round(item.rate * 100),
 							currency: 'usd'
 						})),
 						{ clientId, userId: clientResult.user.id },

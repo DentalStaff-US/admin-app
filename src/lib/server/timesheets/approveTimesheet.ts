@@ -48,11 +48,22 @@ export function calculateAdminFeeCents(
 	return Math.round(adminFee * 100);
 }
 
+export type StripeLineItem = {
+	amountInCents: number;
+	description: string;
+	// When set, the item bills as `quantity × unitAmountInCents` (hours × rate)
+	// instead of a single lump `amount`. Hours can be fractional — see the
+	// `quantity_decimal` handling in createStripeInvoice.
+	quantity?: number;
+	unitAmountInCents?: number;
+};
+
 export function buildStripeLineItems({
 	regularHours,
 	regularCents,
 	overtimeCents,
 	overtimeHours,
+	effectiveRateDollars,
 	adminFeeCents,
 	hoursDescription,
 	expenses,
@@ -62,23 +73,39 @@ export function buildStripeLineItems({
 	regularCents: number;
 	overtimeCents: number;
 	overtimeHours: number;
+	effectiveRateDollars: number;
 	adminFeeCents: number;
 	hoursDescription: string;
 	expenses: TimesheetExpenseSelect[];
 	priorWeekHours?: number;
 }) {
-	const lineItems: Array<{ amountInCents: number; description: string }> = [];
+	// Mirror the paper invoice: hours are the quantity, the hourly rate is the
+	// unit price (overtime at 1.5×). Rate is integer dollars, so rateCents is an
+	// exact multiple of 100 and `unit_amount × quantity_decimal` reproduces the
+	// same total computeHoursBreakdown already rounded to.
+	const rateCents = Math.round(effectiveRateDollars * 100);
+	const overtimeRateCents = Math.round(effectiveRateDollars * 1.5 * 100);
+
+	const lineItems: StripeLineItem[] = [];
 	// Skip the regular line entirely when this timesheet is all overtime (the
 	// week's 40h was already used on a prior sheet) — no $0 "Regular hours" line.
 	if (regularHours > 0) {
-		lineItems.push({ amountInCents: regularCents, description: hoursDescription });
+		lineItems.push({
+			amountInCents: regularCents,
+			description: hoursDescription,
+			quantity: regularHours,
+			unitAmountInCents: rateCents
+		});
 	}
 	if (overtimeHours > 0 && overtimeCents > 0) {
 		lineItems.push({
 			amountInCents: overtimeCents,
-			description: overtimeLineDescription(priorWeekHours)
+			description: overtimeLineDescription(priorWeekHours),
+			quantity: overtimeHours,
+			unitAmountInCents: overtimeRateCents
 		});
 	}
+	// Expenses and the admin fee are single-unit charges — no quantity/rate split.
 	for (const expense of expenses) {
 		lineItems.push({
 			amountInCents: expense.amountCents,
@@ -336,6 +363,7 @@ export async function approveAndInvoiceTimesheet(
 					regularCents: breakdown.regularCents,
 					overtimeCents: breakdown.overtimeCents,
 					overtimeHours: breakdown.overtimeHours,
+					effectiveRateDollars: effectiveRate ?? 0,
 					adminFeeCents,
 					hoursDescription: `Regular hours worked for ${candidateName}`,
 					expenses: approvedExpenses,

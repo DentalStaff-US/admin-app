@@ -596,3 +596,82 @@ export const addExpenseSchema = z.object({
 	amountDollars: z.number({ invalid_type_error: 'Amount must be a number' }).positive()
 });
 export type AddExpenseSchema = typeof addExpenseSchema;
+
+// ──────────────────────────────────────────────────────────────────────────
+// Mass Notifications (targeted SMS / email campaigns to existing platform users)
+// ──────────────────────────────────────────────────────────────────────────
+
+export const massNotificationAudienceEnum = z.enum(['CANDIDATE', 'CLIENT']);
+export const massNotificationChannelEnum = z.enum(['SMS', 'EMAIL']);
+
+// Segment criteria. Every field is optional — an empty filter targets the whole
+// audience. Fields are shared across audiences; the audience query interprets
+// only the ones relevant to it (e.g. paymentType/companyName are client-only,
+// discipline/experience/payRate are candidate-only). Numbers use z.coerce so
+// they parse from the multipart form body superforms submits.
+const massNotificationFilterFields = {
+	// shared
+	filterName: z.string().trim().optional(),
+	filterEmail: z.string().trim().optional(),
+	filterPhone: z.string().trim().optional(),
+	filterStatus: z.string().trim().optional(),
+	createdFrom: z.string().trim().optional(),
+	createdTo: z.string().trim().optional(),
+	// "not contacted in the last 30 days (or never)"
+	staleOnly: z.boolean().default(false),
+	// location radius — geocoded via mapbox on the client, lat/lon submitted here
+	locationLabel: z.string().trim().optional(),
+	locationLat: z.coerce.number().optional(),
+	locationLon: z.coerce.number().optional(),
+	radiusMiles: z.coerce.number().positive().max(500).optional(),
+	// candidate-only
+	disciplineId: z.string().trim().optional(),
+	// "this level and above" — resolved to experience_levels.order >= selected
+	experienceLevelId: z.string().trim().optional(),
+	payRateMin: z.coerce.number().optional(),
+	payRateMax: z.coerce.number().optional(),
+	// client-only
+	companyName: z.string().trim().optional(),
+	// STRIPE = active Stripe billing, PAPER = paper invoicing,
+	// SETUP = Stripe selected but customer setup still pending
+	paymentType: z.enum(['STRIPE', 'PAPER', 'SETUP']).optional(),
+	// client-only: reach the account OWNER (owner's email/cell — e.g. clawbacks)
+	// or the LOCATION (office email/number — e.g. job-related blasts). Applies to
+	// whichever channel is chosen. Defaults to OWNER when unset.
+	clientRecipientTarget: z.enum(['OWNER', 'LOCATION']).optional()
+};
+
+// Used by the "Preview recipients" action — audience + channel + filters, no
+// message content required yet.
+export const massNotificationFilterSchema = z.object({
+	audience: massNotificationAudienceEnum,
+	channel: massNotificationChannelEnum,
+	...massNotificationFilterFields
+});
+export type MassNotificationFilterSchema = typeof massNotificationFilterSchema;
+
+// The full builder form — filters plus message content. Queued on submit.
+export const massNotificationSchema = z
+	.object({
+		name: z.string().trim().min(1, { message: 'Give this send a name' }),
+		audience: massNotificationAudienceEnum,
+		channel: massNotificationChannelEnum,
+		subject: z.string().trim().optional(),
+		body: z.string().trim().min(1, { message: 'Message body is required' }),
+		...massNotificationFilterFields
+	})
+	.refine((d) => d.channel !== 'EMAIL' || (d.subject?.trim().length ?? 0) > 0, {
+		message: 'Subject is required for email',
+		path: ['subject']
+	});
+export type MassNotificationSchema = typeof massNotificationSchema;
+
+// Send a single test message to the current admin before queueing.
+export const massNotificationTestSchema = z.object({
+	channel: massNotificationChannelEnum,
+	subject: z.string().trim().optional(),
+	body: z.string().trim().min(1, { message: 'Message body is required' }),
+	// where to send the test — the admin's own phone (SMS) or email
+	testAddress: z.string().trim().min(1, { message: 'A test destination is required' })
+});
+export type MassNotificationTestSchema = typeof massNotificationTestSchema;

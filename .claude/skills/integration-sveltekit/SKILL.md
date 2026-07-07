@@ -41,7 +41,7 @@ The example project shows the target implementation pattern. Consult the documen
 
 - Set paths.relative to false in svelte.config.js — this is required for PostHog session replay to work correctly with SSR and is easy to miss
 - Use the Svelte MCP server tools to check Svelte documentation (list-sections, get-documentation) and validate components (svelte-autofixer) — always run svelte-autofixer on new or modified .svelte files before finishing
-- When a reverse proxy is configured, both /static/* AND /array/* must route to the assets origin (us-assets.i.posthog.com or eu-assets.i.posthog.com).
+- When a reverse proxy is configured, both /static/_ AND /array/_ must route to the assets origin (us-assets.i.posthog.com or eu-assets.i.posthog.com).
 
 ## Identifying users
 

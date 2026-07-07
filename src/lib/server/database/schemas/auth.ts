@@ -22,6 +22,10 @@ export const userTable = pgTable('users', {
 	role: text('role').notNull().default('CANDIDATE'),
 	verified: boolean('verified').notNull().default(false),
 	receiveEmail: boolean('receive_email').notNull().default(true),
+		// Mirror of receiveEmail for SMS. Flipped to false when a user replies STOP
+		// to a Twilio message (see the SMS webhook) and honored by mass-notification
+		// sends. Defaults true — existing platform data is implied opt-in.
+		receiveSms: boolean('receive_sms').notNull().default(true),
 	password: text('password'),
 	token: text('token').unique(),
 	createdAt: timestamp('created_at', {

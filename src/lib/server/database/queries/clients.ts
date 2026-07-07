@@ -1,4 +1,17 @@
-import { desc, eq, count, sql, and, ne, notExists, or, ilike, SQL, inArray, isNotNull } from 'drizzle-orm';
+import {
+	desc,
+	eq,
+	count,
+	sql,
+	and,
+	ne,
+	notExists,
+	or,
+	ilike,
+	SQL,
+	inArray,
+	isNotNull
+} from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import {
 	clientCompanyTable,
@@ -39,11 +52,7 @@ import {
 } from './requisitions';
 import type { PaginateOptions } from '$lib/types';
 import { EmailService } from '$lib/server/email/emailService';
-import {
-	CLIENT_STATUS,
-	DEFAULT_MAX_RECORD_LIMIT,
-	type ClientStatus
-} from '$lib/config/constants';
+import { CLIENT_STATUS, DEFAULT_MAX_RECORD_LIMIT, type ClientStatus } from '$lib/config/constants';
 import { disciplineTable } from '../schemas/skill';
 
 export type ClientWithCompanyRaw = {
@@ -248,7 +257,8 @@ export async function getClientProfileById(clientId: string) {
 				lastName: userTable.lastName,
 				email: userTable.email,
 				avatarUrl: userTable.avatarUrl,
-				receiveEmail: userTable.receiveEmail
+				receiveEmail: userTable.receiveEmail,
+				receiveSms: userTable.receiveSms
 			},
 			company: { ...clientCompanyTable },
 			subscription: { ...clientSubscriptionTable }
@@ -879,9 +889,7 @@ export async function getCalendarEventsForClient(
 				eq(requisitionTable.companyId, clientCompanyResult[0].company.id),
 				eq(requisitionTable.archived, false),
 				eq(recurrenceDayTable.archived, false),
-				Array.isArray(locationIds)
-					? inArray(requisitionTable.locationId, locationIds)
-					: undefined
+				Array.isArray(locationIds) ? inArray(requisitionTable.locationId, locationIds) : undefined
 			)
 		)
 		.innerJoin(requisitionTable, eq(requisitionTable.id, recurrenceDayTable.requisitionId))
@@ -943,9 +951,7 @@ export async function getRequisitionsForClientWithLimit(
 				and(
 					eq(requisitionTable.companyId, company.id),
 					ne(requisitionTable.status, 'PENDING'),
-					Array.isArray(locationIds)
-						? inArray(requisitionTable.locationId, locationIds)
-						: undefined
+					Array.isArray(locationIds) ? inArray(requisitionTable.locationId, locationIds) : undefined
 				)
 			)
 			.limit(count)
@@ -1074,9 +1080,7 @@ export async function getPendingInvitesForCompany(companyId: string) {
 			companyOfficeLocationTable,
 			eq(companyOfficeLocationTable.id, companyStaffInviteLocations.locationId)
 		)
-		.where(
-			and(eq(userInviteTable.companyId, companyId), isNotNull(userInviteTable.token))
-		)
+		.where(and(eq(userInviteTable.companyId, companyId), isNotNull(userInviteTable.token)))
 		.orderBy(desc(userInviteTable.createdAt));
 }
 
@@ -1102,10 +1106,7 @@ export async function getPendingInvitesForLocation(locationId: string) {
 			eq(companyStaffInviteLocations.token, userInviteTable.token)
 		)
 		.where(
-			and(
-				eq(companyStaffInviteLocations.locationId, locationId),
-				isNotNull(userInviteTable.token)
-			)
+			and(eq(companyStaffInviteLocations.locationId, locationId), isNotNull(userInviteTable.token))
 		)
 		.orderBy(desc(userInviteTable.createdAt));
 }
@@ -1254,9 +1255,7 @@ export async function setStaffLocations(args: {
 	}
 
 	await db.transaction(async (tx) => {
-		await tx
-			.delete(clientStaffLocationTable)
-			.where(eq(clientStaffLocationTable.staffId, staffId));
+		await tx.delete(clientStaffLocationTable).where(eq(clientStaffLocationTable.staffId, staffId));
 
 		if (locationIds.length > 0) {
 			await tx.insert(clientStaffLocationTable).values(

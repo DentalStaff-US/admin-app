@@ -85,6 +85,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 			transformPageChunk: ({ html }) => html
 		});
 	}
+
+	// Twilio SMS (STOP/START) webhook — no session; skip auth/redirect handling so
+	// the form body reaches the handler untouched, like the Stripe webhook above.
+	if (event.url.pathname === '/api/webhooks/twilio/sms') {
+		return await resolve(event, { transformPageChunk: ({ html }) => html });
+	}
 	const startTimer = Date.now();
 	event.locals.startTimer = startTimer;
 

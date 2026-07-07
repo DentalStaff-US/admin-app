@@ -61,6 +61,12 @@
 		<h1 class="text-3xl font-extrabold leading-tight tracking-tighter md:text-4xl">
 			Account Settings
 		</h1>
+		<a
+			href="/settings/notifications"
+			class="-mt-2 w-fit text-sm font-medium text-blue-600 hover:underline"
+		>
+			Manage notification preferences (email &amp; SMS) →
+		</a>
 		{#if user?.role === USER_ROLES.CLIENT || hasAdminPrivileges}
 			<ClientSettingsView
 				bind:selectedTab

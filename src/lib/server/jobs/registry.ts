@@ -51,5 +51,11 @@ export const jobs: JobDefinition[] = [
 		schedule: 'daily at 1:00 AM ET',
 		rule: () => ny({ hour: 1, minute: 0, second: 0 }),
 		enabled: false
+	},
+	{
+		name: 'processCampaignQueue',
+		endpoint: '/jobs/campaigns/processQueue',
+		schedule: 'every minute',
+		rule: () => ny({ second: 0 })
 	}
 ];
