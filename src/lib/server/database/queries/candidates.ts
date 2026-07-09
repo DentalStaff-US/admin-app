@@ -107,10 +107,7 @@ export async function getCandidateStatusCounts(): Promise<CandidateStatusCounts>
 	return counts;
 }
 
-export async function getAllCandidateProfiles(
-	searchTerm?: string,
-	status?: CandidateStatus
-) {
+export async function getAllCandidateProfiles(searchTerm?: string, status?: CandidateStatus) {
 	const statusCounts = await getCandidateStatusCounts();
 	const filters: SQLWrapper[] = [];
 
@@ -191,7 +188,9 @@ export async function getCandidateProfileById(candidateId: string) {
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				email: userTable.email,
-				avatarUrl: userTable.avatarUrl
+				avatarUrl: userTable.avatarUrl,
+				receiveEmail: userTable.receiveEmail,
+				receiveSms: userTable.receiveSms
 			}
 		})
 		.from(candidateProfileTable)

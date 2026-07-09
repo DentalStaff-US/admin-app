@@ -661,6 +661,14 @@
 													>
 														{candidate.user.email}
 													</a>
+													{#if !candidate.user.receiveEmail}
+														<span
+															class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700"
+															title="This user has opted out of mass emails"
+														>
+															Email opted out
+														</span>
+													{/if}
 												</div>
 												<div class="flex items-center gap-2">
 													<Phone class="h-4 w-4 text-gray-500" />
@@ -670,6 +678,14 @@
 													>
 														{candidate.profile.cellPhone}
 													</a>
+													{#if !candidate.user.receiveSms}
+														<span
+															class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700"
+															title="This user has opted out of mass SMS (replied STOP)"
+														>
+															SMS opted out
+														</span>
+													{/if}
 												</div>
 											</div>
 										</div>

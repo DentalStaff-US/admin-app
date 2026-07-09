@@ -973,6 +973,7 @@ export const actions = {
 						regularCents: breakdown.regularCents,
 						overtimeCents: breakdown.overtimeCents,
 						overtimeHours: breakdown.overtimeHours,
+						effectiveRateDollars: effectiveRate ?? 0,
 						adminFeeCents,
 						hoursDescription: `Regular hours worked for ${candidateName}`,
 						expenses: approvedExpenses,

@@ -4,6 +4,19 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
+// Stripe added `quantity_decimal` (fractional invoice-item quantities) in API
+// version 2026-03-25.dahlia. The installed SDK pins an older version, so we set
+// this version PER REQUEST on the invoice-item create calls only — every other
+// Stripe call (webhooks, checkout, portal, subscriptions) stays on the pinned
+// version. This lets hours bill as `quantity_decimal × unit_amount` (e.g.
+// 37.5 × $40) instead of a single lump line, matching the paper invoice.
+const DECIMAL_QTY_API_VERSION = '2026-03-25.dahlia';
+
+// `quantity_decimal` isn't in the installed SDK's param types yet — extend them.
+type InvoiceItemCreateParamsWithDecimalQty = Stripe.InvoiceItemCreateParams & {
+	quantity_decimal?: string;
+};
+
 export async function createStripeInvoice(
 	stripeCustomerId: string,
 	lineItems: Array<{
@@ -11,6 +24,7 @@ export async function createStripeInvoice(
 		description?: string;
 		currency?: string;
 		quantity?: number;
+		unitAmountInCents?: number;
 	}>,
 	metadata: Stripe.MetadataParam = {},
 	additionalNotes?: string,
@@ -54,29 +68,40 @@ export async function createStripeInvoice(
 
 		stage = 'create_invoice_items';
 		for (const item of lineItems) {
-			let invoiceItemParams;
-
-			if (item.quantity && item.quantity > 1) {
-				const unitAmount = Math.round(item.amountInCents / item.quantity);
-				invoiceItemParams = {
+			// Hours lines carry quantity (possibly fractional) + the per-hour rate:
+			// bill as quantity_decimal × unit_amount so Stripe shows "37.5 × $40"
+			// like the paper invoice. Requires the newer API version, set per call.
+			if (item.quantity != null && item.unitAmountInCents != null) {
+				const params: InvoiceItemCreateParamsWithDecimalQty = {
 					invoice: invoice.id,
 					customer: stripeCustomerId,
-					unit_amount: unitAmount,
-					quantity: item.quantity,
+					unit_amount: item.unitAmountInCents,
+					quantity_decimal: String(item.quantity),
 					currency: item.currency || 'usd',
 					description: item.description || 'Service'
 				};
+				await stripe.invoiceItems.create(params, { apiVersion: DECIMAL_QTY_API_VERSION });
+			} else if (item.quantity != null && item.quantity > 1) {
+				// Legacy safety net: a caller passed quantity but no explicit unit
+				// rate — derive the unit from the total (integer quantity only).
+				await stripe.invoiceItems.create({
+					invoice: invoice.id,
+					customer: stripeCustomerId,
+					unit_amount: Math.round(item.amountInCents / item.quantity),
+					quantity: item.quantity,
+					currency: item.currency || 'usd',
+					description: item.description || 'Service'
+				});
 			} else {
-				invoiceItemParams = {
+				// Single-unit charges (expenses, admin fee): one lump amount.
+				await stripe.invoiceItems.create({
 					invoice: invoice.id,
 					customer: stripeCustomerId,
 					amount: item.amountInCents,
 					currency: item.currency || 'usd',
 					description: item.description || 'Service'
-				};
+				});
 			}
-
-			await stripe.invoiceItems.create(invoiceItemParams);
 		}
 
 		stage = 'finalize_invoice';

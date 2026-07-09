@@ -834,6 +834,22 @@
 									<a href={`mailto:${client.user.email}`} class="text-blue-600 hover:underline">
 										{client.user.email}
 									</a>
+									{#if !client.user.receiveEmail}
+										<span
+											class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700"
+											title="This user has opted out of mass emails"
+										>
+											Email opted out
+										</span>
+									{/if}
+									{#if !client.user.receiveSms}
+										<span
+											class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700"
+											title="This user has opted out of mass SMS (replied STOP)"
+										>
+											SMS opted out
+										</span>
+									{/if}
 								</div>
 								{#if needsCustomerSetup}
 									<div class="flex items-center gap-2">

@@ -337,6 +337,13 @@
       "when": 1782420387572,
       "tag": "0047_dazzling_spyke",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1783104443590,
+      "tag": "0048_empty_wolfpack",
+      "breakpoints": true
     }
   ]
 }

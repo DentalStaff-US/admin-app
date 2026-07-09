@@ -22,7 +22,8 @@
 			{ name: 'Record History', link: '/admin/menu/record-history' },
 			{ name: 'Documents', link: '/admin/menu/documents' },
 			{ name: 'Application Settings', link: '/admin/menu/application-settings' }
-		]
+		],
+		Communication: [{ name: 'Mass Notifications', link: '/admin/menu/mass-notifications' }]
 	};
 </script>
 

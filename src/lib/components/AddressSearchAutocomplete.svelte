@@ -13,6 +13,10 @@
     export let maxResults = 5;
     export let country: string | undefined = undefined; // e.g., 'us', 'ca'
     export let selected: AddressResult | null = null;
+    // Mapbox Geocoding v6 feature types to search. Defaults to street addresses
+    // (unchanged behavior for existing consumers). Pass a broader list — e.g.
+    // "place,locality,region,postcode,address" — to allow city/area searches.
+    export let types = "address,secondary_address";
 
     const MAPBOX_TOKEN = PUBLIC_MAPBOX_TOKEN;
 
@@ -44,7 +48,7 @@
             access_token: MAPBOX_TOKEN,
             limit: maxResults.toString(),
             autocomplete: "true",
-            types: "address,secondary_address" // Include both addresses and points of interest
+            types // caller-configurable; defaults to street addresses
         });
 
         if (country) {

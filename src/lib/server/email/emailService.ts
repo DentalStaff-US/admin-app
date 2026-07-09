@@ -85,78 +85,113 @@ export class EmailService {
 		let totalSent = 0;
 		let totalFailed = 0;
 
-		// Chunk emails into batches of 100 (Resend's limit)
+		const record = (r: EmailSendResult) => {
+			results.push(r);
+			if (r.success) totalSent++;
+			else totalFailed++;
+		};
+
+		// Send one email via the single-email API (the same proven path as every
+		// transactional email and the "send test" button), retrying once after a
+		// short backoff. Resend occasionally rejects the first call transiently
+		// (rate-limit/cold connection) then accepts the retry — this makes that
+		// self-heal instead of surfacing as a failed recipient that needs a manual
+		// "Retry failed".
+		const sendOneWithRetry = async (email: SendEmailParams): Promise<EmailSendResult> => {
+			const first = await this.sendEmail(email);
+			if (first.success) return first;
+			await this.delay(800);
+			return this.sendEmail(email);
+		};
+
+		// Fallback used whenever the batch API errors or returns an incomplete
+		// response, so a batch-only quirk never sinks a whole campaign. Sequential +
+		// throttled to stay under Resend's 5 req/s limit.
+		const sendIndividually = async (batch: SendBulkEmailParams['emails']) => {
+			for (const email of batch) {
+				record(await sendOneWithRetry(email));
+				await this.delay(250);
+			}
+		};
+
+		// Resend's batch endpoint occasionally rejects a first call transiently (rate
+		// blip / cold connection) then accepts the retry — the "fails once, sends on
+		// retry" symptom. So we retry the BATCH itself with backoff, keeping batch as
+		// the send path. Only if every batch attempt fails do we fall back to
+		// individual sends so the campaign still goes out.
+		const BATCH_MAX_ATTEMPTS = 3;
+
+		// Chunk emails into batches of 100 (Resend's batch limit)
 		const batches = chunk(params.emails, 100);
 
 		for (let i = 0; i < batches.length; i++) {
 			const batch = batches[i];
 
-			try {
-				// Prepare batch data for Resend
-				const batchData = batch.map((email) => ({
-					from: this.formatEmailAddress(this.defaultConfig.from),
-					to: email.to.map((recipient) => this.formatEmailAddress(recipient)),
-					subject: email.subject,
-					html: email.html,
-					...(email.text && { text: email.text }),
-					...(email.replyTo && {
-						replyTo: this.formatEmailAddress(email.replyTo)
-					}),
-					...(!email.replyTo &&
-						this.defaultConfig.replyTo && {
-							replyTo: this.formatEmailAddress(this.defaultConfig.replyTo)
-						})
-				}));
+			const batchData = batch.map((email) => ({
+				from: this.formatEmailAddress(this.defaultConfig.from),
+				to: email.to.map((recipient) => this.formatEmailAddress(recipient)),
+				subject: email.subject,
+				html: email.html,
+				...(email.text && { text: email.text }),
+				...(email.replyTo && { replyTo: this.formatEmailAddress(email.replyTo) }),
+				...(!email.replyTo &&
+					this.defaultConfig.replyTo && {
+						replyTo: this.formatEmailAddress(this.defaultConfig.replyTo)
+					})
+			}));
 
-				// Send batch using Resend's batch API
-				const batchResult = await this.mailer.batch.send(batchData);
+			let handled = false;
+			let lastError = 'unknown error';
 
-				// Process batch results
-				if (batchResult.error) {
-					// Entire batch failed
-					for (const email of batch) {
-						results.push({
-							id: crypto.randomUUID(),
-							success: false,
-							error: batchResult.error.message
+			for (let attempt = 1; attempt <= BATCH_MAX_ATTEMPTS && !handled; attempt++) {
+				try {
+					const batchResult = await this.mailer.batch.send(batchData);
+
+					if (batchResult.error) {
+						lastError = batchResult.error.message;
+						console.error('Resend batch send failed', {
+							batch: i + 1,
+							attempt,
+							error: lastError
 						});
-						totalFailed++;
-					}
-					errors.push(`Batch ${i + 1} failed: ${batchResult.error.message}`);
-				} else {
-					// Process individual email results in batch
-					const batchResults: any = batchResult.data || [];
-
-					for (let j = 0; j < batch.length; j++) {
-						const emailResult = batchResults[j];
-
-						if (emailResult && emailResult.id) {
-							results.push({
-								id: emailResult.id,
-								success: true
-							});
-							totalSent++;
-						} else {
-							results.push({
-								id: crypto.randomUUID(),
-								success: false,
-								error: 'Unknown batch error'
-							});
-							totalFailed++;
+					} else {
+						// Success. Resend nests the `{ id }` array under `data.data`
+						// (CreateBatchResponse = { data: { data: [{ id }] }, error }).
+						const batchResults: Array<{ id?: string }> = batchResult.data?.data ?? [];
+						for (let j = 0; j < batch.length; j++) {
+							const emailResult = batchResults[j];
+							if (emailResult?.id) {
+								record({ id: emailResult.id, success: true });
+							} else {
+								// Rare per-entry gap — cover just that recipient via single send.
+								record(await sendOneWithRetry(batch[j]));
+								await this.delay(250);
+							}
 						}
+						handled = true;
+						break;
 					}
+				} catch (error) {
+					lastError = error instanceof Error ? error.message : String(error);
+					console.error('Resend batch threw', { batch: i + 1, attempt, error: lastError });
 				}
-			} catch (error: any) {
-				// Handle unexpected errors
-				for (const email of batch) {
-					results.push({
-						id: crypto.randomUUID(),
-						success: false,
-						error: error.message || 'Unknown error occurred'
-					});
-					totalFailed++;
-				}
-				errors.push(`Batch ${i + 1} error: ${error.message}`);
+
+				// Backoff before the next batch attempt (1s, then 2s).
+				if (attempt < BATCH_MAX_ATTEMPTS) await this.delay(1000 * attempt);
+			}
+
+			if (!handled) {
+				// Every batch attempt failed — deliver via single-sends so the campaign
+				// still goes out, and record why batch gave up.
+				console.error('Resend batch exhausted retries; sending individually', {
+					batch: i + 1,
+					attempts: BATCH_MAX_ATTEMPTS,
+					error: lastError
+				});
+				errors.push(
+					`Batch ${i + 1} failed after ${BATCH_MAX_ATTEMPTS} attempts (${lastError}) — sent individually`
+				);
+				await sendIndividually(batch);
 			}
 
 			// Wait 2 seconds between batches (except for the last batch)
@@ -165,12 +200,7 @@ export class EmailService {
 			}
 		}
 
-		return {
-			results,
-			totalSent,
-			totalFailed,
-			errors
-		};
+		return { results, totalSent, totalFailed, errors };
 	}
 
 	/**
