@@ -58,8 +58,8 @@
 		<p class="mt-2 whitespace-pre-wrap rounded-md border bg-gray-50 p-3 text-sm">{campaign.body}</p>
 	</div>
 
-	{#if canCancel}
-		<div class="px-6 pt-4">
+	<div class="px-6 pt-4 flex flex-wrap gap-3">
+		{#if canCancel}
 			<form method="POST" action="?/cancel" use:enhance>
 				<button
 					type="submit"
@@ -68,8 +68,18 @@
 					Cancel remaining sends
 				</button>
 			</form>
-		</div>
-	{/if}
+		{/if}
+		{#if campaign.failedCount > 0 && !canCancel}
+			<form method="POST" action="?/retry" use:enhance>
+				<button
+					type="submit"
+					class="rounded-md border border-blue-300 px-3 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50"
+				>
+					Retry {campaign.failedCount} failed send{campaign.failedCount === 1 ? '' : 's'}
+				</button>
+			</form>
+		{/if}
+	</div>
 
 	<div class="px-6 py-6">
 		<h2 class="mb-2 text-lg font-semibold">Recipients</h2>

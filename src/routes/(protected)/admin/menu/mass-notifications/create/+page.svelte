@@ -5,7 +5,7 @@
 
 	export let data: PageData;
 
-	const { form, errors, enhance, submitting } = superForm(data.form, {
+	const { form, errors, allErrors, enhance, submitting } = superForm(data.form, {
 		dataType: 'json',
 		taintedMessage: null
 	});
@@ -96,11 +96,15 @@
 		$form.locationLabel = a.place_name ?? a.formatted_address ?? '';
 		$form.locationLat = a.coordinates?.lat;
 		$form.locationLon = a.coordinates?.lng;
+		// Seed the radius with the platform default so it always has a value; the
+		// admin can still change it. (Server also falls back to this if left blank.)
+		if ($form.radiusMiles == null) $form.radiusMiles = data.defaultRadiusMiles;
 	}
 	function onAddressClear() {
 		$form.locationLabel = '';
 		$form.locationLat = undefined;
 		$form.locationLon = undefined;
+		$form.radiusMiles = undefined;
 	}
 
 	const inputCls =
@@ -263,11 +267,15 @@
 						{#if $form.locationLat != null}
 							<input
 								type="number"
+								min="1"
+								max="500"
 								class="w-28 rounded-md border border-gray-300 px-2 py-1 text-sm"
-								placeholder="miles"
+								placeholder={`${data.defaultRadiusMiles}`}
 								bind:value={$form.radiusMiles}
 							/>
-							<span class="text-xs text-gray-500">mile radius</span>
+							<span class="text-xs text-gray-500">
+								mile radius (default {data.defaultRadiusMiles})
+							</span>
 						{/if}
 					</div>
 				</div>
@@ -357,6 +365,17 @@
 				</div>
 				{#if testStatus}<p class="text-xs text-gray-600">{testStatus}</p>{/if}
 			</div>
+
+			{#if $allErrors.length}
+				<div class="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+					<p class="font-medium">Please fix the following before sending:</p>
+					<ul class="mt-1 list-disc pl-5">
+						{#each $allErrors as e}
+							<li>{e.path ? `${e.path}: ` : ''}{e.messages.join(', ')}</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
 
 			<button
 				type="submit"

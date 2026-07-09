@@ -10,16 +10,18 @@ import {
 	createCampaignWithRecipients,
 	toCampaignFilters
 } from '$lib/server/database/queries/campaigns';
+import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
 	if (!user) redirect(302, '/auth/sign-in');
 	if (user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/dashboard');
 
-	const [form, disciplines, experienceLevels] = await Promise.all([
+	const [form, disciplines, experienceLevels, radius] = await Promise.all([
 		superValidate(event, massNotificationSchema),
 		getAllDisciplines(),
-		getAllExperienceLevels()
+		getAllExperienceLevels(),
+		getDefaultSearchRadius()
 	]);
 
 	return {
@@ -28,6 +30,7 @@ export const load: PageServerLoad = async (event) => {
 		experienceLevels,
 		candidateStatuses: Object.values(CANDIDATE_STATUS),
 		clientStatuses: Object.values(CLIENT_STATUS),
+		defaultRadiusMiles: radius.miles,
 		testDefaults: { email: user.email }
 	};
 };
@@ -57,16 +60,13 @@ export const actions = {
 			channel: form.data.channel,
 			audience: form.data.audience,
 			filters,
-			subject: form.data.channel === 'EMAIL' ? form.data.subject ?? null : null,
+			subject: form.data.channel === 'EMAIL' ? (form.data.subject ?? null) : null,
 			body: form.data.body,
 			createdBy: user.id,
 			recipients
 		});
 
-		setFlash(
-			{ type: 'success', message: `Queued to ${recipients.length} recipient(s).` },
-			event
-		);
+		setFlash({ type: 'success', message: `Queued to ${recipients.length} recipient(s).` }, event);
 		redirect(303, `/admin/menu/mass-notifications/${campaignId}`);
 	}
 };

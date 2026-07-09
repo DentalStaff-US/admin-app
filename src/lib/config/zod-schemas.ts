@@ -604,11 +604,20 @@ export type AddExpenseSchema = typeof addExpenseSchema;
 export const massNotificationAudienceEnum = z.enum(['CANDIDATE', 'CLIENT']);
 export const massNotificationChannelEnum = z.enum(['SMS', 'EMAIL']);
 
+// Empty selects/number inputs post '' or null; treat those as "unset" so the
+// `.optional()` enum/number filters don't reject them (superforms sends the raw
+// value in JSON mode, and z.enum('').optional() / z.number() on '' would fail
+// validation with no visible error — the whole form then silently fail(400)s).
+const blankToUndef = (v: unknown) => (v === '' || v === null ? undefined : v);
+const optNum = z.preprocess(blankToUndef, z.coerce.number().optional());
+const optRadius = z.preprocess(blankToUndef, z.coerce.number().positive().max(500).optional());
+const optPaymentType = z.preprocess(blankToUndef, z.enum(['STRIPE', 'PAPER', 'SETUP']).optional());
+const optTarget = z.preprocess(blankToUndef, z.enum(['OWNER', 'LOCATION']).optional());
+
 // Segment criteria. Every field is optional — an empty filter targets the whole
 // audience. Fields are shared across audiences; the audience query interprets
 // only the ones relevant to it (e.g. paymentType/companyName are client-only,
-// discipline/experience/payRate are candidate-only). Numbers use z.coerce so
-// they parse from the multipart form body superforms submits.
+// discipline/experience/payRate are candidate-only).
 const massNotificationFilterFields = {
 	// shared
 	filterName: z.string().trim().optional(),
@@ -621,24 +630,24 @@ const massNotificationFilterFields = {
 	staleOnly: z.boolean().default(false),
 	// location radius — geocoded via mapbox on the client, lat/lon submitted here
 	locationLabel: z.string().trim().optional(),
-	locationLat: z.coerce.number().optional(),
-	locationLon: z.coerce.number().optional(),
-	radiusMiles: z.coerce.number().positive().max(500).optional(),
+	locationLat: optNum,
+	locationLon: optNum,
+	radiusMiles: optRadius,
 	// candidate-only
 	disciplineId: z.string().trim().optional(),
 	// "this level and above" — resolved to experience_levels.order >= selected
 	experienceLevelId: z.string().trim().optional(),
-	payRateMin: z.coerce.number().optional(),
-	payRateMax: z.coerce.number().optional(),
+	payRateMin: optNum,
+	payRateMax: optNum,
 	// client-only
 	companyName: z.string().trim().optional(),
 	// STRIPE = active Stripe billing, PAPER = paper invoicing,
 	// SETUP = Stripe selected but customer setup still pending
-	paymentType: z.enum(['STRIPE', 'PAPER', 'SETUP']).optional(),
+	paymentType: optPaymentType,
 	// client-only: reach the account OWNER (owner's email/cell — e.g. clawbacks)
 	// or the LOCATION (office email/number — e.g. job-related blasts). Applies to
 	// whichever channel is chosen. Defaults to OWNER when unset.
-	clientRecipientTarget: z.enum(['OWNER', 'LOCATION']).optional()
+	clientRecipientTarget: optTarget
 };
 
 // Used by the "Preview recipients" action — audience + channel + filters, no

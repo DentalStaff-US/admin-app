@@ -273,6 +273,12 @@ async function getClientSegment(
 	filters: CampaignFilters,
 	radiusMeters: number | null
 ): Promise<SegmentRow[]> {
+	// OWNER → one recipient per client, addressed to the account owner's own
+	// email/cell (e.g. clawbacks). LOCATION → one recipient per qualifying OFFICE
+	// (fan out to every office; a radius filters the offices themselves), addressed
+	// to the office email/number. base_location is never used.
+	const target = filters.clientRecipientTarget === 'LOCATION' ? 'LOCATION' : 'OWNER';
+
 	const conditions: ReturnType<typeof sql>[] = [];
 
 	if (filters.filterName) {
@@ -287,7 +293,9 @@ async function getClientSegment(
 	if (filters.filterPhone) {
 		const p = likeParam(filters.filterPhone);
 		conditions.push(
-			sql`(cp.cell_phone ILIKE ${p} OR loc.cell_phone ILIKE ${p} OR loc.company_phone ILIKE ${p})`
+			target === 'LOCATION'
+				? sql`(o.cell_phone ILIKE ${p} OR o.company_phone ILIKE ${p})`
+				: sql`cp.cell_phone ILIKE ${p}`
 		);
 	}
 	if (filters.filterStatus)
@@ -321,49 +329,56 @@ async function getClientSegment(
 		)`);
 	}
 
+	// Location radius. Build the point from lat/lon (geocoder-populated; geom may
+	// be NULL). OWNER: include a client when ANY office is in range (one owner
+	// message). LOCATION: filter the office ROWS, so each in-range office becomes
+	// its own recipient. base_location is never used (vanity field).
 	if (radiusMeters != null) {
-		// Match on a real office location within the radius. We build the point from
-		// the office's lat/lon (what the geocoder always writes) rather than the
-		// derived `geom` column — some offices have lat/lon but a NULL geom (the
-		// geom-sync trigger predates their geocoding), and keying on geom silently
-		// dropped them. base_location is intentionally NOT used (vanity field).
-		conditions.push(sql`EXISTS (
-			SELECT 1 FROM company_office_locations o
-			WHERE o.company_id = cc.id
-			AND o.lat IS NOT NULL AND o.lon IS NOT NULL
-			AND ST_DWithin(
+		if (target === 'LOCATION') {
+			conditions.push(sql`o.lat IS NOT NULL AND o.lon IS NOT NULL AND ST_DWithin(
 				ST_SetSRID(ST_MakePoint(o.lon::float, o.lat::float), 4326)::geography,
 				ST_SetSRID(ST_MakePoint(${filters.locationLon}, ${filters.locationLat}), 4326)::geography,
 				${radiusMeters}
-			)
-		)`);
+			)`);
+		} else {
+			conditions.push(sql`EXISTS (
+				SELECT 1 FROM company_office_locations o
+				WHERE o.company_id = cc.id
+				AND o.lat IS NOT NULL AND o.lon IS NOT NULL
+				AND ST_DWithin(
+					ST_SetSRID(ST_MakePoint(o.lon::float, o.lat::float), 4326)::geography,
+					ST_SetSRID(ST_MakePoint(${filters.locationLon}, ${filters.locationLat}), 4326)::geography,
+					${radiusMeters}
+				)
+			)`);
+		}
 	}
 
 	const whereClause = conditions.length ? sql` WHERE ${sql.join(conditions, sql` AND `)}` : sql``;
 
-	const target = filters.clientRecipientTarget === 'LOCATION' ? 'LOCATION' : 'OWNER';
-
-	// Which office represents the company: when a location radius filter is active,
-	// prefer the office nearest the searched point (so "Location" targets the one
-	// that actually matched); otherwise the first-created office.
-	const locOrderBy =
-		filters.locationLat != null && filters.locationLon != null
-			? sql`ORDER BY (
-					CASE WHEN lat IS NOT NULL AND lon IS NOT NULL THEN
-						ST_Distance(
-							ST_SetSRID(ST_MakePoint(lon::float, lat::float), 4326)::geography,
-							ST_SetSRID(ST_MakePoint(${filters.locationLon}, ${filters.locationLat}), 4326)::geography
-						)
-					END
-				) NULLS LAST, created_at ASC`
-			: sql`ORDER BY created_at ASC`;
-
-	// OWNER → the account owner's own email/cell (e.g. clawbacks). LOCATION → the
-	// office's email/number only, no owner fallback, so missing office contact
-	// shows up as "no contact" in the preview breakdown.
-	const emailExpr = target === 'LOCATION' ? sql`loc.email` : sql`u.email`;
-	const phoneExpr =
-		target === 'LOCATION' ? sql`COALESCE(loc.cell_phone, loc.company_phone)` : sql`cp.cell_phone`;
+	if (target === 'LOCATION') {
+		// One row per office. INNER JOINs to company + offices — a client with no
+		// office simply has no location recipients. DISTINCT collapses offices that
+		// share the same contact so a company is never double-messaged at one address.
+		const query = sql`
+			SELECT DISTINCT
+				u.id AS "userId",
+				cp.id AS "profileId",
+				u.first_name AS "firstName",
+				u.last_name AS "lastName",
+				o.email AS "email",
+				COALESCE(o.cell_phone, o.company_phone) AS "phone",
+				u.receive_sms AS "receiveSms",
+				u.receive_email AS "receiveEmail"
+			FROM users u
+			JOIN client_profiles cp ON cp.user_id = u.id
+			JOIN client_companies cc ON cc.client_id = cp.id
+			JOIN company_office_locations o ON o.company_id = cc.id
+			${whereClause}
+		`;
+		const result = await db.execute(query);
+		return result.rows as SegmentRow[];
+	}
 
 	const query = sql`
 		SELECT DISTINCT
@@ -371,23 +386,15 @@ async function getClientSegment(
 			cp.id AS "profileId",
 			u.first_name AS "firstName",
 			u.last_name AS "lastName",
-			${emailExpr} AS "email",
-			${phoneExpr} AS "phone",
+			u.email AS "email",
+			cp.cell_phone AS "phone",
 			u.receive_sms AS "receiveSms",
 			u.receive_email AS "receiveEmail"
 		FROM users u
 		JOIN client_profiles cp ON cp.user_id = u.id
 		LEFT JOIN client_companies cc ON cc.client_id = cp.id
-		LEFT JOIN LATERAL (
-			SELECT company_phone, cell_phone, email
-			FROM company_office_locations
-			WHERE company_id = cc.id
-			${locOrderBy}
-			LIMIT 1
-		) loc ON true
 		${whereClause}
 	`;
-
 	const result = await db.execute(query);
 	return result.rows as SegmentRow[];
 }
@@ -506,5 +513,42 @@ export async function cancelCampaign(id: string): Promise<boolean> {
 			.set({ status: 'CANCELLED', updatedAt: new Date() })
 			.where(eq(massCampaignTable.id, id));
 		return true;
+	});
+}
+
+/**
+ * Re-queue a campaign's FAILED recipients so the cron resends them. Flips those
+ * rows back to PENDING (clearing the prior error/message id), reduces the
+ * campaign's failedCount by the number retried, and sets the campaign back to
+ * QUEUED so processCampaignQueue picks it up again. Returns how many were
+ * re-queued (0 if none were failed). SKIPPED/SENT recipients are left untouched.
+ */
+export async function retryFailedRecipients(id: string): Promise<number> {
+	return db.transaction(async (tx) => {
+		const reset = await tx
+			.update(massCampaignRecipientTable)
+			.set({ status: 'PENDING', error: null, providerMessageId: null, sentAt: null })
+			.where(
+				and(
+					eq(massCampaignRecipientTable.campaignId, id),
+					eq(massCampaignRecipientTable.status, 'FAILED')
+				)
+			)
+			.returning({ id: massCampaignRecipientTable.id });
+
+		const count = reset.length;
+		if (count === 0) return 0;
+
+		await tx
+			.update(massCampaignTable)
+			.set({
+				status: 'QUEUED',
+				failedCount: sql`GREATEST(${massCampaignTable.failedCount} - ${count}, 0)`,
+				completedAt: null,
+				updatedAt: new Date()
+			})
+			.where(eq(massCampaignTable.id, id));
+
+		return count;
 	});
 }

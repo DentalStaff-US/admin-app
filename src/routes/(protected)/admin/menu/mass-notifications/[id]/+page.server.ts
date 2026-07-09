@@ -5,7 +5,8 @@ import { USER_ROLES } from '$lib/config/constants';
 import {
 	getCampaignById,
 	getCampaignRecipients,
-	cancelCampaign
+	cancelCampaign,
+	retryFailedRecipients
 } from '$lib/server/database/queries/campaigns';
 
 export const load: PageServerLoad = async (event) => {
@@ -34,5 +35,20 @@ export const actions = {
 			event
 		);
 		return { success: ok };
+	},
+
+	retry: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) return fail(401, { message: 'Unauthorized' });
+		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { message: 'Unauthorized' });
+
+		const count = await retryFailedRecipients(event.params.id);
+		setFlash(
+			count > 0
+				? { type: 'success', message: `Re-queued ${count} failed recipient(s) — sending shortly.` }
+				: { type: 'error', message: 'No failed recipients to retry.' },
+			event
+		);
+		return { success: count > 0 };
 	}
 };
