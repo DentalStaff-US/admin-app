@@ -65,10 +65,19 @@ export const uploadPrivateFile = async ({
 	}
 };
 
-export const getSignedDownloadUrl = async (key: string, expiresInSeconds = 900) => {
+export const getSignedDownloadUrl = async (
+	key: string,
+	expiresInSeconds = 900,
+	downloadFilename?: string
+) => {
 	const command = new GetObjectCommand({
 		Bucket: BUCKET_NAME,
-		Key: key
+		Key: key,
+		// Force a browser download (with a friendly filename) rather than inline
+		// display when the signed URL is opened.
+		...(downloadFilename && {
+			ResponseContentDisposition: `attachment; filename="${downloadFilename.replace(/"/g, '')}"`
+		})
 	});
 
 	try {

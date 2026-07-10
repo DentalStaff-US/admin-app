@@ -75,7 +75,10 @@ export async function createStripeInvoice(
 				const params: InvoiceItemCreateParamsWithDecimalQty = {
 					invoice: invoice.id,
 					customer: stripeCustomerId,
-					unit_amount: item.unitAmountInCents,
+					// On the 2026-03-25.dahlia API version, invoice items use
+					// unit_amount_decimal (string cents) — `unit_amount` is rejected as
+					// unknown. Pairs with quantity_decimal for exact fractional-hour totals.
+					unit_amount_decimal: String(item.unitAmountInCents),
 					quantity_decimal: String(item.quantity),
 					currency: item.currency || 'usd',
 					description: item.description || 'Service'
@@ -235,6 +238,72 @@ export async function customerHasDefaultPaymentMethod(customerId: string): Promi
 		});
 		return false;
 	}
+}
+
+/**
+ * The type of the customer's default payment method ('card', 'us_bank_account',
+ * …), or null if none / on error. Used to add a card-processing surcharge to
+ * generated invoices only when the client pays by card. Lenient on failure so a
+ * Stripe hiccup never blocks invoice generation (returns null → no surcharge).
+ */
+export async function getDefaultPaymentMethodType(customerId: string): Promise<string | null> {
+	try {
+		const customer = await stripe.customers.retrieve(customerId, {
+			expand: ['invoice_settings.default_payment_method']
+		});
+		if (customer.deleted) return null;
+		const pm = customer.invoice_settings?.default_payment_method;
+		// Expanded → a PaymentMethod object with `.type`; unexpanded would be a string id.
+		return pm && typeof pm !== 'string' ? (pm.type ?? null) : null;
+	} catch (err) {
+		console.warn?.('getDefaultPaymentMethodType lookup failed', {
+			error: err,
+			stripe_customer_id: customerId
+		});
+		return null;
+	}
+}
+
+export const PROCESSING_FEE_LINE_DESCRIPTION = 'Processing Fee (3%)';
+// Card-payment surcharge to offset Stripe card processing fees: a flat 3% of the
+// summed line-item total.
+export const CARD_PROCESSING_FEE_RATE = 0.03;
+
+/** cents = round(base × 3%) */
+export function computeCardProcessingFeeCents(baseCents: number): number {
+	return Math.round(baseCents * CARD_PROCESSING_FEE_RATE);
+}
+
+type StripeInvoiceLineItemInput = {
+	amountInCents: number;
+	description?: string;
+	currency?: string;
+	quantity?: number;
+	unitAmountInCents?: number;
+};
+
+/**
+ * Append a "Processing Fee" line item when the customer's default payment method
+ * is a card — a flat 3% of the summed line-item total. Returns the list
+ * unchanged for ACH/bank or unknown methods. Applied to EVERY Stripe invoice we
+ * generate (timesheet + one-off) so card-paid clients cover the processing cost.
+ */
+export async function withCardProcessingFee(
+	stripeCustomerId: string,
+	lineItems: StripeInvoiceLineItemInput[]
+): Promise<StripeInvoiceLineItemInput[]> {
+	const type = await getDefaultPaymentMethodType(stripeCustomerId);
+	if (type !== 'card') return lineItems;
+	const base = lineItems.reduce((sum, li) => sum + (li.amountInCents || 0), 0);
+	if (base <= 0) return lineItems;
+	return [
+		...lineItems,
+		{
+			amountInCents: computeCardProcessingFeeCents(base),
+			description: PROCESSING_FEE_LINE_DESCRIPTION,
+			currency: 'usd'
+		}
+	];
 }
 
 /**

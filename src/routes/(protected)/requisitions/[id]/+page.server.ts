@@ -16,7 +16,7 @@ import {
 	createPaperInvoiceRecord,
 	linkWorkdayToOpenTimesheet
 } from '$lib/server/database/queries/requisitions';
-import { createStripeInvoice } from '$lib/server/stripe';
+import { createStripeInvoice, withCardProcessingFee } from '$lib/server/stripe';
 import { assertCanAccessLocation } from '$lib/server/scoping';
 import { z } from 'zod';
 import { fail, redirect } from '@sveltejs/kit';
@@ -69,9 +69,11 @@ const invoiceLineItemSchema = z.array(
 		description: z.string().optional(),
 		amount: z.number().min(0, 'Item amount must be a positive number'),
 		quantity: z.any().transform((val) => {
-			const parsed = parseInt(val, 10);
+			// Fractional quantities are allowed (e.g. 1.5 hrs) — Stripe bills them via
+			// quantity_decimal. Must still be a positive number.
+			const parsed = parseFloat(val);
 			if (isNaN(parsed) || parsed <= 0) {
-				throw new Error('Item quantity must be a positive integer');
+				throw new Error('Item quantity must be a positive number');
 			}
 			return parsed;
 		}),
@@ -666,7 +668,8 @@ export const actions = {
 				// End-of-day in the business timezone keeps "due today" picks safely
 				// in the future when the admin is west of UTC at submit time.
 				const dueDate = dueDateEndOfDayInTimezone(form.data.dueDate)?.toISOString();
-				const stripeInvoice = await createStripeInvoice(
+				// Adds a card processing fee (3%) for card-paying clients.
+				const invoiceLineItems = await withCardProcessingFee(
 					stripeCustomerId,
 					lineItems.map((item) => ({
 						amountInCents: Math.round(item.amount * 100),
@@ -674,7 +677,11 @@ export const actions = {
 						quantity: item.quantity || 1,
 						unitAmountInCents: Math.round(item.rate * 100),
 						currency: 'usd'
-					})),
+					}))
+				);
+				const stripeInvoice = await createStripeInvoice(
+					stripeCustomerId,
+					invoiceLineItems,
 					{ clientId, userId: clientResult.user.id, requisitionId: String(requisitionId) },
 					form.data.description,
 					dueDate

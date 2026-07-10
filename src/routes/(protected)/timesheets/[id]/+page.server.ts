@@ -41,13 +41,14 @@ import {
 	approveAndInvoiceTimesheet,
 	buildPaperLineItems,
 	buildStripeLineItems,
-	calculateAdminFeeCents
+	calculateAdminFeeCents,
+	buildTimesheetInvoiceDescription
 } from '$lib/server/timesheets/approveTimesheet';
 import type { TimesheetExpenseSelect } from '$lib/server/database/schemas/requisition';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from './$types';
 import { setFlash } from 'sveltekit-flash-message/server';
-import { createStripeInvoice } from '$lib/server/stripe';
+import { createStripeInvoice, withCardProcessingFee } from '$lib/server/stripe';
 import { logger } from '$lib/server/logger';
 import db from '$lib/server/database/drizzle';
 import { desc, eq } from 'drizzle-orm';
@@ -944,7 +945,16 @@ export const actions = {
 						timesheetId: overridden.id,
 						requisitionId: overridden.requisitionId ?? undefined,
 						candidateId: overridden.associatedCandidateId,
-						description: `Dental Temp Staffing Solutions invoice: Hours worked for ${candidateName}`,
+						description: buildTimesheetInvoiceDescription({
+							candidateName,
+							companyName: clientProfile?.company?.companyName ?? null,
+							requisitionId: overridden.requisitionId ?? null,
+							timesheetId: overridden.id,
+							regularHours: breakdown.regularHours,
+							overtimeHours: breakdown.overtimeHours,
+							hasAdminFee: adminFeeCents > 0,
+							hasProcessingFee: false
+						}),
 						lineItems: buildPaperLineItems({
 							regularHours: breakdown.regularHours,
 							overtimeHours: breakdown.overtimeHours,
@@ -966,21 +976,35 @@ export const actions = {
 					return fail(404, { error: 'No Stripe customer found for this client' });
 				}
 
+				const baseLineItems = buildStripeLineItems({
+					regularHours: breakdown.regularHours,
+					regularCents: breakdown.regularCents,
+					overtimeCents: breakdown.overtimeCents,
+					overtimeHours: breakdown.overtimeHours,
+					effectiveRateDollars: effectiveRate ?? 0,
+					adminFeeCents,
+					hoursDescription: `Regular hours worked for ${candidateName}`,
+					expenses: approvedExpenses,
+					priorWeekHours
+				});
+				// Appends a card processing fee (3%) only for card-paying clients.
+				const lineItems = await withCardProcessingFee(stripeCustomerId, baseLineItems);
+				const hasProcessingFee = lineItems.length > baseLineItems.length;
+
 				const stripeInvoice = await createStripeInvoice(
 					stripeCustomerId,
-					buildStripeLineItems({
-						regularHours: breakdown.regularHours,
-						regularCents: breakdown.regularCents,
-						overtimeCents: breakdown.overtimeCents,
-						overtimeHours: breakdown.overtimeHours,
-						effectiveRateDollars: effectiveRate ?? 0,
-						adminFeeCents,
-						hoursDescription: `Regular hours worked for ${candidateName}`,
-						expenses: approvedExpenses,
-						priorWeekHours
-					}),
+					lineItems,
 					{ userId: user.id, timesheetId: overridden.id, clientId: overridden.associatedClientId },
-					`Dental Temp Staffing Solutions invoice: Hours worked for ${candidateName}`
+					buildTimesheetInvoiceDescription({
+						candidateName,
+						companyName: clientProfile?.company?.companyName ?? null,
+						requisitionId: overridden.requisitionId ?? null,
+						timesheetId: overridden.id,
+						regularHours: breakdown.regularHours,
+						overtimeHours: breakdown.overtimeHours,
+						hasAdminFee: adminFeeCents > 0,
+						hasProcessingFee
+					})
 				);
 
 				await createInvoiceRecord(

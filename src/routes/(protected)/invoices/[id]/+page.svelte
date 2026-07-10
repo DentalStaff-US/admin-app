@@ -286,6 +286,19 @@
 					Download PDF
 				</Button>
 			{/if}
+
+			{#if isPaperInvoice}
+				<Button
+					href={`/invoices/${invoiceData.invoice.id}/pdf`}
+					data-sveltekit-reload
+					variant="outline"
+					size="sm"
+					class="w-full sm:w-fit"
+				>
+					<Download class="h-4 w-4 mr-2" />
+					Download PDF
+				</Button>
+			{/if}
 		</div>
 	</div>
 

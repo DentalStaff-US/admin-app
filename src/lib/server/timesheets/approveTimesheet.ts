@@ -18,12 +18,50 @@ import {
 } from '$lib/server/database/queries/requisitions';
 import { getCandidateProfileById } from '$lib/server/database/queries/candidates';
 import { getClientProfileById, getClientSubscription } from '$lib/server/database/queries/clients';
-import { createStripeInvoice } from '$lib/server/stripe';
+import { createStripeInvoice, withCardProcessingFee } from '$lib/server/stripe';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
 import { logger } from '$lib/server/logger';
 
 const ADMIN_FEE_LINE_DESCRIPTION = 'Administration Fees';
 const OVERTIME_LINE_DESCRIPTION = 'Overtime hours (1.5×)';
+
+/**
+ * A robust, human-readable description for timesheet-generated invoices (used on
+ * both paper PDFs and Stripe invoices). It identifies the work (professional,
+ * client, requisition, timesheet) AND explains the charges (regular vs overtime
+ * hours, admin fee, card processing fee) so a client can audit the invoice at a
+ * glance — the line-item amounts still live in the itemized table.
+ */
+export function buildTimesheetInvoiceDescription(params: {
+	candidateName: string;
+	companyName: string | null;
+	requisitionId: number | null;
+	timesheetId: string;
+	regularHours: number;
+	overtimeHours: number;
+	hasAdminFee: boolean;
+	hasProcessingFee: boolean;
+}): string {
+	const fmtHrs = (h: number) => (Number.isInteger(h) ? String(h) : Number(h.toFixed(2)).toString());
+
+	const idParts = [
+		`Professional: ${params.candidateName}`,
+		params.companyName ? `Client: ${params.companyName}` : null,
+		params.requisitionId != null ? `Requisition #${params.requisitionId}` : null,
+		`Timesheet #${params.timesheetId}`
+	].filter(Boolean);
+
+	const chargeParts = [
+		params.regularHours > 0 ? `${fmtHrs(params.regularHours)} regular hrs (first 40)` : null,
+		params.overtimeHours > 0 ? `${fmtHrs(params.overtimeHours)} overtime hrs at 1.5×` : null,
+		params.hasAdminFee ? 'administration fee on regular hours' : null,
+		params.hasProcessingFee ? 'card processing fee (3%)' : null
+	].filter(Boolean);
+
+	const idLine = idParts.join(' · ');
+	const chargeLine = chargeParts.length ? ` Charges: ${chargeParts.join('; ')}.` : '';
+	return `Dental Temp Staffing Solutions — Timesheet Invoice. ${idLine}.${chargeLine}`;
+}
 
 // When a week is split across timesheets, explain on the invoice why these hours
 // are overtime (the week's 40h regular allotment was already used on a prior
@@ -115,6 +153,8 @@ export function buildStripeLineItems({
 	if (adminFeeCents > 0) {
 		lineItems.push({ amountInCents: adminFeeCents, description: ADMIN_FEE_LINE_DESCRIPTION });
 	}
+	// The card-processing surcharge is appended later by withCardProcessingFee
+	// (only for card-paying clients), so it isn't part of the base line items.
 	return lineItems;
 }
 
@@ -334,7 +374,16 @@ export async function approveAndInvoiceTimesheet(
 					timesheetId: timesheet.id,
 					requisitionId: timesheet.requisitionId ?? undefined,
 					candidateId: timesheet.associatedCandidateId,
-					description: `Dental Temp Staffing Solutions invoice: Hours worked for ${candidateName}`,
+					description: buildTimesheetInvoiceDescription({
+						candidateName,
+						companyName: clientProfile?.company?.companyName ?? null,
+						requisitionId: timesheet.requisitionId ?? null,
+						timesheetId: timesheet.id,
+						regularHours: breakdown.regularHours,
+						overtimeHours: breakdown.overtimeHours,
+						hasAdminFee: adminFeeCents > 0,
+						hasProcessingFee: false
+					}),
 					lineItems: buildPaperLineItems({
 						regularHours: breakdown.regularHours,
 						overtimeHours: breakdown.overtimeHours,
@@ -356,25 +405,39 @@ export async function approveAndInvoiceTimesheet(
 				return { ok: false, reason: 'NO_STRIPE_CUSTOMER' };
 			}
 
+			const baseLineItems = buildStripeLineItems({
+				regularHours: breakdown.regularHours,
+				regularCents: breakdown.regularCents,
+				overtimeCents: breakdown.overtimeCents,
+				overtimeHours: breakdown.overtimeHours,
+				effectiveRateDollars: effectiveRate ?? 0,
+				adminFeeCents,
+				hoursDescription: `Regular hours worked for ${candidateName}`,
+				expenses: approvedExpenses,
+				priorWeekHours
+			});
+			// Appends a card processing fee (3%) only for card-paying clients.
+			const lineItems = await withCardProcessingFee(stripeCustomerId, baseLineItems);
+			const hasProcessingFee = lineItems.length > baseLineItems.length;
+
 			const stripeInvoice = await createStripeInvoice(
 				stripeCustomerId,
-				buildStripeLineItems({
-					regularHours: breakdown.regularHours,
-					regularCents: breakdown.regularCents,
-					overtimeCents: breakdown.overtimeCents,
-					overtimeHours: breakdown.overtimeHours,
-					effectiveRateDollars: effectiveRate ?? 0,
-					adminFeeCents,
-					hoursDescription: `Regular hours worked for ${candidateName}`,
-					expenses: approvedExpenses,
-					priorWeekHours
-				}),
+				lineItems,
 				{
 					userId: actorUserId ?? 'system',
 					timesheetId: timesheet.id,
 					clientId: timesheet.associatedClientId
 				},
-				`Dental Temp Staffing Solutions invoice: Hours worked for ${candidateName}`
+				buildTimesheetInvoiceDescription({
+					candidateName,
+					companyName: clientProfile?.company?.companyName ?? null,
+					requisitionId: timesheet.requisitionId ?? null,
+					timesheetId: timesheet.id,
+					regularHours: breakdown.regularHours,
+					overtimeHours: breakdown.overtimeHours,
+					hasAdminFee: adminFeeCents > 0,
+					hasProcessingFee
+				})
 			);
 
 			await createInvoiceRecord(

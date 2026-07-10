@@ -950,7 +950,8 @@
 															type="number"
 															bind:value={item.quantity}
 															on:input={() => updateItemAmount(i)}
-															min="1"
+															min="0"
+															step="any"
 														/>
 													</TableCell>
 													<TableCell>
