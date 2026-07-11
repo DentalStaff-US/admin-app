@@ -1157,7 +1157,8 @@
 													type="number"
 													bind:value={item.quantity}
 													on:input={() => updateInvoiceItemAmount(i)}
-													min="1"
+													min="0"
+													step="any"
 												/>
 											</TableCell>
 											<TableCell>
