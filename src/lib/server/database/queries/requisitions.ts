@@ -3578,7 +3578,14 @@ export function computeHoursBreakdown(
 ): HoursBreakdown {
 	if (!rateOfPayBase) throw new Error('Base rate is required');
 
-	const hours = parseFloat(String(totalHoursWorked));
+	// Round hours to 2 decimals (hundredth of an hour). total_hours_worked is a
+	// float sum of per-day hours and can carry float artifacts (e.g.
+	// 37.51666666666667); passed verbatim as Stripe's `quantity_decimal` that
+	// exceeds Stripe's precision limit and rejects the invoice-item create,
+	// which reverts timesheet approval. Rounding here (the single source of
+	// truth) keeps the quantity Stripe-safe and the line total on exact cents.
+	const round2 = (n: number) => Math.round(n * 100) / 100;
+	const hours = round2(parseFloat(String(totalHoursWorked)));
 	const baseRate = parseFloat(String(rateOfPayBase));
 
 	if (isNaN(hours) || hours < 0) {
@@ -3594,8 +3601,8 @@ export function computeHoursBreakdown(
 	// Regular-hour allotment left for the week after hours already billed on
 	// sibling timesheets. Once the week has hit 40h, everything here is overtime.
 	const remainingRegular = Math.max(0, STANDARD_HOURS_THRESHOLD - priorWeekHours);
-	const regularHours = Math.min(hours, remainingRegular);
-	const overtimeHours = Math.max(0, hours - regularHours);
+	const regularHours = round2(Math.min(hours, remainingRegular));
+	const overtimeHours = round2(Math.max(0, hours - regularHours));
 
 	const regularCents = Math.round(regularHours * baseRate * 100);
 	const overtimeCents = Math.round(overtimeHours * baseRate * OVERTIME_MULTIPLIER * 100);

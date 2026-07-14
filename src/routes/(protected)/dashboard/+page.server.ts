@@ -102,7 +102,7 @@ export const load = async (event: RequestEvent) => {
 			.where(and(eq(invoiceTable.clientId, client?.id), eq(invoiceTable.status, 'open')));
 
 		const totalAmountDue = await db
-			.select({ sum: sum(invoiceTable.amountDue) })
+			.select({ sum: sum(invoiceTable.amountRemaining) })
 			.from(invoiceTable)
 			.where(
 				and(
@@ -226,7 +226,7 @@ export const load = async (event: RequestEvent) => {
 		const totalAmountDue = hasNoScope
 			? [{ sum: '0' }]
 			: await db
-					.select({ sum: sum(invoiceTable.amountDue) })
+					.select({ sum: sum(invoiceTable.amountRemaining) })
 					.from(invoiceTable)
 					.leftJoin(requisitionTable, eq(requisitionTable.id, invoiceTable.requisitionId))
 					.where(

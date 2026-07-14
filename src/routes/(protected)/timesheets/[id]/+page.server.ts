@@ -1021,6 +1021,11 @@ export const actions = {
 			setFlash({ type: 'success', message: 'Timesheet approved' }, event);
 			return { success: true, message: 'Timesheet approved', overridden };
 		} catch (err) {
+			// adminOverrideTimesheet already flipped the sheet to APPROVED; if invoice
+			// generation then threw, revert it so it isn't stranded APPROVED-without-
+			// invoice (which the "cannot override an approved timesheet" guard would
+			// otherwise block from retry). Mirrors the main approval path.
+			await revertTimesheetToPending(id, user.id);
 			logger.error('timesheet adminOverride failed', {
 				error: err,
 				timesheetId: id,
