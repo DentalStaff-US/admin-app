@@ -3041,11 +3041,14 @@ export async function deleteTimesheet(timesheetId: string, userId: string) {
 }
 
 /**
- * Voids an APPROVED timesheet that has an invoice. Voids the invoice too —
- * paper invoices are marked void directly; Stripe invoices are voided through
- * Stripe (the invoice.voided webhook syncs our DB status). Clears the wages
- * status, nulls the invoice's timesheetId, and disconnects the workdays so a
- * corrected timesheet can regenerate. Blocks if the invoice is already paid.
+ * Voids an APPROVED timesheet that has an invoice: voids the Stripe invoice
+ * through Stripe (if any), sets the timesheet VOID, clears the wages status,
+ * detaches the invoice's timesheetId, and disconnects the workdays so a corrected
+ * timesheet can regenerate. Blocks if the invoice is already paid.
+ *
+ * NOTE: this does NOT flip the invoice's own status to void or email the client —
+ * the caller must follow up with `voidInvoiceAndNotify(invoice.id, reason)` (the
+ * single notify-once gate). Returns the linked invoice id so callers can do so.
  */
 export async function voidTimesheetWithInvoice(timesheetId: string, userId: string) {
 	const invoice = await getInvoiceByTimesheetId(timesheetId);
@@ -3083,20 +3086,15 @@ export async function voidTimesheetWithInvoice(timesheetId: string, userId: stri
 			.where(eq(timeSheetTable.id, timesheetId))
 			.returning();
 
-		// Paper invoices have no Stripe webhook to flip the status, so do it here.
-		// Stripe invoices get status='void' from the invoice.voided webhook; we
-		// only detach the timesheet link here.
-		if (invoice.invoiceType === 'PAPER') {
-			await tx
-				.update(invoiceTable)
-				.set({ timesheetId: null, status: 'void', voidedAt: new Date(), updatedAt: new Date() })
-				.where(eq(invoiceTable.id, invoice.id!));
-		} else {
-			await tx
-				.update(invoiceTable)
-				.set({ timesheetId: null, updatedAt: new Date() })
-				.where(eq(invoiceTable.id, invoice.id!));
-		}
+		// Detach the timesheet link only. The CALLER flips the invoice status to
+		// void and notifies the client via voidInvoiceAndNotify (the single
+		// notify-once gate), so we don't set status/voidedAt here — that keeps the
+		// void email firing exactly once whether the void starts from an app action
+		// or the Stripe invoice.voided webhook.
+		await tx
+			.update(invoiceTable)
+			.set({ timesheetId: null, updatedAt: new Date() })
+			.where(eq(invoiceTable.id, invoice.id!));
 
 		// Disconnect the workdays (set timesheetId NULL) so the
 		// processTimesheetCreation cron regenerates a fresh DRAFT for them on its
@@ -3122,7 +3120,7 @@ export async function voidTimesheetWithInvoice(timesheetId: string, userId: stri
 			}
 		});
 
-		return voidedTimesheet;
+		return { timesheet: voidedTimesheet, invoiceId: invoice.id };
 	});
 }
 

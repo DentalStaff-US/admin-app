@@ -1,6 +1,6 @@
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { stripe, voidStripeInvoice } from '$lib/server/stripe';
-import { redirect, error, fail } from '@sveltejs/kit';
+import { redirect, fail } from '@sveltejs/kit';
 import type { PageServerLoad, RequestEvent } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
 import {
@@ -20,9 +20,9 @@ import {
 import { eq } from 'drizzle-orm';
 import {
 	notifyInvoicePaymentProcessed,
-	notifyMiscellaneousTransaction,
-	notifyInvoiceVoided
+	notifyMiscellaneousTransaction
 } from '$lib/server/notifications/transactional';
+import { voidInvoiceAndNotify } from '$lib/server/invoices/voidNotify';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
 
 const RecordTransactionSchema = z.object({
@@ -390,17 +390,11 @@ export const actions = {
 				await voidStripeInvoice(currentInvoice.stripeInvoiceId);
 			}
 
-			// Mark the invoice void immediately for every path (idempotent — the paper
-			// timesheet flow already set it, and the Stripe invoice.voided webhook will
-			// too). Ensures the UI reflects the void without waiting on the webhook.
-			await db
-				.update(invoiceTable)
-				.set({
-					status: 'void',
-					voidedAt: new Date(),
-					updatedAt: new Date()
-				})
-				.where(eq(invoiceTable.id, invoiceId));
+			// Flip the record to void and email the client — atomically and exactly
+			// once, no matter which path we took above or whether the Stripe
+			// invoice.voided webhook also fires. Returns false only if it was already
+			// void (someone else already notified).
+			await voidInvoiceAndNotify(invoiceId, reason);
 
 			await writeActionHistory({
 				table: 'INVOICES',
@@ -416,8 +410,6 @@ export const actions = {
 					timesheetVoided: !!currentInvoice.timesheetId
 				}
 			});
-
-			await notifyInvoiceVoided(invoiceId, reason);
 
 			setFlash({ type: 'success', message: 'Invoice voided successfully' }, event);
 			return message(form, 'Invoice voided successfully');

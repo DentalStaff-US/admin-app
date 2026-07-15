@@ -186,7 +186,9 @@
 				</h1>
 				<StatusBadge
 					status={invoiceData.invoice.status}
-					label={invoiceData.invoice.status.toUpperCase()}
+					label={invoiceData.invoice.status === 'void'
+						? 'VOIDED'
+						: invoiceData.invoice.status.toUpperCase()}
 				/>
 				{#if isPaperInvoice}
 					<Badge variant="outline" class="border-blue-300 text-blue-700" value="Paper Invoice" />
