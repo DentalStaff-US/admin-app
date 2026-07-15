@@ -49,7 +49,8 @@ const ReversePaymentSchema = z.object({
 
 const VoidInvoiceSchema = z.object({
 	invoiceId: z.string().min(1),
-	reason: z.string().min(1, 'A reason is required')
+	// Optional — the admin may void without a note. Falls back to a default reason.
+	reason: z.string().trim().optional()
 });
 
 export const load: PageServerLoad = async (event) => {
@@ -345,11 +346,13 @@ export const actions = {
 
 		const form = await superValidate(event, VoidInvoiceSchema);
 		if (!form.valid) {
-			setFlash({ type: 'error', message: 'A reason is required to void an invoice' }, event);
+			setFlash({ type: 'error', message: 'Unable to void invoice' }, event);
 			return fail(400, { form });
 		}
 
-		const { invoiceId, reason } = form.data;
+		const { invoiceId } = form.data;
+		// Reason is optional in the dialog; store a default when the admin leaves it blank.
+		const reason = form.data.reason?.trim() || 'No reason provided.';
 
 		try {
 			const [currentInvoice] = await db

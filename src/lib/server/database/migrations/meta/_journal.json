@@ -344,6 +344,13 @@
       "when": 1783104443590,
       "tag": "0048_empty_wolfpack",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1784154880228,
+      "tag": "0049_fresh_calypso",
+      "breakpoints": true
     }
   ]
 }

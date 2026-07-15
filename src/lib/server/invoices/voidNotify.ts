@@ -21,7 +21,7 @@ import { notifyInvoiceVoided } from '$lib/server/notifications/transactional';
 export async function voidInvoiceAndNotify(invoiceId: string, reason: string): Promise<boolean> {
 	const [flipped] = await db
 		.update(invoiceTable)
-		.set({ status: 'void', voidedAt: new Date(), updatedAt: new Date() })
+		.set({ status: 'void', voidReason: reason, voidedAt: new Date(), updatedAt: new Date() })
 		.where(and(eq(invoiceTable.id, invoiceId), ne(invoiceTable.status, 'void')))
 		.returning({ id: invoiceTable.id });
 

@@ -113,38 +113,42 @@ export const requisitionTable = pgTable('requisitions', {
 	purchaseOrderNumber: text('purchase_order_number')
 });
 
-export const recurrenceDayTable = pgTable('recurrence_days', {
-	id: text('id').notNull().primaryKey(),
-	createdAt: timestamp('created_at', {
-		withTimezone: true,
-		mode: 'date'
-	}).notNull(),
-	updatedAt: timestamp('updated_at', {
-		withTimezone: true,
-		mode: 'date'
-	}).notNull(),
-	status: recurrenceDayStatusEnum('status').default('OPEN').notNull(),
-	date: date('date').notNull(),
-	dayStart: timestamp('day_start_time', { withTimezone: true }).notNull(),
-	dayEnd: timestamp('day_end_time', { withTimezone: true }).notNull(),
-	lunchStart: timestamp('lunch_start_time', { withTimezone: true }),
-	lunchEnd: timestamp('lunch_end_time', { withTimezone: true }),
-	requisitionId: integer('requisition_id').references(() => requisitionTable.id, {
-		onDelete: 'cascade',
-		onUpdate: 'cascade'
-	}),
-	archived: boolean('archived').default(false),
-	archivedDate: timestamp('archived_at', {
-		mode: 'date'
+export const recurrenceDayTable = pgTable(
+	'recurrence_days',
+	{
+		id: text('id').notNull().primaryKey(),
+		createdAt: timestamp('created_at', {
+			withTimezone: true,
+			mode: 'date'
+		}).notNull(),
+		updatedAt: timestamp('updated_at', {
+			withTimezone: true,
+			mode: 'date'
+		}).notNull(),
+		status: recurrenceDayStatusEnum('status').default('OPEN').notNull(),
+		date: date('date').notNull(),
+		dayStart: timestamp('day_start_time', { withTimezone: true }).notNull(),
+		dayEnd: timestamp('day_end_time', { withTimezone: true }).notNull(),
+		lunchStart: timestamp('lunch_start_time', { withTimezone: true }),
+		lunchEnd: timestamp('lunch_end_time', { withTimezone: true }),
+		requisitionId: integer('requisition_id').references(() => requisitionTable.id, {
+			onDelete: 'cascade',
+			onUpdate: 'cascade'
+		}),
+		archived: boolean('archived').default(false),
+		archivedDate: timestamp('archived_at', {
+			mode: 'date'
+		})
+	},
+	(table) => ({
+		// Enforce one active (non-archived) recurrence day per requisition+date. The
+		// reuse-on-reopen path keeps a date to a single live row; archived history is
+		// excluded so canceled-then-reopened cycles don't violate it.
+		reqDateActiveUidx: uniqueIndex('recurrence_days_req_date_active_uidx')
+			.on(table.requisitionId, table.date)
+			.where(sql`${table.archived} = false`)
 	})
-}, (table) => ({
-	// Enforce one active (non-archived) recurrence day per requisition+date. The
-	// reuse-on-reopen path keeps a date to a single live row; archived history is
-	// excluded so canceled-then-reopened cycles don't violate it.
-	reqDateActiveUidx: uniqueIndex('recurrence_days_req_date_active_uidx')
-		.on(table.requisitionId, table.date)
-		.where(sql`${table.archived} = false`)
-}));
+);
 
 export const invoiceStatusEnum = pgEnum('invoice_status', [
 	'draft', // Matching Stripe's status values
@@ -212,6 +216,10 @@ export const invoiceTable = pgTable(
 		periodEnd: timestamp('period_end', { withTimezone: true, mode: 'date' }),
 		paidAt: timestamp('paid_at', { withTimezone: true, mode: 'date' }),
 		voidedAt: timestamp('voided_at', { withTimezone: true, mode: 'date' }),
+		// Why the invoice was voided — the admin's typed reason (invoice-page void)
+		// or an auto-generated string (timesheet-side / Stripe-dashboard void). Set
+		// atomically alongside status by voidInvoiceAndNotify; surfaced in the UI.
+		voidReason: text('void_reason'),
 
 		// Customer information. Cascade so user deletion (which cascades to
 		// client_profiles) doesn't block on invoice FKs.

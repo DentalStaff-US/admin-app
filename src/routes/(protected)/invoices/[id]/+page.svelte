@@ -304,6 +304,27 @@
 		</div>
 	</div>
 
+	{#if isVoided}
+		<div class="rounded-md border border-red-200 bg-red-50 p-4">
+			<div class="flex items-start gap-3">
+				<XCircle class="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+				<div class="space-y-1">
+					<p class="text-sm font-semibold text-red-800">
+						This invoice was voided{#if invoiceData.invoice.voidedAt}&nbsp;on {formatDate(
+								invoiceData.invoice.voidedAt
+							)}{/if}.
+					</p>
+					{#if invoiceData.invoice.voidReason}
+						<p class="text-sm whitespace-pre-line text-red-700">
+							<span class="font-medium">Reason:</span>
+							{invoiceData.invoice.voidReason}
+						</p>
+					{/if}
+				</div>
+			</div>
+		</div>
+	{/if}
+
 	<div class="grid gap-6 lg:grid-cols-3">
 		<!-- Main Content -->
 		<div class="lg:col-span-2 space-y-6">
@@ -983,14 +1004,13 @@
 
 				<div class="space-y-4 py-4">
 					<div class="space-y-2">
-						<Label for="voidReason">Reason <span class="text-red-600">*</span></Label>
+						<Label for="voidReason">Reason <span class="text-muted-foreground">(optional)</span></Label>
 						<Textarea
 							id="voidReason"
 							name="reason"
 							bind:value={voidReason}
-							placeholder="Why is this invoice being voided?"
+							placeholder="Why is this invoice being voided? (shown on the invoice)"
 							rows={2}
-							required
 						/>
 					</div>
 				</div>
@@ -1004,7 +1024,7 @@
 					>
 						Cancel
 					</Button>
-					<Button type="submit" variant="destructive" disabled={voidingInvoice || !voidReason.trim()}>
+					<Button type="submit" variant="destructive" disabled={voidingInvoice}>
 						{#if voidingInvoice}
 							<Loader2 class="mr-2 h-4 w-4 animate-spin" />
 						{/if}
