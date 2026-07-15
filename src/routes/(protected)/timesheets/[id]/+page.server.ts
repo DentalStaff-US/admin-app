@@ -755,12 +755,16 @@ export const actions = {
 		const userId = user.id;
 		try {
 			const { id } = event.params;
+			// Optional admin note from the dialog; default when left blank.
+			const formData = await event.request.formData();
+			const reason =
+				formData.get('reason')?.toString().trim() || 'The associated timesheet was voided.';
 			const { invoiceId } = await voidTimesheetWithInvoice(id, userId);
 			// Flip the invoice record to void + email the client exactly once. Voiding
 			// from the timesheet side is functionally the same void as from the invoice
 			// page, so the client gets the same notification either way.
 			if (invoiceId) {
-				await voidInvoiceAndNotify(invoiceId, 'The associated timesheet was voided.');
+				await voidInvoiceAndNotify(invoiceId, reason);
 			}
 			setFlash({ type: 'success', message: 'Timesheet and invoice voided' }, event);
 			return { success: true };

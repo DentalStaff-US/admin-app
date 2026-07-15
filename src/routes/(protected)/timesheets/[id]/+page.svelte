@@ -86,6 +86,7 @@
 	let activeTab = 'hours';
 	let overrideDialogOpen = false;
 	let voidDialogOpen = false;
+	let voidTimesheetReason = '';
 	let deleteDialogOpen = false;
 	let submitDialogOpen = false;
 
@@ -1951,8 +1952,18 @@
 				workdays so a corrected timesheet can regenerate. This cannot be undone.
 			</DialogDescription>
 		</DialogHeader>
-		<DialogFooter class="mt-4">
-			<form method="POST" action="?/voidTimesheet" use:enhance>
+		<form method="POST" action="?/voidTimesheet" use:enhance>
+			<div class="space-y-2">
+				<Label for="voidTimesheetReason">Reason <span class="text-muted-foreground">(optional)</span></Label>
+				<Textarea
+					id="voidTimesheetReason"
+					name="reason"
+					bind:value={voidTimesheetReason}
+					placeholder="Why is this being voided? (shown on the invoice)"
+					rows={2}
+				/>
+			</div>
+			<DialogFooter class="mt-4">
 				<Button type="button" variant="destructiveOutline" on:click={() => (voidDialogOpen = false)}>
 					Cancel
 				</Button>
@@ -1964,8 +1975,8 @@
 				>
 					Void Timesheet &amp; Invoice
 				</Button>
-			</form>
-		</DialogFooter>
+			</DialogFooter>
+		</form>
 	</DialogContent>
 </Dialog>
 
