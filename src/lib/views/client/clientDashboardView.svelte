@@ -58,7 +58,9 @@
 	$: invoices = data.invoices || [];
 	$: overdueInvoicesCount = data.overdueInvoicesCount || 0;
 	$: pendingInvoicesCount = data.pendingInvoicesCount || 0;
-	$: totalAmountDue = parseInt(data.totalAmountDue || '0');
+	// parseFloat, not parseInt — amountDue is a decimal-dollar string (e.g. "51.50")
+	// and parseInt would truncate the cents ($51.50 → $51.00).
+	$: totalAmountDue = parseFloat(data.totalAmountDue || '0');
 
 	// Function to format work week
 	function formatWorkWeek(

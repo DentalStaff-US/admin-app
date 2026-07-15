@@ -16,6 +16,7 @@ import {
 } from '$lib/server/database/queries/billing';
 import type Stripe from 'stripe';
 import db from '$lib/server/database/drizzle';
+import { voidInvoiceAndNotify } from '$lib/server/invoices/voidNotify';
 import { clientSubscriptionTable } from '$lib/server/database/schemas/client';
 import { eq } from 'drizzle-orm';
 import { logger } from '$lib/server/logger';
@@ -195,13 +196,17 @@ export const POST: RequestHandler = async ({ request }) => {
 					.where(eq(invoiceTable.stripeInvoiceId, invoiceVoided.id))
 					.limit(1);
 				if (existingVoidedInvoice) {
+					// Always sync the Stripe status string. Then flip our own status to
+					// void + email the client via the shared gate — which notifies exactly
+					// once: if this void originated from an in-app action that already
+					// voided the record, voidInvoiceAndNotify is a no-op here (no second
+					// email). This branch is what covers voids initiated from the Stripe
+					// dashboard, which have no in-app action behind them.
 					await db
 						.update(invoiceTable)
-						.set({
-							status: 'void',
-							stripeStatus: invoiceVoided.status
-						})
+						.set({ stripeStatus: invoiceVoided.status })
 						.where(eq(invoiceTable.id, existingVoidedInvoice.id));
+					await voidInvoiceAndNotify(existingVoidedInvoice.id, 'Invoice voided in Stripe.');
 				}
 				break;
 			}

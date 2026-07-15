@@ -117,7 +117,7 @@
 				const status = getValue() as string;
 				return flexRender(StatusBadge, {
 					status,
-					label: status.toUpperCase()
+					label: status === 'void' ? 'VOIDED' : status.toUpperCase()
 				});
 			}
 		},

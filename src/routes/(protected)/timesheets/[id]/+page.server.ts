@@ -61,6 +61,7 @@ import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import type { RawTimesheetHours } from '$lib/server/database/schemas/requisition';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
 import { notifyTimesheetSubmitted } from '$lib/server/notifications/transactional';
+import { voidInvoiceAndNotify } from '$lib/server/invoices/voidNotify';
 import { superValidate } from 'sveltekit-superforms/server';
 import { addExpenseSchema } from '$lib/config/zod-schemas';
 
@@ -754,7 +755,13 @@ export const actions = {
 		const userId = user.id;
 		try {
 			const { id } = event.params;
-			await voidTimesheetWithInvoice(id, userId);
+			const { invoiceId } = await voidTimesheetWithInvoice(id, userId);
+			// Flip the invoice record to void + email the client exactly once. Voiding
+			// from the timesheet side is functionally the same void as from the invoice
+			// page, so the client gets the same notification either way.
+			if (invoiceId) {
+				await voidInvoiceAndNotify(invoiceId, 'The associated timesheet was voided.');
+			}
 			setFlash({ type: 'success', message: 'Timesheet and invoice voided' }, event);
 			return { success: true };
 		} catch (err) {
@@ -1021,6 +1028,11 @@ export const actions = {
 			setFlash({ type: 'success', message: 'Timesheet approved' }, event);
 			return { success: true, message: 'Timesheet approved', overridden };
 		} catch (err) {
+			// adminOverrideTimesheet already flipped the sheet to APPROVED; if invoice
+			// generation then threw, revert it so it isn't stranded APPROVED-without-
+			// invoice (which the "cannot override an approved timesheet" guard would
+			// otherwise block from retry). Mirrors the main approval path.
+			await revertTimesheetToPending(id, user.id);
 			logger.error('timesheet adminOverride failed', {
 				error: err,
 				timesheetId: id,

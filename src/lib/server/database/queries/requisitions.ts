@@ -3041,11 +3041,14 @@ export async function deleteTimesheet(timesheetId: string, userId: string) {
 }
 
 /**
- * Voids an APPROVED timesheet that has an invoice. Voids the invoice too —
- * paper invoices are marked void directly; Stripe invoices are voided through
- * Stripe (the invoice.voided webhook syncs our DB status). Clears the wages
- * status, nulls the invoice's timesheetId, and disconnects the workdays so a
- * corrected timesheet can regenerate. Blocks if the invoice is already paid.
+ * Voids an APPROVED timesheet that has an invoice: voids the Stripe invoice
+ * through Stripe (if any), sets the timesheet VOID, clears the wages status,
+ * detaches the invoice's timesheetId, and disconnects the workdays so a corrected
+ * timesheet can regenerate. Blocks if the invoice is already paid.
+ *
+ * NOTE: this does NOT flip the invoice's own status to void or email the client —
+ * the caller must follow up with `voidInvoiceAndNotify(invoice.id, reason)` (the
+ * single notify-once gate). Returns the linked invoice id so callers can do so.
  */
 export async function voidTimesheetWithInvoice(timesheetId: string, userId: string) {
 	const invoice = await getInvoiceByTimesheetId(timesheetId);
@@ -3083,20 +3086,15 @@ export async function voidTimesheetWithInvoice(timesheetId: string, userId: stri
 			.where(eq(timeSheetTable.id, timesheetId))
 			.returning();
 
-		// Paper invoices have no Stripe webhook to flip the status, so do it here.
-		// Stripe invoices get status='void' from the invoice.voided webhook; we
-		// only detach the timesheet link here.
-		if (invoice.invoiceType === 'PAPER') {
-			await tx
-				.update(invoiceTable)
-				.set({ timesheetId: null, status: 'void', voidedAt: new Date(), updatedAt: new Date() })
-				.where(eq(invoiceTable.id, invoice.id!));
-		} else {
-			await tx
-				.update(invoiceTable)
-				.set({ timesheetId: null, updatedAt: new Date() })
-				.where(eq(invoiceTable.id, invoice.id!));
-		}
+		// Detach the timesheet link only. The CALLER flips the invoice status to
+		// void and notifies the client via voidInvoiceAndNotify (the single
+		// notify-once gate), so we don't set status/voidedAt here — that keeps the
+		// void email firing exactly once whether the void starts from an app action
+		// or the Stripe invoice.voided webhook.
+		await tx
+			.update(invoiceTable)
+			.set({ timesheetId: null, updatedAt: new Date() })
+			.where(eq(invoiceTable.id, invoice.id!));
 
 		// Disconnect the workdays (set timesheetId NULL) so the
 		// processTimesheetCreation cron regenerates a fresh DRAFT for them on its
@@ -3122,7 +3120,7 @@ export async function voidTimesheetWithInvoice(timesheetId: string, userId: stri
 			}
 		});
 
-		return voidedTimesheet;
+		return { timesheet: voidedTimesheet, invoiceId: invoice.id };
 	});
 }
 
@@ -3578,7 +3576,14 @@ export function computeHoursBreakdown(
 ): HoursBreakdown {
 	if (!rateOfPayBase) throw new Error('Base rate is required');
 
-	const hours = parseFloat(String(totalHoursWorked));
+	// Round hours to 2 decimals (hundredth of an hour). total_hours_worked is a
+	// float sum of per-day hours and can carry float artifacts (e.g.
+	// 37.51666666666667); passed verbatim as Stripe's `quantity_decimal` that
+	// exceeds Stripe's precision limit and rejects the invoice-item create,
+	// which reverts timesheet approval. Rounding here (the single source of
+	// truth) keeps the quantity Stripe-safe and the line total on exact cents.
+	const round2 = (n: number) => Math.round(n * 100) / 100;
+	const hours = round2(parseFloat(String(totalHoursWorked)));
 	const baseRate = parseFloat(String(rateOfPayBase));
 
 	if (isNaN(hours) || hours < 0) {
@@ -3594,8 +3599,8 @@ export function computeHoursBreakdown(
 	// Regular-hour allotment left for the week after hours already billed on
 	// sibling timesheets. Once the week has hit 40h, everything here is overtime.
 	const remainingRegular = Math.max(0, STANDARD_HOURS_THRESHOLD - priorWeekHours);
-	const regularHours = Math.min(hours, remainingRegular);
-	const overtimeHours = Math.max(0, hours - regularHours);
+	const regularHours = round2(Math.min(hours, remainingRegular));
+	const overtimeHours = round2(Math.max(0, hours - regularHours));
 
 	const regularCents = Math.round(regularHours * baseRate * 100);
 	const overtimeCents = Math.round(overtimeHours * baseRate * OVERTIME_MULTIPLIER * 100);

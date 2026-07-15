@@ -37,7 +37,9 @@ describe('statusKind', () => {
 		['REJECTED', 'negative'],
 		['DENIED', 'negative'],
 		['FAILED', 'negative'],
-		['uncollectible', 'negative']
+		['uncollectible', 'negative'],
+		['VOID', 'negative'],
+		['void', 'negative']
 	])('classifies %s as negative', (input, expected) => {
 		expect(statusKind(input)).toBe(expected);
 	});
@@ -47,8 +49,6 @@ describe('statusKind', () => {
 		['CANCELED', 'neutral'],
 		['CANCELLED', 'neutral'],
 		['INACTIVE', 'neutral'],
-		['VOID', 'neutral'],
-		['void', 'neutral'],
 		['DRAFT', 'neutral'],
 		['draft', 'neutral']
 	])('classifies %s as neutral', (input, expected) => {
@@ -107,7 +107,9 @@ describe('statusLabel', () => {
 		['PENDING', 'Pending'],
 		['paid', 'Paid'],
 		['open', 'Open'],
-		['DRAFT', 'Draft']
+		['DRAFT', 'Draft'],
+		['void', 'Voided'],
+		['VOID', 'Voided']
 	])('humanizes %s as %s', (input, expected) => {
 		expect(statusLabel(input)).toBe(expected);
 	});

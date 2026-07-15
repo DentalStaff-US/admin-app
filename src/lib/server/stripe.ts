@@ -72,6 +72,9 @@ export async function createStripeInvoice(
 			// bill as quantity_decimal × unit_amount so Stripe shows "37.5 × $40"
 			// like the paper invoice. Requires the newer API version, set per call.
 			if (item.quantity != null && item.unitAmountInCents != null) {
+				// Clamp the quantity to 2 decimals so it never exceeds Stripe's
+				// quantity_decimal precision limit (hours are already rounded upstream;
+				// this is belt-and-suspenders).
 				const params: InvoiceItemCreateParamsWithDecimalQty = {
 					invoice: invoice.id,
 					customer: stripeCustomerId,
@@ -79,11 +82,30 @@ export async function createStripeInvoice(
 					// unit_amount_decimal (string cents) — `unit_amount` is rejected as
 					// unknown. Pairs with quantity_decimal for exact fractional-hour totals.
 					unit_amount_decimal: String(item.unitAmountInCents),
-					quantity_decimal: String(item.quantity),
+					quantity_decimal: String(Number(item.quantity.toFixed(2))),
 					currency: item.currency || 'usd',
 					description: item.description || 'Service'
 				};
-				await stripe.invoiceItems.create(params, { apiVersion: DECIMAL_QTY_API_VERSION });
+				try {
+					await stripe.invoiceItems.create(params, { apiVersion: DECIMAL_QTY_API_VERSION });
+				} catch (decimalErr) {
+					// Never let the decimal-quantity path hard-fail invoice creation (which
+					// would revert timesheet approval). On ANY error — precision, a
+					// non-integer-cent result, or an account not enabled for the dahlia API
+					// version — fall back to the exact pre-computed integer amount as a lump
+					// line. Loses the "qty × rate" display for this line; total stays exact.
+					console.warn('decimal invoice-item failed; falling back to lump amount', {
+						error: decimalErr,
+						description: item.description
+					});
+					await stripe.invoiceItems.create({
+						invoice: invoice.id,
+						customer: stripeCustomerId,
+						amount: item.amountInCents,
+						currency: item.currency || 'usd',
+						description: item.description || 'Service'
+					});
+				}
 			} else if (item.quantity != null && item.quantity > 1) {
 				// Legacy safety net: a caller passed quantity but no explicit unit
 				// rate — derive the unit from the total (integer quantity only).

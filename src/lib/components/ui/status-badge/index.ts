@@ -38,19 +38,19 @@ const STATUS_KIND: Record<string, StatusKind> = {
 	WAGES_DUE: 'warning',
 	PAYMENT_REQUIRED: 'warning',
 
-	// Negative — failure / rejection
+	// Negative — failure / rejection / voided
 	REJECTED: 'negative',
 	DENIED: 'negative',
 	FAILED: 'negative',
 	uncollectible: 'negative',
+	VOID: 'negative',
+	void: 'negative',
 
 	// Neutral — dormant / ended (gray means "no action expected")
 	CLOSED: 'neutral',
 	CANCELED: 'neutral',
 	CANCELLED: 'neutral',
 	INACTIVE: 'neutral',
-	VOID: 'neutral',
-	void: 'neutral',
 	DRAFT: 'neutral',
 	draft: 'neutral'
 };
@@ -77,6 +77,8 @@ export function statusBadgeClass(status: string | null | undefined): string {
 // the optional `label` prop to <StatusBadge> if you need a custom render.
 export function statusLabel(status: string | null | undefined): string {
 	if (!status) return '';
+	// Voided reads better than the bare enum ("Void").
+	if (status === 'void' || status === 'VOID') return 'Voided';
 	return status
 		.toString()
 		.replace(/_/g, ' ')

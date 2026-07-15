@@ -186,7 +186,9 @@
 				</h1>
 				<StatusBadge
 					status={invoiceData.invoice.status}
-					label={invoiceData.invoice.status.toUpperCase()}
+					label={invoiceData.invoice.status === 'void'
+						? 'VOIDED'
+						: invoiceData.invoice.status.toUpperCase()}
 				/>
 				{#if isPaperInvoice}
 					<Badge variant="outline" class="border-blue-300 text-blue-700" value="Paper Invoice" />
@@ -260,7 +262,7 @@
 				</Button>
 			{/if}
 
-			{#if isAdmin && isPaperInvoice && !isVoided}
+			{#if isAdmin && !isVoided && invoiceData.invoice.status !== 'paid' && invoiceData.invoice.status !== 'uncollectible'}
 				<Button
 					size="sm"
 					variant="destructiveOutline"
@@ -948,7 +950,7 @@
 		<Dialog.DialogContent class="sm:max-w-[425px]">
 			<form
 				method="POST"
-				action="?/voidPaperInvoice"
+				action="?/voidInvoice"
 				use:enhance={() => {
 					voidingInvoice = true;
 					return async ({ result, update }) => {
@@ -969,6 +971,13 @@
 						further collection. This cannot be undone.
 					</Dialog.DialogDescription>
 				</Dialog.DialogHeader>
+
+				{#if invoiceData.invoice.timesheetId}
+					<p class="mt-2 rounded-md bg-amber-50 p-3 text-sm text-amber-700">
+						This invoice is tied to a timesheet. Voiding it also voids that timesheet and reopens the
+						work as a fresh draft so it can be corrected and re-invoiced.
+					</p>
+				{/if}
 
 				<input type="hidden" name="invoiceId" value={invoiceData.invoice.id} />
 

@@ -1,12 +1,13 @@
 import { message, superValidate } from 'sveltekit-superforms/server';
-import { stripe } from '$lib/server/stripe';
-import { redirect, error, fail } from '@sveltejs/kit';
+import { stripe, voidStripeInvoice } from '$lib/server/stripe';
+import { redirect, fail } from '@sveltejs/kit';
 import type { PageServerLoad, RequestEvent } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
 import {
 	getInvoiceById,
 	getInvoiceByIdAdmin,
-	getPaperTransactionsByInvoiceId
+	getPaperTransactionsByInvoiceId,
+	voidTimesheetWithInvoice
 } from '$lib/server/database/queries/requisitions';
 import { getClientProfilebyUserId } from '$lib/server/database/queries/clients';
 import { setFlash } from 'sveltekit-flash-message/server';
@@ -19,9 +20,9 @@ import {
 import { eq } from 'drizzle-orm';
 import {
 	notifyInvoicePaymentProcessed,
-	notifyMiscellaneousTransaction,
-	notifyInvoiceVoided
+	notifyMiscellaneousTransaction
 } from '$lib/server/notifications/transactional';
+import { voidInvoiceAndNotify } from '$lib/server/invoices/voidNotify';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
 
 const RecordTransactionSchema = z.object({
@@ -332,7 +333,13 @@ export const actions = {
 
 	// Void a paper invoice — marks it dead (mirrors Stripe void semantics: status
 	// change only, no refund/balance change). Leaves the ledger as historical record.
-	voidPaperInvoice: async (event: RequestEvent) => {
+	// Void an invoice — works for BOTH paper and Stripe, from anywhere.
+	//  - Timesheet-linked: run the full cleanup (voidTimesheetWithInvoice) so the
+	//    behavior is consistent no matter which direction the void starts from —
+	//    it voids the invoice AND the timesheet and releases its workdays, so a
+	//    fresh DRAFT regenerates for correction and re-invoicing.
+	//  - One-off/manual: void the invoice only (Stripe via the API first, then DB).
+	voidInvoice: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user || user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/auth/sign-in');
 
@@ -348,7 +355,9 @@ export const actions = {
 			const [currentInvoice] = await db
 				.select({
 					status: invoiceTable.status,
-					invoiceType: invoiceTable.invoiceType
+					invoiceType: invoiceTable.invoiceType,
+					stripeInvoiceId: invoiceTable.stripeInvoiceId,
+					timesheetId: invoiceTable.timesheetId
 				})
 				.from(invoiceTable)
 				.where(eq(invoiceTable.id, invoiceId))
@@ -358,23 +367,34 @@ export const actions = {
 				setFlash({ type: 'error', message: 'Invoice not found' }, event);
 				return fail(404, { form });
 			}
-			if (currentInvoice.invoiceType !== 'PAPER') {
-				setFlash({ type: 'error', message: 'Only paper invoices can be voided here' }, event);
-				return fail(400, { form });
-			}
 			if (currentInvoice.status === 'void') {
 				setFlash({ type: 'error', message: 'Invoice is already voided' }, event);
 				return fail(400, { form });
 			}
+			if (currentInvoice.status === 'paid') {
+				setFlash(
+					{ type: 'error', message: 'Invoice is already paid — a refund is required, not a void' },
+					event
+				);
+				return fail(400, { form });
+			}
 
-			await db
-				.update(invoiceTable)
-				.set({
-					status: 'void',
-					voidedAt: new Date(),
-					updatedAt: new Date()
-				})
-				.where(eq(invoiceTable.id, invoiceId));
+			if (currentInvoice.timesheetId) {
+				// Timesheet-linked: full cleanup. Voids the invoice (Stripe via the API,
+				// paper directly), voids the timesheet, and detaches its workdays so the
+				// processTimesheetCreation cron regenerates a fresh DRAFT for correction.
+				await voidTimesheetWithInvoice(currentInvoice.timesheetId, user.id);
+			} else if (currentInvoice.invoiceType === 'STRIPE' && currentInvoice.stripeInvoiceId) {
+				// Standalone Stripe invoice: void in Stripe FIRST (outside the DB write)
+				// so a Stripe rejection doesn't desync our DB. Throws if paid/void.
+				await voidStripeInvoice(currentInvoice.stripeInvoiceId);
+			}
+
+			// Flip the record to void and email the client — atomically and exactly
+			// once, no matter which path we took above or whether the Stripe
+			// invoice.voided webhook also fires. Returns false only if it was already
+			// void (someone else already notified).
+			await voidInvoiceAndNotify(invoiceId, reason);
 
 			await writeActionHistory({
 				table: 'INVOICES',
@@ -383,15 +403,18 @@ export const actions = {
 				entityId: invoiceId,
 				beforeState: { status: currentInvoice.status },
 				afterState: { status: 'void' },
-				metadata: { operation: 'VOID', reason }
+				metadata: {
+					operation: 'VOID',
+					reason,
+					invoiceType: currentInvoice.invoiceType,
+					timesheetVoided: !!currentInvoice.timesheetId
+				}
 			});
-
-			await notifyInvoiceVoided(invoiceId, reason);
 
 			setFlash({ type: 'success', message: 'Invoice voided successfully' }, event);
 			return message(form, 'Invoice voided successfully');
 		} catch (err) {
-			console.error('Error voiding paper invoice:', err);
+			console.error('Error voiding invoice:', err);
 			setFlash({ type: 'error', message: 'Failed to void invoice' }, event);
 			return fail(500, { form });
 		}
