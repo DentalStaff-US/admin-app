@@ -1,4 +1,5 @@
 import {
+	asc,
 	desc,
 	eq,
 	count,
@@ -242,7 +243,7 @@ export async function getAllClientProfiles(searchTerm?: string, status?: ClientS
 		.innerJoin(clientCompanyTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
 		.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
 		.where(filters.length ? and(...filters) : undefined)
-		.orderBy(desc(clientProfileTable.createdAt));
+		.orderBy(asc(userTable.lastName), asc(userTable.firstName));
 
 	return results;
 }

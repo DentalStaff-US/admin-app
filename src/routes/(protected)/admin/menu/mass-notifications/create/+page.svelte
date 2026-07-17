@@ -17,9 +17,13 @@
 		optedOut: number;
 		noContact: number;
 		channel: string;
-		sample: { name: string; to: string | null }[];
+		recipients: { key: string; name: string; to: string | null }[];
 	} | null = null;
 	let previewError = '';
+	// The filter signature captured when the current preview ran. If the admin
+	// edits any filter afterwards, the preview (and its selection) goes stale and
+	// is cleared so a stale selection can never be queued.
+	let previewSig = '';
 
 	let testAddress = '';
 	let testStatus = '';
@@ -55,21 +59,62 @@
 		previewLoading = true;
 		previewError = '';
 		previewResult = null;
+		$form.applyRecipientSelection = false;
+		$form.selectedRecipientKeys = [];
 		try {
 			const res = await fetch('/admin/menu/mass-notifications/create/preview', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify(filterPayload())
 			});
-			const json = await res.json();
-			if (json.error) previewError = json.error;
-			else previewResult = json;
+			const json = (await res.json()) as {
+				error?: string;
+				count: number;
+				total: number;
+				optedOut: number;
+				noContact: number;
+				channel: string;
+				recipients: { key: string; name: string; to: string | null }[];
+			};
+			if (json.error) {
+				previewError = json.error;
+			} else {
+				previewResult = json;
+				previewSig = filterSig;
+				// Everyone eligible starts selected; the admin deselects from here.
+				$form.selectedRecipientKeys = [...new Set(json.recipients.map((r) => r.key))];
+				$form.applyRecipientSelection = true;
+			}
 		} catch (e) {
 			previewError = String(e);
 		} finally {
 			previewLoading = false;
 		}
 	}
+
+	function selectAllRecipients() {
+		if (!previewResult) return;
+		$form.selectedRecipientKeys = [...new Set(previewResult.recipients.map((r) => r.key))];
+	}
+
+	function deselectAllRecipients() {
+		$form.selectedRecipientKeys = [];
+	}
+
+	// Drop a stale preview when the filters that produced it change. Guard the
+	// mutation so this reactive block can't loop (clearing previewResult makes the
+	// condition false; the touched form fields aren't part of filterSig).
+	function invalidatePreview() {
+		previewResult = null;
+		previewError = '';
+		previewSig = '';
+		$form.applyRecipientSelection = false;
+		$form.selectedRecipientKeys = [];
+	}
+
+	$: filterSig = JSON.stringify(filterPayload());
+	$: if (previewResult && filterSig !== previewSig) invalidatePreview();
+	$: selectedCount = $form.selectedRecipientKeys?.length ?? 0;
 
 	async function sendTest() {
 		testStatus = 'Sending…';
@@ -293,13 +338,15 @@
 					class="rounded-md bg-gray-800 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-900"
 					disabled={previewLoading}
 				>
-					{previewLoading ? 'Counting…' : 'Preview recipients'}
+					{previewLoading ? 'Counting…' : 'Preview & select recipients'}
 				</button>
 				{#if previewError}<p class="mt-2 text-sm text-red-600">{previewError}</p>{/if}
 				{#if previewResult}
 					<p class="mt-3 text-sm font-medium">
-						{previewResult.count} will receive
-						<span class="font-normal text-gray-500">of {previewResult.total} matched</span>
+						{selectedCount} selected
+						<span class="font-normal text-gray-500">
+							of {previewResult.recipients.length} eligible ({previewResult.total} matched)
+						</span>
 					</p>
 					{#if previewResult.optedOut > 0 || previewResult.noContact > 0}
 						<ul class="mt-1 text-xs text-amber-700 list-disc pl-5">
@@ -317,10 +364,47 @@
 							{/if}
 						</ul>
 					{/if}
-					{#if previewResult.sample.length}
-						<ul class="mt-2 text-xs text-gray-500 list-disc pl-5">
-							{#each previewResult.sample as s}<li>{s.name} — {s.to}</li>{/each}
-						</ul>
+
+					{#if previewResult.recipients.length}
+						<div class="mt-3 flex items-center gap-3 text-xs">
+							<span class="font-medium text-gray-600">Recipients</span>
+							<button
+								type="button"
+								on:click={selectAllRecipients}
+								class="text-blue-600 hover:underline"
+							>
+								Select all
+							</button>
+							<span class="text-gray-300">|</span>
+							<button
+								type="button"
+								on:click={deselectAllRecipients}
+								class="text-blue-600 hover:underline"
+							>
+								Deselect all
+							</button>
+						</div>
+						<div class="mt-2 max-h-72 overflow-y-auto rounded-md border divide-y">
+							{#each previewResult.recipients as r (r.key)}
+								<label class="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-gray-50">
+									<input
+										type="checkbox"
+										value={r.key}
+										bind:group={$form.selectedRecipientKeys}
+									/>
+									<span class="font-medium text-gray-700">{r.name}</span>
+									<span class="text-gray-400">—</span>
+									<span class="text-gray-500 truncate">{r.to}</span>
+								</label>
+							{/each}
+						</div>
+						{#if selectedCount === 0}
+							<p class="mt-2 text-xs text-red-600">
+								No recipients selected — select at least one to send.
+							</p>
+						{/if}
+					{:else}
+						<p class="mt-2 text-xs text-gray-500">No eligible recipients to select.</p>
 					{/if}
 				{/if}
 			</div>
@@ -379,12 +463,23 @@
 
 			<button
 				type="submit"
-				disabled={$submitting}
+				disabled={$submitting || ($form.applyRecipientSelection && selectedCount === 0)}
 				class="w-full rounded-md bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-60"
 			>
-				{$submitting ? 'Queueing…' : 'Queue & send'}
+				{#if $submitting}
+					Queueing…
+				{:else if $form.applyRecipientSelection}
+					Queue & send to {selectedCount} selected
+				{:else}
+					Queue & send
+				{/if}
 			</button>
 			<p class="text-center text-xs text-gray-400">
+				{#if $form.applyRecipientSelection}
+					Only the {selectedCount} selected recipient(s) will be queued.
+				{:else}
+					Preview to choose recipients, or queue to send to everyone matched.
+				{/if}
 				Recipients are snapshotted when you queue. Sending runs in the background.
 			</p>
 		</div>

@@ -188,7 +188,7 @@
 		</div>
 
 		<div class="mb-4">
-			<Label for="hourlyRate">Purchase Order #</Label>
+			<Label for="purchaseOrderNumber">Purchase Order #</Label>
 			<Input
 				type="text"
 				id="purchaseOrderNumber"

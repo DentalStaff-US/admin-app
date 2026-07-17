@@ -351,6 +351,13 @@
       "when": 1784154880228,
       "tag": "0049_fresh_calypso",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1784315970655,
+      "tag": "0050_striped_zarek",
+      "breakpoints": true
     }
   ]
 }

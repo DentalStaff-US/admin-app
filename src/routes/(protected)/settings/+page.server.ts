@@ -155,6 +155,7 @@ export async function load(event) {
 			companyDescription: clientCompany.companyDescription as string,
 			companyLogo: clientCompany.companyLogo as string,
 			baseLocation: clientCompany.baseLocation as string,
+			website: clientCompany.website ?? '',
 			operatingHours: JSON.stringify(clientCompany.operatingHours)
 		};
 
@@ -391,6 +392,7 @@ export const actions = {
 					companyDescription: form.data.companyDescription,
 					// companyLogo: companyLogo,
 					baseLocation: form.data.baseLocation,
+					website: form.data.website || null,
 					operatingHours: operatingHours // Store as object, not JSON string
 				})
 				.where(eq(clientCompanyTable.id, clientCompany.id))

@@ -113,6 +113,7 @@ export const clientCompanyTable = pgTable('client_companies', {
 	companyLogo: text('company_logo'),
 	companyDescription: text('company_description'),
 	baseLocation: text('base_location'),
+	website: text('website'),
 	operatingHours: jsonb('operating_hours')
 		.$type<OperatingHours>()
 		.default({

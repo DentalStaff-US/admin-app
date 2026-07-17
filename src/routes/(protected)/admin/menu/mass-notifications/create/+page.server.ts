@@ -8,6 +8,7 @@ import { getAllDisciplines, getAllExperienceLevels } from '$lib/server/database/
 import {
 	getCampaignAudience,
 	createCampaignWithRecipients,
+	recipientKey,
 	toCampaignFilters
 } from '$lib/server/database/queries/campaigns';
 import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
@@ -45,14 +46,31 @@ export const actions = {
 		if (!form.valid) return fail(400, { form });
 
 		const filters = toCampaignFilters(form.data);
-		const recipients = await getCampaignAudience(form.data.audience, form.data.channel, filters);
+		const matched = await getCampaignAudience(form.data.audience, form.data.channel, filters);
 
-		if (recipients.length === 0) {
+		if (matched.length === 0) {
 			setFlash(
 				{ type: 'error', message: 'No recipients matched these filters — nothing was queued.' },
 				event
 			);
 			return fail(400, { form });
+		}
+
+		// Re-resolve the audience server-side, then narrow to the admin's checkbox
+		// selection (never trust a recipient list from the client). If the admin
+		// didn't use the selection UI, everyone matched is queued as before.
+		let recipients = matched;
+		if (form.data.applyRecipientSelection) {
+			const selected = new Set(form.data.selectedRecipientKeys ?? []);
+			recipients = matched.filter((r) => selected.has(recipientKey(r, form.data.channel)));
+
+			if (recipients.length === 0) {
+				setFlash(
+					{ type: 'error', message: 'No recipients are selected — nothing was queued.' },
+					event
+				);
+				return fail(400, { form });
+			}
 		}
 
 		const { campaignId } = await createCampaignWithRecipients({

@@ -2,11 +2,13 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { USER_ROLES } from '$lib/config/constants';
 import {
 	getCampaignAudienceBreakdown,
+	recipientKey,
 	toCampaignFilters
 } from '$lib/server/database/queries/campaigns';
 
 // Recipient preview for the builder. Returns the eligible count, why others were
-// excluded (opted out / no contact info), and a small sample — without sending
+// excluded (opted out / no contact info), and the full deliverable list so the
+// admin can select/deselect individuals before queueing — without sending
 // anything. SUPERADMIN only.
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const user = locals.user;
@@ -20,7 +22,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const filters = toCampaignFilters(payload);
 
 	const breakdown = await getCampaignAudienceBreakdown(audience, channel, filters);
-	const sample = breakdown.recipients.slice(0, 10).map((r) => ({
+	const recipients = breakdown.recipients.map((r) => ({
+		key: recipientKey(r, channel),
 		name: [r.firstName, r.lastName].filter(Boolean).join(' ') || '(no name)',
 		to: channel === 'SMS' ? r.phone : r.email
 	}));
@@ -31,6 +34,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		optedOut: breakdown.optedOut,
 		noContact: breakdown.noContact,
 		channel,
-		sample
+		recipients
 	});
 };
