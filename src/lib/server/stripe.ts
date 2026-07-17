@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 import * as dotenv from 'dotenv';
-// import { logger } from '$lib/server/logger';
+import { logger } from '$lib/server/logger';
 dotenv.config();
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -185,6 +185,79 @@ export async function voidStripeInvoice(stripeInvoiceId: string): Promise<Stripe
 	}
 
 	return stripe.invoices.voidInvoice(stripeInvoiceId);
+}
+
+// Stripe's Invoice Payments API (`/v1/invoice_payments`) — each `invoice_payment`
+// is one payment applied to an invoice, so it's the equivalent of our paper
+// transaction ledger and the source for a partial-payment history. It's only
+// available on recent API versions; pin one per request (same override trick as
+// the invoice-item calls above) since the installed SDK's default is older and
+// has no typed `invoicePayments` resource, so we call it via `stripe.rawRequest`.
+const INVOICE_PAYMENTS_API_VERSION = '2026-03-25.dahlia';
+
+// Minimal shape of the `invoice_payment` list objects we read — the SDK (17.6.0)
+// predates the typed resource, so we describe just the fields we consume.
+type StripeInvoicePaymentRaw = {
+	id: string;
+	status: 'open' | 'paid' | 'canceled';
+	amount_paid: number | null;
+	amount_requested: number;
+	currency: string;
+	is_default: boolean;
+	created: number;
+	status_transitions?: { paid_at: number | null; canceled_at: number | null };
+	payment?: {
+		type: 'payment_intent' | 'charge' | 'payment_record';
+		payment_intent?: string | null;
+		charge?: string | null;
+		payment_record?: string | null;
+	};
+};
+
+export type StripeInvoicePaymentView = {
+	id: string;
+	amount: number; // dollars
+	status: string;
+	paidAt: Date;
+	reference: string | null; // underlying payment_intent / charge id
+};
+
+/**
+ * Read-through of a Stripe invoice's individual payments — the equivalent of the
+ * paper-invoice transaction ledger, used to show a partial-payment history.
+ * Returns only settled ('paid') payments in chronological order; the auto-created
+ * default InvoicePayment that just tracks the open balance is filtered out. Never
+ * throws — logs and returns [] on error so the invoice page still renders.
+ */
+export async function getStripeInvoicePayments(
+	stripeInvoiceId: string
+): Promise<StripeInvoicePaymentView[]> {
+	if (!stripeInvoiceId) return [];
+	try {
+		// rawRequest only accepts a params object on POST — for GET the query must
+		// live in the path, so build the querystring inline and pass no params.
+		const query = new URLSearchParams({ invoice: stripeInvoiceId, limit: '100' }).toString();
+		const res = (await stripe.rawRequest(
+			'GET',
+			`/v1/invoice_payments?${query}`,
+			undefined,
+			{ apiVersion: INVOICE_PAYMENTS_API_VERSION }
+		)) as unknown as { data?: StripeInvoicePaymentRaw[] };
+
+		return (res?.data ?? [])
+			.filter((p) => p.status === 'paid')
+			.map((p) => ({
+				id: p.id,
+				amount: (p.amount_paid ?? 0) / 100,
+				status: p.status,
+				paidAt: new Date((p.status_transitions?.paid_at ?? p.created) * 1000),
+				reference: p.payment?.payment_intent ?? p.payment?.charge ?? null
+			}))
+			.sort((a, b) => a.paidAt.getTime() - b.paidAt.getTime());
+	} catch (err) {
+		logger.error('failed to load stripe invoice payments', { error: err, stripeInvoiceId });
+		return [];
+	}
 }
 
 /**

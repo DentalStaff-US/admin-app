@@ -1,5 +1,5 @@
 import { message, superValidate } from 'sveltekit-superforms/server';
-import { stripe, voidStripeInvoice } from '$lib/server/stripe';
+import { stripe, voidStripeInvoice, getStripeInvoicePayments } from '$lib/server/stripe';
 import { redirect, fail } from '@sveltejs/kit';
 import type { PageServerLoad, RequestEvent } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
@@ -61,7 +61,13 @@ export const load: PageServerLoad = async (event) => {
 		const invoiceDetails = await getInvoiceByIdAdmin(event.params.id);
 		const transactionForm = await superValidate(RecordTransactionSchema);
 		const paperTransactions = await getPaperTransactionsByInvoiceId(event.params.id);
-		return { user, invoice: invoiceDetails, transactionForm, paperTransactions };
+		// Read-through the Stripe payment ledger for the per-payment history — admin
+		// only, and only for Stripe invoices that have a Stripe id.
+		const stripePayments =
+			invoiceDetails?.invoice?.invoiceType !== 'PAPER' && invoiceDetails?.invoice?.stripeInvoiceId
+				? await getStripeInvoicePayments(invoiceDetails.invoice.stripeInvoiceId)
+				: [];
+		return { user, invoice: invoiceDetails, transactionForm, paperTransactions, stripePayments };
 	}
 
 	if (user.role === USER_ROLES.CLIENT) {
@@ -69,10 +75,16 @@ export const load: PageServerLoad = async (event) => {
 		const client = await getClientProfilebyUserId(user.id);
 		const invoiceDetails = await getInvoiceById(event.params.id, client.id);
 		const paperTransactions = await getPaperTransactionsByInvoiceId(event.params.id);
-		return { user, invoice: invoiceDetails, transactionForm: null, paperTransactions };
+		return {
+			user,
+			invoice: invoiceDetails,
+			transactionForm: null,
+			paperTransactions,
+			stripePayments: []
+		};
 	}
 
-	return { user, invoice: null, transactionForm: null, paperTransactions: [] };
+	return { user, invoice: null, transactionForm: null, paperTransactions: [], stripePayments: [] };
 };
 
 export const actions = {
