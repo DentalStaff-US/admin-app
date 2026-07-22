@@ -86,6 +86,7 @@ export const load: PageServerLoad = async (event) => {
 			zipcode: location.zipcode || '',
 			companyPhone: location.companyPhone || '',
 			email: location.email || '',
+			website: location.website || '',
 			completeAddress: location.completeAddress || '',
 			lat: parseFloat(location.lat as string),
 			lon: parseFloat(location.lon as string)
@@ -134,6 +135,7 @@ export const load: PageServerLoad = async (event) => {
 			zipcode: location.zipcode || '',
 			companyPhone: location.companyPhone || '',
 			email: location.email || '',
+			website: location.website || '',
 			completeAddress: location.completeAddress || '',
 			lat: parseFloat(location.lat as string),
 			lon: parseFloat(location.lon as string)
@@ -388,7 +390,7 @@ export const actions = {
 		}
 		const { id } = event.params;
 
-		const { completeAddress, lat, lon, name, email, companyPhone, timezone } = form.data;
+		const { completeAddress, lat, lon, name, email, companyPhone, website, timezone } = form.data;
 
 		const details = {
 			completeAddress,
@@ -397,6 +399,7 @@ export const actions = {
 			timezone,
 			companyPhone,
 			email,
+			website,
 			name
 		};
 

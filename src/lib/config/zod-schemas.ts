@@ -108,6 +108,7 @@ export const clientCompanyLocationSchema = z.object({
 	companyPhone: usPhoneField().nullable().optional(),
 	hoursOfOperation: z.string().optional(),
 	email: z.string().optional(),
+	website: z.string().optional(),
 	phoneNumber: usPhoneField().nullable().optional(),
 	phoneNumberType: z.union([z.literal('cell'), z.literal('office')]).optional(),
 	timezone: z.string().optional(),
@@ -127,6 +128,7 @@ export const newClientCompanyLocationSchema = z.object({
 	state: z.string().optional(),
 	zipcode: z.string().optional(),
 	email: z.string().optional(),
+	website: z.string().optional(),
 	phoneNumber: usPhoneField().nullable().optional(),
 	phoneNumberType: z.union([z.literal('cell'), z.literal('office')]).optional(),
 	timezone: z.string().optional(),
@@ -179,8 +181,12 @@ export const newExperienceLevelSchema = z.object({
 
 export type NewExperienceLevelSchema = typeof newExperienceLevelSchema;
 
+// Required-field validation for these forms is enforced in the form components'
+// submit handler (superforms v1's full-schema client validation is unreliable
+// against this form's number/boolean coercions). `title` is deprecated (no field)
+// and the PO is optional.
 export const adminRequisitionSchema = z.object({
-	title: z.string(),
+	title: z.string().optional(),
 	clientId: z.string(),
 	locationId: z.string(),
 	disciplineId: z.string(),
@@ -196,7 +202,7 @@ export const adminRequisitionSchema = z.object({
 export type AdminRequisitionSchema = typeof adminRequisitionSchema;
 
 export const clientRequisitionSchema = z.object({
-	title: z.string(),
+	title: z.string().optional(),
 	clientId: z.string(),
 	locationId: z.string(),
 	disciplineId: z.string(),
@@ -480,7 +486,8 @@ export const NewAddressSchema = z.object({
 
 export const ContactSchema = z.object({
 	companyPhone: usPhoneField().nullable().optional(),
-	email: z.string().email('Invalid email address').optional()
+	email: z.string().email('Invalid email address').optional(),
+	website: z.string().optional()
 });
 
 export const LocationContactDestinationSchema = z

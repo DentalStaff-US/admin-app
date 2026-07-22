@@ -52,7 +52,8 @@ export const load: PageServerLoad = async (event) => {
 
 	contactForm.data = {
 		companyPhone: location.companyPhone || '',
-		email: location.email || ''
+		email: location.email || '',
+		website: location.website || ''
 	};
 
 	operatingHoursForm.data = {
@@ -128,10 +129,11 @@ export const actions = {
 			return fail(400, { form });
 		}
 		const { locationId } = event.params;
-		const { companyPhone, email } = form.data;
+		const { companyPhone, email, website } = form.data;
 		const contactData = {
 			companyPhone: companyPhone || '',
-			email: email || ''
+			email: email || '',
+			website: website || ''
 		};
 		try {
 			await updateCompanyLocation(locationId, contactData);

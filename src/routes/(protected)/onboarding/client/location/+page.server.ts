@@ -18,7 +18,8 @@ const companyLocationSchema = clientCompanyLocationSchema.pick({
 	timezone: true,
 	phoneNumber: true,
 	phoneNumberType: true,
-	email: true
+	email: true,
+	website: true
 });
 
 export const load = async (event) => {
@@ -72,7 +73,8 @@ export const actions = {
 				timezone: form.data.timezone,
 				cellPhone: form.data.phoneNumberType === 'cell' ? form.data.phoneNumber : null,
 				companyPhone: form.data.phoneNumberType === 'office' ? form.data.phoneNumber : null,
-				email: form.data.email || null
+				email: form.data.email || null,
+				website: form.data.website || null
 			});
 
 			if (newLocation) {

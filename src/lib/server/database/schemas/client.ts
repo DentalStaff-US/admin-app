@@ -242,6 +242,7 @@ export const companyOfficeLocationTable = pgTable('company_office_locations', {
 			}
 		}),
 	email: text('email'),
+	website: text('website'),
 	timezone: text('timezone').notNull().default('America/New_York'),
 	completeAddress: text('complete_address'),
 	lat: decimal('lat'),

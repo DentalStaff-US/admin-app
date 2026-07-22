@@ -22,7 +22,8 @@
         timezone: true,
         phoneNumber: true,
         phoneNumberType: true,
-        email: true
+        email: true,
+        website: true
     });
 
     let selectedAddress: AddressResult | null = null;
@@ -132,6 +133,13 @@
                         <Form.Item>
                             <Form.Label>Office Email</Form.Label>
                             <Form.Input type="email"/>
+                            <Form.Validation/>
+                        </Form.Item>
+                    </Form.Field>
+                    <Form.Field {config} name="website">
+                        <Form.Item>
+                            <Form.Label>Website</Form.Label>
+                            <Form.Input type="url" placeholder="https://example.com"/>
                             <Form.Validation/>
                         </Form.Item>
                     </Form.Field>

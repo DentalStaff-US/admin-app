@@ -227,8 +227,11 @@
 				<form
 					use:enhance={() => {
 						processingPayment = true;
-						return async ({ update }) => {
+						return async ({ result, update }) => {
 							processingPayment = false;
+							if (result.type === 'success') {
+								await invalidateAll();
+							}
 							await update();
 						};
 					}}

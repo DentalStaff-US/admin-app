@@ -43,6 +43,7 @@
         Building,
         Phone,
         Mail,
+        Globe,
         MapPin,
         ExternalLink,
         Clock,
@@ -414,6 +415,17 @@
                                             />
                                         </div>
 
+                                        <div class="space-y-2">
+                                            <Label for="website">Website</Label>
+                                            <Input
+                                                    id="website"
+                                                    name="website"
+                                                    type="url"
+                                                    bind:value={$locationForm.website}
+                                                    placeholder="https://example.com"
+                                            />
+                                        </div>
+
                                         <div class="flex gap-2 pt-4">
                                             <Button
                                                     type="submit"
@@ -477,7 +489,21 @@
                                                     </div>
                                                 {/if}
 
-                                                {#if !location?.companyPhone && !location?.email}
+                                                {#if location?.website}
+                                                    <div class="flex items-center gap-2">
+                                                        <Globe class="h-4 w-4 text-gray-500"/>
+                                                        <a
+                                                                href={location.website}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                class="text-blue-600 hover:underline break-all"
+                                                        >
+                                                            {location.website}
+                                                        </a>
+                                                    </div>
+                                                {/if}
+
+                                                {#if !location?.companyPhone && !location?.email && !location?.website}
                                                     <p class="text-sm text-muted-foreground">
                                                         No contact information available
                                                     </p>

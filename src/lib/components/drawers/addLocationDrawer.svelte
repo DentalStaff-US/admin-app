@@ -108,6 +108,15 @@
 						<Label>Office Email Address</Label>
 						<Input name="email" type="email" bind:value={$formData.email} />
 					</div>
+					<div>
+						<Label>Website</Label>
+						<Input
+							name="website"
+							type="url"
+							placeholder="https://example.com"
+							bind:value={$formData.website}
+						/>
+					</div>
 				</div>
 				<input type="hidden" name="companyId" value={company?.id} />
 				<input type="hidden" name="lat" value={$formData.lat} />

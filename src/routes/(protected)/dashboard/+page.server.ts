@@ -41,7 +41,11 @@ export const load = async (event: RequestEvent) => {
 			newClientSignups,
 			invoicesDueCount,
 			requisitions,
-			wagesDueCount
+			wagesDueCount,
+			invoicesDueTotal,
+			wagesDueTotal,
+			wagesPaidCount,
+			wagesPaidTotal
 		} = await getAdminDashboardData();
 		const form = superValidate(event, adminRequisitionSchema);
 		const newProfileForm = await superValidate(event, adminNewUserSchema);
@@ -58,7 +62,11 @@ export const load = async (event: RequestEvent) => {
 			clientForm: null,
 			adminForm: form,
 			newProfileForm,
-			wagesDueCount
+			wagesDueCount,
+			invoicesDueTotal,
+			wagesDueTotal,
+			wagesPaidCount,
+			wagesPaidTotal
 		};
 	}
 

@@ -47,7 +47,11 @@
 	$: newClientSignups = data.newClientSignups || [];
 	$: requisitions = data.requisitions || [];
 	$: wagesDueCount = data.wagesDueCount;
-	$: console.log('Wages due count:', wagesDueCount);
+	// Dollar totals for the stat cards (values, not just counts).
+	$: invoicesDueTotal = data.invoicesDueTotal || 0;
+	$: wagesDueTotal = data.wagesDueTotal || 0;
+	$: wagesPaidCount = data.wagesPaidCount || 0;
+	$: wagesPaidTotal = data.wagesPaidTotal || 0;
 	// Calculate the % change in timesheets due from previous period (placeholder - you'll need to implement actual trend calculation)
 	// const timesheetsTrendPercent = 12; // This should be calculated based on historical data
 	// const supportTicketsTrendPercent = -5;
@@ -244,18 +248,10 @@
 							<p class="text-gray-500 text-sm font-medium">Invoices Due</p>
 							<div class="flex items-baseline mt-1">
 								<p class="text-4xl font-bold text-gray-900">{invoicesDueCount}</p>
-								<!-- <span
-									class={`ml-2 ${getTrendColorClass(invoicesTrendPercent)} text-sm font-medium flex items-center`}
-								>
-									{formatTrendValue(invoicesTrendPercent)}
-									{#if invoicesTrendPercent > 0}
-										<TrendingUp size={16} class="ml-1" />
-									{:else}
-										<TrendingUp size={16} class="ml-1 transform rotate-180" />
-									{/if}
-								</span> -->
 							</div>
-							<!-- <p class="text-gray-400 text-xs mt-1">vs. previous period</p> -->
+							<p class="text-gray-500 text-sm mt-1">
+								{formatCurrency(invoicesDueTotal)} outstanding
+							</p>
 						</div>
 						<div class="bg-green-100 p-3 rounded-full">
 							<DollarSign size={24} class="text-green-600" />
@@ -269,7 +265,7 @@
 					</div>
 				</Card.Content>
 			</Card.Root>
-			<!-- Add to the stat cards row in the dashboard, after the Invoices Due card -->
+			<!-- Wages due card -->
 			<Card.Root>
 				<Card.Content class="p-6">
 					<div class="flex justify-between items-start">
@@ -278,6 +274,7 @@
 							<div class="flex items-baseline mt-1">
 								<p class="text-4xl font-bold text-gray-900">{wagesDueCount}</p>
 							</div>
+							<p class="text-gray-500 text-sm mt-1">{formatCurrency(wagesDueTotal)} owed</p>
 						</div>
 						<div class="bg-yellow-100 p-3 rounded-full">
 							<DollarSign size={24} class="text-yellow-600" />
@@ -290,6 +287,33 @@
 							href="/timesheets?tab=wages-due"
 						>
 							View wages due
+							<ArrowRight size={16} class="ml-1" />
+						</Button>
+					</div>
+				</Card.Content>
+			</Card.Root>
+			<!-- Wages paid card -->
+			<Card.Root>
+				<Card.Content class="p-6">
+					<div class="flex justify-between items-start">
+						<div>
+							<p class="text-gray-500 text-sm font-medium">Wages Paid</p>
+							<div class="flex items-baseline mt-1">
+								<p class="text-4xl font-bold text-gray-900">{wagesPaidCount}</p>
+							</div>
+							<p class="text-gray-500 text-sm mt-1">{formatCurrency(wagesPaidTotal)} paid</p>
+						</div>
+						<div class="bg-emerald-100 p-3 rounded-full">
+							<DollarSign size={24} class="text-emerald-600" />
+						</div>
+					</div>
+					<div class="mt-4">
+						<Button
+							variant="link"
+							class="text-emerald-600 p-0 h-auto"
+							href="/timesheets?tab=wages-paid"
+						>
+							View wages paid
 							<ArrowRight size={16} class="ml-1" />
 						</Button>
 					</div>
