@@ -623,7 +623,7 @@
 										/>
 									</div>
 									<div>
-										<Label for="edit-rate" class="text-xs text-gray-600">Purchase Order #</Label>
+										<Label for="edit-po-number" class="text-xs text-gray-600">Purchase Order #</Label>
 										<Input
 											id="edit-po-number"
 											name="purchaseOrderNumber"

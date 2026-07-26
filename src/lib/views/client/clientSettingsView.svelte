@@ -582,6 +582,16 @@
 						<Input name="baseLocation" bind:value={$companyFormObj.baseLocation} />
 					</div>
 
+					<div class="col-span-2">
+						<Label for="website">Website</Label>
+						<Input
+							name="website"
+							type="url"
+							placeholder="https://example.com"
+							bind:value={$companyFormObj.website}
+						/>
+					</div>
+
 					<!-- Operating Hours Section -->
 					<div class="col-span-2">
 						<h3 class="text-xl font-semibold mb-4">Operating Hours</h3>

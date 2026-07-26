@@ -90,6 +90,7 @@ export const clientCompanySchema = z.object({
 	companyName: z.string().min(1, { message: 'Company Name is required' }).trim(),
 	companyDescription: z.string(),
 	baseLocation: z.string(),
+	website: z.string().optional(),
 	operatingHours: z.string(),
 	companyLogo: z.string()
 });
@@ -107,6 +108,7 @@ export const clientCompanyLocationSchema = z.object({
 	companyPhone: usPhoneField().nullable().optional(),
 	hoursOfOperation: z.string().optional(),
 	email: z.string().optional(),
+	website: z.string().optional(),
 	phoneNumber: usPhoneField().nullable().optional(),
 	phoneNumberType: z.union([z.literal('cell'), z.literal('office')]).optional(),
 	timezone: z.string().optional(),
@@ -126,6 +128,7 @@ export const newClientCompanyLocationSchema = z.object({
 	state: z.string().optional(),
 	zipcode: z.string().optional(),
 	email: z.string().optional(),
+	website: z.string().optional(),
 	phoneNumber: usPhoneField().nullable().optional(),
 	phoneNumberType: z.union([z.literal('cell'), z.literal('office')]).optional(),
 	timezone: z.string().optional(),
@@ -178,8 +181,12 @@ export const newExperienceLevelSchema = z.object({
 
 export type NewExperienceLevelSchema = typeof newExperienceLevelSchema;
 
+// Required-field validation for these forms is enforced in the form components'
+// submit handler (superforms v1's full-schema client validation is unreliable
+// against this form's number/boolean coercions). `title` is deprecated (no field)
+// and the PO is optional.
 export const adminRequisitionSchema = z.object({
-	title: z.string(),
+	title: z.string().optional(),
 	clientId: z.string(),
 	locationId: z.string(),
 	disciplineId: z.string(),
@@ -195,7 +202,7 @@ export const adminRequisitionSchema = z.object({
 export type AdminRequisitionSchema = typeof adminRequisitionSchema;
 
 export const clientRequisitionSchema = z.object({
-	title: z.string(),
+	title: z.string().optional(),
 	clientId: z.string(),
 	locationId: z.string(),
 	disciplineId: z.string(),
@@ -479,7 +486,8 @@ export const NewAddressSchema = z.object({
 
 export const ContactSchema = z.object({
 	companyPhone: usPhoneField().nullable().optional(),
-	email: z.string().email('Invalid email address').optional()
+	email: z.string().email('Invalid email address').optional(),
+	website: z.string().optional()
 });
 
 export const LocationContactDestinationSchema = z
@@ -576,6 +584,7 @@ export const updateClientSchema = z
 		email: z.string().email('Invalid email address').optional(),
 		companyName: z.string().min(1, 'Company name is required').optional(),
 		baseLocation: z.string().optional().nullable(),
+		website: z.string().optional().nullable(),
 		cellPhone: usPhoneField().nullable().optional(),
 		invoiceMethod: z.enum(['STRIPE', 'PAPER']).optional()
 	})
@@ -667,6 +676,12 @@ export const massNotificationSchema = z
 		channel: massNotificationChannelEnum,
 		subject: z.string().trim().optional(),
 		body: z.string().trim().min(1, { message: 'Message body is required' }),
+		// Recipient selection from the preview list. When applyRecipientSelection is
+		// false (admin never previewed) the queue action sends to everyone matched,
+		// preserving the original behaviour. When true, only recipients whose key is
+		// in selectedRecipientKeys are queued.
+		applyRecipientSelection: z.boolean().optional().default(false),
+		selectedRecipientKeys: z.array(z.string()).optional().default([]),
 		...massNotificationFilterFields
 	})
 	.refine((d) => d.channel !== 'EMAIL' || (d.subject?.trim().length ?? 0) > 0, {

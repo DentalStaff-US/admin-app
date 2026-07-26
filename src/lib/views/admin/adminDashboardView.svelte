@@ -8,16 +8,14 @@
 		UserPlus,
 		TicketIcon,
 		ArrowRight,
-		Clock,
 		TrendingUp,
-		CheckCircle2,
 		Building,
 		DollarSign,
 		PlusIcon,
 		Plus
 	} from 'lucide-svelte';
 	import { goto } from '$app/navigation';
-	import { formatCurrency, formatDate, formatTicketDate } from '$lib/_helpers';
+	import { formatCurrency } from '$lib/_helpers';
 	import { Badge } from '$lib/components/ui/badge';
 	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import { cn } from '$lib/utils';
@@ -45,22 +43,21 @@
 	$: invoicesDueCount = data.invoicesDueCount || 0;
 
 	// Table data from actual API response
-	$: supportTickets = data.supportTickets || [];
-	$: discrepancies = data.discrepancies || [];
 	$: newCandidateProfiles = data.newCandidateProfiles || [];
 	$: newClientSignups = data.newClientSignups || [];
-	$: invoicesDue = data.invoicesDue || [];
 	$: requisitions = data.requisitions || [];
 	$: wagesDueCount = data.wagesDueCount;
-	$: console.log('Wages due count:', wagesDueCount);
+	// Dollar totals for the stat cards (values, not just counts).
+	$: invoicesDueTotal = data.invoicesDueTotal || 0;
+	$: wagesDueTotal = data.wagesDueTotal || 0;
+	$: wagesPaidCount = data.wagesPaidCount || 0;
+	$: wagesPaidTotal = data.wagesPaidTotal || 0;
 	// Calculate the % change in timesheets due from previous period (placeholder - you'll need to implement actual trend calculation)
 	// const timesheetsTrendPercent = 12; // This should be calculated based on historical data
 	// const supportTicketsTrendPercent = -5;
 	// const discrepanciesTrendPercent = 8;
 	// const invoicesTrendPercent = 15;
 	$: newProfileForm = data.newProfileForm;
-
-	let activeTab = 'timesheets';
 
 	// Function to determine status color class
 	function getStatusColorClass(status) {
@@ -111,29 +108,6 @@
 	// 	return value > 0 ? 'text-green-500' : 'text-red-500';
 	// }
 
-	// Function to get discrepancy type badge color
-	function getDiscrepancyTypeColor(type) {
-		switch (type) {
-			case 'MISSING_HOURS':
-				return 'bg-red-100 text-red-800';
-			case 'OVERTIME_MISMATCH':
-				return 'bg-orange-100 text-orange-800';
-			case 'SCHEDULE_MISMATCH':
-				return 'bg-yellow-100 text-yellow-800';
-			default:
-				return 'bg-gray-100 text-gray-800';
-		}
-	}
-
-	// Function to format discrepancy type for display
-	function formatDiscrepancyType(type) {
-		return (
-			type
-				?.replace(/_/g, ' ')
-				.toLowerCase()
-				.replace(/\b\w/g, (l) => l.toUpperCase()) || 'Unknown'
-		);
-	}
 	const { form, errors, submitting, enhance } = superForm<AdminNewUserSchema>(newProfileForm, {
 		onResult: ({ result }) => {
 			console.log('Form result:', result);
@@ -274,18 +248,10 @@
 							<p class="text-gray-500 text-sm font-medium">Invoices Due</p>
 							<div class="flex items-baseline mt-1">
 								<p class="text-4xl font-bold text-gray-900">{invoicesDueCount}</p>
-								<!-- <span
-									class={`ml-2 ${getTrendColorClass(invoicesTrendPercent)} text-sm font-medium flex items-center`}
-								>
-									{formatTrendValue(invoicesTrendPercent)}
-									{#if invoicesTrendPercent > 0}
-										<TrendingUp size={16} class="ml-1" />
-									{:else}
-										<TrendingUp size={16} class="ml-1 transform rotate-180" />
-									{/if}
-								</span> -->
 							</div>
-							<!-- <p class="text-gray-400 text-xs mt-1">vs. previous period</p> -->
+							<p class="text-gray-500 text-sm mt-1">
+								{formatCurrency(invoicesDueTotal)} outstanding
+							</p>
 						</div>
 						<div class="bg-green-100 p-3 rounded-full">
 							<DollarSign size={24} class="text-green-600" />
@@ -299,7 +265,7 @@
 					</div>
 				</Card.Content>
 			</Card.Root>
-			<!-- Add to the stat cards row in the dashboard, after the Invoices Due card -->
+			<!-- Wages due card -->
 			<Card.Root>
 				<Card.Content class="p-6">
 					<div class="flex justify-between items-start">
@@ -308,6 +274,7 @@
 							<div class="flex items-baseline mt-1">
 								<p class="text-4xl font-bold text-gray-900">{wagesDueCount}</p>
 							</div>
+							<p class="text-gray-500 text-sm mt-1">{formatCurrency(wagesDueTotal)} owed</p>
 						</div>
 						<div class="bg-yellow-100 p-3 rounded-full">
 							<DollarSign size={24} class="text-yellow-600" />
@@ -320,6 +287,33 @@
 							href="/timesheets?tab=wages-due"
 						>
 							View wages due
+							<ArrowRight size={16} class="ml-1" />
+						</Button>
+					</div>
+				</Card.Content>
+			</Card.Root>
+			<!-- Wages paid card -->
+			<Card.Root>
+				<Card.Content class="p-6">
+					<div class="flex justify-between items-start">
+						<div>
+							<p class="text-gray-500 text-sm font-medium">Wages Paid</p>
+							<div class="flex items-baseline mt-1">
+								<p class="text-4xl font-bold text-gray-900">{wagesPaidCount}</p>
+							</div>
+							<p class="text-gray-500 text-sm mt-1">{formatCurrency(wagesPaidTotal)} paid</p>
+						</div>
+						<div class="bg-emerald-100 p-3 rounded-full">
+							<DollarSign size={24} class="text-emerald-600" />
+						</div>
+					</div>
+					<div class="mt-4">
+						<Button
+							variant="link"
+							class="text-emerald-600 p-0 h-auto"
+							href="/timesheets?tab=wages-paid"
+						>
+							View wages paid
 							<ArrowRight size={16} class="ml-1" />
 						</Button>
 					</div>
@@ -441,202 +435,6 @@
 							</div>
 						</Card.Footer>
 					</Card.Root>
-				</div>
-				<!-- Tab navigation -->
-				<div class="bg-white shadow-sm rounded-lg border border-gray-200 overflow-hidden">
-					<div class="flex border-b border-gray-200">
-						<button
-							class={`flex-1 py-4 px-4 text-center font-medium ${activeTab === 'timesheets' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-700'}`}
-							on:click={() => (activeTab = 'timesheets')}
-						>
-							Timesheet Discrepancies ({discrepanciesCount})
-						</button>
-						<button
-							class={`flex-1 py-4 px-4 text-center font-medium ${activeTab === 'tickets' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-700'}`}
-							on:click={() => (activeTab = 'tickets')}
-						>
-							Support Tickets ({supportTicketsCount})
-						</button>
-						<button
-							class={`flex-1 py-4 px-4 text-center font-medium ${activeTab === 'invoices' ? 'text-blue-600 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-700'}`}
-							on:click={() => (activeTab = 'invoices')}
-						>
-							Overdue Invoices ({invoicesDueCount})
-						</button>
-					</div>
-
-					<div class="p-4">
-						{#if activeTab === 'timesheets'}
-							{#if discrepancies.length > 0}
-								<Table.Root class="w-full">
-									<Table.Header>
-										<Table.Row>
-											<Table.Head>Timesheet</Table.Head>
-											<Table.Head>Candidate</Table.Head>
-											<Table.Head>Type</Table.Head>
-											<Table.Head>Description</Table.Head>
-											<Table.Head class="text-right">Date</Table.Head>
-										</Table.Row>
-									</Table.Header>
-									<Table.Body>
-										{#each discrepancies.slice(0, 5) as discrepancy, i (i)}
-											<Table.Row
-												class="cursor-pointer hover:bg-gray-50"
-												on:click={() => goto(`/timesheets/${discrepancy.timeSheetId}`)}
-											>
-												<Table.Cell>
-													<span class="font-medium text-gray-900"
-														>#{discrepancy.timeSheetId?.slice(-8) || 'N/A'}</span
-													>
-												</Table.Cell>
-												<Table.Cell>
-													{discrepancy.candidate}
-												</Table.Cell>
-												<Table.Cell>
-													<Badge
-														class={getDiscrepancyTypeColor(discrepancy.discrepancyType)}
-														value={formatDiscrepancyType(discrepancy.discrepancyType)}
-													/>
-												</Table.Cell>
-												<Table.Cell class="max-w-xs truncate">
-													{discrepancy.details || 'No details'}
-												</Table.Cell>
-												<Table.Cell class="text-right">
-													<div class="flex items-center justify-end text-gray-500">
-														<Clock size={14} class="mr-1" />
-														{discrepancy.weekBeginDate
-															? format(new Date(discrepancy.weekBeginDate), 'MMM d')
-															: 'N/A'}
-													</div>
-												</Table.Cell>
-											</Table.Row>
-										{/each}
-									</Table.Body>
-								</Table.Root>
-							{:else}
-								<div class="text-center py-8">
-									<CheckCircle2 size={48} class="mx-auto text-green-500 mb-4" />
-									<p class="text-gray-500">No timesheet discrepancies found</p>
-								</div>
-							{/if}
-							<div class="mt-4 flex justify-end">
-								<Button variant="outline" class="text-sm" href="/timesheets/">
-									View all discrepancies
-									<ArrowRight size={14} class="ml-1" />
-								</Button>
-							</div>
-						{:else if activeTab === 'tickets'}
-							{#if supportTickets.length > 0}
-								<Table.Root class="w-full">
-									<Table.Header>
-										<Table.Row>
-											<Table.Head>Title</Table.Head>
-											<Table.Head>Submitted By</Table.Head>
-											<Table.Head>Date</Table.Head>
-											<Table.Head class="text-right">Status</Table.Head>
-										</Table.Row>
-									</Table.Header>
-									<Table.Body>
-										{#each supportTickets.slice(0, 5) as ticket, i (ticket.supportTicket.id)}
-											<Table.Row
-												class="cursor-pointer hover:bg-gray-50"
-												on:click={() => goto(`/support/ticket/${ticket.supportTicket.id}`)}
-											>
-												<Table.Cell>
-													<span class="font-medium text-gray-900">{ticket.supportTicket.title}</span
-													>
-												</Table.Cell>
-												<Table.Cell>
-													{ticket.reportedBy.firstName}
-													{ticket.reportedBy.lastName}
-												</Table.Cell>
-												<Table.Cell>
-													<div class="flex items-center text-gray-500">
-														<Clock size={14} class="mr-1" />
-														{formatTicketDate(ticket.supportTicket.createdAt)}
-													</div>
-												</Table.Cell>
-												<Table.Cell class="text-right">
-													<StatusBadge status={ticket.supportTicket.status} />
-												</Table.Cell>
-											</Table.Row>
-										{/each}
-									</Table.Body>
-								</Table.Root>
-							{:else}
-								<div class="text-center py-8">
-									<CheckCircle2 size={48} class="mx-auto text-green-500 mb-4" />
-									<p class="text-gray-500">No support tickets found</p>
-								</div>
-							{/if}
-							<div class="mt-4 flex justify-end">
-								<Button variant="outline" class="text-sm" href="/support">
-									View all tickets
-									<ArrowRight size={14} class="ml-1" />
-								</Button>
-							</div>
-						{:else if activeTab === 'invoices'}
-							{#if invoicesDue.length > 0}
-								<Table.Root class="w-full">
-									<Table.Header>
-										<Table.Row>
-											<Table.Head>Invoice #</Table.Head>
-											<Table.Head>Client</Table.Head>
-											<Table.Head>Amount</Table.Head>
-											<Table.Head>Due Date</Table.Head>
-											<Table.Head class="text-right">Status</Table.Head>
-										</Table.Row>
-									</Table.Header>
-									<Table.Body>
-										{#each invoicesDue.slice(0, 5) as invoiceData, i (invoiceData.invoice.id)}
-											<Table.Row
-												class="cursor-pointer hover:bg-gray-50"
-												on:click={() => goto(`/invoices/${invoiceData.invoice.id}`)}
-											>
-												<Table.Cell>
-													<span class="font-medium text-gray-900"
-														>#{invoiceData.invoice.invoiceNumber ||
-															invoiceData.invoice.id.slice(-8)}</span
-													>
-												</Table.Cell>
-												<Table.Cell>
-													{invoiceData.company?.companyName || 'Unknown Client'}
-												</Table.Cell>
-												<Table.Cell>
-													{formatCurrency(invoiceData.invoice.amountDue)}
-												</Table.Cell>
-												<Table.Cell>
-													<div class="flex items-center text-gray-500">
-														<Clock size={14} class="mr-1" />
-														{formatDate(invoiceData.invoice.dueDate)}
-													</div>
-												</Table.Cell>
-												<Table.Cell class="text-right">
-													<StatusBadge
-														status={invoiceData.invoice.status === 'overdue'
-															? 'REJECTED'
-															: invoiceData.invoice.status}
-														label={invoiceData.invoice.status}
-													/>
-												</Table.Cell>
-											</Table.Row>
-										{/each}
-									</Table.Body>
-								</Table.Root>
-							{:else}
-								<div class="text-center py-8">
-									<CheckCircle2 size={48} class="mx-auto text-green-500 mb-4" />
-									<p class="text-gray-500">No overdue invoices found</p>
-								</div>
-							{/if}
-							<div class="mt-4 flex justify-end">
-								<Button variant="outline" class="text-sm" href="/invoices?filter=overdue">
-									View all overdue invoices
-									<ArrowRight size={14} class="ml-1" />
-								</Button>
-							</div>
-						{/if}
-					</div>
 				</div>
 
 				<!-- Candidate and clients section -->

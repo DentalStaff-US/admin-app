@@ -113,6 +113,7 @@ export const clientCompanyTable = pgTable('client_companies', {
 	companyLogo: text('company_logo'),
 	companyDescription: text('company_description'),
 	baseLocation: text('base_location'),
+	website: text('website'),
 	operatingHours: jsonb('operating_hours')
 		.$type<OperatingHours>()
 		.default({
@@ -241,6 +242,7 @@ export const companyOfficeLocationTable = pgTable('company_office_locations', {
 			}
 		}),
 	email: text('email'),
+	website: text('website'),
 	timezone: text('timezone').notNull().default('America/New_York'),
 	completeAddress: text('complete_address'),
 	lat: decimal('lat'),

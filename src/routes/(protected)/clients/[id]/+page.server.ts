@@ -153,6 +153,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 			email: result.user.email,
 			companyName: result.company.companyName || undefined,
 			baseLocation: result.company.baseLocation || '',
+			website: result.company.website || '',
 			cellPhone: result.profile.cellPhone || '',
 			invoiceMethod: result.profile.clientInvoiceMethod || 'STRIPE'
 		},
@@ -449,6 +450,7 @@ export const actions = {
 				name: form.data.name,
 				companyPhone: form.data.companyPhone,
 				email: form.data.email || null,
+				website: form.data.website || null,
 				companyId: form.data.companyId,
 				streetOne: form.data.streetOne || null,
 				streetTwo: form.data.streetTwo || null,
@@ -556,6 +558,7 @@ export const actions = {
 			if (form.data.companyName !== undefined) companyUpdate.companyName = form.data.companyName;
 			if (form.data.baseLocation !== undefined)
 				companyUpdate.baseLocation = form.data.baseLocation || null;
+			if (form.data.website !== undefined) companyUpdate.website = form.data.website || null;
 			if (form.data.cellPhone !== undefined) profileUpdate.cellPhone = form.data.cellPhone || null;
 			if (form.data.invoiceMethod !== undefined)
 				profileUpdate.clientInvoiceMethod = form.data.invoiceMethod;

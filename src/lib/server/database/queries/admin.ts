@@ -605,6 +605,61 @@ export async function getInvoicesDueCount() {
 	return result.count;
 }
 
+// Dollar total of invoices "due" — mirrors getInvoicesDueCount's filter exactly
+// (overdue + open) so the count and the amount always describe the same set.
+// Sums amountRemaining (what's still owed), not total.
+export async function getInvoicesDueTotal(): Promise<number> {
+	const [result] = await db
+		.select({ total: sql<string>`COALESCE(SUM(${invoiceTable.amountRemaining}), 0)` })
+		.from(invoiceTable)
+		.where(and(lt(invoiceTable.dueDate, new Date()), eq(invoiceTable.status, 'open')));
+
+	return Number(result?.total ?? 0);
+}
+
+// Overtime-accurate wage total (dollars) for the given wages_status, using the
+// same source of truth as getWagesDueCount. Replicates computeHoursBreakdown in
+// SQL: hours up to 40 bill at the effective rate, hours beyond 40 at 1.5×. The
+// effective rate is the per-timesheet adjusted rate when set, else the
+// requisition's hourly rate. (The per-week overtime split across parallel
+// timesheets — priorWeekHours — is not modelled; a negligible edge case for a
+// dashboard total.)
+async function getWagesTotalByStatus(status: 'WAGES_DUE' | 'WAGES_PAID'): Promise<number> {
+	const [result] = await db
+		.select({
+			total: sql<string>`COALESCE(SUM(
+				COALESCE(${timeSheetTable.adjustedHourlyRate}, ${requisitionTable.hourlyRate}, 0) * (
+					LEAST(ROUND(COALESCE(${timeSheetTable.totalHoursWorked}, '0')::numeric, 2), 40)
+					+ 1.5 * GREATEST(0, ROUND(COALESCE(${timeSheetTable.totalHoursWorked}, '0')::numeric, 2) - 40)
+				)
+			), 0)`
+		})
+		.from(timeSheetTable)
+		.leftJoin(requisitionTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
+		.where(eq(timeSheetTable.wagesStatus, status));
+
+	return Number(result?.total ?? 0);
+}
+
+export async function getWagesDueTotal(): Promise<number> {
+	return getWagesTotalByStatus('WAGES_DUE');
+}
+
+// Count of timesheets whose wages have been paid — companion to getWagesDueCount
+// for the new "Wages Paid" dashboard card.
+export async function getWagesPaidCount(): Promise<number> {
+	const [result] = await db
+		.select({ count: count() })
+		.from(timeSheetTable)
+		.where(eq(timeSheetTable.wagesStatus, 'WAGES_PAID'));
+
+	return result.count;
+}
+
+export async function getWagesPaidTotal(): Promise<number> {
+	return getWagesTotalByStatus('WAGES_PAID');
+}
+
 export async function getInvoicesDuePreview(limit: number): Promise<InvoiceWithRelations[]> {
 	const result = await db
 		.select({
@@ -693,7 +748,11 @@ export async function getAdminDashboardData() {
 		invoicesDueCount,
 		invoicesDue,
 		requisitions,
-		wagesDueCount
+		wagesDueCount,
+		invoicesDueTotal,
+		wagesDueTotal,
+		wagesPaidCount,
+		wagesPaidTotal
 	] = await Promise.all([
 		getTimesheetsDueCount().catch((e) => {
 			console.error('❌ getTimesheetsDueCount failed:', e.message);
@@ -734,6 +793,22 @@ export async function getAdminDashboardData() {
 		getWagesDueCount().catch((e) => {
 			console.error('❌ getWagesDueCount failed:', e.message);
 			return 0;
+		}),
+		getInvoicesDueTotal().catch((e) => {
+			console.error('❌ getInvoicesDueTotal failed:', e.message);
+			return 0;
+		}),
+		getWagesDueTotal().catch((e) => {
+			console.error('❌ getWagesDueTotal failed:', e.message);
+			return 0;
+		}),
+		getWagesPaidCount().catch((e) => {
+			console.error('❌ getWagesPaidCount failed:', e.message);
+			return 0;
+		}),
+		getWagesPaidTotal().catch((e) => {
+			console.error('❌ getWagesPaidTotal failed:', e.message);
+			return 0;
 		})
 	]);
 
@@ -747,7 +822,11 @@ export async function getAdminDashboardData() {
 		invoicesDueCount,
 		invoicesDue,
 		requisitions,
-		wagesDueCount
+		wagesDueCount,
+		invoicesDueTotal,
+		wagesDueTotal,
+		wagesPaidCount,
+		wagesPaidTotal
 	};
 }
 

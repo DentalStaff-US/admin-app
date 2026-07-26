@@ -89,6 +89,18 @@
 
 	$: paperTransactions = (data.paperTransactions ?? []) as PaperTransaction[];
 
+	// Stripe per-payment history, read live from Stripe's Invoice Payments API
+	// (admin + Stripe invoices only). Each entry is one settled payment — the
+	// Stripe equivalent of a paper PAYMENT transaction.
+	type StripePayment = {
+		id: string;
+		amount: number;
+		status: string;
+		paidAt: string | Date;
+		reference: string | null;
+	};
+	$: stripePayments = (data.stripePayments ?? []) as StripePayment[];
+
 	function txIcon(type: PaperTransaction['transactionType']) {
 		switch (type) {
 			case 'PAYMENT':
@@ -215,8 +227,11 @@
 				<form
 					use:enhance={() => {
 						processingPayment = true;
-						return async ({ update }) => {
+						return async ({ result, update }) => {
 							processingPayment = false;
+							if (result.type === 'success') {
+								await invalidateAll();
+							}
 							await update();
 						};
 					}}
@@ -455,7 +470,7 @@
 							<span>Total</span>
 							<span>{formatCurrency(+calculateTotal())}</span>
 						</div>
-						{#if isPaperInvoice && parseFloat(String(invoiceData.invoice.amountPaid ?? 0)) > 0}
+						{#if amountPaid > 0}
 							<div class="flex justify-between text-sm text-green-600">
 								<span>Amount Paid</span>
 								<span
@@ -567,6 +582,62 @@
 									{/if}
 								</div>
 							{/if}
+						{:else if stripePayments.length > 0}
+							<ol class="relative space-y-4">
+								<!-- Vertical guide line for the timeline -->
+								<span
+									class="absolute left-[18px] top-2 bottom-2 w-px bg-border"
+									aria-hidden="true"
+								></span>
+
+								{#each stripePayments as p (p.id)}
+									{@const accent = txAccent('PAYMENT')}
+									{@const Icon = txIcon('PAYMENT')}
+									<li class="relative flex items-start gap-3 pl-0">
+										<span
+											class="relative z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white border shadow-sm shrink-0"
+										>
+											<svelte:component this={Icon} class="h-4 w-4 {accent.icon}" />
+										</span>
+										<div class="flex-1 min-w-0">
+											<div class="flex items-center justify-between gap-2 flex-wrap">
+												<p class="font-medium">{txLabel('PAYMENT')}</p>
+												<p class="font-medium {accent.amount} whitespace-nowrap">
+													{accent.sign}{formatCurrency(p.amount)}
+												</p>
+											</div>
+											<p class="text-xs text-muted-foreground mt-0.5">
+												{formatDateTime(p.paidAt)}
+												{#if p.reference}
+													· <span class="font-mono">{p.reference}</span>
+												{/if}
+											</p>
+										</div>
+									</li>
+								{/each}
+							</ol>
+
+							<Separator class="my-4" />
+
+							<div class="space-y-2">
+								<div class="flex items-center justify-between text-sm">
+									<span class="text-muted-foreground">Total Paid</span>
+									<span class="font-medium text-green-700">{formatCurrency(amountPaid)}</span>
+								</div>
+								{#if amountRemaining > 0}
+									<div class="flex items-center justify-between text-sm">
+										<span class="text-orange-700 font-medium">Balance Remaining</span>
+										<span class="font-medium text-orange-700">
+											{formatCurrency(amountRemaining)}
+										</span>
+									</div>
+								{:else}
+									<div class="flex items-center justify-between text-sm">
+										<span class="text-green-700 font-medium">Paid in Full</span>
+										<CheckCircle class="h-4 w-4 text-green-600" />
+									</div>
+								{/if}
+							</div>
 						{:else if invoiceData.invoice.paidAt}
 							<div class="flex items-center justify-between p-3 border rounded-lg">
 								<div class="flex items-center gap-3">

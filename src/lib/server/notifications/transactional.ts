@@ -996,7 +996,9 @@ export async function notifyInvoicePaymentProcessed(invoiceId: string): Promise<
 			safeEmail('invoicePaymentProcessed', client.email, () => {
 				const t = EMAIL_TEMPLATES.invoicePaymentProcessedNotificationEmail({
 					clientName: `${client.firstName} ${client.lastName}`,
-					requisitionNumber: invRow.requisitionId ? String(invRow.requisitionId) : 'N/A',
+					requisitionNumber: invRow.requisitionId ? String(invRow.requisitionId) : null,
+					description: invRow.description ?? null,
+					invoiceId: invRow.id,
 					transactionAmount: `$${invRow.amount}`
 				});
 				return emailService.sendEmail({
@@ -1319,6 +1321,7 @@ async function getInvoiceCoreFields(invoiceId: string) {
 			clientId: invoiceTable.clientId,
 			requisitionId: invoiceTable.requisitionId,
 			invoiceNumber: invoiceTable.invoiceNumber,
+			description: invoiceTable.description,
 			amount: invoiceTable.total,
 			customerEmail: invoiceTable.customerEmail
 		})

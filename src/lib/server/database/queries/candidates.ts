@@ -152,8 +152,20 @@ export async function getAllCandidateProfiles(searchTerm?: string, status?: Cand
 		.where(filters.length ? and(...filters) : undefined)
 		.orderBy(desc(candidateProfileTable.id), desc(candidateProfileTable.createdAt));
 
+	// DISTINCT ON requires candidateProfileTable.id to lead the SQL ORDER BY, so
+	// apply the desired last-name/first-name ascending sort on the deduped rows here.
+	const sortedResults = results.sort((a, b) => {
+		const lastNameCompare = (a.user.lastName ?? '').localeCompare(b.user.lastName ?? '', undefined, {
+			sensitivity: 'base'
+		});
+		if (lastNameCompare !== 0) return lastNameCompare;
+		return (a.user.firstName ?? '').localeCompare(b.user.firstName ?? '', undefined, {
+			sensitivity: 'base'
+		});
+	});
+
 	return {
-		candidates: results.map((res) => ({
+		candidates: sortedResults.map((res) => ({
 			profile: res.profile,
 			user: res.user,
 			discipline: res.discipline

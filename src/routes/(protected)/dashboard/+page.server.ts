@@ -35,15 +35,17 @@ export const load = async (event: RequestEvent) => {
 	if (user.role === 'SUPERADMIN') {
 		const {
 			timesheetsDueCount,
-			supportTickets,
 			openSupportTicketsCount,
 			discrepancies,
 			newCandidateProfiles,
 			newClientSignups,
 			invoicesDueCount,
-			invoicesDue,
 			requisitions,
-			wagesDueCount
+			wagesDueCount,
+			invoicesDueTotal,
+			wagesDueTotal,
+			wagesPaidCount,
+			wagesPaidTotal
 		} = await getAdminDashboardData();
 		const form = superValidate(event, adminRequisitionSchema);
 		const newProfileForm = await superValidate(event, adminNewUserSchema);
@@ -51,18 +53,20 @@ export const load = async (event: RequestEvent) => {
 		return {
 			user,
 			timesheetsDueCount,
-			supportTickets,
 			openSupportTicketsCount,
 			discrepancies,
 			requisitions,
 			newCandidateProfiles,
 			newClientSignups,
 			invoicesDueCount,
-			invoicesDue,
 			clientForm: null,
 			adminForm: form,
 			newProfileForm,
-			wagesDueCount
+			wagesDueCount,
+			invoicesDueTotal,
+			wagesDueTotal,
+			wagesPaidCount,
+			wagesPaidTotal
 		};
 	}
 

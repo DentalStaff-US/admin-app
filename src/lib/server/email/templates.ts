@@ -4,6 +4,29 @@ import { env } from '$env/dynamic/private';
 import type { Invoice } from '../database/schemas/requisition';
 import { format } from 'date-fns';
 
+// Builds the "For any questions … please contact us …" sentence, including each
+// channel only when it's actually configured — so we never render "call us at
+// undefined" when COMPANY_PHONE_NUMBER (or the reply-to email) isn't set.
+function contactClause(topic: string): { text: string; html: string } {
+	const email = env.COMPANY_REPLY_TO_EMAIL;
+	const phone = env.COMPANY_PHONE_NUMBER;
+	const textParts: string[] = [];
+	const htmlParts: string[] = [];
+	if (email) {
+		textParts.push(`contact us at ${email}`);
+		htmlParts.push(`contact us at <a href="mailto:${email}">${email}</a>`);
+	}
+	if (phone) {
+		textParts.push(`call us at ${phone}`);
+		htmlParts.push(`call us at ${phone}`);
+	}
+	if (textParts.length === 0) return { text: '', html: '' };
+	return {
+		text: `For any questions about ${topic}, please ${textParts.join(' or ')}.`,
+		html: `<p>For any questions about ${topic}, please ${htmlParts.join(' or ')}.</p>`
+	};
+}
+
 export const EMAIL_TEMPLATES: Record<
 	string,
 	(...args: any[]) => { textEmail: string; htmlEmail: string; subject: string }
@@ -788,16 +811,32 @@ ${daysText}
 	},
 	invoicePaymentProcessedNotificationEmail: (paymentDetails: {
 		clientName: string;
-		requisitionNumber: string;
+		// Requisition-based invoices reference the requisition; one-off invoices fall
+		// back to the invoice description. Both may be null (then we say neither).
+		requisitionNumber?: string | null;
+		description?: string | null;
+		invoiceId: string;
 		transactionAmount: string;
 	}) => {
+		const contact = contactClause('this payment');
+		const invoiceUrl = `${BASE_URL}/invoices/${paymentDetails.invoiceId}`;
+		// Requisition number for requisition-based invoices; the description for
+		// one-offs; nothing if we have neither. The invoice link below always
+		// carries the full details.
+		const forClause = paymentDetails.requisitionNumber
+			? ` for your requisition (Requisition #${paymentDetails.requisitionNumber})`
+			: paymentDetails.description
+				? ` for ${paymentDetails.description}`
+				: '';
 		return {
 			textEmail: `
             Hello ${paymentDetails.clientName},
 
-            A payment was processed for your Requisition with the Requisition Number: ${paymentDetails.requisitionNumber} with an amount of ${paymentDetails.transactionAmount}.
+            A payment of ${paymentDetails.transactionAmount} was processed${forClause}.
 
-            For any questions about this payment, please contact us at ${env.COMPANY_REPLY_TO_EMAIL} or call us at ${env.COMPANY_PHONE_NUMBER}.
+            You can view the invoice details here: ${invoiceUrl}
+
+            ${contact.text}
 
             Thank you,
 
@@ -805,9 +844,11 @@ ${daysText}
 			htmlEmail: `
             <p>Hello ${paymentDetails.clientName},</p>
 
-            <p>A payment was processed for your Requisition with the Requisition Number: <strong>${paymentDetails.requisitionNumber}</strong> with an amount of <strong>${paymentDetails.transactionAmount}</strong>.</p>
+            <p>A payment of <strong>${paymentDetails.transactionAmount}</strong> was processed${forClause}.</p>
 
-            <p>For any questions about this payment, please contact us at <a href="mailto:${env.COMPANY_REPLY_TO_EMAIL}">${env.COMPANY_REPLY_TO_EMAIL}</a> or call us at ${env.COMPANY_PHONE_NUMBER}.</p>
+            <p>You can <a href="${invoiceUrl}">view the invoice details here</a>.</p>
+
+            ${contact.html}
 
             <p>Thank you,</p>
             <p>Dental Temps Staffing Solutions</p>

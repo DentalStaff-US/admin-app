@@ -181,6 +181,19 @@ export async function getCampaignAudience(
 	return (await getCampaignAudienceBreakdown(audience, channel, filters)).recipients;
 }
 
+// The channel address a recipient will actually be reached at.
+export function recipientAddress(r: CampaignRecipient, channel: CampaignChannel): string | null {
+	return channel === 'SMS' ? r.phone : r.email;
+}
+
+// Stable identity for a recipient within a channel. A single user can appear more
+// than once (e.g. a CLIENT/LOCATION send fans out to multiple office addresses),
+// so the key composes userId with the destination address. Shared by the preview
+// endpoint and the queue action so the admin's checkbox selection round-trips.
+export function recipientKey(r: CampaignRecipient, channel: CampaignChannel): string {
+	return `${r.userId}|${recipientAddress(r, channel) ?? ''}`;
+}
+
 async function getCandidateSegment(
 	filters: CampaignFilters,
 	radiusMeters: number | null

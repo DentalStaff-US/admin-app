@@ -214,7 +214,8 @@
 				lastName: client.user.lastName,
 				email: client.user.email,
 				companyName: client.company.companyName || '',
-				baseLocation: client.company.baseLocation || ''
+				baseLocation: client.company.baseLocation || '',
+				website: client.company.website || ''
 			};
 		}
 		editingSection = null;
@@ -1101,6 +1102,16 @@
 												/>
 											</div>
 											<div>
+												<Label for="website">Website</Label>
+												<Input
+													id="website"
+													name="website"
+													type="url"
+													placeholder="https://example.com"
+													bind:value={$updateForm.website}
+												/>
+											</div>
+											<div>
 												<Label for="base-location">Cell Phone</Label>
 												<PhoneInput
 													id="cell-phone"
@@ -1144,6 +1155,21 @@
 									<div>
 										<h3 class="text-sm font-medium">Base Location:</h3>
 										<p>{client.company?.baseLocation || 'None Specified'}</p>
+									</div>
+									<div>
+										<h3 class="text-sm font-medium">Website:</h3>
+										{#if client.company?.website}
+											<a
+												href={client.company.website}
+												target="_blank"
+												rel="noopener noreferrer"
+												class="text-blue-600 hover:underline break-all"
+											>
+												{client.company.website}
+											</a>
+										{:else}
+											<p>None Specified</p>
+										{/if}
 									</div>
 									<div>
 										<h3 class="text-sm font-medium">Cell Phone</h3>

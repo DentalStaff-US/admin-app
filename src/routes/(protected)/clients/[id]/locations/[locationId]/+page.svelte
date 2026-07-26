@@ -17,6 +17,7 @@
 		Building,
 		Phone,
 		Mail,
+		Globe,
 		MapPin,
 		Smartphone,
 		Clock,
@@ -473,6 +474,16 @@
 											placeholder="Enter office email address"
 										/>
 									</div>
+									<div class="space-y-2">
+										<Label for="website">Website</Label>
+										<Input
+											id="website"
+											name="website"
+											type="url"
+											bind:value={$contactForm.website}
+											placeholder="https://example.com"
+										/>
+									</div>
 
 									<div class="flex gap-2 pt-4">
 										<Button type="submit" size="sm" class="gap-2 bg-primary hover:bg-primary/90">
@@ -533,7 +544,25 @@
 										</div>
 									{/if}
 
-									{#if !location.companyPhone && !location.cellPhone && !location.email}
+									{#if location.website}
+										<div class="flex items-center justify-between">
+											<div>
+												<h3 class="text-sm font-medium">Website</h3>
+												<p class="text-muted-foreground break-all">{location.website}</p>
+											</div>
+											<Button
+												variant="outline"
+												size="sm"
+												href={location.website}
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												<Globe class="h-4 w-4" />
+											</Button>
+										</div>
+									{/if}
+
+									{#if !location.companyPhone && !location.cellPhone && !location.email && !location.website}
 										<p class="text-sm text-muted-foreground">
 											No contact information available for this location.
 										</p>
