@@ -1666,47 +1666,88 @@
 							</CardHeader>
 
 							<CardContent>
+								{@const hoursRawList = data?.timesheet?.hoursRaw ?? []}
+								{@const scheduledKeys = new Set(scheduledWorkDays.map((d) => d.dateKey))}
+								{@const rowsToShow = [
+									...scheduledWorkDays.map(({ dateKey, dayString }) => {
+										const entry = hoursRawList.find((e) => e.date === dateKey);
+										return {
+											dateKey,
+											dayString,
+											startTime: entry?.startTime ?? null,
+											endTime: entry?.endTime ?? null,
+											lunchStartTime: entry?.lunchStartTime ?? null,
+											lunchEndTime: entry?.lunchEndTime ?? null,
+											hours: entry?.hours ?? null,
+											hasEntry: !!entry
+										};
+									}),
+									...hoursRawList
+										.filter((e) => !scheduledKeys.has(e.date))
+										.map((entry) => ({
+											dateKey: entry.date,
+											dayString: formatFullDate(entry.date),
+											startTime: entry.startTime,
+											endTime: entry.endTime,
+											lunchStartTime: entry.lunchStartTime,
+											lunchEndTime: entry.lunchEndTime,
+											hours: entry.hours,
+											hasEntry: true
+										}))
+								]}
 								<div class="divide-y">
-									<div class="py-2 grid grid-cols-12 text-sm font-medium text-gray-600">
-										<div class="col-span-4">Day</div>
-										<div class="col-span-3">Time</div>
-										<div class="col-span-3">Scheduled Time</div>
-										<div class="col-span-2 text-right">Hours</div>
-									</div>
-									{#each data?.timesheet?.hoursRaw || [] as entry}
-										{@const recurrenceDay = data?.recurrenceDays.find((day) => day.date === entry.date)}
-										<div class="py-3 grid grid-cols-12 items-center">
-											<div class="col-span-4">
-												<p class="font-medium">
-													{entry.date}
-												</p>
-											</div>
-											<div class="col-span-3">
-												<p class="text-sm text-gray-600">
-													{formatTimeInReqZone(entry.startTime)} -{' '}
-													{formatTimeInReqZone(entry.endTime)}
-												</p>
-											</div>
-											<div class="col-span-3">
-												<p class="text-sm text-gray-600">
-													{#if recurrenceDay}
-														{formatTimeInReqZone(recurrenceDay.dayStart)} - {formatTimeInReqZone(recurrenceDay.dayEnd)}
+									{#if rowsToShow.length > 0}
+										{#each rowsToShow as row}
+											{@const recurrenceDay = data?.recurrenceDays.find((d) => d.date === row.dateKey)}
+											<div class="py-3">
+												<div class="flex items-center justify-between mb-1">
+													<p class="font-medium">{row.dayString}</p>
+													{#if row.hasEntry}
+														<p class="text-lg font-semibold">{row.hours} hrs</p>
 													{:else}
-														—
+														<p class="text-sm text-gray-400 italic">No hours entered</p>
 													{/if}
-												</p>
+												</div>
+												{#if row.hasEntry}
+													<div class="text-sm text-muted-foreground space-y-1">
+														<p>
+															Work: {formatTimeInReqZone(row.startTime)} - {formatTimeInReqZone(row.endTime)}
+															<span class="text-xs text-blue-600">({reqTimezoneName})</span>
+														</p>
+														{#if row.lunchStartTime && row.lunchEndTime}
+															<p class="flex items-center gap-1">
+																<span class="text-xs">🍽️</span>
+																Lunch: {formatTimeInReqZone(row.lunchStartTime)} - {formatTimeInReqZone(row.lunchEndTime)}
+															</p>
+														{/if}
+													</div>
+												{/if}
+												{#if recurrenceDay}
+													<div class="pt-2 border-t mt-2">
+														<p class="text-xs text-muted-foreground">
+															Scheduled: {formatTimeInReqZone(recurrenceDay.dayStart)} - {formatTimeInReqZone(recurrenceDay.dayEnd)}
+															{#if recurrenceDay.lunchStart && recurrenceDay.lunchEnd}
+																<span class="ml-2">
+																	(Lunch: {formatTimeInReqZone(recurrenceDay.lunchStart)} - {formatTimeInReqZone(recurrenceDay.lunchEnd)})
+																</span>
+															{/if}
+														</p>
+													</div>
+												{/if}
 											</div>
-											<div class="col-span-2 text-right">
-												<p class="font-semibold">{entry.hours} hrs</p>
-											</div>
+										{/each}
+										<div class="py-3 flex items-center justify-between bg-gray-50 px-1">
+											<span class="font-bold">Total</span>
+											<span class="font-bold">
+												{parseFloat(data?.timesheet?.totalHoursWorked || '0').toFixed(2)} hrs
+											</span>
 										</div>
-									{/each}
-									<div class="py-3 grid grid-cols-12 items-center bg-gray-50">
-										<div class="col-span-9 font-bold">Total</div>
-										<div class="col-span-3 text-right font-bold">
-											{parseFloat(data?.timesheet?.totalHoursWorked || "0").toFixed(2)} hrs
+									{:else}
+										<div class="py-12 text-center text-muted-foreground">
+											<Clipboard class="h-12 w-12 mx-auto mb-3" />
+											<p>No scheduled workdays found for this timesheet</p>
 										</div>
-									</div>
+									{/if}
 								</div>
 							</CardContent>
 						</Card>
