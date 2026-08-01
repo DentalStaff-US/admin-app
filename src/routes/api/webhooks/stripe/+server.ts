@@ -153,6 +153,21 @@ export const POST: RequestHandler = async ({ request }) => {
 					currency: invoicePaymentFailed.currency,
 					attempt_count: invoicePaymentFailed.attempt_count
 				});
+
+				// Persist the failed-attempt state onto our invoice row so the invoice
+				// detail page can surface a "Payment failed" line. Stripe's attempt_count
+				// is the authoritative retry counter; `attempted` flips true on the first
+				// try. Keyed by stripeInvoiceId; a no-op if we don't have the row.
+				if (invoicePaymentFailed.id) {
+					await db
+						.update(invoiceTable)
+						.set({
+							attempted: true,
+							attemptCount: invoicePaymentFailed.attempt_count ?? 0,
+							updatedAt: new Date()
+						})
+						.where(eq(invoiceTable.stripeInvoiceId, invoicePaymentFailed.id));
+				}
 				break;
 			}
 
