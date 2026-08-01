@@ -44,23 +44,28 @@ export function buildTimesheetInvoiceDescription(params: {
 }): string {
 	const fmtHrs = (h: number) => (Number.isInteger(h) ? String(h) : Number(h.toFixed(2)).toString());
 
-	const idParts = [
+	// One field per line so the invoice memo is legible on the Stripe hosted page,
+	// the paper PDF, and our in-app view (all preserve newlines). Sections are
+	// separated by a blank line; charges are bulleted.
+	const idLines = [
 		`Professional: ${params.candidateName}`,
 		params.companyName ? `Client: ${params.companyName}` : null,
 		params.requisitionId != null ? `Requisition #${params.requisitionId}` : null,
 		`Timesheet #${params.timesheetId}`
 	].filter(Boolean);
 
-	const chargeParts = [
+	const chargeLines = [
 		params.regularHours > 0 ? `${fmtHrs(params.regularHours)} regular hrs (first 40)` : null,
 		params.overtimeHours > 0 ? `${fmtHrs(params.overtimeHours)} overtime hrs at 1.5×` : null,
-		params.hasAdminFee ? 'administration fee on regular hours' : null,
-		params.hasProcessingFee ? 'card processing fee (3%)' : null
+		params.hasAdminFee ? 'Administration fee on regular hours' : null,
+		params.hasProcessingFee ? 'Card processing fee (3%)' : null
 	].filter(Boolean);
 
-	const idLine = idParts.join(' · ');
-	const chargeLine = chargeParts.length ? ` Charges: ${chargeParts.join('; ')}.` : '';
-	return `Dental Temp Staffing Solutions — Timesheet Invoice. ${idLine}.${chargeLine}`;
+	const sections = ['Dental Temp Staffing Solutions — Timesheet Invoice', idLines.join('\n')];
+	if (chargeLines.length) {
+		sections.push('Charges:\n' + chargeLines.map((c) => `\u2022 ${c}`).join('\n'));
+	}
+	return sections.join('\n\n');
 }
 
 // When a week is split across timesheets, explain on the invoice why these hours

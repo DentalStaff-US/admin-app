@@ -228,6 +228,9 @@ export type StripeInvoicePaymentView = {
  * Returns only settled ('paid') payments in chronological order; the auto-created
  * default InvoicePayment that just tracks the open balance is filtered out. Never
  * throws — logs and returns [] on error so the invoice page still renders.
+ * (Failed attempts are surfaced separately via the invoice's persisted
+ * attempted/attemptCount, written by the invoice.payment_failed webhook — the
+ * invoice_payments ledger does not reliably list failed attempts.)
  */
 export async function getStripeInvoicePayments(
 	stripeInvoiceId: string
@@ -237,12 +240,9 @@ export async function getStripeInvoicePayments(
 		// rawRequest only accepts a params object on POST — for GET the query must
 		// live in the path, so build the querystring inline and pass no params.
 		const query = new URLSearchParams({ invoice: stripeInvoiceId, limit: '100' }).toString();
-		const res = (await stripe.rawRequest(
-			'GET',
-			`/v1/invoice_payments?${query}`,
-			undefined,
-			{ apiVersion: INVOICE_PAYMENTS_API_VERSION }
-		)) as unknown as { data?: StripeInvoicePaymentRaw[] };
+		const res = (await stripe.rawRequest('GET', `/v1/invoice_payments?${query}`, undefined, {
+			apiVersion: INVOICE_PAYMENTS_API_VERSION
+		})) as unknown as { data?: StripeInvoicePaymentRaw[] };
 
 		return (res?.data ?? [])
 			.filter((p) => p.status === 'paid')

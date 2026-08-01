@@ -145,6 +145,19 @@
 		? new Date(invoiceData.invoice.dueDate) < new Date() && invoiceData.invoice.status !== 'paid'
 		: false;
 
+	// A failed Stripe payment attempt. `attempted`/`attemptCount` are written to
+	// the invoice row by the invoice.payment_failed webhook (the invoice_payments
+	// ledger doesn't reliably list failed attempts). We only surface it while the
+	// invoice is still unresolved — once paid/void/uncollectible the failure is
+	// historical and the counter stays set, so it's gated out here.
+	$: paymentFailed =
+		!isPaperInvoice &&
+		!!invoiceData.invoice.attempted &&
+		(invoiceData.invoice.attemptCount ?? 0) > 0 &&
+		invoiceData.invoice.status !== 'paid' &&
+		invoiceData.invoice.status !== 'void' &&
+		invoiceData.invoice.status !== 'uncollectible';
+
 	// Helper functions
 	function formatCurrency(amount: number) {
 		return new Intl.NumberFormat('en-US', {
@@ -340,6 +353,26 @@
 		</div>
 	{/if}
 
+	{#if paymentFailed}
+		<div class="rounded-md border border-amber-200 bg-amber-50 p-4">
+			<div class="flex items-start gap-3">
+				<AlertCircle class="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+				<div class="space-y-1">
+					<p class="text-sm font-semibold text-amber-800">Payment failed</p>
+					<p class="text-sm text-amber-700">
+						{invoiceData.invoice.attemptCount}
+						{invoiceData.invoice.attemptCount === 1
+							? 'payment attempt has'
+							: 'payment attempts have'} failed on this invoice.
+						{#if invoiceData.invoice.status === 'open'}
+							You can retry using the payment link above.
+						{/if}
+					</p>
+				</div>
+			</div>
+		</div>
+	{/if}
+
 	<div class="grid gap-6 lg:grid-cols-3">
 		<!-- Main Content -->
 		<div class="lg:col-span-2 space-y-6">
@@ -400,7 +433,7 @@
 					{#if invoiceData.invoice.description}
 						<div class="space-y-2">
 							<p class="text-sm font-medium text-muted-foreground">Description</p>
-							<p class="text-sm">{invoiceData.invoice.description}</p>
+							<p class="text-sm whitespace-pre-line">{invoiceData.invoice.description}</p>
 						</div>
 					{/if}
 				</Card.Content>
@@ -590,31 +623,31 @@
 									aria-hidden="true"
 								></span>
 
-								{#each stripePayments as p (p.id)}
-									{@const accent = txAccent('PAYMENT')}
-									{@const Icon = txIcon('PAYMENT')}
-									<li class="relative flex items-start gap-3 pl-0">
-										<span
-											class="relative z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white border shadow-sm shrink-0"
-										>
-											<svelte:component this={Icon} class="h-4 w-4 {accent.icon}" />
-										</span>
-										<div class="flex-1 min-w-0">
-											<div class="flex items-center justify-between gap-2 flex-wrap">
-												<p class="font-medium">{txLabel('PAYMENT')}</p>
-												<p class="font-medium {accent.amount} whitespace-nowrap">
-													{accent.sign}{formatCurrency(p.amount)}
+									{#each stripePayments as p (p.id)}
+										{@const accent = txAccent('PAYMENT')}
+										{@const Icon = txIcon('PAYMENT')}
+										<li class="relative flex items-start gap-3 pl-0">
+											<span
+												class="relative z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white border shadow-sm shrink-0"
+											>
+												<svelte:component this={Icon} class="h-4 w-4 {accent.icon}" />
+											</span>
+											<div class="flex-1 min-w-0">
+												<div class="flex items-center justify-between gap-2 flex-wrap">
+													<p class="font-medium">{txLabel('PAYMENT')}</p>
+													<p class="font-medium {accent.amount} whitespace-nowrap">
+														{accent.sign}{formatCurrency(p.amount)}
+													</p>
+												</div>
+												<p class="text-xs text-muted-foreground mt-0.5">
+													{formatDateTime(p.paidAt)}
+													{#if p.reference}
+														· <span class="font-mono">{p.reference}</span>
+													{/if}
 												</p>
 											</div>
-											<p class="text-xs text-muted-foreground mt-0.5">
-												{formatDateTime(p.paidAt)}
-												{#if p.reference}
-													· <span class="font-mono">{p.reference}</span>
-												{/if}
-											</p>
-										</div>
-									</li>
-								{/each}
+										</li>
+									{/each}
 							</ol>
 
 							<Separator class="my-4" />
