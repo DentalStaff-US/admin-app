@@ -44,6 +44,7 @@ import {
 	calculateAdminFeeCents,
 	buildTimesheetInvoiceDescription
 } from '$lib/server/timesheets/approveTimesheet';
+import { getDisciplineById } from '$lib/server/database/queries/disciplines';
 import type { TimesheetExpenseSelect } from '$lib/server/database/schemas/requisition';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from './$types';
@@ -942,6 +943,9 @@ export const actions = {
 			const { candidate } = await getCandidateProfileById(overridden.associatedCandidateId);
 			const candidateName = `${candidate.user.firstName} ${candidate.user.lastName}`;
 
+			// Requisition rows carry only `disciplineId`; the memo shows the pair.
+			const discipline = await getDisciplineById(requisition.disciplineId);
+
 			const clientProfile = await getClientProfileById(overridden.associatedClientId);
 			const isPaperBilling = clientProfile?.profile.clientInvoiceMethod === 'PAPER';
 
@@ -964,7 +968,9 @@ export const actions = {
 							regularHours: breakdown.regularHours,
 							overtimeHours: breakdown.overtimeHours,
 							hasAdminFee: adminFeeCents > 0,
-							hasProcessingFee: false
+							hasProcessingFee: false,
+							disciplineName: discipline?.name ?? null,
+							disciplineAbbreviation: discipline?.abbreviation ?? null
 						}),
 						lineItems: buildPaperLineItems({
 							regularHours: breakdown.regularHours,
@@ -1014,7 +1020,9 @@ export const actions = {
 						regularHours: breakdown.regularHours,
 						overtimeHours: breakdown.overtimeHours,
 						hasAdminFee: adminFeeCents > 0,
-						hasProcessingFee
+						hasProcessingFee,
+						disciplineName: discipline?.name ?? null,
+						disciplineAbbreviation: discipline?.abbreviation ?? null
 					})
 				);
 

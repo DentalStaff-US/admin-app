@@ -22,6 +22,7 @@ import { clientIsActiveCondition } from '$lib/server/clientStatusGuards';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
 import { logger } from '$lib/server/logger';
+import { maskShiftRowForCandidate } from '$lib/server/privacy/clientIdentity';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const user = await authenticateUser(request);
@@ -193,7 +194,8 @@ export const GET: RequestHandler = async ({ request }) => {
 				},
 				workday: {
 					id: workdayTable.id,
-					candidateId: workdayTable.candidateId
+					candidateId: workdayTable.candidateId,
+					cancelledAt: workdayTable.cancelledAt
 				}
 			})
 			.from(recurrenceDayTable)
@@ -263,15 +265,21 @@ export const GET: RequestHandler = async ({ request }) => {
 				}).qualified
 		);
 
+		// Practice identity is stripped server-side for every shift this candidate
+		// doesn't hold — see $lib/server/privacy/clientIdentity.
+		const visibleRecurrenceDays = filteredRecurrenceDays.map((shift) =>
+			maskShiftRowForCandidate(shift, candidateProfile.id)
+		);
+
 		return json({
 			candidateLocation: {
 				lat: candidateProfile.lat,
 				lon: candidateProfile.lon,
 				address: candidateProfile.completeAddress
 			},
-			recurrenceDays: filteredRecurrenceDays,
+			recurrenceDays: visibleRecurrenceDays,
 			searchRadius: radiusMiles,
-			totalFound: filteredRecurrenceDays.length,
+			totalFound: visibleRecurrenceDays.length,
 			nearbyOfficeCount: officeLocationIds.length
 		});
 	} catch (err) {

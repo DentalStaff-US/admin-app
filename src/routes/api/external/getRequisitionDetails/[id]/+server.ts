@@ -7,14 +7,21 @@ import {
 } from '$lib/server/database/schemas/client';
 import {
 	requisitionTable,
-	requisitionApplicationTable
+	requisitionApplicationTable,
+	workdayTable
 } from '$lib/server/database/schemas/requisition';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { and, eq, gte, ne, or } from 'drizzle-orm';
+import { and, eq, gte, isNull, ne, or } from 'drizzle-orm';
 import { clientIsActiveCondition } from '$lib/server/clientStatusGuards';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { logger } from '$lib/server/logger';
+import {
+	isApplicationUnlocked,
+	maskLocation,
+	maskedCompany,
+	scrubContactDetails
+} from '$lib/server/privacy/clientIdentity';
 
 /**
  * Candidate-facing requisition details. Auth'd because the response shape +
@@ -109,17 +116,50 @@ export const GET: RequestHandler = async ({ request, params }) => {
 					// Non-applicants don't see stale (prior-year) terminal-state reqs.
 					hasApplication
 						? undefined
-						: or(
-								eq(requisitionTable.status, 'OPEN'),
-								gte(requisitionTable.updatedAt, yearStart)
-							)
+						: or(eq(requisitionTable.status, 'OPEN'), gte(requisitionTable.updatedAt, yearStart))
 				)
 			)
 			.limit(1);
 
 		if (!requisition.length) throw error(404, 'No Requisition Found');
 
-		return json({ ...requisition[0], application: application ?? null });
+		const row = requisition[0];
+
+		// 3. Practice identity unlocks per-shift: an APPROVED application on a
+		//    permanent posting, or a live workday the candidate holds on this
+		//    requisition. Reaching the detail page by id is not enough — this is
+		//    the endpoint a harvester would hit directly with a guessed id.
+		const [heldWorkday] = await db
+			.select({ id: workdayTable.id })
+			.from(workdayTable)
+			.innerJoin(candidateProfileTable, eq(candidateProfileTable.id, workdayTable.candidateId))
+			.where(
+				and(
+					eq(workdayTable.requisitionId, numId),
+					eq(candidateProfileTable.userId, user.id),
+					isNull(workdayTable.cancelledAt)
+				)
+			)
+			.limit(1);
+
+		const unlocked = isApplicationUnlocked(application) || Boolean(heldWorkday);
+
+		if (!unlocked) {
+			return json({
+				...row,
+				title: null,
+				company: maskedCompany,
+				location: maskLocation(row.location, row.location?.id ?? `req-${row.id}`),
+				// Client-authored copy: strip contact details, and hold back the
+				// on-site instructions entirely until the shift is actually held.
+				jobDescription: scrubContactDetails(row.jobDescription),
+				specialInstructions: null,
+				identityLocked: true,
+				application: application ?? null
+			});
+		}
+
+		return json({ ...row, identityLocked: false, application: application ?? null });
 	} catch (err) {
 		// Re-throw SvelteKit errors (404/400) as-is; only wrap unexpected throws.
 		if (err && typeof err === 'object' && 'status' in err && 'body' in err) throw err;

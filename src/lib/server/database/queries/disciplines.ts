@@ -36,6 +36,35 @@ export async function getAllDisciplines(searchTerm?: string) {
 	}
 }
 
+/**
+ * Name + abbreviation for a single discipline. Used on timesheet-derived
+ * invoices, where the requisition row only carries `disciplineId` and the
+ * invoice memo needs the human-readable pair ("Dental Hygienist (RDH)").
+ * Returns null rather than throwing so a missing discipline degrades to an
+ * invoice without the line instead of blocking approval + billing.
+ */
+export async function getDisciplineById(
+	disciplineId: string | null | undefined
+): Promise<DisciplinesRaw | null> {
+	if (!disciplineId) return null;
+	try {
+		const [result] = await db
+			.select({
+				id: disciplineTable.id,
+				name: disciplineTable.name,
+				abbreviation: disciplineTable.abbreviation
+			})
+			.from(disciplineTable)
+			.where(eq(disciplineTable.id, disciplineId))
+			.limit(1);
+
+		return result ?? null;
+	} catch (err) {
+		console.error('Error fetching discipline:', err);
+		return null;
+	}
+}
+
 export async function getPaginatedDisciplines({
 	limit = 25,
 	offset = 0,

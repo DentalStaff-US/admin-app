@@ -18,6 +18,7 @@ import {
 } from '$lib/server/database/queries/requisitions';
 import { getCandidateProfileById } from '$lib/server/database/queries/candidates';
 import { getClientProfileById, getClientSubscription } from '$lib/server/database/queries/clients';
+import { getDisciplineById } from '$lib/server/database/queries/disciplines';
 import { createStripeInvoice, withCardProcessingFee } from '$lib/server/stripe';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
 import { logger } from '$lib/server/logger';
@@ -41,14 +42,26 @@ export function buildTimesheetInvoiceDescription(params: {
 	overtimeHours: number;
 	hasAdminFee: boolean;
 	hasProcessingFee: boolean;
+	// Discipline the work was billed under, e.g. "Dental Hygienist" / "RDH".
+	// Optional so a missing discipline drops the line instead of blocking billing.
+	disciplineName?: string | null;
+	disciplineAbbreviation?: string | null;
 }): string {
 	const fmtHrs = (h: number) => (Number.isInteger(h) ? String(h) : Number(h.toFixed(2)).toString());
+
+	// "Dental Hygienist (RDH)" when both are known; whichever one exists otherwise.
+	const disciplineLabel = params.disciplineName
+		? params.disciplineAbbreviation
+			? `${params.disciplineName} (${params.disciplineAbbreviation})`
+			: params.disciplineName
+		: (params.disciplineAbbreviation ?? null);
 
 	// One field per line so the invoice memo is legible on the Stripe hosted page,
 	// the paper PDF, and our in-app view (all preserve newlines). Sections are
 	// separated by a blank line; charges are bulleted.
 	const idLines = [
 		`Professional: ${params.candidateName}`,
+		disciplineLabel ? `Discipline: ${disciplineLabel}` : null,
 		params.companyName ? `Client: ${params.companyName}` : null,
 		params.requisitionId != null ? `Requisition #${params.requisitionId}` : null,
 		`Timesheet #${params.timesheetId}`
@@ -366,6 +379,9 @@ export async function approveAndInvoiceTimesheet(
 		const { candidate } = await getCandidateProfileById(timesheet.associatedCandidateId);
 		const candidateName = `${candidate.user.firstName} ${candidate.user.lastName}`;
 
+		// Requisition rows carry only `disciplineId`; the memo shows the pair.
+		const discipline = await getDisciplineById(requisition.disciplineId);
+
 		const clientProfile = await getClientProfileById(timesheet.associatedClientId);
 		const isPaperBilling = clientProfile?.profile.clientInvoiceMethod === 'PAPER';
 
@@ -387,7 +403,9 @@ export async function approveAndInvoiceTimesheet(
 						regularHours: breakdown.regularHours,
 						overtimeHours: breakdown.overtimeHours,
 						hasAdminFee: adminFeeCents > 0,
-						hasProcessingFee: false
+						hasProcessingFee: false,
+						disciplineName: discipline?.name ?? null,
+						disciplineAbbreviation: discipline?.abbreviation ?? null
 					}),
 					lineItems: buildPaperLineItems({
 						regularHours: breakdown.regularHours,
@@ -441,7 +459,9 @@ export async function approveAndInvoiceTimesheet(
 					regularHours: breakdown.regularHours,
 					overtimeHours: breakdown.overtimeHours,
 					hasAdminFee: adminFeeCents > 0,
-					hasProcessingFee
+					hasProcessingFee,
+					disciplineName: discipline?.name ?? null,
+					disciplineAbbreviation: discipline?.abbreviation ?? null
 				})
 			);
 

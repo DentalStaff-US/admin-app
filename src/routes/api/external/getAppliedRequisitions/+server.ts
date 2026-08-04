@@ -13,6 +13,11 @@ import { authenticateUser } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
 import { eq, and } from 'drizzle-orm';
 import { logger } from '$lib/server/logger';
+import {
+	isApplicationUnlocked,
+	maskLocation,
+	maskedCompany
+} from '$lib/server/privacy/clientIdentity';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const user = await authenticateUser(request);
@@ -73,7 +78,22 @@ export const GET: RequestHandler = async ({ request }) => {
 				)
 			);
 
-		return json(appliedRequisitions);
+		// Applying doesn't unlock the practice — an APPROVED application does.
+		// Until then a candidate could otherwise mass-apply to harvest addresses.
+		const visibleRequisitions = appliedRequisitions.map((req) => {
+			if (isApplicationUnlocked(req.application)) {
+				return { ...req, identityLocked: false };
+			}
+			return {
+				...req,
+				title: null,
+				company: maskedCompany,
+				location: maskLocation(req.location, req.location?.id ?? `req-${req.id}`),
+				identityLocked: true
+			};
+		});
+
+		return json(visibleRequisitions);
 	} catch (err) {
 		logger.error('getAppliedRequisitions failed', { error: err, distinctId: user?.id });
 		throw error(500, 'Internal server error');
