@@ -41,6 +41,8 @@
 
 	$: client = data.client;
 	$: location = data.location;
+	$: timezoneDriftCount = data.timezoneDrift?.requisitions?.length ?? 0;
+	let resyncingTimezones = false;
 	$: contactDestinations = data.contactDestinations ?? [];
 	$: emailDestinations = contactDestinations.filter((d) => d.type === 'EMAIL');
 	$: smsDestinations = contactDestinations.filter((d) => d.type === 'SMS');
@@ -999,6 +1001,43 @@
 											>{format(location.updatedAt, 'PP')}</span
 										>
 									</div>
+
+									<!-- Requisitions pinned to a different zone than this location.
+									     Only shows for rows created before location edits started
+									     propagating; re-syncing keeps their local shift times. -->
+									{#if timezoneDriftCount > 0}
+										<div class="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-2">
+											<p class="text-sm font-medium text-amber-900">
+												{timezoneDriftCount} requisition{timezoneDriftCount === 1 ? '' : 's'} not on
+												this location's timezone
+											</p>
+											<p class="text-xs text-amber-800">
+												{(data.timezoneDrift?.requisitions ?? [])
+													.map((r) => `#${r.id} (${r.referenceTimezone})`)
+													.join(', ')}
+											</p>
+											<form
+												method="POST"
+												action="?/resyncRequisitionTimezones"
+												use:enhance={() => {
+													resyncingTimezones = true;
+													return async ({ update }) => {
+														await update();
+														resyncingTimezones = false;
+													};
+												}}
+											>
+												<Button type="submit" size="sm" variant="outline" disabled={resyncingTimezones}>
+													{resyncingTimezones
+														? 'Re-syncing...'
+														: `Re-sync to ${location.timezone?.replace('_', ' ')}`}
+												</Button>
+											</form>
+											<p class="text-xs text-amber-700">
+												Upcoming shifts keep their local start/end times; past shifts are left as-is.
+											</p>
+										</div>
+									{/if}
 								</div>
 							{/if}
 						</CardContent>
