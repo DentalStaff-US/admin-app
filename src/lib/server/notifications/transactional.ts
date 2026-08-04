@@ -496,8 +496,10 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
 
 		const workdayDetails = {
 			discipline: discipline?.name ?? '',
-			location: location.name ?? '',
-			address: location.completeAddress ?? '',
+			// Broadcast to every qualified candidate, none of whom hold the shift
+			// yet — so the practice is described by area only. Naming it here
+			// would route around the masking on the listing itself.
+			location: [location.city, location.state].filter(Boolean).join(', '),
 			experience,
 			days: formattedDays
 		};
@@ -723,7 +725,10 @@ export async function notifyApplicationDenied(applicationId: string): Promise<vo
 		if (!ctx || !ctx.requisition.permanentPosition) return;
 
 		const { candidate, requisition } = ctx;
-		const company = requisition.companyName ?? 'the business';
+		// A denied application never unlocked the practice's identity, so naming
+		// it here would hand it over on the way out — the one path where the
+		// candidate ends up with a name they were never shown in the app.
+		const company = 'the practice';
 
 		await dispatch('applicationDenied', [
 			safeEmail('applicationDenied', candidate.email, () => {

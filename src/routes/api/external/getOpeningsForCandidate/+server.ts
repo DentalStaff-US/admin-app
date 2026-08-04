@@ -8,7 +8,10 @@ import {
 	clientProfileTable,
 	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
-import { requisitionTable } from '$lib/server/database/schemas/requisition';
+import {
+	requisitionApplicationTable,
+	requisitionTable
+} from '$lib/server/database/schemas/requisition';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
@@ -17,6 +20,12 @@ import { METERS_PER_MILE } from '$lib/config/constants';
 import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
 import { clientIsActiveCondition } from '$lib/server/clientStatusGuards';
 import { logger } from '$lib/server/logger';
+import {
+	isApplicationUnlocked,
+	maskLocation,
+	maskedCompany,
+	roundDistanceMiles
+} from '$lib/server/privacy/clientIdentity';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const user = await authenticateUser(request);
@@ -132,6 +141,9 @@ export const GET: RequestHandler = async ({ request }) => {
 				location: {
 					...companyOfficeLocationTable
 				},
+				// This candidate's own application, if any — an APPROVED one is what
+				// unlocks the practice's identity on a permanent posting.
+				applicationStatus: requisitionApplicationTable.status,
 				// Include distance to this specific location
 				distanceMiles: sql<number>`ST_Distance(
           ${companyOfficeLocationTable.geom}::geography,
@@ -151,6 +163,13 @@ export const GET: RequestHandler = async ({ request }) => {
 			.leftJoin(
 				experienceLevelTable,
 				eq(requisitionTable.experienceLevelId, experienceLevelTable.id)
+			)
+			.leftJoin(
+				requisitionApplicationTable,
+				and(
+					eq(requisitionApplicationTable.requisitionId, requisitionTable.id),
+					eq(requisitionApplicationTable.candidateId, candidate.id)
+				)
 			)
 			.where(
 				and(
@@ -172,8 +191,7 @@ export const GET: RequestHandler = async ({ request }) => {
 						candidateDisciplines.map((d) => d.disciplineId)
 					)
 				)
-			)
-			.orderBy(sql`ST_Distance(
+			).orderBy(sql`ST_Distance(
         ${companyOfficeLocationTable.geom}::geography,
         ST_SetSRID(ST_MakePoint(${candidate.lon}::float, ${candidate.lat}::float), 4326)::geography
       )`);
@@ -189,15 +207,34 @@ export const GET: RequestHandler = async ({ request }) => {
 			return candidateOrder >= req.experienceLevelOrder;
 		});
 
+		// Mask the practice on every posting the candidate hasn't been approved for.
+		const visibleRequisitions = qualified.map((req) => {
+			if (isApplicationUnlocked({ status: req.applicationStatus })) {
+				return { ...req, identityLocked: false };
+			}
+			return {
+				...req,
+				title: null,
+				company: maskedCompany,
+				location: maskLocation(
+					{ ...req.location, distanceMiles: req.distanceMiles },
+					req.location?.id ?? `req-${req.id}`
+				),
+				// Top-level distance is what the list card reads — keep it, bucketed.
+				distanceMiles: roundDistanceMiles(req.distanceMiles),
+				identityLocked: true
+			};
+		});
+
 		return json({
 			candidateLocation: {
 				lat: candidate.lat,
 				lon: candidate.lon,
 				address: candidate.completeAddress
 			},
-			requisitions: qualified,
+			requisitions: visibleRequisitions,
 			searchRadius: radiusMiles,
-			totalFound: qualified.length,
+			totalFound: visibleRequisitions.length,
 			nearbyOfficeCount: nearbyOfficeLocationIds.length
 		});
 	} catch (err) {

@@ -651,12 +651,15 @@ export const EMAIL_TEMPLATES: Record<
 			subject: `User Request Approved | ${APP_NAME}`
 		};
 	},
+	// `location` is the practice's general area (city, state) — never its name or
+	// street address. Candidate-facing notifications are outside the app's
+	// masking, so a full address here would hand over exactly what
+	// $lib/server/privacy/clientIdentity withholds until a shift is claimed.
 	qualifiedCandidateNotificationEmail: (
 		candidateDetails: { firstName: string; lastName: string },
 		workdayDetails: {
 			discipline: string;
 			location: string;
-			address: string;
 			experience: string;
 			days: Array<{ date: string; workdayStart: string; workdayEnd: string }>;
 		}
@@ -680,7 +683,7 @@ export const EMAIL_TEMPLATES: Record<
 
             More info on the Requisition:
             Desired Experience: ${workdayDetails.experience}
-            Location: ${workdayDetails.location} - ${workdayDetails.address}
+            Area: ${workdayDetails.location}
 
             Assignment Dates and Times:
 ${daysText}
@@ -695,7 +698,7 @@ ${daysText}
             <p>More info on the Requisition:</p>
             <ul>
                 <li><strong>Desired Experience:</strong> ${workdayDetails.experience}</li>
-                <li><strong>Location:</strong> ${workdayDetails.location} - ${workdayDetails.address}</li>
+                <li><strong>Area:</strong> ${workdayDetails.location}</li>
             </ul>
 
             <p><strong>Assignment Dates and Times:</strong></p>
@@ -893,7 +896,11 @@ ${daysText}
 			subject: `Miscellaneous Transaction Processed | ${APP_NAME}`
 		};
 	},
-	invoiceVoidedNotificationEmail: (voidDetails: { clientName: string; invoiceNumber: string; reason: string }) => {
+	invoiceVoidedNotificationEmail: (voidDetails: {
+		clientName: string;
+		invoiceNumber: string;
+		reason: string;
+	}) => {
 		return {
 			textEmail: `
             Hello ${voidDetails.clientName},

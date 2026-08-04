@@ -7,11 +7,13 @@ import {
 } from '$lib/server/database/schemas/client';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
-import { and, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { METERS_PER_MILE } from '$lib/config/constants';
 import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
 import { clientIsActiveCondition } from '$lib/server/clientStatusGuards';
 import { logger } from '$lib/server/logger';
+import { requisitionTable, workdayTable } from '$lib/server/database/schemas/requisition';
+import { maskLocation } from '$lib/server/privacy/clientIdentity';
 
 export const GET: RequestHandler = async ({ request }) => {
 	const user = await authenticateUser(request);
@@ -79,15 +81,36 @@ export const GET: RequestHandler = async ({ request }) => {
         ST_SetSRID(ST_MakePoint(${candidateProfile.lon}::float, ${candidateProfile.lat}::float), 4326)::geography
       )`);
 
+		// Only practices the candidate actually works at are named here; the rest
+		// are city/distance only, same rule as the shift listings.
+		const heldLocations = await db
+			.select({ locationId: requisitionTable.locationId })
+			.from(workdayTable)
+			.innerJoin(requisitionTable, eq(requisitionTable.id, workdayTable.requisitionId))
+			.where(
+				and(eq(workdayTable.candidateId, candidateProfile.id), isNull(workdayTable.cancelledAt))
+			);
+		const unlockedLocationIds = new Set(heldLocations.map((row) => row.locationId));
+
+		const visibleLocations = officeLocations.map((location) =>
+			unlockedLocationIds.has(location.id)
+				? { ...location, identityLocked: false }
+				: {
+						...maskLocation(location, location.id),
+						companyId: null,
+						identityLocked: true
+					}
+		);
+
 		return json({
 			candidateLocation: {
 				lat: candidateProfile.lat,
 				lon: candidateProfile.lon,
 				address: candidateProfile.completeAddress
 			},
-			officeLocations,
+			officeLocations: visibleLocations,
 			searchRadius: radiusMiles,
-			totalFound: officeLocations.length
+			totalFound: visibleLocations.length
 		});
 	} catch (err) {
 		logger.error('getNearbyLocationsForCandidate failed', { error: err, distinctId: user?.id });
