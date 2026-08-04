@@ -144,6 +144,8 @@
 	let billingSetupError = '';
 	let billingHelpOpen = false;
 
+	let portalSubmitting = false;
+
 	async function startBillingSetup() {
 		billingSetupError = '';
 		billingSetupSubmitting = true;
@@ -154,6 +156,42 @@
 			}
 		});
 		billingSetupSubmitting = false;
+	}
+
+	// Swapping an existing method (incl. re-authorizing a lapsed ACH mandate).
+	// `intent: 'replace'` stops the server short-circuiting on "already set up",
+	// which is always true here and left the button permanently broken.
+	async function startBillingReplacement() {
+		billingSetupError = '';
+		billingSetupSubmitting = true;
+		await openStripeSetupInNewTab({
+			intent: 'replace',
+			onReturn: () => invalidateAll(),
+			onError: (msg) => {
+				billingSetupError = msg;
+			}
+		});
+		billingSetupSubmitting = false;
+	}
+
+	async function openBillingPortal() {
+		billingSetupError = '';
+		portalSubmitting = true;
+		try {
+			const response = await fetch('/api/stripe/create-portal-session', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' }
+			});
+			if (!response.ok) throw new Error(`Portal session returned ${response.status}`);
+			const { url } = await response.json();
+			if (!url) throw new Error('No portal URL returned');
+			window.location.href = url;
+		} catch (err) {
+			console.error('Error creating portal session:', err);
+			billingSetupError = 'Could not open the Stripe billing portal. Please try again.';
+		} finally {
+			portalSubmitting = false;
+		}
 	}
 
 	const { form: userFormObj, enhance: userFormEnhance } = superForm(userProfileForm);
@@ -978,10 +1016,27 @@
 										</svg>
 									</div>
 									<div>
-										<p class="font-medium">•••• {billingInfo.paymentMethod.last4}</p>
+										<p class="font-medium">
+											{#if billingInfo.paymentMethod.type === 'us_bank_account'}
+												{billingInfo.paymentMethod.bankName ?? 'Bank account'} •••• {billingInfo
+													.paymentMethod.last4}
+											{:else}
+												{billingInfo.paymentMethod.brand
+													? billingInfo.paymentMethod.brand.toUpperCase()
+													: 'Card'} •••• {billingInfo.paymentMethod.last4}
+											{/if}
+										</p>
 										<p class="text-sm text-gray-500">
-											Expires {billingInfo.paymentMethod.expiryMonth}/{billingInfo.paymentMethod
-												.expiryYear}
+											{#if billingInfo.paymentMethod.type === 'us_bank_account'}
+												ACH direct debit{billingInfo.paymentMethod.accountType
+													? ` · ${billingInfo.paymentMethod.accountType}`
+													: ''}
+											{:else if billingInfo.paymentMethod.expiryMonth}
+												Expires {billingInfo.paymentMethod.expiryMonth}/{billingInfo.paymentMethod
+													.expiryYear}
+											{:else}
+												On file
+											{/if}
 										</p>
 									</div>
 								</div>
@@ -1021,47 +1076,50 @@
 								{/if}
 							</div>
 						{:else if !billingInfo?.subscription}
-							<!-- State 2: customer + payment method but no subscription -->
+							<!-- State 2: customer + payment method but no subscription. Both
+							     routes into Stripe are offered — Checkout to swap the method
+							     (also how a lapsed ACH mandate gets re-authorized), and the
+							     customer portal for everything else. -->
 							<div class="space-y-3">
 								<p class="text-sm text-muted-foreground">
 									Payment method on file. Subscription management will appear here when activated.
 								</p>
-								<Button
-									type="button"
-									variant="outline"
-									disabled={billingSetupSubmitting}
-									on:click={startBillingSetup}
-								>
-									{billingSetupSubmitting ? 'Opening Stripe…' : 'Replace payment method'}
-								</Button>
+								<div class="flex flex-wrap gap-2">
+									<Button
+										type="button"
+										variant="outline"
+										disabled={billingSetupSubmitting}
+										on:click={startBillingReplacement}
+									>
+										{billingSetupSubmitting ? 'Opening Stripe…' : 'Replace payment method'}
+									</Button>
+									<Button
+										type="button"
+										variant="outline"
+										disabled={portalSubmitting}
+										on:click={openBillingPortal}
+									>
+										{portalSubmitting ? 'Opening portal…' : 'Manage billing in Stripe'}
+									</Button>
+								</div>
 								{#if billingSetupError}
 									<p class="text-sm text-red-600">{billingSetupError}</p>
 								{/if}
 							</div>
 						{:else}
 							<!-- State 3: customer + subscription -->
-							<Button
-								class="w-fit bg-primary hover:bg-primary/90"
-								on:click={async () => {
-									try {
-										const response = await fetch('/api/stripe/create-portal-session', {
-											method: 'POST',
-											headers: {
-												'Content-Type': 'application/json'
-											}
-										});
-
-										if (!response.ok) throw new Error('Failed to create portal session');
-
-										const { url } = await response.json();
-										window.location.href = url;
-									} catch (error) {
-										console.error('Error creating portal session:', error);
-									}
-								}}
-							>
-								Manage Subscription in Stripe
-							</Button>
+							<div class="space-y-3">
+								<Button
+									class="w-fit bg-primary hover:bg-primary/90"
+									disabled={portalSubmitting}
+									on:click={openBillingPortal}
+								>
+									{portalSubmitting ? 'Opening portal…' : 'Manage Subscription in Stripe'}
+								</Button>
+								{#if billingSetupError}
+									<p class="text-sm text-red-600">{billingSetupError}</p>
+								{/if}
+							</div>
 						{/if}
 					</div>
 				</div>

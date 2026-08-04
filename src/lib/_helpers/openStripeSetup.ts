@@ -17,6 +17,11 @@
 export type OpenStripeSetupOptions = {
 	onReturn?: () => void;
 	onError?: (message: string) => void;
+	// `replace` tells the server this is a deliberate swap of an existing method
+	// (settings → "Replace payment method", or re-authorizing a lapsed ACH
+	// mandate) so it issues a fresh Checkout instead of reporting "already set
+	// up" — which has no URL and so read as an error to the caller.
+	intent?: 'setup' | 'replace';
 };
 
 export async function openStripeSetupInNewTab(opts: OpenStripeSetupOptions = {}): Promise<void> {
@@ -31,12 +36,20 @@ export async function openStripeSetupInNewTab(opts: OpenStripeSetupOptions = {})
 	try {
 		const res = await fetch('/api/stripe/setup-customer-self', {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' }
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ intent: opts.intent ?? 'setup' })
 		});
 		if (!res.ok) {
 			throw new Error(`Stripe setup endpoint returned ${res.status}`);
 		}
-		const data = (await res.json()) as { url?: string };
+		const data = (await res.json()) as { url?: string; alreadySetUp?: boolean; message?: string };
+		// A genuine "nothing to do" answer, not a failure — close the tab and let
+		// the caller refresh rather than showing a red error.
+		if (!data.url && data.alreadySetUp) {
+			newTab.close();
+			opts.onReturn?.();
+			return;
+		}
 		if (!data.url) {
 			throw new Error('No checkout URL returned');
 		}

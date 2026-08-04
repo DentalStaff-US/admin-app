@@ -12,10 +12,7 @@
 
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import {
-	ensureStripeCustomer,
-	createSetupCheckoutSession
-} from '$lib/server/stripe';
+import { ensureStripeCustomer, createSetupCheckoutSession } from '$lib/server/stripe';
 import {
 	getClientProfilebyUserId,
 	getClientProfileByStaffUserId
@@ -49,9 +46,23 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		const clientId = clientProfile.id;
 
+		// "Replace payment method" / "fix my ACH mandate" is an explicit request to
+		// collect a NEW method, so it must not hit the already-set-up short-circuit
+		// below — that returned `{ alreadySetUp: true }` with no `url`, which the
+		// client helper could only read as a failure ("Could not open Stripe
+		// setup"). The result was a button that could never work: it's only shown
+		// once a method exists, which is exactly the condition that short-circuits.
+		let replaceExisting = false;
+		try {
+			const body = await request.clone().json();
+			replaceExisting = body?.intent === 'replace';
+		} catch {
+			// No body / not JSON — treat as the plain setup flow.
+		}
+
 		// Reconcile first — short-circuit when Stripe says we're done.
 		const state = await syncBillingFromStripe(clientId);
-		if (state.hasPaymentMethod) {
+		if (state.hasPaymentMethod && !replaceExisting) {
 			return json({ alreadySetUp: true, message: 'Billing is already set up.' });
 		}
 
@@ -72,11 +83,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			cancelUrl: `${origin}/setup-complete?canceled=1`
 		});
 
-		await recordBillingSetupPending({
-			clientId,
-			userId: user.id,
-			stripeCustomerId: customerId
-		});
+		// Only mark setup as pending for a first-time setup. On a replace the
+		// client already has a working method — flipping `setupPending` back to
+		// true would strand them behind the onboarding/billing guards until the
+		// webhook lands, for what is really a routine card swap.
+		if (!replaceExisting) {
+			await recordBillingSetupPending({
+				clientId,
+				userId: user.id,
+				stripeCustomerId: customerId
+			});
+		}
 
 		return json({ url });
 	} catch (err) {
