@@ -37,6 +37,7 @@ import db from '$lib/server/database/drizzle';
 import { companyOfficeLocationTable } from '$lib/server/database/schemas/client';
 import { eq } from 'drizzle-orm';
 import { assertCanAccessLocation } from '$lib/server/scoping';
+import { syncRequisitionTimezonesForLocation } from '$lib/server/requisitions/referenceTimezone';
 
 const assignStaffToLocationSchema = z.object({
 	staffId: z.string(),
@@ -404,11 +405,29 @@ export const actions = {
 		};
 
 		try {
+			const previousTimezone = await getLocationTimezone(id);
 			await updateCompanyLocation(id, details);
+
+			// Keep every requisition at this location on the location's zone; their
+			// upcoming shifts keep the same local start/end times.
+			let syncNote = '';
+			if (timezone && timezone !== previousTimezone) {
+				const sync = await syncRequisitionTimezonesForLocation({
+					locationId: id,
+					timezone,
+					actorUserId: user.id
+				});
+				if (sync.requisitionsUpdated > 0) {
+					syncNote = ` ${sync.requisitionsUpdated} requisition${
+						sync.requisitionsUpdated === 1 ? '' : 's'
+					} moved to ${timezone}; shift times are unchanged locally.`;
+				}
+			}
+
 			setFlash(
 				{
 					type: 'success',
-					message: 'Location details updated successfully'
+					message: `Location details updated successfully.${syncNote}`
 				},
 				event
 			);

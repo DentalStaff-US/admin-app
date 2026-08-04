@@ -51,7 +51,7 @@
 	import * as Table from '$lib/components/ui/table';
 	import type { RecurrenceDaySelect } from '$lib/server/database/schemas/requisition';
 	import WorkDayActionMenu from '$lib/components/dashboard/shared/workday-action-menu.svelte';
-	import { USER_ROLES } from '$lib/config/constants';
+	import { TIMEZONES, USER_ROLES } from '$lib/config/constants';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import {
 		AlertDialog,
@@ -90,6 +90,16 @@
 
 	$: user = data.user;
 	$: isAdmin = user?.role === USER_ROLES.SUPERADMIN;
+	// Admin-only reference-timezone override (see the Timezone stat tile). The
+	// select tracks the saved value, and re-syncs whenever the server sends a new
+	// one, so the Save button only appears on a real pending change.
+	let savingTimezone = false;
+	let savedTimezone = data.requisition?.referenceTimezone;
+	let referenceTimezoneValue = data.requisition?.referenceTimezone;
+	$: if (data.requisition?.referenceTimezone !== savedTimezone) {
+		savedTimezone = data.requisition?.referenceTimezone;
+		referenceTimezoneValue = savedTimezone;
+	}
 	$: company = data.company;
 	$: requisition = data.requisition;
 	$: recurrenceDays = data.recurrenceDays;
@@ -502,7 +512,49 @@
 				</div>
 				<div class="bg-gray-50 rounded-md p-3">
 					<p class="text-xs text-gray-500 mb-1">Timezone</p>
-					<p class="text-sm font-semibold text-gray-900">{requisition.referenceTimezone}</p>
+					{#if isAdmin}
+						<!-- Manual correction for requisitions pinned to the wrong zone.
+						     Normally this follows the location; changing it here re-bases
+						     upcoming shifts so their local times stay put. -->
+						<form
+							method="POST"
+							action="?/updateReferenceTimezone"
+							use:enhance={() => {
+								savingTimezone = true;
+								return async ({ update }) => {
+									await update();
+									savingTimezone = false;
+								};
+							}}
+							class="flex items-center gap-1"
+						>
+							<select
+								name="referenceTimezone"
+								bind:value={referenceTimezoneValue}
+								class="w-full text-sm font-semibold text-gray-900 bg-transparent border-0 border-b border-dashed border-gray-300 focus:border-blue-500 focus:ring-0 p-0 pr-4"
+							>
+								{#each TIMEZONES as tz}
+									<option value={tz.name}>{tz.label}</option>
+								{/each}
+								{#if !TIMEZONES.some((tz) => tz.name === requisition.referenceTimezone)}
+									<option value={requisition.referenceTimezone}
+										>{requisition.referenceTimezone}</option
+									>
+								{/if}
+							</select>
+							{#if referenceTimezoneValue !== requisition.referenceTimezone}
+								<button
+									type="submit"
+									disabled={savingTimezone}
+									class="text-xs font-semibold text-blue-600 hover:underline disabled:opacity-50 whitespace-nowrap"
+								>
+									{savingTimezone ? 'Saving…' : 'Save'}
+								</button>
+							{/if}
+						</form>
+					{:else}
+						<p class="text-sm font-semibold text-gray-900">{requisition.referenceTimezone}</p>
+					{/if}
 				</div>
 				<div class="bg-gray-50 rounded-md p-3">
 					<p class="text-xs text-gray-500 mb-1">Experience</p>

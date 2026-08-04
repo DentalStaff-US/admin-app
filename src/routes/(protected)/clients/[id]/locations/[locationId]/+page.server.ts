@@ -24,6 +24,11 @@ import { companyOfficeLocationTable } from '$lib/server/database/schemas/client'
 import db from '$lib/server/database/drizzle';
 import { eq } from 'drizzle-orm';
 import { normalizeUSPhone } from '$lib/_helpers/phone';
+import {
+	getLocationTimezoneDrift,
+	syncRequisitionTimezonesForLocation
+} from '$lib/server/requisitions/referenceTimezone';
+import { logger } from '$lib/server/logger';
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
@@ -64,6 +69,11 @@ export const load: PageServerLoad = async (event) => {
 		timezone: location.timezone || 'America/New_York'
 	};
 
+	// Requisitions created before the location↔requisition timezone sync existed
+	// can still be pinned to a stale zone. Surface them so they can be corrected
+	// from here without editing each requisition.
+	const timezoneDrift = location ? await getLocationTimezoneDrift(location.id) : null;
+
 	return {
 		user,
 		client,
@@ -73,7 +83,8 @@ export const load: PageServerLoad = async (event) => {
 		contactForm,
 		operatingHoursForm,
 		locationForm,
-		destinationForm
+		destinationForm,
+		timezoneDrift
 	};
 };
 
@@ -231,13 +242,33 @@ export const actions = {
 		const { timezone } = form.data;
 
 		try {
+			const previousTimezone = await getLocationTimezone(locationId);
 			await updateCompanyLocation(locationId, {
 				timezone
 			});
+
+			// The location's zone is the source of truth — carry it onto every
+			// requisition here so shift times don't stay stuck in the old zone.
+			let syncNote = '';
+			if (timezone && timezone !== previousTimezone) {
+				const sync = await syncRequisitionTimezonesForLocation({
+					locationId,
+					timezone,
+					actorUserId: user.id
+				});
+				if (sync.requisitionsUpdated > 0) {
+					syncNote = ` Updated ${sync.requisitionsUpdated} requisition${
+						sync.requisitionsUpdated === 1 ? '' : 's'
+					} and re-based ${sync.daysRewritten} upcoming shift${
+						sync.daysRewritten === 1 ? '' : 's'
+					} (local start/end times unchanged).`;
+				}
+			}
+
 			setFlash(
 				{
 					type: 'success',
-					message: 'Location updated successfully'
+					message: `Location updated successfully.${syncNote}`
 				},
 				event
 			);
@@ -252,6 +283,53 @@ export const actions = {
 				event
 			);
 			return { form };
+		}
+	},
+	// Manual rectification for requisitions that drifted before the sync above
+	// existed — re-saving the location is a no-op once its own zone is correct.
+	resyncRequisitionTimezones: async (event) => {
+		const user = event.locals.user;
+		if (!user) {
+			redirect(302, '/auth/sign-in');
+		}
+		if (user.role !== 'SUPERADMIN') {
+			return fail(403, { error: 'Not authorized' });
+		}
+		const { locationId } = event.params;
+
+		try {
+			const timezone = await getLocationTimezone(locationId);
+			const sync = await syncRequisitionTimezonesForLocation({
+				locationId,
+				timezone,
+				actorUserId: user.id
+			});
+
+			setFlash(
+				{
+					type: 'success',
+					message: sync.requisitionsUpdated
+						? `Re-synced ${sync.requisitionsUpdated} requisition${
+								sync.requisitionsUpdated === 1 ? '' : 's'
+							} to ${timezone} and re-based ${sync.daysRewritten} upcoming shift${
+								sync.daysRewritten === 1 ? '' : 's'
+							}.`
+						: `All requisitions already use ${timezone}.`
+				},
+				event
+			);
+			return { success: true, ...sync };
+		} catch (err) {
+			logger.error('failed to resync requisition timezones for location', {
+				error: err,
+				locationId,
+				distinctId: user.id
+			});
+			setFlash(
+				{ type: 'error', message: 'Failed to re-sync requisition timezones.' },
+				event
+			);
+			return fail(500, { error: 'Failed to re-sync requisition timezones' });
 		}
 	},
 	addContactDestination: async (event) => {

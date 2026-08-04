@@ -63,6 +63,10 @@ import db from '$lib/server/database/drizzle';
 import { eq, inArray } from 'drizzle-orm';
 import { workdayTable, recurrenceDayTable } from '$lib/server/database/schemas/requisition';
 import { logger } from '$lib/server/logger';
+import {
+	isValidIanaTimezone,
+	setRequisitionReferenceTimezone
+} from '$lib/server/requisitions/referenceTimezone';
 
 const invoiceLineItemSchema = z.array(
 	z.object({
@@ -749,6 +753,57 @@ export const actions = {
 			console.error('Error updating requisition:', err);
 			setFlash({ type: 'error', message: 'Failed to update requisition' }, event);
 			return fail(500, { error: 'Failed to update requisition' });
+		}
+	},
+	// Manual override for a requisition whose reference timezone is wrong —
+	// normally it follows the location (see syncRequisitionTimezonesForLocation),
+	// but rows created before that sync existed need a direct correction.
+	// Upcoming shifts are re-based so their local start/end times don't move.
+	updateReferenceTimezone: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) return fail(403);
+		if (user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Not authorized' });
+		}
+
+		const { id } = event.params;
+		const requisitionId = Number(id);
+		const formData = await event.request.formData();
+		const timezone = (formData.get('referenceTimezone') as string | null)?.trim();
+
+		if (!isValidIanaTimezone(timezone)) {
+			setFlash({ type: 'error', message: 'Invalid timezone' }, event);
+			return fail(400, { error: 'Invalid timezone' });
+		}
+
+		try {
+			const change = await setRequisitionReferenceTimezone({
+				requisitionId,
+				timezone,
+				actorUserId: user.id
+			});
+
+			setFlash(
+				{
+					type: 'success',
+					message: change
+						? `Timezone set to ${timezone}. Re-based ${change.daysRewritten} upcoming shift${
+								change.daysRewritten === 1 ? '' : 's'
+							} — local start/end times unchanged.`
+						: `Requisition already uses ${timezone}.`
+				},
+				event
+			);
+			return { success: true };
+		} catch (err) {
+			logger.error('failed to set requisition reference timezone', {
+				error: err,
+				requisitionId,
+				timezone,
+				distinctId: user.id
+			});
+			setFlash({ type: 'error', message: 'Failed to update timezone' }, event);
+			return fail(500, { error: 'Failed to update timezone' });
 		}
 	},
 	// deleteRequisition: async (request: RequestEvent) => {
