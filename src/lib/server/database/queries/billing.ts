@@ -41,24 +41,39 @@ export async function getClientBillingInfo(clientId: string | undefined) {
 		}
 
 		// Fetch subscription details from Stripe without expand
-		const [subscriptions, paymentMethods, invoices] = await Promise.all([
+		const [subscriptions, paymentMethods, invoices, customer] = await Promise.all([
 			stripe.subscriptions.list({
 				customer: dbSubscription.stripeCustomerId,
 				limit: 1,
 				status: 'active'
 			}),
+			// No `type` filter: this used to request cards only, so an ACH
+			// (us_bank_account) customer came back with zero methods and the
+			// settings page rendered a blank billing card. Omitting the filter
+			// returns every attached method regardless of type.
 			stripe.paymentMethods.list({
 				customer: dbSubscription.stripeCustomerId,
-				type: 'card'
+				limit: 10
 			}),
 			stripe.invoices.list({
 				customer: dbSubscription.stripeCustomerId,
 				limit: 12
-			})
+			}),
+			stripe.customers.retrieve(dbSubscription.stripeCustomerId)
 		]);
 
 		const activeSubscription = subscriptions.data[0];
-		const defaultPaymentMethod = paymentMethods.data[0];
+
+		// Prefer the customer's actual default method — `data[0]` is just the
+		// most recently attached, which isn't necessarily what we bill.
+		const defaultPaymentMethodId =
+			customer && !customer.deleted
+				? typeof customer.invoice_settings?.default_payment_method === 'string'
+					? customer.invoice_settings.default_payment_method
+					: (customer.invoice_settings?.default_payment_method?.id ?? null)
+				: null;
+		const defaultPaymentMethod =
+			paymentMethods.data.find((pm) => pm.id === defaultPaymentMethodId) ?? paymentMethods.data[0];
 
 		let productName = null;
 		if (activeSubscription) {
@@ -81,13 +96,26 @@ export async function getClientBillingInfo(clientId: string | undefined) {
 						interval: activeSubscription.items.data[0].price.recurring?.interval
 					}
 				: null,
+			// Normalized across payment method types. Card fields stay on the same
+			// keys they always used; bank fields are additive, and `type` lets the
+			// UI drop the expiry line (bank accounts don't have one).
 			paymentMethod: defaultPaymentMethod
 				? {
 						id: defaultPaymentMethod.id,
-						brand: defaultPaymentMethod.card?.brand,
-						last4: defaultPaymentMethod.card?.last4,
-						expiryMonth: defaultPaymentMethod.card?.exp_month,
-						expiryYear: defaultPaymentMethod.card?.exp_year
+						type: defaultPaymentMethod.type,
+						brand:
+							defaultPaymentMethod.card?.brand ??
+							defaultPaymentMethod.us_bank_account?.bank_name ??
+							null,
+						last4:
+							defaultPaymentMethod.card?.last4 ??
+							defaultPaymentMethod.us_bank_account?.last4 ??
+							null,
+						expiryMonth: defaultPaymentMethod.card?.exp_month ?? null,
+						expiryYear: defaultPaymentMethod.card?.exp_year ?? null,
+						bankName: defaultPaymentMethod.us_bank_account?.bank_name ?? null,
+						accountType: defaultPaymentMethod.us_bank_account?.account_type ?? null,
+						isDefault: defaultPaymentMethod.id === defaultPaymentMethodId
 					}
 				: null,
 			invoices: invoices.data.map((invoice) => ({
@@ -390,9 +418,7 @@ export type BillingState = {
  * Stripe-authoritative sync, so drift heals itself the next time anyone
  * touches the relevant surfaces.
  */
-export async function syncBillingFromStripe(
-	clientId: string | undefined
-): Promise<BillingState> {
+export async function syncBillingFromStripe(clientId: string | undefined): Promise<BillingState> {
 	if (!clientId) {
 		return { stripeCustomerId: null, setupPending: true, hasPaymentMethod: false };
 	}
@@ -405,10 +431,7 @@ export async function syncBillingFromStripe(
 			userId: clientProfileTable.userId
 		})
 		.from(clientSubscriptionTable)
-		.innerJoin(
-			clientProfileTable,
-			eq(clientProfileTable.id, clientSubscriptionTable.clientId)
-		)
+		.innerJoin(clientProfileTable, eq(clientProfileTable.id, clientSubscriptionTable.clientId))
 		.where(eq(clientSubscriptionTable.clientId, clientId))
 		.limit(1);
 
