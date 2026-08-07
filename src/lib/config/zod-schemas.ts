@@ -414,7 +414,13 @@ export const newCandidateProfileSchema = z.object({
 	birthday: z.string().optional(),
 	completeAddress: z.string().optional(),
 	lat: z.string().optional(),
-	lon: z.string().optional()
+	lon: z.string().optional(),
+	// Granular components captured from the address picker. Kept in sync with
+	// completeAddress by resolveAddressComponents() on every write path.
+	address: z.string().optional(),
+	city: z.string().optional(),
+	state: z.string().optional(),
+	zipcode: z.string().optional()
 });
 export type NewCandidateProfileSchema = typeof newCandidateProfileSchema;
 
@@ -430,6 +436,10 @@ export const updateCandidateProfileSchema = z.object({
 	completeAddress: z.string().optional(),
 	lat: z.string().optional(),
 	lon: z.string().optional(),
+	address: z.string().optional(),
+	city: z.string().optional(),
+	state: z.string().optional(),
+	zipcode: z.string().optional(),
 	workersCompCode: z.string().nullable().optional()
 });
 

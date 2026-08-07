@@ -24,9 +24,11 @@ export interface AddressResult {
 	context?: {
 		country?: string;
 		region?: string;
+		region_code?: string; // 2-letter state code
 		district?: string;
 		postcode?: string;
-		locality?: string; // City/town
+		place?: string; // City/town (Mapbox v6 primary city field)
+		locality?: string; // Sub-city area; often absent
 		neighborhood?: string;
 		street?: string;
 	};

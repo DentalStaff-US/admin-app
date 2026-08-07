@@ -80,6 +80,26 @@ import { DEFAULT_MAX_RECORD_LIMIT } from '$lib/config/constants';
 import { actionHistoryTable } from '../schemas/admin';
 import { logger } from '$lib/server/logger';
 
+/**
+ * Candidate columns safe to attach to timesheet payloads.
+ *
+ * Several of these queries are CLIENT-facing (getTimesheetDetails,
+ * getAllTimesheetsForClient, getClientTimesheets, ...), so spreading the whole
+ * candidate_profiles row shipped a professional's ssnLast4, birthday, home
+ * address and geo coordinates to the practice in the page data. Only the fields
+ * the timesheet UI actually renders belong here — add deliberately, and check
+ * who consumes the query before you do.
+ */
+const candidateTimesheetColumns = {
+	id: candidateProfileTable.id,
+	userId: candidateProfileTable.userId,
+	status: candidateProfileTable.status,
+	puid: candidateProfileTable.puid,
+	cellPhone: candidateProfileTable.cellPhone,
+	workersCompCode: candidateProfileTable.workersCompCode,
+	createdAt: candidateProfileTable.createdAt
+};
+
 // Types and Interfaces
 export interface TimesheetDiscrepancy {
 	timeSheetId?: string;
@@ -518,7 +538,7 @@ export async function getRequisitionDetailsForAdmin(id: number) {
 					avatarUrl: userTable.avatarUrl
 				},
 				timeSheet: { ...timeSheetTable },
-				candidateProfile: { ...candidateProfileTable }
+				candidateProfile: { ...candidateTimesheetColumns }
 			})
 			.from(timeSheetTable)
 			.innerJoin(
@@ -1228,7 +1248,7 @@ export async function getRequisitionTimesheets(requisitionId: number | undefined
 					avatarUrl: userTable.avatarUrl
 				},
 				timeSheet: { ...timeSheetTable },
-				candidateProfile: { ...candidateProfileTable }
+				candidateProfile: { ...candidateTimesheetColumns }
 			})
 			.from(timeSheetTable)
 			.innerJoin(
@@ -1278,7 +1298,7 @@ export async function getRecentTimesheetsDueForClient(
 				timesheet: { ...timeSheetTable },
 				requisition: { ...requisitionTable, disciplineName: disciplineTable.name },
 				candidate: {
-					...candidateProfileTable,
+					...candidateTimesheetColumns,
 					firstName: userTable.firstName,
 					lastName: userTable.lastName
 				}
@@ -1318,7 +1338,7 @@ export async function getAllTimesheetsAdmin(searchTerm?: string) {
 				requisition: { ...requisitionTable, disciplineName: disciplineTable.name },
 				clientCompany: { ...clientCompanyTable },
 				candidate: {
-					...candidateProfileTable,
+					...candidateTimesheetColumns,
 					firstName: userTable.firstName,
 					lastName: userTable.lastName
 				}
@@ -1368,7 +1388,7 @@ export async function getAllTimesheetsForClient(
 				},
 				requisition: { ...requisitionTable, disciplineName: disciplineTable.name },
 				candidate: {
-					...candidateProfileTable,
+					...candidateTimesheetColumns,
 					firstName: userTable.firstName,
 					lastName: userTable.lastName
 				}
@@ -1448,7 +1468,7 @@ export async function getAllTimesheetDiscrepancies() {
 			hoursRaw: timeSheetTable.hoursRaw,
 			status: timeSheetTable.status,
 			candidate: {
-				...candidateProfileTable,
+				...candidateTimesheetColumns,
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				avatarUrl: userTable.avatarUrl,
@@ -1491,7 +1511,7 @@ export async function getClientCompanyTimesheetDiscrepancies(
 			// workdayId removed
 			status: timeSheetTable.status,
 			candidate: {
-				...candidateProfileTable,
+				...candidateTimesheetColumns,
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				avatarUrl: userTable.avatarUrl,
@@ -1600,7 +1620,7 @@ export async function getTimesheetDetailsAdmin(timesheetId: string) {
 			adjustedHourlyRate: timeSheetTable.adjustedHourlyRate,
 			wagesStatus: timeSheetTable.wagesStatus,
 			candidate: {
-				...candidateProfileTable,
+				...candidateTimesheetColumns,
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				avatarUrl: userTable.avatarUrl,
@@ -1685,7 +1705,7 @@ export async function getTimesheetDetails(timesheetId: string, clientId: string 
 			discrepancyNote: timeSheetTable.discrepancyNote,
 			adjustedHourlyRate: timeSheetTable.adjustedHourlyRate,
 			candidate: {
-				...candidateProfileTable,
+				...candidateTimesheetColumns,
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				avatarUrl: userTable.avatarUrl,
@@ -2170,7 +2190,7 @@ export async function getClientTimesheets(
 				discrepancyNote: timeSheetTable.discrepancyNote,
 				adjustedHourlyRate: timeSheetTable.adjustedHourlyRate
 			},
-			candidate: { ...candidateProfileTable },
+			candidate: { ...candidateTimesheetColumns },
 			user: {
 				id: userTable.email,
 				firstName: userTable.firstName,

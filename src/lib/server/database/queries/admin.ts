@@ -43,6 +43,7 @@ import {
 import type Stripe from 'stripe';
 import { error } from '@sveltejs/kit';
 import { disciplineTable } from '../schemas/skill';
+import { parseCompleteAddress } from '$lib/server/address';
 
 export type ActionType = 'CREATE' | 'UPDATE' | 'DELETE';
 
@@ -1053,13 +1054,21 @@ export async function bulkCreateCandidates(
 
 		userRecords.push(newUser);
 
+		// Break the imported address into granular fields where we can. Rows that
+		// don't parse fall through to the geocoding queue below, which fills the
+		// same columns.
+		const importedComponents = parseCompleteAddress(user.address);
+
 		// Create candidate profile record
 		const newCandidate = {
 			id: candidateId,
 			createdAt: new Date(),
 			updatedAt: new Date(),
 			userId,
-			address: user.address || null,
+			address: importedComponents?.street ?? user.address ?? null,
+			city: importedComponents?.city ?? null,
+			state: importedComponents?.state ?? null,
+			zipcode: importedComponents?.zipcode ?? null,
 			completeAddress: user.address || null,
 			lat: null, // Will be updated by geocoding
 			lon: null, // Will be updated by geocoding

@@ -1,4 +1,5 @@
 import {
+	asc,
 	desc,
 	eq,
 	count,
@@ -8,9 +9,12 @@ import {
 	and,
 	ne,
 	lt,
+	inArray,
+	exists,
 	isNotNull,
 	type SQLWrapper
 } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import db from '$lib/server/database/drizzle';
 import { userTable, type User } from '../schemas/auth';
 import {
@@ -36,6 +40,9 @@ import {
 import { clientCompanyTable, companyOfficeLocationTable } from '../schemas/client';
 import { candidateDocumentUploadSchema, documentResultSchema } from '$lib/config/zod-schemas';
 import { getDefaultSearchRadius } from './config';
+import type { ProfessionalFilters, DisciplineSummary } from '$lib/_helpers/professional-filters';
+
+export type { ProfessionalFilters, DisciplineSummary };
 
 export type CandidateWithProfile = {
 	user: User;
@@ -107,72 +114,263 @@ export async function getCandidateStatusCounts(): Promise<CandidateStatusCounts>
 	return counts;
 }
 
-export async function getAllCandidateProfiles(searchTerm?: string, status?: CandidateStatus) {
-	const statusCounts = await getCandidateStatusCounts();
-	const filters: SQLWrapper[] = [];
+/** Which filter dimension to leave out — used to build facet-aware option lists. */
+type FilterDimension = 'discipline' | 'city' | 'state' | 'zipcode';
+
+/**
+ * Discipline predicates MUST be EXISTS subqueries rather than join-level WHERE
+ * clauses. The list query aggregates every discipline a professional holds; if
+ * we filtered the join instead, filtering by one discipline would also shrink
+ * that aggregate and the row would render only the matched chip.
+ */
+function disciplineExists(where: SQLWrapper) {
+	const filterCde = alias(candidateDisciplineExperienceTable, 'filter_cde');
+	const filterDiscipline = alias(disciplineTable, 'filter_discipline');
+
+	return exists(
+		db
+			.select({ one: sql`1` })
+			.from(filterCde)
+			.innerJoin(filterDiscipline, eq(filterCde.disciplineId, filterDiscipline.id))
+			.where(and(eq(filterCde.candidateId, candidateProfileTable.id), where))
+	);
+}
+
+function disciplineIdExists(disciplineIds: string[]) {
+	const filterCde = alias(candidateDisciplineExperienceTable, 'filter_cde');
+
+	return exists(
+		db
+			.select({ one: sql`1` })
+			.from(filterCde)
+			.where(
+				and(
+					eq(filterCde.candidateId, candidateProfileTable.id),
+					inArray(filterCde.disciplineId, disciplineIds)
+				)
+			)
+	);
+}
+
+/**
+ * Builds the WHERE conditions for the professionals list. `exclude` omits one
+ * dimension so each facet list can be counted against every *other* active
+ * filter (selecting a state narrows the city options, but not the state ones).
+ */
+function buildProfessionalFilterConditions(
+	filters: ProfessionalFilters,
+	exclude?: FilterDimension
+): SQLWrapper[] {
+	const conditions: SQLWrapper[] = [];
+	const { search, status, disciplineIds, cities, states, zipcodes } = filters;
 
 	if (status && status in CANDIDATE_STATUS) {
-		filters.push(eq(candidateProfileTable.status, status));
+		conditions.push(eq(candidateProfileTable.status, status));
 	}
 
-	if (searchTerm) {
-		const searchFilter = or(
-			ilike(userTable.firstName, `%${searchTerm}%`),
-			ilike(userTable.lastName, `%${searchTerm}%`),
-			ilike(userTable.email, `%${searchTerm}%`),
-			ilike(disciplineTable.name, `%${searchTerm}%`),
-			ilike(candidateProfileTable.address, `%${searchTerm}%`),
-			ilike(candidateProfileTable.city, `%${searchTerm}%`),
-			ilike(candidateProfileTable.state, `%${searchTerm}%`)
-		);
-		if (searchFilter) filters.push(searchFilter);
+	if (search) {
+		const term = `%${search}%`;
+		const searchClauses: SQLWrapper[] = [
+			ilike(userTable.firstName, term),
+			ilike(userTable.lastName, term),
+			ilike(userTable.email, term),
+			ilike(candidateProfileTable.address, term),
+			ilike(candidateProfileTable.city, term),
+			ilike(candidateProfileTable.state, term),
+			ilike(candidateProfileTable.zipcode, term),
+			ilike(candidateProfileTable.completeAddress, term),
+			disciplineExists(
+				or(ilike(disciplineTable.name, term), ilike(disciplineTable.abbreviation, term)) as SQLWrapper
+			)
+		];
+
+		// Match phone numbers regardless of formatting: "(555) 123-4567",
+		// "555-123-4567" and "5551234567" all normalize to the same digits.
+		const digits = search.replace(/\D/g, '');
+		if (digits.length >= 3) {
+			searchClauses.push(
+				sql`regexp_replace(coalesce(${candidateProfileTable.cellPhone}, ''), '[^0-9]', '', 'g') LIKE ${`%${digits}%`}`
+			);
+		}
+
+		const searchFilter = or(...searchClauses);
+		if (searchFilter) conditions.push(searchFilter);
 	}
 
-	const results = await db
-		.selectDistinctOn([candidateProfileTable.id], {
-			user: {
-				id: userTable.id,
-				firstName: userTable.firstName,
-				lastName: userTable.lastName,
-				avatarUrl: userTable.avatarUrl
-			},
-			profile: { ...candidateProfileTable },
-			discipline: { ...disciplineTable }
-		})
-		.from(candidateProfileTable)
-		.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
-		.leftJoin(
-			candidateDisciplineExperienceTable,
-			eq(candidateDisciplineExperienceTable.candidateId, candidateProfileTable.id)
-		)
-		.leftJoin(
-			disciplineTable,
-			eq(candidateDisciplineExperienceTable.disciplineId, disciplineTable.id)
-		)
-		.where(filters.length ? and(...filters) : undefined)
-		.orderBy(desc(candidateProfileTable.id), desc(candidateProfileTable.createdAt));
+	if (exclude !== 'discipline' && disciplineIds?.length) {
+		conditions.push(disciplineIdExists(disciplineIds));
+	}
+	if (exclude !== 'city' && cities?.length) {
+		conditions.push(inArray(candidateProfileTable.city, cities));
+	}
+	if (exclude !== 'state' && states?.length) {
+		conditions.push(inArray(candidateProfileTable.state, states));
+	}
+	if (exclude !== 'zipcode' && zipcodes?.length) {
+		conditions.push(inArray(candidateProfileTable.zipcode, zipcodes));
+	}
 
-	// DISTINCT ON requires candidateProfileTable.id to lead the SQL ORDER BY, so
-	// apply the desired last-name/first-name ascending sort on the deduped rows here.
-	const sortedResults = results.sort((a, b) => {
-		const lastNameCompare = (a.user.lastName ?? '').localeCompare(b.user.lastName ?? '', undefined, {
-			sensitivity: 'base'
-		});
-		if (lastNameCompare !== 0) return lastNameCompare;
-		return (a.user.firstName ?? '').localeCompare(b.user.firstName ?? '', undefined, {
-			sensitivity: 'base'
-		});
-	});
+	return conditions;
+}
+
+export async function getAllCandidateProfiles(filters: ProfessionalFilters = {}) {
+	const conditions = buildProfessionalFilterConditions(filters);
+
+	const [statusCounts, results] = await Promise.all([
+		getCandidateStatusCounts(),
+		db
+			.select({
+				user: {
+					id: userTable.id,
+					firstName: userTable.firstName,
+					lastName: userTable.lastName,
+					email: userTable.email,
+					avatarUrl: userTable.avatarUrl
+				},
+				// Explicit column list — the previous `{ ...candidateProfileTable }` spread
+				// serialized ssnLast4, geom, puid and workersCompCode to the browser.
+				profile: {
+					id: candidateProfileTable.id,
+					userId: candidateProfileTable.userId,
+					status: candidateProfileTable.status,
+					cellPhone: candidateProfileTable.cellPhone,
+					address: candidateProfileTable.address,
+					city: candidateProfileTable.city,
+					state: candidateProfileTable.state,
+					zipcode: candidateProfileTable.zipcode,
+					completeAddress: candidateProfileTable.completeAddress,
+					createdAt: candidateProfileTable.createdAt
+				},
+				disciplines: sql<DisciplineSummary[]>`
+					coalesce(
+						jsonb_agg(distinct jsonb_build_object(
+							'id', ${disciplineTable.id},
+							'name', ${disciplineTable.name},
+							'abbreviation', ${disciplineTable.abbreviation}
+						)) filter (where ${disciplineTable.id} is not null),
+						'[]'::jsonb
+					)`.as('disciplines')
+			})
+			.from(candidateProfileTable)
+			.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
+			.leftJoin(
+				candidateDisciplineExperienceTable,
+				eq(candidateDisciplineExperienceTable.candidateId, candidateProfileTable.id)
+			)
+			.leftJoin(
+				disciplineTable,
+				eq(candidateDisciplineExperienceTable.disciplineId, disciplineTable.id)
+			)
+			.where(conditions.length ? and(...conditions) : undefined)
+			// Both are primary keys, so every other selected column is functionally
+			// dependent and needs no explicit grouping.
+			.groupBy(candidateProfileTable.id, userTable.id)
+			.orderBy(asc(sql`lower(${userTable.lastName})`), asc(sql`lower(${userTable.firstName})`))
+	]);
+
+	const candidates = results.map((res) => ({
+		profile: res.profile,
+		user: res.user,
+		// jsonb_agg(distinct ...) orders by jsonb comparison (id first), so sort
+		// for display here.
+		disciplines: (res.disciplines ?? [])
+			.slice()
+			.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' }))
+	}));
 
 	return {
-		candidates: sortedResults.map((res) => ({
-			profile: res.profile,
-			user: res.user,
-			discipline: res.discipline
-		})),
-		count: statusCounts[status ?? CANDIDATE_STATUS.ACTIVE] ?? results.length,
+		candidates,
+		count: candidates.length,
 		statusCounts
 	};
+}
+
+export type ProfessionalFacetOption = {
+	value: string;
+	label: string;
+	count: number;
+};
+
+export type ProfessionalFacets = {
+	disciplines: ProfessionalFacetOption[];
+	cities: ProfessionalFacetOption[];
+	states: ProfessionalFacetOption[];
+	zipcodes: ProfessionalFacetOption[];
+};
+
+const FACET_LIMIT = 500;
+
+/**
+ * Option lists for the filter dropdowns, counted against the currently active
+ * filters minus the dimension being listed. Keeps combinations that would
+ * return zero rows out of the menus.
+ */
+export async function getProfessionalFilterFacets(
+	filters: ProfessionalFilters = {}
+): Promise<ProfessionalFacets> {
+	const distinctCandidates = sql<number>`count(distinct ${candidateProfileTable.id})`;
+
+	const columnFacet = async (
+		column:
+			| typeof candidateProfileTable.city
+			| typeof candidateProfileTable.state
+			| typeof candidateProfileTable.zipcode,
+		dimension: FilterDimension
+	): Promise<ProfessionalFacetOption[]> => {
+		const conditions = buildProfessionalFilterConditions(filters, dimension);
+		const rows = await db
+			.select({ value: column, total: distinctCandidates })
+			.from(candidateProfileTable)
+			.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
+			.where(and(...conditions, isNotNull(column), ne(column, '')))
+			.groupBy(column)
+			.orderBy(desc(distinctCandidates), asc(column))
+			.limit(FACET_LIMIT);
+
+		return rows
+			.filter((row): row is { value: string; total: number } => Boolean(row.value))
+			.map((row) => ({ value: row.value, label: row.value, count: Number(row.total) }));
+	};
+
+	const disciplineFacet = async (): Promise<ProfessionalFacetOption[]> => {
+		const conditions = buildProfessionalFilterConditions(filters, 'discipline');
+		const rows = await db
+			.select({
+				value: disciplineTable.id,
+				name: disciplineTable.name,
+				abbreviation: disciplineTable.abbreviation,
+				total: distinctCandidates
+			})
+			.from(candidateProfileTable)
+			.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
+			.innerJoin(
+				candidateDisciplineExperienceTable,
+				eq(candidateDisciplineExperienceTable.candidateId, candidateProfileTable.id)
+			)
+			.innerJoin(
+				disciplineTable,
+				eq(candidateDisciplineExperienceTable.disciplineId, disciplineTable.id)
+			)
+			.where(conditions.length ? and(...conditions) : undefined)
+			.groupBy(disciplineTable.id)
+			.orderBy(asc(disciplineTable.name))
+			.limit(FACET_LIMIT);
+
+		return rows.map((row) => ({
+			value: row.value,
+			label: row.name,
+			count: Number(row.total)
+		}));
+	};
+
+	const [disciplines, cities, states, zipcodes] = await Promise.all([
+		disciplineFacet(),
+		columnFacet(candidateProfileTable.city, 'city'),
+		columnFacet(candidateProfileTable.state, 'state'),
+		columnFacet(candidateProfileTable.zipcode, 'zipcode')
+	]);
+
+	return { disciplines, cities, states, zipcodes };
 }
 
 export async function getCandidateUserById(candidateId: string) {
