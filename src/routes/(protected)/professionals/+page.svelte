@@ -212,10 +212,15 @@
 		goto(`/professionals/${candidateId}`);
 	}
 
+	// 1s: each search fires five queries (the list plus four facet counts)
+	// across the full candidate table, so wait until typing settles — but not
+	// so long that the page feels unresponsive.
+	const SEARCH_DEBOUNCE_MS = 800;
+
 	const pushSearch = debounce((value: string) => {
 		lastSubmittedSearch = value.trim();
 		applyFilters({ search: value }, true);
-	}, 300);
+	}, SEARCH_DEBOUNCE_MS);
 
 	function handleDimensionChange(key: string, values: string[]) {
 		applyFilters({ [key]: values } as ProfessionalFilterChanges);

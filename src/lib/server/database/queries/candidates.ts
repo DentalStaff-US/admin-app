@@ -123,16 +123,27 @@ type FilterDimension = 'discipline' | 'city' | 'state' | 'zipcode';
  * we filtered the join instead, filtering by one discipline would also shrink
  * that aggregate and the row would render only the matched chip.
  */
-function disciplineExists(where: SQLWrapper) {
+function disciplineNameMatches(term: string) {
 	const filterCde = alias(candidateDisciplineExperienceTable, 'filter_cde');
 	const filterDiscipline = alias(disciplineTable, 'filter_discipline');
 
+	// The predicate is built here, against the alias. Taking a prebuilt clause
+	// from the caller silently referenced the unaliased `disciplines` table:
+	// harmless-looking in the list query (where `disciplines` IS joined, so it
+	// bound to the outer row and quietly changed the meaning), but a hard
+	// "invalid reference to FROM-clause entry" in the facet queries, which have
+	// no such join.
 	return exists(
 		db
 			.select({ one: sql`1` })
 			.from(filterCde)
 			.innerJoin(filterDiscipline, eq(filterCde.disciplineId, filterDiscipline.id))
-			.where(and(eq(filterCde.candidateId, candidateProfileTable.id), where))
+			.where(
+				and(
+					eq(filterCde.candidateId, candidateProfileTable.id),
+					or(ilike(filterDiscipline.name, term), ilike(filterDiscipline.abbreviation, term))
+				)
+			)
 	);
 }
 
@@ -179,9 +190,7 @@ function buildProfessionalFilterConditions(
 			ilike(candidateProfileTable.state, term),
 			ilike(candidateProfileTable.zipcode, term),
 			ilike(candidateProfileTable.completeAddress, term),
-			disciplineExists(
-				or(ilike(disciplineTable.name, term), ilike(disciplineTable.abbreviation, term)) as SQLWrapper
-			)
+			disciplineNameMatches(term)
 		];
 
 		// Match phone numbers regardless of formatting: "(555) 123-4567",
