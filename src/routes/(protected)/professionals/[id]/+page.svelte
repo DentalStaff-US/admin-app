@@ -601,6 +601,36 @@
 													name="lon"
 													value={selectedAddress?.coordinates.lng || ''}
 												/>
+												<!-- Granular components so the address stays filterable. -->
+												<input
+													type="hidden"
+													name="address"
+													value={[
+														selectedAddress?.address_components?.street_number,
+														selectedAddress?.address_components?.street_name
+													]
+														.filter(Boolean)
+														.join(' ')}
+												/>
+												<input
+													type="hidden"
+													name="city"
+													value={selectedAddress?.context?.place ||
+														selectedAddress?.context?.locality ||
+														''}
+												/>
+												<input
+													type="hidden"
+													name="state"
+													value={selectedAddress?.context?.region_code ||
+														selectedAddress?.context?.region ||
+														''}
+												/>
+												<input
+													type="hidden"
+													name="zipcode"
+													value={selectedAddress?.context?.postcode || ''}
+												/>
 											</div>
 											<Label for="birthday">Date of Birth</Label>
 											<Input

@@ -1,10 +1,12 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, RequestEvent } from './$types';
-import { CANDIDATE_STATUS, USER_ROLES, type CandidateStatus } from '$lib/config/constants';
+import { USER_ROLES } from '$lib/config/constants';
 import {
 	createCandidateProfile,
-	getAllCandidateProfiles
+	getAllCandidateProfiles,
+	getProfessionalFilterFacets
 } from '$lib/server/database/queries/candidates';
+import { parseProfessionalFilters } from '$lib/_helpers/professional-filters';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { Argon2id } from 'oslo/password';
 import type { NewUser } from '$lib/server/database/schemas/auth';
@@ -15,17 +17,10 @@ import { adminNewUserSchema } from '$lib/config/zod-schemas';
 import { setFlash } from 'sveltekit-flash-message/server';
 
 export const load: PageServerLoad = async (event) => {
-	const { url, locals, setHeaders } = event;
-	const searchTerm = url.searchParams.get('search')?.toString();
-	const statusParam = url.searchParams.get('status')?.toUpperCase();
-	const status: CandidateStatus =
-		statusParam && statusParam in CANDIDATE_STATUS
-			? (statusParam as CandidateStatus)
-			: CANDIDATE_STATUS.ACTIVE;
+	const { url, locals } = event;
 
-	setHeaders({
-		'cache-control': 'max-age=60'
-	});
+	// Deliberately uncached: the result set now varies by several filter
+	// dimensions and staff edit these records while browsing them.
 
 	const user = locals.user;
 	if (!user) {
@@ -36,8 +31,13 @@ export const load: PageServerLoad = async (event) => {
 		redirect(302, '/dashboard');
 	}
 
-	const results = await getAllCandidateProfiles(searchTerm, status);
-	const newProfileForm = await superValidate(event, adminNewUserSchema);
+	const filters = parseProfessionalFilters(url.searchParams);
+
+	const [results, facets, newProfileForm] = await Promise.all([
+		getAllCandidateProfiles(filters),
+		getProfessionalFilterFacets(filters),
+		superValidate(event, adminNewUserSchema)
+	]);
 
 	return {
 		candidates: results?.candidates || [],
@@ -48,8 +48,10 @@ export const load: PageServerLoad = async (event) => {
 			INACTIVE: 0,
 			DENIED: 0
 		},
-		status,
-		searchTerm: searchTerm || '',
+		facets,
+		filters,
+		status: filters.status,
+		searchTerm: filters.search ?? '',
 		newProfileForm
 	};
 };

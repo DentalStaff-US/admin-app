@@ -585,8 +585,8 @@
 									</p>
 									<p>• Client: {data?.timesheet?.clientCompanyName}</p>
 									<p>
-										• Worker's Comp. Code: {#if data?.requisition.discipline.workersCompCode}
-											{data.requisition.discipline.workersCompCode}
+										• Worker's Comp. Code: {#if data?.timesheet?.candidate?.workersCompCode}
+											{data.timesheet.candidate.workersCompCode}
 										{:else}
 											N/A
 										{/if}

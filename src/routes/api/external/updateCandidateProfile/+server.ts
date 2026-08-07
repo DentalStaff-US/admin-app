@@ -5,8 +5,9 @@ import db from '$lib/server/database/drizzle';
 import { newCandidateProfileSchema } from '$lib/config/zod-schemas';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { eq } from 'drizzle-orm';
-import { STATES } from '$lib/config/constants';
 import { logger } from '$lib/server/logger';
+import { buildCandidateAddressPatch } from '$lib/server/address';
+import { geocodingQueue } from '$lib/server/geocode-queue';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -70,8 +71,13 @@ export const POST: RequestHandler = async ({ request }) => {
 			Object.entries(parsedProfile.data).filter(([, v]) => v !== 'undefined')
 		) as typeof parsedProfile.data;
 
+		// Normalize the granular address fields (2-letter state, 5-digit zip) and
+		// backfill any the client didn't send from completeAddress.
+		const addressPatch = buildCandidateAddressPatch(profile);
+
 		const updatedData = {
 			...profile,
+			...addressPatch.patch,
 			updatedAt: new Date(),
 			birthday: profile.birthday ? new Date(profile.birthday).toISOString() : null
 		};
@@ -81,6 +87,17 @@ export const POST: RequestHandler = async ({ request }) => {
 			.set(updatedData)
 			.where(eq(candidateProfileTable.id, existingProfile.id))
 			.returning();
+
+		if (addressPatch.needsGeocode && addressPatch.completeAddress) {
+			geocodingQueue.addJobs([
+				{
+					candidateId: existingProfile.id,
+					address: addressPatch.completeAddress,
+					email: user.email ?? '',
+					type: 'candidate'
+				}
+			]);
+		}
 
 		console.log('profile updated!');
 

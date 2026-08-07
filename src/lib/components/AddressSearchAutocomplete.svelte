@@ -85,9 +85,13 @@
                     context: {
                         country: context.country?.name,
                         region: context.region?.name || context.state?.name,
+                        region_code: context.region?.region_code,
                         district: context.district?.name,
-                        postcode: context.postcode?.name,
-                        locality: context.locality?.name, // City/town
+                        postcode: props.postcode || context.postcode?.name,
+                        // Mapbox v6 puts the city in `place`; `locality` is a
+                        // sub-city area and is frequently absent.
+                        place: context.place?.name,
+                        locality: context.locality?.name,
                         neighborhood: context.neighborhood?.name,
                         street: context.street?.name,
                     },

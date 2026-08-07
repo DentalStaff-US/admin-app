@@ -7,6 +7,8 @@ import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { eq } from 'drizzle-orm';
 import { updateUser } from '$lib/server/database/queries/users';
 import { logger } from '$lib/server/logger';
+import { buildCandidateAddressPatch } from '$lib/server/address';
+import { geocodingQueue } from '$lib/server/geocode-queue';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -56,8 +58,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (existingProfile) {
 			console.log('updating profile', existingProfile.id);
 			const profile = parsedProfile.data;
+			const addressPatch = buildCandidateAddressPatch(profile);
 			const updatedData = {
 				...profile,
+				...addressPatch.patch,
 				updatedAt: new Date(),
 				birthday: profile.birthday ? new Date(profile.birthday).toISOString() : null
 			};
@@ -67,6 +71,17 @@ export const POST: RequestHandler = async ({ request }) => {
 				.set(updatedData)
 				.where(eq(candidateProfileTable.id, existingProfile.id))
 				.returning();
+
+			if (addressPatch.needsGeocode && addressPatch.completeAddress) {
+				geocodingQueue.addJobs([
+					{
+						candidateId: existingProfile.id,
+						address: addressPatch.completeAddress,
+						email: user.email ?? '',
+						type: 'candidate'
+					}
+				]);
+			}
 
 			console.log('profile updated!');
 
@@ -83,8 +98,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		const profile = parsedProfile.data;
+		const newAddressPatch = buildCandidateAddressPatch(profile);
 		const profileData = {
 			...profile,
+			...newAddressPatch.patch,
 			userId: user.id, // Explicitly set the user ID
 			id: crypto.randomUUID(),
 			createdAt: new Date(),
@@ -99,6 +116,17 @@ export const POST: RequestHandler = async ({ request }) => {
 				{ success: false, message: 'Failed to create profile' },
 				{ status: 500, headers: corsHeaders }
 			);
+		}
+
+		if (newAddressPatch.needsGeocode && newAddressPatch.completeAddress) {
+			geocodingQueue.addJobs([
+				{
+					candidateId: newProfile.id,
+					address: newAddressPatch.completeAddress,
+					email: user.email ?? '',
+					type: 'candidate'
+				}
+			]);
 		}
 
 		await updateUser(user.id, { onboardingStep: 2 });

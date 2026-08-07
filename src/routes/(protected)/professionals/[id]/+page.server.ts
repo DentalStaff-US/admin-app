@@ -23,6 +23,8 @@ import {
 } from '$lib/config/zod-schemas';
 import { getUserById, updateUser } from '$lib/server/database/queries/users';
 import db from '$lib/server/database/drizzle';
+import { buildCandidateAddressPatch } from '$lib/server/address';
+import { geocodingQueue } from '$lib/server/geocode-queue';
 import { candidateDisciplineExperienceTable } from '$lib/server/database/schemas/candidate';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { eq } from 'drizzle-orm';
@@ -144,6 +146,7 @@ export const actions = {
 			if (cellPhone !== undefined) profileData.cellPhone = cellPhone || null;
 			if (workersCompCode !== undefined) profileData.workersCompCode = workersCompCode || null;
 			const addr = form.data.completeAddress;
+			let queueGeocode = false;
 			if (addr && addr !== 'undefined') {
 				profileData.completeAddress = addr;
 				if (form.data.lat && form.data.lat !== 'undefined') {
@@ -152,9 +155,24 @@ export const actions = {
 				if (form.data.lon && form.data.lon !== 'undefined') {
 					profileData.lon = parseFloat(form.data.lon).toString();
 				}
+
+				// Keep the granular columns in step with the address that was just
+				// picked. All four are written together so a changed address can't
+				// leave a stale city/state behind.
+				const resolved = buildCandidateAddressPatch(form.data);
+				Object.assign(profileData, resolved.patch);
+				queueGeocode = resolved.needsGeocode;
 			}
 			await updateUser(candidateResult.candidate.user.id, userData);
 			await updateCandidateProfile(id, profileData);
+
+			// Free-typed address the picker couldn't break down — let the geocoder
+			// fill in the components in the background.
+			if (queueGeocode && addr) {
+				geocodingQueue.addJobs([
+					{ candidateId: id, address: addr, email: email ?? '', type: 'candidate' }
+				]);
+			}
 
 			return message(form, 'Personal details updated successfully');
 		} catch (e) {
