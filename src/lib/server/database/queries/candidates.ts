@@ -274,7 +274,16 @@ export async function getAllCandidateProfiles(filters: ProfessionalFilters = {})
 			// Both are primary keys, so every other selected column is functionally
 			// dependent and needs no explicit grouping.
 			.groupBy(candidateProfileTable.id, userTable.id)
-			.orderBy(asc(sql`lower(${userTable.lastName})`), asc(sql`lower(${userTable.firstName})`))
+			// PENDING is a work queue, not a directory: staff triage newest sign-ups
+			// first, so that tab defaults to most-recent-first. Every other status is
+			// browsed by name and stays alphabetical. `id` breaks createdAt ties so
+			// the order is stable across reloads. Clicking a column header still
+			// re-sorts client-side either way.
+			.orderBy(
+				...(filters.status === CANDIDATE_STATUS.PENDING
+					? [desc(candidateProfileTable.createdAt), desc(candidateProfileTable.id)]
+					: [asc(sql`lower(${userTable.lastName})`), asc(sql`lower(${userTable.firstName})`)])
+			)
 	]);
 
 	const candidates = results.map((res) => ({
