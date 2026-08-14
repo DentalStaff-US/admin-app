@@ -132,12 +132,14 @@ export async function createStripeInvoice(
 		stage = 'finalize_invoice';
 		const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id);
 
-		stage = 'send_invoice';
-		const customer = await stripe.customers.retrieve(stripeCustomerId);
-		if (!('email' in customer) || !customer.email) {
-			throw new Error('Stripe customer has no email — cannot send invoice');
-		}
-		await stripe.invoices.sendInvoice(finalizedInvoice.id);
+		// NOTE: we deliberately do NOT call `stripe.invoices.sendInvoice` here.
+		// Stripe would mail the invoice to `customer.email`, which is the account
+		// owner's login address and not necessarily the billing contact. Delivery
+		// is now owned by `notifyInvoiceCreated`, which resolves the billing
+		// recipient via `resolveBillingRecipient` and sends one branded email for
+		// both Stripe and paper invoices. The caller passes
+		// `finalizedInvoice.hosted_invoice_url` through so the client can still pay
+		// online. Stripe's own dunning/reminder settings are unaffected.
 
 		console.log('stripe_invoice_created', {
 			stripe_invoice_id: finalizedInvoice.id,
@@ -272,6 +274,8 @@ export async function ensureStripeCustomer(opts: {
 	userId: string;
 	email: string;
 	name?: string;
+	/** Billing address in Stripe's shape (see `toStripeAddress`). */
+	address?: Stripe.AddressParam;
 	existingCustomerId?: string | null;
 }): Promise<string> {
 	if (opts.existingCustomerId) {
@@ -284,6 +288,17 @@ export async function ensureStripeCustomer(opts: {
 		try {
 			const existing = await stripe.customers.retrieve(opts.existingCustomerId);
 			if (!existing.deleted) {
+				// Keep Stripe's copy of the billing address in step with ours. Stripe
+				// uses customer.email for receipts and dunning, and the customer can
+				// also edit it themselves in the billing portal — without this the two
+				// silently diverge. Safe to write now that the webhook handlers resolve
+				// our user via customer.metadata.userId rather than by email.
+				const drift: Stripe.CustomerUpdateParams = {};
+				if (opts.email && existing.email !== opts.email) drift.email = opts.email;
+				if (opts.address) drift.address = opts.address;
+				if (Object.keys(drift).length > 0) {
+					await stripe.customers.update(opts.existingCustomerId, drift);
+				}
 				return opts.existingCustomerId;
 			}
 			console.warn?.('ensureStripeCustomer: stored customer is deleted in Stripe — recreating', {
@@ -306,6 +321,7 @@ export async function ensureStripeCustomer(opts: {
 	const customer = await stripe.customers.create({
 		email: opts.email,
 		name: opts.name,
+		...(opts.address ? { address: opts.address } : {}),
 		metadata: {
 			clientId: opts.clientId,
 			userId: opts.userId

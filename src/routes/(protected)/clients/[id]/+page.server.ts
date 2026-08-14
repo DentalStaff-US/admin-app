@@ -17,7 +17,14 @@ import {
 } from '$lib/server/database/queries/clients';
 import { fail, redirect } from '@sveltejs/kit';
 import { CLIENT_STATUS, USER_ROLES, type ClientStatus } from '$lib/config/constants';
-import { notifyClientStatusChange } from '$lib/server/notifications/transactional';
+import {
+	notifyClientStatusChange,
+	notifyInvoiceCreated
+} from '$lib/server/notifications/transactional';
+import {
+	resolveBillingRecipient,
+	syncStripeCustomerBillingEmail
+} from '$lib/server/billing/recipients';
 import {
 	getSupportTicketsForClient
 	// getSupportTicketsForUser
@@ -151,6 +158,13 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 			firstName: result.user.firstName,
 			lastName: result.user.lastName,
 			email: result.user.email,
+			billingEmail: result.company.billingEmail || '',
+			billingContactName: result.company.billingContactName || '',
+			billingStreetOne: result.company.billingStreetOne || '',
+			billingStreetTwo: result.company.billingStreetTwo || '',
+			billingCity: result.company.billingCity || '',
+			billingState: result.company.billingState || '',
+			billingZipcode: result.company.billingZipcode || '',
 			companyName: result.company.companyName || undefined,
 			baseLocation: result.company.baseLocation || '',
 			website: result.company.website || '',
@@ -342,13 +356,17 @@ export const actions = {
 			const dateString = form.data.dueDate;
 			const invoiceMethod = form.data.invoiceMethod; // 'STRIPE' | 'PAPER'
 
-			// Get client info for customer name/email
+			// Get client info for customer name/email. The invoice goes to the
+			// billing contact, which is separate from the account owner's login
+			// email; `resolveBillingRecipient` falls back to the owner when unset.
 			const clientResult = await getClientProfileById(clientId);
-			const customerName = `${clientResult.user.firstName} ${clientResult.user.lastName}`;
-			const customerEmail = clientResult.user.email;
+			const billingRecipient = await resolveBillingRecipient(clientId);
+			const customerName =
+				billingRecipient?.name ?? `${clientResult.user.firstName} ${clientResult.user.lastName}`;
+			const customerEmail = billingRecipient?.email ?? clientResult.user.email;
 
 			if (invoiceMethod === 'PAPER') {
-				await createPaperInvoiceRecord(
+				const paperInvoice = await createPaperInvoiceRecord(
 					{
 						clientId,
 						amountInDollars: form.data.amount.toFixed(2),
@@ -370,6 +388,13 @@ export const actions = {
 					},
 					user.id
 				);
+
+				if (paperInvoice?.id) {
+					await notifyInvoiceCreated({
+						invoiceId: paperInvoice.id,
+						dueDate: paperInvoice.dueDate
+					});
+				}
 			} else {
 				// Existing Stripe flow. Anchor the picked date to end-of-day in
 				// the business timezone so "due today" submitted from ET in the
@@ -397,7 +422,7 @@ export const actions = {
 						form.data.description,
 						dueDate
 					);
-					await createInvoiceRecord(
+					const invoiceRow = await createInvoiceRecord(
 						{
 							clientId,
 							stripeInvoice: invoice,
@@ -405,6 +430,14 @@ export const actions = {
 						},
 						user.id
 					);
+
+					if (invoiceRow?.id) {
+						await notifyInvoiceCreated({
+							invoiceId: invoiceRow.id,
+							hostedUrl: invoice.hosted_invoice_url,
+							dueDate: invoiceRow.dueDate
+						});
+					}
 				} else {
 					throw new Error('Stripe customer ID not found for the client');
 				}
@@ -555,6 +588,23 @@ export const actions = {
 			if (form.data.firstName !== undefined) userUpdate.firstName = form.data.firstName;
 			if (form.data.lastName !== undefined) userUpdate.lastName = form.data.lastName;
 			if (form.data.email !== undefined) userUpdate.email = form.data.email;
+			// Billing email is a company attribute, deliberately separate from the
+			// login email above. Blank clears it, which falls delivery back to the
+			// account owner via `resolveBillingRecipient`.
+			if (form.data.billingEmail !== undefined)
+				companyUpdate.billingEmail = form.data.billingEmail || null;
+			if (form.data.billingContactName !== undefined)
+				companyUpdate.billingContactName = form.data.billingContactName || null;
+			if (form.data.billingStreetOne !== undefined)
+				companyUpdate.billingStreetOne = form.data.billingStreetOne || null;
+			if (form.data.billingStreetTwo !== undefined)
+				companyUpdate.billingStreetTwo = form.data.billingStreetTwo || null;
+			if (form.data.billingCity !== undefined)
+				companyUpdate.billingCity = form.data.billingCity || null;
+			if (form.data.billingState !== undefined)
+				companyUpdate.billingState = form.data.billingState || null;
+			if (form.data.billingZipcode !== undefined)
+				companyUpdate.billingZipcode = form.data.billingZipcode || null;
 			if (form.data.companyName !== undefined) companyUpdate.companyName = form.data.companyName;
 			if (form.data.baseLocation !== undefined)
 				companyUpdate.baseLocation = form.data.baseLocation || null;
@@ -579,6 +629,26 @@ export const actions = {
 					.update(clientCompanyTable)
 					.set(companyUpdate)
 					.where(eq(clientCompanyTable.id, client.company.id));
+			}
+
+			// Keep Stripe's customer email pointing at the billing contact so
+			// receipts and dunning follow it too. Best-effort: a Stripe hiccup must
+			// not fail the admin's save, and the nightly reconcile plus the next
+			// `ensureStripeCustomer` call will re-converge it.
+			if (
+				form.data.billingEmail !== undefined ||
+				form.data.billingStreetOne !== undefined ||
+				form.data.billingCity !== undefined ||
+				form.data.billingState !== undefined ||
+				form.data.billingZipcode !== undefined
+			) {
+				await syncStripeCustomerBillingEmail(client.profile.id).catch((err) =>
+					logger.error('billing email stripe sync failed', {
+						error: err,
+						clientId: client.profile.id,
+						distinctId: user?.id
+					})
+				);
 			}
 
 			setFlash({ type: 'success', message: 'Client updated successfully' }, event);

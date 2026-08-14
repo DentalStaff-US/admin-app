@@ -932,6 +932,67 @@ ${daysText}
 			subject: `Invoice Voided | ${APP_NAME}`
 		};
 	},
+	invoiceCreatedNotificationEmail: (invoiceDetails: {
+		clientName: string;
+		invoiceNumber: string;
+		description: string | null;
+		amount: string;
+		dueDate: string | null;
+		invoiceUrl: string;
+		/** Stripe-backed invoices can be paid from the link; paper ones cannot. */
+		isPayableOnline: boolean;
+	}) => {
+		const dueLine = invoiceDetails.dueDate ? `Due date: ${invoiceDetails.dueDate}` : '';
+		const descriptionLine = invoiceDetails.description
+			? `Description: ${invoiceDetails.description}`
+			: '';
+		const callToAction = invoiceDetails.isPayableOnline
+			? 'You can view and pay this invoice online:'
+			: 'You can view this invoice here:';
+		const linkLabel = invoiceDetails.isPayableOnline ? 'View & Pay Invoice' : 'View Invoice';
+
+		return {
+			textEmail: `
+            Hello ${invoiceDetails.clientName},
+
+            A new invoice has been issued to your account.
+
+            Invoice: ${invoiceDetails.invoiceNumber}
+            Amount: ${invoiceDetails.amount}
+            ${descriptionLine}
+            ${dueLine}
+
+            ${callToAction}
+            ${invoiceDetails.invoiceUrl}
+
+            For any questions about this invoice, please contact us at ${env.COMPANY_REPLY_TO_EMAIL} or call us at ${env.COMPANY_PHONE_NUMBER}.
+
+            Thank you,
+            Dental Temps Staffing Solutions`,
+			htmlEmail: `
+            <p>Hello ${invoiceDetails.clientName},</p>
+
+            <p>A new invoice has been issued to your account.</p>
+
+            <ul>
+              <li><strong>Invoice:</strong> ${invoiceDetails.invoiceNumber}</li>
+              <li><strong>Amount:</strong> ${invoiceDetails.amount}</li>
+              ${invoiceDetails.description ? `<li><strong>Description:</strong> ${invoiceDetails.description}</li>` : ''}
+              ${invoiceDetails.dueDate ? `<li><strong>Due date:</strong> ${invoiceDetails.dueDate}</li>` : ''}
+            </ul>
+
+            <p>${callToAction}</p>
+
+            <p><a href="${invoiceDetails.invoiceUrl}">${linkLabel}</a></p>
+
+            <p>For any questions about this invoice, please contact us at <a href="mailto:${env.COMPANY_REPLY_TO_EMAIL}">${env.COMPANY_REPLY_TO_EMAIL}</a> or call us at ${env.COMPANY_PHONE_NUMBER}.</p>
+
+            <p>Thank you,</p>
+            <p>Dental Temps Staffing Solutions</p>
+            `.trim(),
+			subject: `New Invoice ${invoiceDetails.invoiceNumber} | ${APP_NAME}`
+		};
+	},
 	supportTicketSubmissionNotificationEmail: () => {
 		return {
 			textEmail: `

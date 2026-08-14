@@ -57,8 +57,10 @@ import {
 	notifyQualifiedCandidatesOfNewWorkdays,
 	notifyCandidateAssignedToWorkdays,
 	notifyWorkdayChanged,
-	notifyWorkdayDeleted
+	notifyWorkdayDeleted,
+	notifyInvoiceCreated
 } from '$lib/server/notifications/transactional';
+import { resolveBillingRecipient } from '$lib/server/billing/recipients';
 import db from '$lib/server/database/drizzle';
 import { eq, inArray } from 'drizzle-orm';
 import { workdayTable, recurrenceDayTable } from '$lib/server/database/schemas/requisition';
@@ -636,11 +638,15 @@ export const actions = {
 			const lineItems = await invoiceLineItemSchema.parseAsync(form.data.items);
 			const clientId = await getClientIdByCompanyId(requisition.companyId);
 			const clientResult = await getClientProfileById(clientId);
-			const customerName = `${clientResult.user.firstName} ${clientResult.user.lastName}`;
-			const customerEmail = clientResult.user.email;
+			// Invoices address the billing contact, not the account owner's login
+			// email; the resolver falls back to the owner when none is set.
+			const billingRecipient = await resolveBillingRecipient(clientId);
+			const customerName =
+				billingRecipient?.name ?? `${clientResult.user.firstName} ${clientResult.user.lastName}`;
+			const customerEmail = billingRecipient?.email ?? clientResult.user.email;
 
 			if (form.data.invoiceMethod === 'PAPER') {
-				await createPaperInvoiceRecord(
+				const paperInvoice = await createPaperInvoiceRecord(
 					{
 						clientId,
 						amountInDollars: form.data.amount.toFixed(2),
@@ -664,6 +670,13 @@ export const actions = {
 					},
 					user.id
 				);
+
+				if (paperInvoice?.id) {
+					await notifyInvoiceCreated({
+						invoiceId: paperInvoice.id,
+						dueDate: paperInvoice.dueDate
+					});
+				}
 			} else {
 				const stripeCustomerId = await getClientSubscription(clientId);
 				if (!stripeCustomerId) {
@@ -690,7 +703,7 @@ export const actions = {
 					form.data.description,
 					dueDate
 				);
-				await createInvoiceRecord(
+				const invoiceRow = await createInvoiceRecord(
 					{
 						clientId,
 						stripeInvoice,
@@ -700,6 +713,14 @@ export const actions = {
 					},
 					user.id
 				);
+
+				if (invoiceRow?.id) {
+					await notifyInvoiceCreated({
+						invoiceId: invoiceRow.id,
+						hostedUrl: stripeInvoice.hosted_invoice_url,
+						dueDate: invoiceRow.dueDate
+					});
+				}
 			}
 
 			setFlash({ type: 'success', message: 'Invoice created successfully' }, event);

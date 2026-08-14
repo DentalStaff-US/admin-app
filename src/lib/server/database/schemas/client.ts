@@ -161,7 +161,28 @@ export const clientCompanyTable = pgTable('client_companies', {
 			}
 		}),
 	einNumber: text('ein_number'),
-	accountableManager: text('accountable_manager')
+	accountableManager: text('accountable_manager'),
+	// Where invoices and billing correspondence go. Deliberately separate from
+	// `users.email`, which is the login/personal identity — the person who signs
+	// in is usually not the person who pays. Lives on the company (not the
+	// profile) because it is an organizational attribute, alongside einNumber.
+	// NULL means "not set yet": every read goes through `resolveBillingRecipient`
+	// (src/lib/server/billing/recipients.ts), which falls back to users.email, so
+	// existing clients keep working unchanged.
+	billingEmail: text('billing_email'),
+	// Optional display name for the billing contact ("Accounts Payable",
+	// "Jane Doe"), used as the email To: name and in invoice copy.
+	billingContactName: text('billing_contact_name'),
+	// Remit-to address printed on invoices and pushed to Stripe's customer
+	// record. Structured rather than a single string because Stripe's
+	// `customer.address` needs discrete parts and so does the invoice PDF's
+	// "Bill To" block. All NULL = fall back to the company's first office
+	// location, which is what invoices used before this existed.
+	billingStreetOne: text('billing_street_one'),
+	billingStreetTwo: text('billing_street_two'),
+	billingCity: text('billing_city'),
+	billingState: text('billing_state'),
+	billingZipcode: text('billing_zipcode')
 });
 
 const geometry = customType<{ data: string; notNull: false; default: false }>({

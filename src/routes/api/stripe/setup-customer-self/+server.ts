@@ -13,6 +13,7 @@
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { ensureStripeCustomer, createSetupCheckoutSession } from '$lib/server/stripe';
+import { resolveBillingRecipient, toStripeAddress } from '$lib/server/billing/recipients';
 import {
 	getClientProfilebyUserId,
 	getClientProfileByStaffUserId
@@ -66,10 +67,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			return json({ alreadySetUp: true, message: 'Billing is already set up.' });
 		}
 
+		// Stripe's customer email drives its receipts and dunning, so it should be
+		// the billing contact rather than the login email. Falls back to the
+		// account email when no billing contact is set.
+		const billingRecipient = await resolveBillingRecipient(clientId);
+
 		const customerId = await ensureStripeCustomer({
 			clientId,
 			userId: user.id,
-			email: user.email,
+			email: billingRecipient?.email ?? user.email,
+			...(billingRecipient?.address ? { address: toStripeAddress(billingRecipient.address) } : {}),
 			name: `${user.firstName} ${user.lastName}`,
 			existingCustomerId: state.stripeCustomerId
 		});

@@ -34,6 +34,7 @@ import {
 	getQualifiedProfessionalsForRequisition
 } from '$lib/server/database/queries/candidates';
 import { isClientActiveByCompanyId } from '$lib/server/clientStatusGuards';
+import { resolveBillingRecipient } from '$lib/server/billing/recipients';
 import { userTable } from '$lib/server/database/schemas/auth';
 import {
 	candidateProfileTable,
@@ -994,20 +995,20 @@ export async function notifyInvoicePaymentProcessed(invoiceId: string): Promise<
 	try {
 		const invRow = await getInvoiceCoreFields(invoiceId);
 		if (!invRow) return;
-		const client = await getClientContactById(invRow.clientId);
+		const client = await resolveBillingRecipient(invRow.clientId);
 		if (!client) return;
 
 		await dispatch('invoicePaymentProcessed', [
 			safeEmail('invoicePaymentProcessed', client.email, () => {
 				const t = EMAIL_TEMPLATES.invoicePaymentProcessedNotificationEmail({
-					clientName: `${client.firstName} ${client.lastName}`,
+					clientName: client.name,
 					requisitionNumber: invRow.requisitionId ? String(invRow.requisitionId) : null,
 					description: invRow.description ?? null,
 					invoiceId: invRow.id,
 					transactionAmount: `$${invRow.amount}`
 				});
 				return emailService.sendEmail({
-					to: [{ email: client.email }],
+					to: [{ email: client.email, name: client.name }],
 					subject: t.subject,
 					html: t.htmlEmail,
 					text: t.textEmail
@@ -1031,19 +1032,19 @@ export async function notifyMiscellaneousTransaction(args: {
 	try {
 		const invRow = await getInvoiceCoreFields(args.invoiceId);
 		if (!invRow) return;
-		const client = await getClientContactById(invRow.clientId);
+		const client = await resolveBillingRecipient(invRow.clientId);
 		if (!client) return;
 
 		await dispatch('miscellaneousTransaction', [
 			safeEmail('miscellaneousTransaction', client.email, () => {
 				const t = EMAIL_TEMPLATES.miscelaneousTransactionNotificationEmail({
-					clientName: `${client.firstName} ${client.lastName}`,
+					clientName: client.name,
 					transactionAmount: `$${args.amount.toFixed(2)}`,
 					transactionType: args.transactionType,
 					transactionReason: args.notes ?? 'No reason provided'
 				});
 				return emailService.sendEmail({
-					to: [{ email: client.email }],
+					to: [{ email: client.email, name: client.name }],
 					subject: t.subject,
 					html: t.htmlEmail,
 					text: t.textEmail
@@ -1062,18 +1063,18 @@ export async function notifyInvoiceVoided(invoiceId: string, reason: string): Pr
 	try {
 		const invRow = await getInvoiceCoreFields(invoiceId);
 		if (!invRow) return;
-		const client = await getClientContactById(invRow.clientId);
+		const client = await resolveBillingRecipient(invRow.clientId);
 		if (!client) return;
 
 		await dispatch('invoiceVoided', [
 			safeEmail('invoiceVoided', client.email, () => {
 				const t = EMAIL_TEMPLATES.invoiceVoidedNotificationEmail({
-					clientName: `${client.firstName} ${client.lastName}`,
+					clientName: client.name,
 					invoiceNumber: invRow.invoiceNumber,
 					reason: reason || 'No reason provided'
 				});
 				return emailService.sendEmail({
-					to: [{ email: client.email }],
+					to: [{ email: client.email, name: client.name }],
 					subject: t.subject,
 					html: t.htmlEmail,
 					text: t.textEmail
@@ -1090,9 +1091,13 @@ export async function notifyInvoiceVoided(invoiceId: string, reason: string): Pr
  */
 export async function notifyOverdueInvoice(invoice: Invoice): Promise<void> {
 	try {
-		const recipient = invoice.customerEmail;
+		// Prefer the live billing contact over `invoice.customer_email`, which is a
+		// snapshot taken at creation time and is NULL for invoices raised by the
+		// timesheet-approval path — those used to be skipped silently here.
+		const billing = invoice.clientId ? await resolveBillingRecipient(invoice.clientId) : null;
+		const recipient = billing?.email ?? invoice.customerEmail;
 		if (!recipient) {
-			console.warn('[transactional:overdueInvoice] no customer email on invoice', invoice.id);
+			console.warn('[transactional:overdueInvoice] no billing recipient for invoice', invoice.id);
 			return;
 		}
 		await dispatch('overdueInvoice', [
@@ -1102,6 +1107,70 @@ export async function notifyOverdueInvoice(invoice: Invoice): Promise<void> {
 		]);
 	} catch (e) {
 		console.error('[transactional:overdueInvoice] top-level error:', e);
+	}
+}
+
+/**
+ * An invoice was created — email the billing contact.
+ *
+ * Covers BOTH invoice methods. Previously nothing was sent here at all: paper
+ * invoices notified no one, and Stripe invoices were emailed by Stripe itself
+ * (which bypassed our billing contact entirely). `createStripeInvoice` no longer
+ * calls `stripe.invoices.sendInvoice` — this is the single delivery path for
+ * both, so the client gets one consistently-branded email either way.
+ *
+ * `hostedUrl` is Stripe's hosted invoice page when present; paper invoices link
+ * to our own invoice detail page instead.
+ */
+export async function notifyInvoiceCreated(args: {
+	invoiceId: string;
+	hostedUrl?: string | null;
+	dueDate?: Date | string | null;
+}): Promise<void> {
+	try {
+		const invRow = await getInvoiceCoreFields(args.invoiceId);
+		if (!invRow) return;
+		const client = await resolveBillingRecipient(invRow.clientId);
+		if (!client) {
+			console.warn('[transactional:invoiceCreated] no billing recipient', args.invoiceId);
+			return;
+		}
+
+		if (!client.isDedicated) {
+			console.info('[transactional:invoiceCreated] no billing email set, using account owner', {
+				invoiceId: args.invoiceId,
+				clientId: invRow.clientId
+			});
+		}
+
+		const dueDate =
+			args.dueDate instanceof Date
+				? format(args.dueDate, 'MMMM d, yyyy')
+				: typeof args.dueDate === 'string' && args.dueDate
+					? format(parseISO(args.dueDate), 'MMMM d, yyyy')
+					: null;
+
+		await dispatch('invoiceCreated', [
+			safeEmail('invoiceCreated', client.email, () => {
+				const t = EMAIL_TEMPLATES.invoiceCreatedNotificationEmail({
+					clientName: client.name,
+					invoiceNumber: invRow.invoiceNumber,
+					description: invRow.description ?? null,
+					amount: `$${invRow.amount}`,
+					dueDate,
+					invoiceUrl: args.hostedUrl || `${BASE_URL}/invoices/${invRow.id}`,
+					isPayableOnline: Boolean(args.hostedUrl)
+				});
+				return emailService.sendEmail({
+					to: [{ email: client.email, name: client.name }],
+					subject: t.subject,
+					html: t.htmlEmail,
+					text: t.textEmail
+				});
+			})
+		]);
+	} catch (e) {
+		console.error('[transactional:invoiceCreated] top-level error:', e);
 	}
 }
 
@@ -1141,22 +1210,6 @@ export async function notifySupportTicketCreated(): Promise<void> {
 }
 
 // ---------- shared private helpers ----------
-
-async function getClientContactById(
-	clientId: string
-): Promise<{ email: string; firstName: string; lastName: string } | null> {
-	const [row] = await db
-		.select({
-			email: userTable.email,
-			firstName: userTable.firstName,
-			lastName: userTable.lastName
-		})
-		.from(clientProfileTable)
-		.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
-		.where(eq(clientProfileTable.id, clientId))
-		.limit(1);
-	return row ?? null;
-}
 
 /**
  * A new support ticket was created (any path: admin /support page, external

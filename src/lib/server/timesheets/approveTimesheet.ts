@@ -20,6 +20,8 @@ import { getCandidateProfileById } from '$lib/server/database/queries/candidates
 import { getClientProfileById, getClientSubscription } from '$lib/server/database/queries/clients';
 import { getDisciplineById } from '$lib/server/database/queries/disciplines';
 import { createStripeInvoice, withCardProcessingFee } from '$lib/server/stripe';
+import { resolveBillingRecipient } from '$lib/server/billing/recipients';
+import { notifyInvoiceCreated } from '$lib/server/notifications/transactional';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
 import { logger } from '$lib/server/logger';
 
@@ -385,12 +387,19 @@ export async function approveAndInvoiceTimesheet(
 		const clientProfile = await getClientProfileById(timesheet.associatedClientId);
 		const isPaperBilling = clientProfile?.profile.clientInvoiceMethod === 'PAPER';
 
+		// Billing contact for this client — used both to stamp `customerEmail` on
+		// the invoice row (it was previously left NULL on this path, which made the
+		// overdue-reminder cron silently skip every timesheet invoice) and to
+		// address the invoice-created email.
+		const billingRecipient = await resolveBillingRecipient(timesheet.associatedClientId);
+
 		if (isPaperBilling) {
 			const effectiveRateDollars = effectiveRate ?? 0;
-			await createPaperInvoiceRecord(
+			const paperInvoice = await createPaperInvoiceRecord(
 				{
 					clientId: timesheet.associatedClientId,
 					amountInDollars: (finalAmt / 100).toFixed(2),
+					customerEmail: billingRecipient?.email ?? undefined,
 					sourceType: 'timesheet',
 					timesheetId: timesheet.id,
 					requisitionId: timesheet.requisitionId ?? undefined,
@@ -421,6 +430,13 @@ export async function approveAndInvoiceTimesheet(
 				},
 				actorUserId
 			);
+
+			if (paperInvoice?.id) {
+				await notifyInvoiceCreated({
+					invoiceId: paperInvoice.id,
+					dueDate: paperInvoice.dueDate
+				});
+			}
 		} else {
 			const stripeCustomerId = await getClientSubscription(timesheet.associatedClientId);
 			if (!stripeCustomerId) {
@@ -465,7 +481,7 @@ export async function approveAndInvoiceTimesheet(
 				})
 			);
 
-			await createInvoiceRecord(
+			const invoiceRow = await createInvoiceRecord(
 				{
 					clientId: timesheet.associatedClientId,
 					timesheet,
@@ -474,6 +490,16 @@ export async function approveAndInvoiceTimesheet(
 				},
 				actorUserId
 			);
+
+			// Stripe no longer mails the invoice itself (see createStripeInvoice) —
+			// we own delivery so it reaches the billing contact, not the login email.
+			if (invoiceRow?.id) {
+				await notifyInvoiceCreated({
+					invoiceId: invoiceRow.id,
+					hostedUrl: stripeInvoice.hosted_invoice_url,
+					dueDate: invoiceRow.dueDate
+				});
+			}
 		}
 
 		// Explicit, unambiguous audit row for timed auto-approval (silence = consent),
