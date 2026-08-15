@@ -1371,6 +1371,82 @@ export async function notifyAdminsOfNewClient(clientId: string): Promise<void> {
 	}
 }
 
+/**
+ * A professional just finished the last onboarding step — notify every
+ * SUPERADMIN (filtered by `receiveEmail`) so they can approve the account.
+ *
+ * Mirrors `notifyAdminsOfNewClient`. Candidates land on `awaiting-approval`
+ * after this point and cannot claim shifts until an admin acts, so this is the
+ * signal that unblocks them. Takes the *user* id because the candidate app's
+ * onboarding calls carry the user, not the candidate profile.
+ */
+export async function notifyAdminsOfCandidateOnboarded(userId: string): Promise<void> {
+	const label = 'candidateOnboarded';
+	try {
+		const [row] = await db
+			.select({
+				candidateId: candidateProfileTable.id,
+				firstName: userTable.firstName,
+				lastName: userTable.lastName,
+				email: userTable.email,
+				cellPhone: candidateProfileTable.cellPhone,
+				city: candidateProfileTable.city,
+				state: candidateProfileTable.state
+			})
+			.from(candidateProfileTable)
+			.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
+			.where(eq(candidateProfileTable.userId, userId))
+			.limit(1);
+
+		if (!row) {
+			console.warn(`[transactional:${label}] aborted: no candidate profile for user ${userId}`);
+			return;
+		}
+
+		const admins = await db
+			.select({ email: userTable.email })
+			.from(userTable)
+			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+
+		if (admins.length === 0) {
+			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
+			return;
+		}
+
+		const disciplineRows = await db
+			.select({ name: disciplineTable.name })
+			.from(candidateDisciplineExperienceTable)
+			.innerJoin(
+				disciplineTable,
+				eq(candidateDisciplineExperienceTable.disciplineId, disciplineTable.id)
+			)
+			.where(eq(candidateDisciplineExperienceTable.candidateId, row.candidateId));
+
+		const location = [row.city, row.state].filter(Boolean).join(', ') || null;
+
+		const details = {
+			candidateId: row.candidateId,
+			candidateName: `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim() || 'Unknown',
+			candidateEmail: row.email ?? 'unknown@unknown',
+			candidatePhone: row.cellPhone,
+			location,
+			disciplines: disciplineRows.map((d) => d.name).filter(Boolean),
+			onboardedAt: new Date()
+		};
+
+		await dispatch(
+			label,
+			admins.map((a) =>
+				safeEmail(label, a.email, () =>
+					emailService.sendNewCandidateOnboardedAdminEmail(a.email, details)
+				)
+			)
+		);
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
+	}
+}
+
 async function getInvoiceCoreFields(invoiceId: string) {
 	const { invoiceTable } = await import('$lib/server/database/schemas/requisition');
 	const [row] = await db

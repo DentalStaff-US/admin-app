@@ -7,6 +7,15 @@ import { z } from 'zod';
 import { userTable, type User } from '$lib/server/database/schemas/auth';
 import { EmailService } from '$lib/server/email/emailService';
 import { updateUser } from '$lib/server/database/queries/users';
+import { USER_ROLES } from '$lib/config/constants';
+import { notifyAdminsOfCandidateOnboarded } from '$lib/server/notifications/transactional';
+
+/**
+ * Last step of the candidate onboarding funnel (documents). The candidate app
+ * walks profile→2, experience→3, resume→4, documents→5; reaching 5 means the
+ * professional is done and waiting on admin approval.
+ */
+const CANDIDATE_ONBOARDING_FINAL_STEP = 5;
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -62,6 +71,22 @@ export const POST: RequestHandler = async ({ request }) => {
 		const newData: Partial<User> = { ...parsedProfile.data };
 
 		const updatedUser = await updateUser(user.id, newData);
+
+		// Candidate onboarding has no explicit "finished" flag — the candidate app
+		// only advances `onboardingStep`, and the documents page (the last step)
+		// pushes it to CANDIDATE_ONBOARDING_FINAL_STEP. Fire the admin alert on that
+		// transition so the professional waiting on `awaiting-approval` is actually
+		// surfaced to someone. Guarded on the previous value so the two calls the
+		// documents page makes, or any replay, only notify once. Fire-and-forget:
+		// the dispatcher swallows its own errors and onboarding must not block on
+		// email delivery.
+		if (
+			user.role === USER_ROLES.CANDIDATE &&
+			newData.onboardingStep === CANDIDATE_ONBOARDING_FINAL_STEP &&
+			(user.onboardingStep ?? 0) < CANDIDATE_ONBOARDING_FINAL_STEP
+		) {
+			await notifyAdminsOfCandidateOnboarded(user.id);
+		}
 
 		return json(
 			{

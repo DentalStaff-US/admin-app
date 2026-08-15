@@ -344,6 +344,68 @@ export const EMAIL_TEMPLATES: Record<
 
 		return { textEmail, htmlEmail, subject };
 	},
+	newCandidateOnboardedAdminEmail: (details: {
+		candidateId: string;
+		candidateName: string;
+		candidateEmail: string;
+		candidatePhone: string | null | undefined;
+		location: string | null;
+		disciplines: string[];
+		onboardedAt: Date;
+	}) => {
+		const {
+			candidateId,
+			candidateName,
+			candidateEmail,
+			candidatePhone,
+			location,
+			disciplines,
+			onboardedAt
+		} = details;
+		const profileUrl = `${BASE_URL}/professionals/${candidateId}`;
+		const onboardedAtFormatted = format(onboardedAt, 'PPPp');
+		const disciplineList = disciplines.length ? disciplines.join(', ') : '(none selected)';
+
+		const textEmail = `
+            A professional just finished onboarding on ${APP_NAME} and is awaiting approval.
+
+            Name: ${candidateName} <${candidateEmail}>
+            Phone: ${candidatePhone || '(not provided)'}
+            Location: ${location || '(not provided)'}
+            Disciplines: ${disciplineList}
+            Completed onboarding: ${onboardedAtFormatted}
+
+            Review their profile:
+            ${profileUrl}
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>Professional awaiting approval</h2>
+                <p>A professional just finished onboarding on ${APP_NAME} and is awaiting approval.</p>
+                <table style="border-collapse: collapse; margin: 16px 0;">
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Name</td><td style="padding: 4px 0;"><strong>${candidateName}</strong></td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Email</td><td style="padding: 4px 0;"><a href="mailto:${candidateEmail}">${candidateEmail}</a></td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Phone</td><td style="padding: 4px 0;">${candidatePhone || '(not provided)'}</td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Location</td><td style="padding: 4px 0;">${location || '(not provided)'}</td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Disciplines</td><td style="padding: 4px 0;">${disciplineList}</td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Completed</td><td style="padding: 4px 0;">${onboardedAtFormatted}</td></tr>
+                </table>
+                <p style="margin: 24px 0;">
+                    <a href="${profileUrl}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        View Professional Profile
+                    </a>
+                </p>
+                <p style="color: #6B7280; font-size: 14px;">Or open it directly: ${profileUrl}</p>
+            </div>
+        `.trim();
+
+		const subject = `Pending approval: ${candidateName} finished onboarding`;
+
+		return { textEmail, htmlEmail, subject };
+	},
 	newSupportTicketAdminEmail: (details: {
 		ticketId: string;
 		title: string;

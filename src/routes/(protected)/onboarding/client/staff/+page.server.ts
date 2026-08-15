@@ -9,7 +9,7 @@ import {
 	getPrimaryLocationForCompany,
 	inviteStaffUsersToAccount
 } from '$lib/server/database/queries/clients.js';
-import { updateUser } from '$lib/server/database/queries/users.js';
+import { completeClientOnboarding } from '$lib/server/onboarding/completeClientOnboarding';
 
 const newStaffInvitesSchema = z.object({
 	invitees: z
@@ -132,8 +132,9 @@ export const actions = {
 					event
 				);
 			}
-			// complete onboarding
-			await updateUser(user.id, { completedOnboarding: true });
+			// complete onboarding (also alerts admins that a new business is ready
+			// for review — see completeClientOnboarding)
+			await completeClientOnboarding(user.id);
 		} catch (error) {
 			console.error('Error sending staff invites:', error);
 			setFlash(
@@ -162,8 +163,9 @@ export const actions = {
 
 		console.log('User opted to skip inviting staff members.');
 		try {
-			// complete onboarding
-			await updateUser(user.id, { completedOnboarding: true });
+			// complete onboarding (also alerts admins that a new business is ready
+			// for review — see completeClientOnboarding)
+			await completeClientOnboarding(user.id);
 			setFlash(
 				{
 					type: 'success',

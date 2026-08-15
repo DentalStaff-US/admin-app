@@ -9,15 +9,14 @@ import {
 	getClientCompanyByClientId,
 	getClientProfilebyUserId
 } from '$lib/server/database/queries/clients.js';
-import { notifyAdminsOfNewClient } from '$lib/server/notifications/transactional';
 
 const companySchema = clientCompanySchema.pick({
 	companyName: true
 });
 const clientSchema = clientProfileSchema.pick({
 	cell_phone: true
-})
-const mergedSchemas = companySchema.merge(clientSchema)
+});
+const mergedSchemas = companySchema.merge(clientSchema);
 
 export const load = async (event) => {
 	const user = event.locals.user;
@@ -75,10 +74,10 @@ export const actions = {
 			});
 
 			if (newCompany) {
-				// Fire-and-forget admin notification. Dispatcher swallows its
-				// own errors; the onboarding flow must not block on email.
-				await notifyAdminsOfNewClient(clientId);
-
+				// The admin alert deliberately does NOT fire here. This is the first
+				// screen of the funnel — the business has no location and no staff
+				// yet. It now fires from `completeClientOnboarding` at the staff
+				// step, so admins are told about businesses that actually finished.
 				setFlash(
 					{
 						type: 'success',

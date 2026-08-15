@@ -535,6 +535,39 @@ export class EmailService {
 	}
 
 	/**
+	 * Notify an admin that a professional finished onboarding and needs approval.
+	 */
+	async sendNewCandidateOnboardedAdminEmail(
+		email: string,
+		details: {
+			candidateId: string;
+			candidateName: string;
+			candidateEmail: string;
+			candidatePhone: string | null | undefined;
+			location: string | null;
+			disciplines: string[];
+			onboardedAt: Date;
+		}
+	): Promise<EmailSendResult> {
+		try {
+			const template = EMAIL_TEMPLATES.newCandidateOnboardedAdminEmail(details);
+			const result = await this.sendEmail({
+				to: [{ email }],
+				subject: template.subject,
+				html: template.htmlEmail,
+				text: template.textEmail
+			});
+			return result;
+		} catch (error: any) {
+			return {
+				id: crypto.randomUUID(),
+				success: false,
+				error: error.message || 'Failed to send candidate onboarded admin email'
+			};
+		}
+	}
+
+	/**
 	 * Send Workday Reminder email
 	 */
 
