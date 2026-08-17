@@ -535,9 +535,9 @@ export class EmailService {
 	}
 
 	/**
-	 * Notify an admin that a professional finished onboarding and needs approval.
+	 * Notify an admin that a professional profile was created.
 	 */
-	async sendNewCandidateOnboardedAdminEmail(
+	async sendNewCandidateSignupAdminEmail(
 		email: string,
 		details: {
 			candidateId: string;
@@ -545,12 +545,11 @@ export class EmailService {
 			candidateEmail: string;
 			candidatePhone: string | null | undefined;
 			location: string | null;
-			disciplines: string[];
-			onboardedAt: Date;
+			createdAt: Date;
 		}
 	): Promise<EmailSendResult> {
 		try {
-			const template = EMAIL_TEMPLATES.newCandidateOnboardedAdminEmail(details);
+			const template = EMAIL_TEMPLATES.newCandidateSignupAdminEmail(details);
 			const result = await this.sendEmail({
 				to: [{ email }],
 				subject: template.subject,
@@ -563,6 +562,38 @@ export class EmailService {
 				id: crypto.randomUUID(),
 				success: false,
 				error: error.message || 'Failed to send candidate onboarded admin email'
+			};
+		}
+	}
+
+	/**
+	 * Notify an admin that a professional is ready for approval.
+	 */
+	async sendCandidateReadyForApprovalAdminEmail(
+		email: string,
+		details: {
+			candidateId: string;
+			candidateName: string;
+			candidateEmail: string;
+			location: string | null;
+			disciplines: string[];
+			status: string;
+		}
+	): Promise<EmailSendResult> {
+		try {
+			const template = EMAIL_TEMPLATES.candidateReadyForApprovalAdminEmail(details);
+			const result = await this.sendEmail({
+				to: [{ email }],
+				subject: template.subject,
+				html: template.htmlEmail,
+				text: template.textEmail
+			});
+			return result;
+		} catch (error: any) {
+			return {
+				id: crypto.randomUUID(),
+				success: false,
+				error: error.message || 'Failed to send ready-for-approval admin email'
 			};
 		}
 	}

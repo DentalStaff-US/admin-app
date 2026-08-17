@@ -20,8 +20,7 @@ const corsHeaders = {
 	'Access-Control-Allow-Credentials': 'true'
 };
 
-export const OPTIONS: RequestHandler = async () =>
-	new Response(null, { headers: corsHeaders });
+export const OPTIONS: RequestHandler = async () => new Response(null, { headers: corsHeaders });
 
 type AuthResult =
 	| {

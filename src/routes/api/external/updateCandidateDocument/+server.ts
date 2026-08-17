@@ -9,6 +9,7 @@ import {
 	candidateProfileTable
 } from '$lib/server/database/schemas/candidate';
 import { assertCandidateDocumentEditable } from '$lib/server/documents/candidateDocumentGuards';
+import { syncCandidateOnboardingCompletion } from '$lib/server/onboarding/syncCandidateOnboarding';
 import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
@@ -20,18 +21,19 @@ const corsHeaders = {
 
 export const OPTIONS: RequestHandler = async () => new Response(null, { headers: corsHeaders });
 
-const payloadSchema = z.object({ documentId: z.string().uuid() });
+const payloadSchema = z.object({
+	documentId: z.string().uuid(),
+	type: z.enum(['RESUME', 'LICENSE', 'CERTIFICATE', 'AGREEMENT', 'OTHER']).optional(),
+	filename: z.string().max(255).optional(),
+	// ISO date, or null to clear. Only meaningful for licenses/certificates.
+	expiryDate: z.string().datetime().nullable().optional()
+});
 
 /**
- * Delete one of the professional's own documents.
+ * Let a professional re-categorise or rename one of their own documents.
  *
- * This endpoint previously existed as an empty file, so the candidate documents
- * page had no way to remove a mistaken upload. Same guard as retyping: refused
- * once the account is approved or the document is admin-locked.
- *
- * Only the DB row is removed; the stored object is left in place deliberately,
- * since an approved candidate's file may still be referenced by admin-side
- * records. Nothing else reads a deleted row.
+ * Every mutation goes through `assertCandidateDocumentEditable`, which refuses
+ * once the account is approved or the document has been locked by an admin.
  */
 export const POST: RequestHandler = async ({ request }) => {
 	try {
@@ -78,16 +80,33 @@ export const POST: RequestHandler = async ({ request }) => {
 			);
 		}
 
-		await db
-			.delete(candidateDocumentUploadsTable)
-			.where(eq(candidateDocumentUploadsTable.id, parsed.data.documentId));
+		const patch: Record<string, unknown> = { updatedAt: new Date() };
+		if (parsed.data.type !== undefined) patch.type = parsed.data.type;
+		if (parsed.data.filename !== undefined) patch.filename = parsed.data.filename;
+		if (parsed.data.expiryDate !== undefined) {
+			patch.expiryDate = parsed.data.expiryDate ? new Date(parsed.data.expiryDate) : null;
+		}
+
+		const [updated] = await db
+			.update(candidateDocumentUploadsTable)
+			.set(patch)
+			.where(eq(candidateDocumentUploadsTable.id, parsed.data.documentId))
+			.returning();
+
+		// Retyping can change completeness in both directions — promoting a file to
+		// RESUME may complete the profile. (The sync only ever sets the flag; it
+		// never un-completes someone, which would strand them mid-app.)
+		await syncCandidateOnboardingCompletion({
+			candidateId: candidateProfile.id,
+			userId: user.id
+		});
 
 		return json(
-			{ success: true, message: 'Document deleted' },
+			{ success: true, message: 'Document updated', document: updated },
 			{ status: 200, headers: corsHeaders }
 		);
 	} catch (error) {
-		logger.error('deleteCandidateDocument failed', { error });
+		logger.error('updateCandidateDocument failed', { error });
 		return json(
 			{ success: false, message: 'An unexpected error occurred' },
 			{ status: 500, headers: corsHeaders }

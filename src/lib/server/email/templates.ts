@@ -344,36 +344,26 @@ export const EMAIL_TEMPLATES: Record<
 
 		return { textEmail, htmlEmail, subject };
 	},
-	newCandidateOnboardedAdminEmail: (details: {
+	newCandidateSignupAdminEmail: (details: {
 		candidateId: string;
 		candidateName: string;
 		candidateEmail: string;
 		candidatePhone: string | null | undefined;
 		location: string | null;
-		disciplines: string[];
-		onboardedAt: Date;
+		createdAt: Date;
 	}) => {
-		const {
-			candidateId,
-			candidateName,
-			candidateEmail,
-			candidatePhone,
-			location,
-			disciplines,
-			onboardedAt
-		} = details;
+		const { candidateId, candidateName, candidateEmail, candidatePhone, location, createdAt } =
+			details;
 		const profileUrl = `${BASE_URL}/professionals/${candidateId}`;
-		const onboardedAtFormatted = format(onboardedAt, 'PPPp');
-		const disciplineList = disciplines.length ? disciplines.join(', ') : '(none selected)';
+		const createdAtFormatted = format(createdAt, 'PPPp');
 
 		const textEmail = `
-            A professional just finished onboarding on ${APP_NAME} and is awaiting approval.
+            A new professional just started onboarding on ${APP_NAME}.
 
             Name: ${candidateName} <${candidateEmail}>
             Phone: ${candidatePhone || '(not provided)'}
             Location: ${location || '(not provided)'}
-            Disciplines: ${disciplineList}
-            Completed onboarding: ${onboardedAtFormatted}
+            Created: ${createdAtFormatted}
 
             Review their profile:
             ${profileUrl}
@@ -381,15 +371,14 @@ export const EMAIL_TEMPLATES: Record<
 
 		const htmlEmail = `
             <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2>Professional awaiting approval</h2>
-                <p>A professional just finished onboarding on ${APP_NAME} and is awaiting approval.</p>
+                <h2>New professional</h2>
+                <p>A new professional just started onboarding on ${APP_NAME}.</p>
                 <table style="border-collapse: collapse; margin: 16px 0;">
                     <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Name</td><td style="padding: 4px 0;"><strong>${candidateName}</strong></td></tr>
                     <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Email</td><td style="padding: 4px 0;"><a href="mailto:${candidateEmail}">${candidateEmail}</a></td></tr>
                     <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Phone</td><td style="padding: 4px 0;">${candidatePhone || '(not provided)'}</td></tr>
                     <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Location</td><td style="padding: 4px 0;">${location || '(not provided)'}</td></tr>
-                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Disciplines</td><td style="padding: 4px 0;">${disciplineList}</td></tr>
-                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Completed</td><td style="padding: 4px 0;">${onboardedAtFormatted}</td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Created</td><td style="padding: 4px 0;">${createdAtFormatted}</td></tr>
                 </table>
                 <p style="margin: 24px 0;">
                     <a href="${profileUrl}"
@@ -402,9 +391,55 @@ export const EMAIL_TEMPLATES: Record<
             </div>
         `.trim();
 
-		const subject = `Pending approval: ${candidateName} finished onboarding`;
+		const subject = `New professional — ${candidateName}`;
 
 		return { textEmail, htmlEmail, subject };
+	},
+	candidateReadyForApprovalAdminEmail: (details: {
+		candidateId: string;
+		candidateName: string;
+		candidateEmail: string;
+		location: string | null;
+		disciplines: string[];
+		status: string;
+	}) => {
+		const { candidateId, candidateName, candidateEmail, location, disciplines, status } = details;
+		const profileUrl = `${BASE_URL}/professionals/${candidateId}`;
+		const disciplineList = disciplines.length ? disciplines.join(', ') : '(none selected)';
+
+		const textEmail = `
+            ${candidateName} has completed their profile and is ready for approval.
+
+            Email: ${candidateEmail}
+            Location: ${location || '(not provided)'}
+            Disciplines: ${disciplineList}
+            Current status: ${status}
+
+            Review and approve:
+            ${profileUrl}
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>Ready for approval</h2>
+                <p><strong>${candidateName}</strong> has completed their profile and is ready for approval.</p>
+                <table style="border-collapse: collapse; margin: 16px 0;">
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Email</td><td style="padding: 4px 0;"><a href="mailto:${candidateEmail}">${candidateEmail}</a></td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Location</td><td style="padding: 4px 0;">${location || '(not provided)'}</td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Disciplines</td><td style="padding: 4px 0;">${disciplineList}</td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Status</td><td style="padding: 4px 0;">${status}</td></tr>
+                </table>
+                <p style="margin: 24px 0;">
+                    <a href="${profileUrl}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        Review &amp; Approve
+                    </a>
+                </p>
+            </div>
+        `.trim();
+
+		return { textEmail, htmlEmail, subject: `Ready for approval — ${candidateName}` };
 	},
 	newSupportTicketAdminEmail: (details: {
 		ticketId: string;

@@ -451,17 +451,31 @@ export const fileUploadSchema = z.object({
 
 export type FileUploadSchema = typeof fileUploadSchema;
 
+/** Document types a professional can pick themselves. */
+export const CANDIDATE_DOCUMENT_TYPES = [
+	'RESUME',
+	'LICENSE',
+	'CERTIFICATE',
+	'AGREEMENT',
+	'OTHER'
+] as const;
+
 export const candidateDocumentUploadSchema = z.object({
-	type: z.enum(['RESUME', 'LICENSE', 'CERTIFICATE', 'OTHER']).optional(),
+	type: z.enum(CANDIDATE_DOCUMENT_TYPES).optional(),
 	filename: z.string().optional(),
 	url: z.string().optional(),
 	urls: z.array(z.string()).optional(),
 	createdAt: z.date().optional(),
+	expiryDate: z.string().datetime().nullable().optional(),
 	filesData: z
 		.array(
 			z.object({
 				filename: z.string(),
-				url: z.string()
+				url: z.string(),
+				// Per-file type so a multi-file upload can mix a license and a
+				// certificate instead of everything landing as OTHER.
+				type: z.enum(CANDIDATE_DOCUMENT_TYPES).optional(),
+				expiryDate: z.string().datetime().nullable().optional()
 			})
 		)
 		.optional()

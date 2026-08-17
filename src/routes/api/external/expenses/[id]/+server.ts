@@ -18,11 +18,14 @@ const corsHeaders = {
 	'Access-Control-Allow-Credentials': 'true'
 };
 
-export const OPTIONS: RequestHandler = async () =>
-	new Response(null, { headers: corsHeaders });
+export const OPTIONS: RequestHandler = async () => new Response(null, { headers: corsHeaders });
 
 type AuthorizeResult =
-	| { ok: true; user: { id: string }; expense: NonNullable<Awaited<ReturnType<typeof getTimesheetExpenseById>>> }
+	| {
+			ok: true;
+			user: { id: string };
+			expense: NonNullable<Awaited<ReturnType<typeof getTimesheetExpenseById>>>;
+	  }
 	| { ok: false; status: number; message: string };
 
 async function authorizeOwner(request: Request, expenseId: string): Promise<AuthorizeResult> {

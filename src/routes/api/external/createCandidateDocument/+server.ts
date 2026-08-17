@@ -9,6 +9,7 @@ import {
 } from '$lib/server/database/schemas/candidate';
 import { candidateDocumentUploadSchema } from '$lib/config/zod-schemas';
 import { logger } from '$lib/server/logger';
+import { syncCandidateOnboardingCompletion } from '$lib/server/onboarding/syncCandidateOnboarding';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -64,14 +65,18 @@ export const POST: RequestHandler = async ({ request }) => {
 		const { type, url, filename, filesData } = parsedData.data;
 
 		if (filesData) {
-			const candidateDocuments = filesData.map((file: { url: string; filename: string }) => ({
+			// Per-file type when the caller supplies one, falling back to the
+			// request-level type and finally OTHER. Previously every multi-file
+			// upload was forced to OTHER regardless of what the user chose.
+			const candidateDocuments = filesData.map((file) => ({
 				candidateId: candidateProfile.id,
-				type: 'OTHER' as const,
+				type: file.type ?? type ?? ('OTHER' as const),
 				uploadUrl: file.url,
 				createdAt: new Date(),
 				updatedAt: new Date(),
 				id: crypto.randomUUID(),
-				filename: file.filename
+				filename: file.filename,
+				expiryDate: file.expiryDate ? new Date(file.expiryDate) : null
 			}));
 			await db.insert(candidateDocumentUploadsTable).values(candidateDocuments);
 		} else {
@@ -82,10 +87,19 @@ export const POST: RequestHandler = async ({ request }) => {
 				createdAt: new Date(),
 				updatedAt: new Date(),
 				id: crypto.randomUUID(),
-				filename
+				filename,
+				expiryDate: parsedData.data.expiryDate ? new Date(parsedData.data.expiryDate) : null
 			};
 			await db.insert(candidateDocumentUploadsTable).values(candidateDocument);
 		}
+
+		// A RESUME upload is normally the last required piece, so re-evaluate
+		// completion here. Safe for the optional LICENSE/CERTIFICATE/OTHER uploads
+		// too — the sync returns early once the flag is already set.
+		await syncCandidateOnboardingCompletion({
+			candidateId: candidateProfile.id,
+			userId: user.id
+		});
 
 		return json(
 			{ success: true, message: 'Documents uploaded successfully' },

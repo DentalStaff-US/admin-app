@@ -6,6 +6,8 @@ import { newCandidateProfileSchema } from '$lib/config/zod-schemas';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { eq } from 'drizzle-orm';
 import { updateUser } from '$lib/server/database/queries/users';
+import { notifyAdminsOfCandidateProfileCreated } from '$lib/server/notifications/transactional';
+import { syncCandidateOnboardingCompletion } from '$lib/server/onboarding/syncCandidateOnboarding';
 import { logger } from '$lib/server/logger';
 import { buildCandidateAddressPatch } from '$lib/server/address';
 import { geocodingQueue } from '$lib/server/geocode-queue';
@@ -87,6 +89,13 @@ export const POST: RequestHandler = async ({ request }) => {
 
 			await updateUser(user.id, { onboardingStep: 2 });
 
+			// Filling in a previously-missing address or phone can be the last
+			// piece, so re-evaluate here too.
+			await syncCandidateOnboardingCompletion({
+				candidateId: existingProfile.id,
+				userId: user.id
+			});
+
 			return json(
 				{
 					success: true,
@@ -128,6 +137,12 @@ export const POST: RequestHandler = async ({ request }) => {
 				}
 			]);
 		}
+
+		// Deliberately only on the INSERT branch above — not the update branch — so
+		// this fires exactly once per professional, at the moment they first become
+		// visible under /professionals. Fire-and-forget: the dispatcher swallows its
+		// own errors and onboarding must not fail because an email did.
+		await notifyAdminsOfCandidateProfileCreated(newProfile.id);
 
 		await updateUser(user.id, { onboardingStep: 2 });
 

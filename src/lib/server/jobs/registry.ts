@@ -57,5 +57,26 @@ export const jobs: JobDefinition[] = [
 		endpoint: '/jobs/campaigns/processQueue',
 		schedule: 'every minute',
 		rule: () => ny({ second: 0 })
+	},
+	// Onboarding lifecycle nudges. Each of these only *enqueues* a campaign;
+	// processCampaignQueue above does the sending, so they stay fast and the
+	// recipients get batching, throttling and the unsubscribe footer.
+	{
+		name: 'processDocumentsMissingNudge',
+		endpoint: '/jobs/onboarding/processDocumentsMissingNudge',
+		schedule: 'weekly, Tuesday 10:00 AM ET',
+		rule: () => ny({ dayOfWeek: 2, hour: 10, minute: 0, second: 0 })
+	},
+	{
+		name: 'processStalledOnboarding',
+		endpoint: '/jobs/onboarding/processStalledOnboarding',
+		schedule: 'daily at 10:15 AM ET',
+		rule: () => ny({ hour: 10, minute: 15, second: 0 })
+	},
+	{
+		name: 'processPendingApprovalTouchpoint',
+		endpoint: '/jobs/onboarding/processPendingApprovalTouchpoint',
+		schedule: 'monthly, 1st at 10:30 AM ET',
+		rule: () => ny({ date: 1, hour: 10, minute: 30, second: 0 })
 	}
 ];

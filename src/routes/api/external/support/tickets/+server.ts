@@ -71,7 +71,11 @@ export const POST: RequestHandler = async ({ request }) => {
 			properties: { ticket_id: newTicket.id, source: 'professional' }
 		});
 	} catch (e) {
-		logger.error('support.tickets.POST posthog capture failed', { error: e, distinctId: user.id, ticketId: newTicket.id });
+		logger.error('support.tickets.POST posthog capture failed', {
+			error: e,
+			distinctId: user.id,
+			ticketId: newTicket.id
+		});
 	}
 
 	await notifySupportTicketCreated();

@@ -9,6 +9,7 @@ import {
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { logger } from '$lib/server/logger';
+import { syncCandidateOnboardingCompletion } from '$lib/server/onboarding/syncCandidateOnboarding';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -95,6 +96,12 @@ export const POST: RequestHandler = async ({ request }) => {
 				updatedAt: new Date()
 			});
 		}
+
+		// Disciplines may be the last missing piece — re-evaluate completion.
+		await syncCandidateOnboardingCompletion({
+			candidateId: existingProfile.id,
+			userId: user.id
+		});
 
 		return json(
 			{

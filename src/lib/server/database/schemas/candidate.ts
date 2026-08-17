@@ -194,7 +194,12 @@ export const candidateDocumentUploadsTable = pgTable('candidate_document_uploads
 	}),
 	type: candidateDocumentTypeEnum('type').notNull(),
 	filename: text('filename'),
-	adminOnly: boolean('admin_only').default(false)
+	adminOnly: boolean('admin_only').default(false),
+	// Admin-applied freeze on a single document. Independent of the
+	// approved-candidate freeze: an admin can pin one document (a signed
+	// agreement, a verified license) while the rest stay editable.
+	// See `assertCandidateDocumentEditable`.
+	locked: boolean('locked').notNull().default(false)
 });
 
 export type CandidateProfile = typeof candidateProfileTable.$inferInsert;

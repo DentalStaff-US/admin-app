@@ -15,7 +15,10 @@ export const GET: RequestHandler = async ({ request, params }) => {
 
 		return json(conversations);
 	} catch (err) {
-		logger.error('inbox.getConversationDetails failed', { error: err, conversationId: params.conversationId });
+		logger.error('inbox.getConversationDetails failed', {
+			error: err,
+			conversationId: params.conversationId
+		});
 		throw error(500, 'Internal server error');
 	}
 };

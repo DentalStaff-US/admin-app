@@ -1,10 +1,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { authenticateUser } from '$lib/server/serverUtils';
-import {
-	getSupportTicketDetails,
-	updateSupportTicket
-} from '$lib/server/database/queries/support';
+import { getSupportTicketDetails, updateSupportTicket } from '$lib/server/database/queries/support';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,

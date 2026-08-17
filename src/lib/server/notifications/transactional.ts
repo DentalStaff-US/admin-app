@@ -1372,16 +1372,21 @@ export async function notifyAdminsOfNewClient(clientId: string): Promise<void> {
 }
 
 /**
- * A professional just finished the last onboarding step — notify every
- * SUPERADMIN (filtered by `receiveEmail`) so they can approve the account.
+ * A professional profile row was just created — notify every SUPERADMIN
+ * (filtered by `receiveEmail`).
  *
- * Mirrors `notifyAdminsOfNewClient`. Candidates land on `awaiting-approval`
- * after this point and cannot claim shifts until an admin acts, so this is the
- * signal that unblocks them. Takes the *user* id because the candidate app's
- * onboarding calls carry the user, not the candidate profile.
+ * Keyed to the `candidate_profiles` INSERT in `setupCandidateProfile` (the first
+ * onboarding step) rather than to account signup or a step counter. That insert
+ * is the one unambiguous, once-per-professional event in the funnel, and it is
+ * also the moment the person becomes visible under /professionals — the admin
+ * list inner-joins this table, so before it exists there is nothing to link to
+ * or act on.
+ *
+ * Disciplines are deliberately not included: they are chosen in a later step
+ * (`addCandidateDisciplines`) and would always render empty here.
  */
-export async function notifyAdminsOfCandidateOnboarded(userId: string): Promise<void> {
-	const label = 'candidateOnboarded';
+export async function notifyAdminsOfCandidateProfileCreated(candidateId: string): Promise<void> {
+	const label = 'candidateProfileCreated';
 	try {
 		const [row] = await db
 			.select({
@@ -1391,15 +1396,79 @@ export async function notifyAdminsOfCandidateOnboarded(userId: string): Promise<
 				email: userTable.email,
 				cellPhone: candidateProfileTable.cellPhone,
 				city: candidateProfileTable.city,
-				state: candidateProfileTable.state
+				state: candidateProfileTable.state,
+				createdAt: candidateProfileTable.createdAt
 			})
 			.from(candidateProfileTable)
 			.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
-			.where(eq(candidateProfileTable.userId, userId))
+			.where(eq(candidateProfileTable.id, candidateId))
 			.limit(1);
 
 		if (!row) {
-			console.warn(`[transactional:${label}] aborted: no candidate profile for user ${userId}`);
+			console.warn(`[transactional:${label}] aborted: candidate ${candidateId} not found`);
+			return;
+		}
+
+		const admins = await db
+			.select({ email: userTable.email })
+			.from(userTable)
+			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+
+		if (admins.length === 0) {
+			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
+			return;
+		}
+
+		const details = {
+			candidateId: row.candidateId,
+			candidateName: `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim() || 'Unknown',
+			candidateEmail: row.email ?? 'unknown@unknown',
+			candidatePhone: row.cellPhone,
+			location: [row.city, row.state].filter(Boolean).join(', ') || null,
+			createdAt: row.createdAt instanceof Date ? row.createdAt : new Date()
+		};
+
+		await dispatch(
+			label,
+			admins.map((a) =>
+				safeEmail(label, a.email, () =>
+					emailService.sendNewCandidateSignupAdminEmail(a.email, details)
+				)
+			)
+		);
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
+	}
+}
+
+/**
+ * A professional's profile just became complete — tell admins they're reviewable.
+ *
+ * Distinct from `notifyAdminsOfCandidateProfileCreated`, which fires when they
+ * *start*. This one fires when there is actually something to approve, so it's
+ * the signal that keeps people moving rather than a heads-up. Fired once, from
+ * `syncCandidateOnboardingCompletion`.
+ */
+export async function notifyAdminsOfCandidateReadyForApproval(candidateId: string): Promise<void> {
+	const label = 'candidateReadyForApproval';
+	try {
+		const [row] = await db
+			.select({
+				candidateId: candidateProfileTable.id,
+				firstName: userTable.firstName,
+				lastName: userTable.lastName,
+				email: userTable.email,
+				city: candidateProfileTable.city,
+				state: candidateProfileTable.state,
+				status: candidateProfileTable.status
+			})
+			.from(candidateProfileTable)
+			.innerJoin(userTable, eq(candidateProfileTable.userId, userTable.id))
+			.where(eq(candidateProfileTable.id, candidateId))
+			.limit(1);
+
+		if (!row) {
+			console.warn(`[transactional:${label}] aborted: candidate ${candidateId} not found`);
 			return;
 		}
 
@@ -1420,25 +1489,22 @@ export async function notifyAdminsOfCandidateOnboarded(userId: string): Promise<
 				disciplineTable,
 				eq(candidateDisciplineExperienceTable.disciplineId, disciplineTable.id)
 			)
-			.where(eq(candidateDisciplineExperienceTable.candidateId, row.candidateId));
-
-		const location = [row.city, row.state].filter(Boolean).join(', ') || null;
+			.where(eq(candidateDisciplineExperienceTable.candidateId, candidateId));
 
 		const details = {
 			candidateId: row.candidateId,
 			candidateName: `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim() || 'Unknown',
 			candidateEmail: row.email ?? 'unknown@unknown',
-			candidatePhone: row.cellPhone,
-			location,
+			location: [row.city, row.state].filter(Boolean).join(', ') || null,
 			disciplines: disciplineRows.map((d) => d.name).filter(Boolean),
-			onboardedAt: new Date()
+			status: row.status ?? 'PENDING'
 		};
 
 		await dispatch(
 			label,
 			admins.map((a) =>
 				safeEmail(label, a.email, () =>
-					emailService.sendNewCandidateOnboardedAdminEmail(a.email, details)
+					emailService.sendCandidateReadyForApprovalAdminEmail(a.email, details)
 				)
 			)
 		);
