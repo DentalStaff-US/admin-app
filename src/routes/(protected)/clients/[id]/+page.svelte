@@ -1229,17 +1229,100 @@
 												</div>
 											</div>
 											<div>
+												<Label for="billing-contact-name">Billing Contact Name</Label>
+												<Input
+													id="billing-contact-name"
+													name="billingContactName"
+													type="text"
+													placeholder="e.g. Accounts Payable"
+													bind:value={$updateForm.billingContactName}
+													class={$updateErrors.billingContactName ? 'border-red-500' : ''}
+												/>
+												{#if $updateErrors.billingContactName}
+													<p class="text-sm text-red-500 mt-1">{$updateErrors.billingContactName}</p>
+												{/if}
+											</div>
+											<div>
 												<Label for="billing-email">Billing Email</Label>
 												<Input
 													id="billing-email"
-													name="email"
+													name="billingEmail"
 													type="email"
-													bind:value={$updateForm.email}
-													class={$updateErrors.email ? 'border-red-500' : ''}
+													placeholder={client.user.email}
+													bind:value={$updateForm.billingEmail}
+													class={$updateErrors.billingEmail ? 'border-red-500' : ''}
 												/>
-												{#if $updateErrors.email}
-													<p class="text-sm text-red-500 mt-1">{$updateErrors.email}</p>
+												{#if $updateErrors.billingEmail}
+													<p class="text-sm text-red-500 mt-1">{$updateErrors.billingEmail}</p>
+												{:else}
+													<p class="text-xs text-gray-500 mt-1">
+														Invoices and billing notices go here. Leave blank to use the account
+														email ({client.user.email}).
+													</p>
 												{/if}
+											</div>
+											<div class="pt-2">
+												<h4 class="text-sm font-medium mb-1">Billing Address</h4>
+												<p class="text-xs text-gray-500 mb-2">
+													Printed on invoices. Blank falls back to the primary office location.
+												</p>
+												<div class="space-y-3">
+													<div>
+														<Label for="billing-street-one">Street Address</Label>
+														<Input
+															id="billing-street-one"
+															name="billingStreetOne"
+															type="text"
+															bind:value={$updateForm.billingStreetOne}
+															class={$updateErrors.billingStreetOne ? 'border-red-500' : ''}
+														/>
+													</div>
+													<div>
+														<Label for="billing-street-two">Suite / Unit</Label>
+														<Input
+															id="billing-street-two"
+															name="billingStreetTwo"
+															type="text"
+															bind:value={$updateForm.billingStreetTwo}
+														/>
+													</div>
+													<div class="grid grid-cols-3 gap-3">
+														<div class="col-span-1">
+															<Label for="billing-city">City</Label>
+															<Input
+																id="billing-city"
+																name="billingCity"
+																type="text"
+																bind:value={$updateForm.billingCity}
+															/>
+														</div>
+														<div>
+															<Label for="billing-state">State</Label>
+															<Input
+																id="billing-state"
+																name="billingState"
+																type="text"
+																maxlength={2}
+																bind:value={$updateForm.billingState}
+															/>
+														</div>
+														<div>
+															<Label for="billing-zip">ZIP</Label>
+															<Input
+																id="billing-zip"
+																name="billingZipcode"
+																type="text"
+																bind:value={$updateForm.billingZipcode}
+																class={$updateErrors.billingZipcode ? 'border-red-500' : ''}
+															/>
+															{#if $updateErrors.billingZipcode}
+																<p class="text-sm text-red-500 mt-1">
+																	{$updateErrors.billingZipcode}
+																</p>
+															{/if}
+														</div>
+													</div>
+												</div>
 											</div>
 											<div>
 												<Label for="invoice-method">Invoicing Method</Label>
@@ -1298,11 +1381,43 @@
 									<!-- View Mode -->
 									<div>
 										<h3 class="text-sm font-medium">Billing Contact:</h3>
-										<p>{client.user.firstName} {client.user.lastName}</p>
+										<p>
+											{client.company.billingContactName ||
+												`${client.user.firstName} ${client.user.lastName}`}
+										</p>
 									</div>
 									<div>
 										<h3 class="text-sm font-medium">Billing Email:</h3>
-										<p>{client.user.email}</p>
+										<p>
+											{client.company.billingEmail || client.user.email}
+											{#if !client.company.billingEmail}
+												<span class="text-xs text-gray-500">(account email)</span>
+											{/if}
+										</p>
+									</div>
+									<div>
+										<h3 class="text-sm font-medium">Billing Address:</h3>
+										{#if client.company.billingStreetOne || client.company.billingCity}
+											<p>
+												{[client.company.billingStreetOne, client.company.billingStreetTwo]
+													.filter(Boolean)
+													.join(', ')}
+											</p>
+											<p>
+												{[
+													client.company.billingCity,
+													[client.company.billingState, client.company.billingZipcode]
+														.filter(Boolean)
+														.join(' ')
+												]
+													.filter(Boolean)
+													.join(', ')}
+											</p>
+										{:else}
+											<p class="text-gray-500">
+												Not set <span class="text-xs">(uses primary location)</span>
+											</p>
+										{/if}
 									</div>
 									<div>
 										<h3 class="text-sm font-medium">Invoice Method:</h3>

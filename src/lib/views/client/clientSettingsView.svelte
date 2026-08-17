@@ -84,6 +84,7 @@
 	export let profileForm;
 	export let passwordForm;
 	export let companyForm;
+	export let billingContactForm;
 	export let billingInfo;
 	export let selectedTab: string;
 	export let staff;
@@ -206,6 +207,12 @@
 		enhance: passwordFormEnhance,
 		errors: passwordErrors
 	} = superForm(passwordForm);
+	const {
+		form: billingContactFormObj,
+		enhance: billingContactEnhance,
+		errors: billingContactErrors,
+		submitting: billingContactSubmitting
+	} = superForm(billingContactForm);
 
 	type StaffInvite = {
 		email: string;
@@ -972,6 +979,135 @@
 		{#if selectedTab === SETTINGS_MENU_OPTIONS.CLIENT.BILLING}
 			<div class="space-y-6">
 				<h2 class="text-3xl font-semibold">Billing & Subscription</h2>
+
+				<!-- Billing Contact: where invoices are sent. Separate from the
+				     account email under Profile Details. -->
+				<div class="border rounded-lg p-6 space-y-4">
+					<div>
+						<h3 class="text-xl font-semibold">Billing Contact</h3>
+						<p class="text-sm text-gray-500">
+							Invoices and billing notices are sent here. Leave blank to use your account
+							email ({user.email}).
+						</p>
+					</div>
+
+					<form method="POST" action="?/updateBillingContact" use:billingContactEnhance>
+						<div class="grid gap-4 sm:grid-cols-2">
+							<div>
+								<Label for="billingContactName">Contact Name</Label>
+								<Input
+									id="billingContactName"
+									name="billingContactName"
+									type="text"
+									placeholder="e.g. Accounts Payable"
+									bind:value={$billingContactFormObj.billingContactName}
+									class={$billingContactErrors.billingContactName ? 'border-red-500' : ''}
+								/>
+								{#if $billingContactErrors.billingContactName}
+									<p class="text-sm text-red-500 mt-1">
+										{$billingContactErrors.billingContactName}
+									</p>
+								{/if}
+							</div>
+							<div>
+								<Label for="billingEmail">Billing Email</Label>
+								<Input
+									id="billingEmail"
+									name="billingEmail"
+									type="email"
+									placeholder={user.email}
+									bind:value={$billingContactFormObj.billingEmail}
+									class={$billingContactErrors.billingEmail ? 'border-red-500' : ''}
+								/>
+								{#if $billingContactErrors.billingEmail}
+									<p class="text-sm text-red-500 mt-1">{$billingContactErrors.billingEmail}</p>
+								{/if}
+							</div>
+						</div>
+
+						<div class="mt-6">
+							<h4 class="font-medium">Billing Address</h4>
+							<p class="text-sm text-gray-500 mb-3">
+								Printed on your invoices. Leave blank to use your primary location's address.
+							</p>
+							<div class="grid gap-4 sm:grid-cols-2">
+								<div class="sm:col-span-2">
+									<Label for="billingStreetOne">Street Address</Label>
+									<Input
+										id="billingStreetOne"
+										name="billingStreetOne"
+										type="text"
+										bind:value={$billingContactFormObj.billingStreetOne}
+										class={$billingContactErrors.billingStreetOne ? 'border-red-500' : ''}
+									/>
+									{#if $billingContactErrors.billingStreetOne}
+										<p class="text-sm text-red-500 mt-1">
+											{$billingContactErrors.billingStreetOne}
+										</p>
+									{/if}
+								</div>
+								<div class="sm:col-span-2">
+									<Label for="billingStreetTwo">Suite / Unit (optional)</Label>
+									<Input
+										id="billingStreetTwo"
+										name="billingStreetTwo"
+										type="text"
+										bind:value={$billingContactFormObj.billingStreetTwo}
+									/>
+								</div>
+								<div>
+									<Label for="billingCity">City</Label>
+									<Input
+										id="billingCity"
+										name="billingCity"
+										type="text"
+										bind:value={$billingContactFormObj.billingCity}
+										class={$billingContactErrors.billingCity ? 'border-red-500' : ''}
+									/>
+								</div>
+								<div class="grid grid-cols-2 gap-4">
+									<div>
+										<Label for="billingState">State</Label>
+										<Input
+											id="billingState"
+											name="billingState"
+											type="text"
+											maxlength={2}
+											placeholder="NY"
+											bind:value={$billingContactFormObj.billingState}
+											class={$billingContactErrors.billingState ? 'border-red-500' : ''}
+										/>
+									</div>
+									<div>
+										<Label for="billingZipcode">ZIP</Label>
+										<Input
+											id="billingZipcode"
+											name="billingZipcode"
+											type="text"
+											placeholder="10001"
+											bind:value={$billingContactFormObj.billingZipcode}
+											class={$billingContactErrors.billingZipcode ? 'border-red-500' : ''}
+										/>
+										{#if $billingContactErrors.billingZipcode}
+											<p class="text-sm text-red-500 mt-1">
+												{$billingContactErrors.billingZipcode}
+											</p>
+										{/if}
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<div class="flex justify-end mt-4">
+							<Button type="submit" disabled={$billingContactSubmitting}>
+								{#if $billingContactSubmitting}
+									<Loader2 class="mr-2 h-4 w-4 animate-spin" />
+								{/if}
+								Save Billing Details
+							</Button>
+						</div>
+					</form>
+				</div>
 
 				<!-- Current Plan/Subscription Card -->
 				<div class="border rounded-lg p-6 space-y-4">

@@ -3,6 +3,7 @@ import { setError, superValidate, message } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { auth } from '$lib/server/auth';
 import {
+	billingContactSchema,
 	clientCompanySchema,
 	clientProfileSchema,
 	userSchema,
@@ -40,6 +41,7 @@ import {
 	clientDocumentUploadsTable
 } from '$lib/server/database/schemas/client.js';
 import { EmailService } from '$lib/server/email/emailService';
+import { syncStripeCustomerBillingEmail } from '$lib/server/billing/recipients';
 import { z } from 'zod';
 
 const newStaffInvitesSchema = z.object({
@@ -139,6 +141,7 @@ export async function load(event) {
 		const subscriptionForm = null;
 		const passwordForm = await superValidate(event, userUpdatePasswordSchema);
 		const inviteForm = await superValidate(newStaffInvitesSchema);
+		const billingContactForm = await superValidate(event, billingContactSchema);
 
 		const documents = await getClientDocuments(clientProfile?.id);
 
@@ -158,9 +161,19 @@ export async function load(event) {
 			website: clientCompany.website ?? '',
 			operatingHours: JSON.stringify(clientCompany.operatingHours)
 		};
+		billingContactForm.data = {
+			billingEmail: clientCompany.billingEmail ?? '',
+			billingContactName: clientCompany.billingContactName ?? '',
+			billingStreetOne: clientCompany.billingStreetOne ?? '',
+			billingStreetTwo: clientCompany.billingStreetTwo ?? '',
+			billingCity: clientCompany.billingCity ?? '',
+			billingState: clientCompany.billingState ?? '',
+			billingZipcode: clientCompany.billingZipcode ?? ''
+		};
 
 		return {
 			user,
+			billingContactForm,
 			profile: clientProfile,
 			company: clientCompany,
 			profileForm,
@@ -404,6 +417,69 @@ export const actions = {
 		} catch (e) {
 			console.error('Error updating company details:', e);
 			return setError(form, 'There was a problem updating company details.');
+		}
+	},
+	/**
+	 * Settings → Billing. Sets where invoices go, independently of the account
+	 * owner's login email (Settings → Profile Details). Blank clears it and falls
+	 * delivery back to the account email.
+	 */
+	updateBillingContact: async (event) => {
+		const user = event.locals.user;
+		const form = await superValidate(event, billingContactSchema);
+
+		if (!form.valid || !user) {
+			return fail(400, { form });
+		}
+
+		try {
+			const clientProfile =
+				user.role === USER_ROLES.CLIENT
+					? await getClientProfilebyUserId(user.id)
+					: await getClientProfileByStaffUserId(user.id);
+
+			if (!clientProfile) {
+				return setError(form, 'Client profile not found.');
+			}
+
+			// Billing is an account-owner / client-admin concern; regular staff must
+			// not be able to redirect where the company's invoices are sent.
+			const staffProfile =
+				user.role === USER_ROLES.CLIENT_STAFF ? await getClientStaffProfilebyUserId(user.id) : null;
+			const canEditBilling =
+				user.role === USER_ROLES.CLIENT || staffProfile?.staffRole === 'CLIENT_ADMIN';
+
+			if (!canEditBilling) {
+				return setError(form, 'You do not have permission to change billing details.');
+			}
+
+			const clientCompany = await getClientCompanyByClientId(clientProfile.id);
+
+			await db
+				.update(clientCompanyTable)
+				.set({
+					billingEmail: form.data.billingEmail || null,
+					billingContactName: form.data.billingContactName || null,
+					billingStreetOne: form.data.billingStreetOne || null,
+					billingStreetTwo: form.data.billingStreetTwo || null,
+					billingCity: form.data.billingCity || null,
+					billingState: form.data.billingState || null,
+					billingZipcode: form.data.billingZipcode || null,
+					updatedAt: new Date()
+				})
+				.where(eq(clientCompanyTable.id, clientCompany.id));
+
+			// Best-effort: keep Stripe's receipts/dunning pointed at the same
+			// address. A Stripe failure must not fail the client's save.
+			await syncStripeCustomerBillingEmail(clientProfile.id).catch((err) =>
+				console.error('Error syncing billing email to Stripe:', err)
+			);
+
+			setFlash({ type: 'success', message: 'Billing contact updated successfully.' }, event);
+			return message(form, 'Billing contact updated successfully.');
+		} catch (e) {
+			console.error('Error updating billing contact:', e);
+			return setError(form, 'There was a problem updating the billing contact.');
 		}
 	},
 	sendClientStaffInvites: async (event) => {

@@ -451,17 +451,31 @@ export const fileUploadSchema = z.object({
 
 export type FileUploadSchema = typeof fileUploadSchema;
 
+/** Document types a professional can pick themselves. */
+export const CANDIDATE_DOCUMENT_TYPES = [
+	'RESUME',
+	'LICENSE',
+	'CERTIFICATE',
+	'AGREEMENT',
+	'OTHER'
+] as const;
+
 export const candidateDocumentUploadSchema = z.object({
-	type: z.enum(['RESUME', 'LICENSE', 'CERTIFICATE', 'OTHER']).optional(),
+	type: z.enum(CANDIDATE_DOCUMENT_TYPES).optional(),
 	filename: z.string().optional(),
 	url: z.string().optional(),
 	urls: z.array(z.string()).optional(),
 	createdAt: z.date().optional(),
+	expiryDate: z.string().datetime().nullable().optional(),
 	filesData: z
 		.array(
 			z.object({
 				filename: z.string(),
-				url: z.string()
+				url: z.string(),
+				// Per-file type so a multi-file upload can mix a license and a
+				// certificate instead of everything landing as OTHER.
+				type: z.enum(CANDIDATE_DOCUMENT_TYPES).optional(),
+				expiryDate: z.string().datetime().nullable().optional()
 			})
 		)
 		.optional()
@@ -587,11 +601,54 @@ export const documentResultSchema = z.array(
 	})
 );
 
+/**
+ * Client-facing billing contact form (Settings → Billing). Separate from
+ * `clientCompanySchema` so saving the billing contact never touches company
+ * profile fields, and vice versa. Blank email = fall back to the account email.
+ */
+export const billingContactSchema = z.object({
+	billingEmail: z
+		.union([z.literal(''), z.string().email('Please enter a valid email address')])
+		.optional(),
+	billingContactName: z.string().max(120, 'Name is too long').optional(),
+	// Remit-to address. All optional — blank clears it and invoices fall back to
+	// the company's first office location.
+	billingStreetOne: z.string().max(200).optional(),
+	billingStreetTwo: z.string().max(200).optional(),
+	billingCity: z.string().max(120).optional(),
+	billingState: z.string().max(60).optional(),
+	billingZipcode: z
+		.union([z.literal(''), z.string().regex(/^\d{5}(-\d{4})?$/, 'Enter a valid ZIP code')])
+		.optional()
+});
+
+export type BillingContactSchema = typeof billingContactSchema;
+
 export const updateClientSchema = z
 	.object({
 		firstName: z.string().min(1, 'First name is required').optional(),
 		lastName: z.string().min(1, 'Last name is required').optional(),
+		/** Personal Details — the account owner's login email (users.email). */
 		email: z.string().email('Invalid email address').optional(),
+		/**
+		 * Billing Information — where invoices go (client_companies.billing_email).
+		 * Empty string is allowed and means "clear it", which falls the client back
+		 * to the account owner's email.
+		 */
+		billingEmail: z
+			.union([z.literal(''), z.string().email('Invalid billing email address')])
+			.optional()
+			.nullable(),
+		billingContactName: z.string().max(120).optional().nullable(),
+		/** Remit-to address; blank clears and falls back to the first office location. */
+		billingStreetOne: z.string().max(200).optional().nullable(),
+		billingStreetTwo: z.string().max(200).optional().nullable(),
+		billingCity: z.string().max(120).optional().nullable(),
+		billingState: z.string().max(60).optional().nullable(),
+		billingZipcode: z
+			.union([z.literal(''), z.string().regex(/^\d{5}(-\d{4})?$/, 'Enter a valid ZIP code')])
+			.optional()
+			.nullable(),
 		companyName: z.string().min(1, 'Company name is required').optional(),
 		baseLocation: z.string().optional().nullable(),
 		website: z.string().optional().nullable(),

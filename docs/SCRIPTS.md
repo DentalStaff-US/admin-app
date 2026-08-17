@@ -8,17 +8,18 @@ Every runnable script in this app: what it does, when you'd reach for it, and ho
 
 ## Quick reference
 
-| Script | Writes? | Dry-run? | Re-runnable? | Status |
-|---|---|---|---|---|
-| `backfill-candidate-address-components.ts` | yes | ✅ default | ✅ idempotent | Keep |
-| `backfill-csv-import.ts` | yes | ✅ default | ✅ idempotent | Keep (needs CSV) |
-| `backfill-s3-filenames.ts` | yes + S3 | ✅ `--dry-run` | ✅ idempotent | Keep |
-| `backfill-ticket-numbers.sql` | yes (DDL) | no | ✅ idempotent | Keep |
-| `diagnoseStripeCustomers.ts` | **no** | n/a | ✅ | Keep |
-| `migrateStripeCustomers.ts` | yes | no | ⚠️ see notes | Keep, use with care |
-| `_add-missing-disciplines.ts` | yes | no | ✅ idempotent | One-off, deletable |
-| `_dump-discipline-and-experience.ts` | **no** | n/a | ✅ | One-off, deletable |
-| `seed-dev.ts` | yes, **destructive** | no | ✅ | Dev only |
+| Script                                     | Writes?              | Dry-run?       | Re-runnable?  | Status              |
+| ------------------------------------------ | -------------------- | -------------- | ------------- | ------------------- |
+| `backfill-completed-onboarding.ts`         | yes                  | ✅ default     | ✅ idempotent | Keep                |
+| `backfill-candidate-address-components.ts` | yes                  | ✅ default     | ✅ idempotent | Keep                |
+| `backfill-csv-import.ts`                   | yes                  | ✅ default     | ✅ idempotent | Keep (needs CSV)    |
+| `backfill-s3-filenames.ts`                 | yes + S3             | ✅ `--dry-run` | ✅ idempotent | Keep                |
+| `backfill-ticket-numbers.sql`              | yes (DDL)            | no             | ✅ idempotent | Keep                |
+| `diagnoseStripeCustomers.ts`               | **no**               | n/a            | ✅            | Keep                |
+| `migrateStripeCustomers.ts`                | yes                  | no             | ⚠️ see notes  | Keep, use with care |
+| `_add-missing-disciplines.ts`              | yes                  | no             | ✅ idempotent | One-off, deletable  |
+| `_dump-discipline-and-experience.ts`       | **no**               | n/a            | ✅            | One-off, deletable  |
+| `seed-dev.ts`                              | yes, **destructive** | no             | ✅            | Dev only            |
 
 ---
 
@@ -51,6 +52,60 @@ npm run cron         # run the scheduled-jobs process
 
 ## Data backfills
 
+### `backfill-completed-onboarding.ts`
+
+**Why:** the candidate app never wrote `users.completed_onboarding` — it only
+advances `onboarding_step` — so every existing professional reads as "not
+onboarded". Left alone, the onboarding lifecycle nudges would email the entire
+active roster telling them to finish a profile they finished long ago.
+
+Marks ACTIVE professionals complete **only if** their profile satisfies the
+completeness predicate. Incomplete ones are deliberately left alone so the
+stalled-onboarding campaign picks them up.
+
+```bash
+# Dry-run — prints the counts and the incomplete worklist, writes nothing
+npx tsx src/lib/server/scripts/backfill-completed-onboarding.ts
+
+# Apply
+npx tsx src/lib/server/scripts/backfill-completed-onboarding.ts --commit
+```
+
+| Flag            | Effect                                                                             |
+| --------------- | ---------------------------------------------------------------------------------- |
+| `--commit`      | Without it, nothing is written.                                                    |
+| `--limit=N`     | Process at most N rows. Default 0 = unlimited.                                     |
+| `--report=PATH` | Defaults to `./backfill-reports/<iso>-completed-onboarding-(dryrun\|commit).json`. |
+
+**Safety:** dry-run by default; only ever flips `false -> true`, never clears the
+flag; idempotent.
+
+**Completeness is defined once**, in
+`src/lib/server/onboarding/candidateCompleteness.ts`, and this script _imports_
+that predicate rather than restating it — so the backfill cannot drift from what
+the app and the nudge jobs consider complete:
+
+`complete_address` + `cell_phone` + ≥1 discipline + a `RESUME` document.
+
+Two deliberate exclusions:
+
+- **`address` (street)** — derived, not entered. `resolveAddressComponents`
+  treats `city && state && zipcode` as sufficient and lets street stay NULL, and
+  `parseCompleteAddress` returns a NULL street for any address with no leading
+  street segment. Requiring it would mark complete professionals incomplete.
+- **`geom` / `lat` / `lon`** — these drive shift matching, but are populated
+  asynchronously by the geocode queue. Gating completion on them would let a
+  geocoding failure on our side leave someone permanently "incomplete" and
+  permanently nudged. Un-geocoded profiles are surfaced separately via
+  `candidateMissingCoordinatesSql`.
+
+Data-driven rather than step-based on purpose: legacy and admin-created
+professionals have a NULL `onboarding_step` but perfectly good profiles.
+
+⚠️ Run against **both** databases.
+
+---
+
 ### `backfill-candidate-address-components.ts`
 
 **Why:** `candidate_profiles` stored only the free-text `complete_address`. The Professionals index filters on `city` / `state` / `zipcode`, which existed as columns but were never populated. This fills them from the existing address strings.
@@ -68,18 +123,18 @@ npx tsx src/lib/server/scripts/backfill-candidate-address-components.ts --commit
 npx tsx src/lib/server/scripts/backfill-candidate-address-components.ts --commit --geocode
 ```
 
-| Flag | Effect |
-|---|---|
-| `--commit` | Without it, nothing is written. |
-| `--geocode` | Send rows the parser rejected to Mapbox (100ms throttle, one API call each). Ignored in dry-run. |
-| `--limit=N` | Process at most N rows. Default 0 = unlimited. |
-| `--report=PATH` | Defaults to `./backfill-reports/<iso>-address-(dryrun\|commit).json`. |
+| Flag            | Effect                                                                                           |
+| --------------- | ------------------------------------------------------------------------------------------------ |
+| `--commit`      | Without it, nothing is written.                                                                  |
+| `--geocode`     | Send rows the parser rejected to Mapbox (100ms throttle, one API call each). Ignored in dry-run. |
+| `--limit=N`     | Process at most N rows. Default 0 = unlimited.                                                   |
+| `--report=PATH` | Defaults to `./backfill-reports/<iso>-address-(dryrun\|commit).json`.                            |
 
 **Safety:** dry-run by default; only ever fills columns that are currently `NULL` (an existing value is never overwritten); rows it can't confidently parse are reported, not guessed at; idempotent.
 
 **Caveat on `--geocode`:** the geocoder queries with `types=address,secondary_address` and `country=us`. It will **not** resolve non-US addresses or city-only strings like `"Tampa, FL"` (no street number). Those rows stay unresolved by design — inventing a centroid zip would put an address the professional doesn't live at into your zip filter.
 
-**Reading the output:** `Already complete` does **not** mean "done" — it means the parse produced nothing the row didn't already have. Those rows are *stuck*, usually missing a zip. Check them with the queries in "Verifying a backfill" below.
+**Reading the output:** `Already complete` does **not** mean "done" — it means the parse produced nothing the row didn't already have. Those rows are _stuck_, usually missing a zip. Check them with the queries in "Verifying a backfill" below.
 
 **Last full run (staging, 2026-08-07):** 2,933 scanned → 2,919 updated, 14 unparseable. Post-run coverage 2,915 / 2,936 (99.3%). The ~21 remaining are non-US addresses (Canada, South Africa, Philippines, UAE, Brazil) and junk entries (`"1"`, `"TX"`, `"xx, Riverside, CA, xx"`) — a manual data-quality worklist, not a parser gap.
 
@@ -102,14 +157,14 @@ npx tsx src/lib/server/scripts/backfill-csv-import.ts --csv=... --only=a@x.com,b
 npx tsx src/lib/server/scripts/backfill-csv-import.ts --csv=... --commit
 ```
 
-| Flag | Effect |
-|---|---|
-| `--csv=PATH` | **Required.** Absolute or workspace-relative. |
-| `--commit` | Without it, nothing is written. |
-| `--limit-per-role=N` | Default 50 in dry-run, 0 (unlimited) with `--commit`. |
-| `--only=EMAIL[,…]` | Restrict to specific emails. Overrides `--limit-per-role`. |
-| `--status-only` | Skip all field updates; write only `status` from CSV column AA. |
-| `--report=PATH` | Defaults to `./backfill-reports/<iso>-(dryrun\|commit).json`. |
+| Flag                 | Effect                                                          |
+| -------------------- | --------------------------------------------------------------- |
+| `--csv=PATH`         | **Required.** Absolute or workspace-relative.                   |
+| `--commit`           | Without it, nothing is written.                                 |
+| `--limit-per-role=N` | Default 50 in dry-run, 0 (unlimited) with `--commit`.           |
+| `--only=EMAIL[,…]`   | Restrict to specific emails. Overrides `--limit-per-role`.      |
+| `--status-only`      | Skip all field updates; write only `status` from CSV column AA. |
+| `--report=PATH`      | Defaults to `./backfill-reports/<iso>-(dryrun\|commit).json`.   |
 
 **Safety:** reconciliation gate — discipline and experience-level names are resolved against the DB before any row is touched; unresolved names hard-abort. Blank CSV cells mean "no update"; existing DB values win. Per-row transaction with retry on deadlock/connection errors. Idempotent.
 
@@ -150,7 +205,7 @@ Idempotent, and the end state matches the Drizzle schema exactly, so a later `pu
 
 ### `diagnoseStripeCustomers.ts` — READ-ONLY
 
-**Why:** production Stripe customers have **UUID** ids (imported account). Some rows instead hold a real `cus_…` id, created by the setup flow running under TEST/LOCAL keys. Those don't resolve in prod, so invoicing throws *"No such customer"*.
+**Why:** production Stripe customers have **UUID** ids (imported account). Some rows instead hold a real `cus_…` id, created by the setup flow running under TEST/LOCAL keys. Those don't resolve in prod, so invoicing throws _"No such customer"_.
 
 For each `cus_`-shaped row it retrieves that id against the current keys, looks the client up by email to find the real UUID customer, and prints a proposed action. **Makes no writes.**
 
@@ -197,15 +252,30 @@ npm run seed-dev
 
 `npm run cron` starts a **separate process** (`src/cron/index.ts`) that triggers jobs over HTTP. It refuses to start unless `CRON_SECRET` and `API_URL` are set, and it guards against overlapping runs of the same job.
 
-| Job | Schedule |
-|---|---|
-| `processPastRecurrenceDays` | daily 12:00 AM ET |
-| `processInvoiceReminders` | daily 7:00 AM ET |
-| `processWorkday48HrReminder` | hourly |
-| `processTimesheetCreation` | every 5 minutes |
-| `processTimesheetAutoApproval` | hourly |
-| `processOutdatedRequisitions` | daily 1:00 AM ET |
-| `processCampaignQueue` | every minute |
+| Job                                | Schedule                 |
+| ---------------------------------- | ------------------------ |
+| `processPastRecurrenceDays`        | daily 12:00 AM ET        |
+| `processInvoiceReminders`          | daily 7:00 AM ET         |
+| `processWorkday48HrReminder`       | hourly                   |
+| `processTimesheetCreation`         | every 5 minutes          |
+| `processTimesheetAutoApproval`     | hourly                   |
+| `processOutdatedRequisitions`      | daily 1:00 AM ET         |
+| `processCampaignQueue`             | every minute             |
+| `processDocumentsMissingNudge`     | weekly, Tue 10:00 AM ET  |
+| `processStalledOnboarding`         | daily 10:15 AM ET        |
+| `processPendingApprovalTouchpoint` | monthly, 1st 10:30 AM ET |
+
+The three onboarding jobs only _enqueue_ a `mass_campaigns` row; the
+every-minute `processCampaignQueue` sends it. That's what gives automated
+lifecycle nudges the same batching, throttling, per-recipient delivery state and
+unsubscribe footer as an admin-composed blast. System-generated campaigns have
+`created_by IS NULL`.
+
+Re-send suppression comes from campaign history (`mass_campaign_recipients`
+joined on `filters->>'autoKey'`), not a "last nudged" column — so a window can be
+retuned without a migration. **Opt-out is enforced when the audience is built**
+(`classifySegment` in `queries/campaigns.ts`), not when the queue drains, so any
+new audience query must filter `users.receive_email` itself.
 
 Definitions live in `src/lib/server/jobs/registry.ts`. Job endpoints are thin shells — verify → lock → call a named service → return JSON; the domain logic belongs in `src/lib/server/<domain>/`.
 
@@ -242,7 +312,7 @@ SELECT complete_address, address, city, state, zipcode
 FROM candidate_profiles WHERE city IS NOT NULL ORDER BY random() LIMIT 20;
 ```
 
-**On the `address` column:** for CSV-imported rows it holds the *entire* original address string, not just the street — the importer wrote the same value into both `address` and `complete_address`, and geocoding later replaced only `complete_address`. Backfills leave it alone because it is non-NULL. Don't "normalize" it: Mapbox drops unit numbers (`"Suite 7-8"` vanished from one `complete_address`), so that raw column is sometimes the only place the unit survives.
+**On the `address` column:** for CSV-imported rows it holds the _entire_ original address string, not just the street — the importer wrote the same value into both `address` and `complete_address`, and geocoding later replaced only `complete_address`. Backfills leave it alone because it is non-NULL. Don't "normalize" it: Mapbox drops unit numbers (`"Suite 7-8"` vanished from one `complete_address`), so that raw column is sometimes the only place the unit survives.
 
 ---
 

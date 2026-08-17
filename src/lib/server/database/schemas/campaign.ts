@@ -51,9 +51,10 @@ export const massCampaignTable = pgTable('mass_campaigns', {
 	recipientCount: integer('recipient_count').notNull().default(0),
 	sentCount: integer('sent_count').notNull().default(0),
 	failedCount: integer('failed_count').notNull().default(0),
-	createdBy: text('created_by')
-		.notNull()
-		.references(() => userTable.id, { onDelete: 'set null' }),
+	// Nullable: automated lifecycle campaigns (onboarding nudges, PENDING
+	// touchpoints) are enqueued by cron and have no human author. NULL therefore
+	// means "system-generated" — admin-composed blasts still carry a user id.
+	createdBy: text('created_by').references(() => userTable.id, { onDelete: 'set null' }),
 	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 	startedAt: timestamp('started_at', { withTimezone: true }),

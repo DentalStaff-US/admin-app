@@ -18,10 +18,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import db from '$lib/server/database/drizzle';
-import {
-	timeSheetTable,
-	type RawTimesheetHours
-} from '$lib/server/database/schemas/requisition';
+import { timeSheetTable, type RawTimesheetHours } from '$lib/server/database/schemas/requisition';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { and, eq } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
@@ -118,43 +115,31 @@ export const POST: RequestHandler = async ({ request }) => {
 		// nothing to persist on hoursRaw — but we still want to record the
 		// `totalHoursWorked = 0` reset.
 		const firstWorkdayId = entries[0]?.workdayId;
-		const requisition = firstWorkdayId
-			? await getRequisitionByWorkdayId(firstWorkdayId)
-			: null;
+		const requisition = firstWorkdayId ? await getRequisitionByWorkdayId(firstWorkdayId) : null;
 
 		// `createUTCDateTime` returns Date objects; Drizzle's JSON column type
 		// serializes them to ISO strings on write, matching the wire shape of
 		// `RawTimesheetHours` (which is typed as strings). Cast through unknown
 		// to satisfy the static type — same pattern the submit endpoint uses.
-		const formattedEntries = (
-			requisition
-				? entries.map((entry) => ({
-						// Stable key back to the workday — see RawTimesheetHours.workdayId.
-						workdayId: entry.workdayId,
-						hours: entry.hours,
-						date: entry.date,
-						startTime: createUTCDateTime(
-							entry.date,
-							entry.startTime,
-							requisition.referenceTimezone
-						),
-						// Optional on drafts — a partial clock-in may have no end time yet.
-						endTime: entry.endTime
-							? createUTCDateTime(entry.date, entry.endTime, requisition.referenceTimezone)
-							: null,
-						lunchStartTime: entry.lunchStartTime
-							? createUTCDateTime(
-									entry.date,
-									entry.lunchStartTime,
-									requisition.referenceTimezone
-								)
-							: null,
-						lunchEndTime: entry.lunchEndTime
-							? createUTCDateTime(entry.date, entry.lunchEndTime, requisition.referenceTimezone)
-							: null
-					}))
-				: []
-		) as unknown as RawTimesheetHours[];
+		const formattedEntries = (requisition
+			? entries.map((entry) => ({
+					// Stable key back to the workday — see RawTimesheetHours.workdayId.
+					workdayId: entry.workdayId,
+					hours: entry.hours,
+					date: entry.date,
+					startTime: createUTCDateTime(entry.date, entry.startTime, requisition.referenceTimezone),
+					// Optional on drafts — a partial clock-in may have no end time yet.
+					endTime: entry.endTime
+						? createUTCDateTime(entry.date, entry.endTime, requisition.referenceTimezone)
+						: null,
+					lunchStartTime: entry.lunchStartTime
+						? createUTCDateTime(entry.date, entry.lunchStartTime, requisition.referenceTimezone)
+						: null,
+					lunchEndTime: entry.lunchEndTime
+						? createUTCDateTime(entry.date, entry.lunchEndTime, requisition.referenceTimezone)
+						: null
+				}))
+			: []) as unknown as RawTimesheetHours[];
 
 		const weekStart = new Date(weekStartDate).toISOString().split('T')[0];
 

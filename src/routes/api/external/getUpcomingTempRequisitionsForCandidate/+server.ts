@@ -15,7 +15,7 @@ import {
 } from '$lib/server/database/schemas/requisition';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { type RequestHandler, error, json } from '@sveltejs/kit';
-import { eq, and, inArray, notInArray, or, isNull, isNotNull, sql, gte } from 'drizzle-orm';
+import { eq, and, asc, inArray, notInArray, or, isNull, isNotNull, sql, gte } from 'drizzle-orm';
 import { METERS_PER_MILE } from '$lib/config/constants';
 import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
@@ -239,13 +239,24 @@ export const GET: RequestHandler = async ({ request }) => {
 					gte(recurrenceDayTable.date, new Date().toISOString())
 				)
 			)
+			// Soonest date first, then nearest location within that date.
+			//
+			// `recurrenceDayTable.id` used to lead this list, which silently killed
+			// the other two keys — id is unique per row, so distance and date could
+			// never break a tie and the tab was effectively ordered by id. Date is
+			// the calendar-day column (not dayStart) so that every shift on a given
+			// day is ranked by proximity rather than by start time.
+			//
+			// A candidate with no geocoded lat/lon yields a NULL distance, which
+			// Postgres sorts last within each date — the list still reads
+			// chronologically, it just isn't distance-ranked for that candidate.
 			.orderBy(
-				recurrenceDayTable.id,
-				sql`ST_Distance(
+				asc(recurrenceDayTable.date),
+				asc(sql`ST_Distance(
 					${companyOfficeLocationTable.geom}::geography,
 					ST_SetSRID(ST_MakePoint(${candidateProfile.lon}::float, ${candidateProfile.lat}::float), 4326)::geography
-				)`,
-				recurrenceDayTable.date
+				)`),
+				asc(recurrenceDayTable.id)
 			);
 
 		// In-memory filter via the shared qualification predicate. Coerce a

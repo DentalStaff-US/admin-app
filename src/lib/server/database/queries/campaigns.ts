@@ -429,7 +429,8 @@ export async function createCampaignWithRecipients(params: {
 	filters: CampaignFilters;
 	subject: string | null;
 	body: string;
-	createdBy: string;
+	/** NULL for automated lifecycle campaigns enqueued by cron (no human author). */
+	createdBy: string | null;
 	recipients: CampaignRecipient[];
 }): Promise<{ campaignId: string; recipientCount: number }> {
 	const rows = params.recipients

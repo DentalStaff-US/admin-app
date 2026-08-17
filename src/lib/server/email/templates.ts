@@ -344,6 +344,103 @@ export const EMAIL_TEMPLATES: Record<
 
 		return { textEmail, htmlEmail, subject };
 	},
+	newCandidateSignupAdminEmail: (details: {
+		candidateId: string;
+		candidateName: string;
+		candidateEmail: string;
+		candidatePhone: string | null | undefined;
+		location: string | null;
+		createdAt: Date;
+	}) => {
+		const { candidateId, candidateName, candidateEmail, candidatePhone, location, createdAt } =
+			details;
+		const profileUrl = `${BASE_URL}/professionals/${candidateId}`;
+		const createdAtFormatted = format(createdAt, 'PPPp');
+
+		const textEmail = `
+            A new professional just started onboarding on ${APP_NAME}.
+
+            Name: ${candidateName} <${candidateEmail}>
+            Phone: ${candidatePhone || '(not provided)'}
+            Location: ${location || '(not provided)'}
+            Created: ${createdAtFormatted}
+
+            Review their profile:
+            ${profileUrl}
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>New professional</h2>
+                <p>A new professional just started onboarding on ${APP_NAME}.</p>
+                <table style="border-collapse: collapse; margin: 16px 0;">
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Name</td><td style="padding: 4px 0;"><strong>${candidateName}</strong></td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Email</td><td style="padding: 4px 0;"><a href="mailto:${candidateEmail}">${candidateEmail}</a></td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Phone</td><td style="padding: 4px 0;">${candidatePhone || '(not provided)'}</td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Location</td><td style="padding: 4px 0;">${location || '(not provided)'}</td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Created</td><td style="padding: 4px 0;">${createdAtFormatted}</td></tr>
+                </table>
+                <p style="margin: 24px 0;">
+                    <a href="${profileUrl}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        View Professional Profile
+                    </a>
+                </p>
+                <p style="color: #6B7280; font-size: 14px;">Or open it directly: ${profileUrl}</p>
+            </div>
+        `.trim();
+
+		const subject = `New professional — ${candidateName}`;
+
+		return { textEmail, htmlEmail, subject };
+	},
+	candidateReadyForApprovalAdminEmail: (details: {
+		candidateId: string;
+		candidateName: string;
+		candidateEmail: string;
+		location: string | null;
+		disciplines: string[];
+		status: string;
+	}) => {
+		const { candidateId, candidateName, candidateEmail, location, disciplines, status } = details;
+		const profileUrl = `${BASE_URL}/professionals/${candidateId}`;
+		const disciplineList = disciplines.length ? disciplines.join(', ') : '(none selected)';
+
+		const textEmail = `
+            ${candidateName} has completed their profile and is ready for approval.
+
+            Email: ${candidateEmail}
+            Location: ${location || '(not provided)'}
+            Disciplines: ${disciplineList}
+            Current status: ${status}
+
+            Review and approve:
+            ${profileUrl}
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>Ready for approval</h2>
+                <p><strong>${candidateName}</strong> has completed their profile and is ready for approval.</p>
+                <table style="border-collapse: collapse; margin: 16px 0;">
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Email</td><td style="padding: 4px 0;"><a href="mailto:${candidateEmail}">${candidateEmail}</a></td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Location</td><td style="padding: 4px 0;">${location || '(not provided)'}</td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Disciplines</td><td style="padding: 4px 0;">${disciplineList}</td></tr>
+                    <tr><td style="padding: 4px 12px 4px 0; color: #6B7280;">Status</td><td style="padding: 4px 0;">${status}</td></tr>
+                </table>
+                <p style="margin: 24px 0;">
+                    <a href="${profileUrl}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        Review &amp; Approve
+                    </a>
+                </p>
+            </div>
+        `.trim();
+
+		return { textEmail, htmlEmail, subject: `Ready for approval — ${candidateName}` };
+	},
 	newSupportTicketAdminEmail: (details: {
 		ticketId: string;
 		title: string;
@@ -930,6 +1027,67 @@ ${daysText}
             <p>Dental Temps Staffing Solutions</p>
             `.trim(),
 			subject: `Invoice Voided | ${APP_NAME}`
+		};
+	},
+	invoiceCreatedNotificationEmail: (invoiceDetails: {
+		clientName: string;
+		invoiceNumber: string;
+		description: string | null;
+		amount: string;
+		dueDate: string | null;
+		invoiceUrl: string;
+		/** Stripe-backed invoices can be paid from the link; paper ones cannot. */
+		isPayableOnline: boolean;
+	}) => {
+		const dueLine = invoiceDetails.dueDate ? `Due date: ${invoiceDetails.dueDate}` : '';
+		const descriptionLine = invoiceDetails.description
+			? `Description: ${invoiceDetails.description}`
+			: '';
+		const callToAction = invoiceDetails.isPayableOnline
+			? 'You can view and pay this invoice online:'
+			: 'You can view this invoice here:';
+		const linkLabel = invoiceDetails.isPayableOnline ? 'View & Pay Invoice' : 'View Invoice';
+
+		return {
+			textEmail: `
+            Hello ${invoiceDetails.clientName},
+
+            A new invoice has been issued to your account.
+
+            Invoice: ${invoiceDetails.invoiceNumber}
+            Amount: ${invoiceDetails.amount}
+            ${descriptionLine}
+            ${dueLine}
+
+            ${callToAction}
+            ${invoiceDetails.invoiceUrl}
+
+            For any questions about this invoice, please contact us at ${env.COMPANY_REPLY_TO_EMAIL} or call us at ${env.COMPANY_PHONE_NUMBER}.
+
+            Thank you,
+            Dental Temps Staffing Solutions`,
+			htmlEmail: `
+            <p>Hello ${invoiceDetails.clientName},</p>
+
+            <p>A new invoice has been issued to your account.</p>
+
+            <ul>
+              <li><strong>Invoice:</strong> ${invoiceDetails.invoiceNumber}</li>
+              <li><strong>Amount:</strong> ${invoiceDetails.amount}</li>
+              ${invoiceDetails.description ? `<li><strong>Description:</strong> ${invoiceDetails.description}</li>` : ''}
+              ${invoiceDetails.dueDate ? `<li><strong>Due date:</strong> ${invoiceDetails.dueDate}</li>` : ''}
+            </ul>
+
+            <p>${callToAction}</p>
+
+            <p><a href="${invoiceDetails.invoiceUrl}">${linkLabel}</a></p>
+
+            <p>For any questions about this invoice, please contact us at <a href="mailto:${env.COMPANY_REPLY_TO_EMAIL}">${env.COMPANY_REPLY_TO_EMAIL}</a> or call us at ${env.COMPANY_PHONE_NUMBER}.</p>
+
+            <p>Thank you,</p>
+            <p>Dental Temps Staffing Solutions</p>
+            `.trim(),
+			subject: `New Invoice ${invoiceDetails.invoiceNumber} | ${APP_NAME}`
 		};
 	},
 	supportTicketSubmissionNotificationEmail: () => {

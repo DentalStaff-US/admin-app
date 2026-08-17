@@ -2,7 +2,11 @@ import { eq, asc } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import { invoiceTable, type InvoiceWithRelations } from '$lib/server/database/schemas/requisition';
 import { userTable } from '$lib/server/database/schemas/auth';
-import { companyOfficeLocationTable } from '$lib/server/database/schemas/client';
+import {
+	clientCompanyTable,
+	companyOfficeLocationTable
+} from '$lib/server/database/schemas/client';
+import { formatBillingAddressLines } from '$lib/server/billing/recipients';
 import { uploadPrivateFile, getSignedDownloadUrl } from '$lib/server/uploads';
 import { getInvoiceSender } from './senderConfig';
 import { renderInvoicePdf, type InvoicePdfContext, type InvoicePdfLineItem } from './pdf';
@@ -26,6 +30,36 @@ async function getInvoiceBillingExtras(clientUserId: string | null, companyId: s
 			.where(eq(userTable.id, clientUserId))
 			.limit(1);
 		email = u?.email ?? null;
+	}
+
+	// Prefer the company's billing contact over the account owner's login email.
+	// Only matters for older invoices whose `customer_email` snapshot is NULL —
+	// newer ones carry the billing address on the row itself.
+	let billingAddressLines: string[] = [];
+	if (companyId) {
+		const [co] = await db
+			.select({
+				billingEmail: clientCompanyTable.billingEmail,
+				billingStreetOne: clientCompanyTable.billingStreetOne,
+				billingStreetTwo: clientCompanyTable.billingStreetTwo,
+				billingCity: clientCompanyTable.billingCity,
+				billingState: clientCompanyTable.billingState,
+				billingZipcode: clientCompanyTable.billingZipcode
+			})
+			.from(clientCompanyTable)
+			.where(eq(clientCompanyTable.id, companyId))
+			.limit(1);
+		if (co?.billingEmail) email = co.billingEmail;
+
+		if (co) {
+			billingAddressLines = formatBillingAddressLines({
+				streetOne: co.billingStreetOne,
+				streetTwo: co.billingStreetTwo,
+				city: co.billingCity,
+				state: co.billingState,
+				zipcode: co.billingZipcode
+			});
+		}
 	}
 
 	let phone: string | null = null;
@@ -56,7 +90,13 @@ async function getInvoiceBillingExtras(clientUserId: string | null, companyId: s
 		}
 	}
 
-	return { email, phone, addressLines };
+	// The explicit billing address wins; the first office location is the legacy
+	// fallback for companies that never set one.
+	return {
+		email,
+		phone,
+		addressLines: billingAddressLines.length > 0 ? billingAddressLines : addressLines
+	};
 }
 
 function buildContext(

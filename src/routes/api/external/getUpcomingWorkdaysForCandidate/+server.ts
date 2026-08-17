@@ -1,6 +1,6 @@
 import { authenticateUser } from '$lib/server/serverUtils';
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { and, eq, gte, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import db from '$lib/server/database/drizzle';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
@@ -100,7 +100,12 @@ export const GET: RequestHandler = async ({ request }) => {
 						AND cb.company_id = ${requisitionTable.companyId}
 					)`
 			)
-		);
+		)
+		// Soonest shift first. Without this the candidate dashboard rendered rows
+		// in whatever order the join happened to emit — which is not just
+		// unsorted but unstable between requests. `workday.id` breaks ties so two
+		// shifts starting at the same instant keep a fixed order.
+		.orderBy(asc(recurrenceDayTable.dayStart), asc(workdayTable.id));
 
 	return json({ success: true, data: workdays }, { headers: corsHeaders });
 };

@@ -61,7 +61,8 @@ import { timeSheetTable } from '$lib/server/database/schemas/requisition';
 import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import type { RawTimesheetHours } from '$lib/server/database/schemas/requisition';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
-import { notifyTimesheetSubmitted } from '$lib/server/notifications/transactional';
+import { notifyInvoiceCreated, notifyTimesheetSubmitted } from '$lib/server/notifications/transactional';
+import { resolveBillingRecipient } from '$lib/server/billing/recipients';
 import { voidInvoiceAndNotify } from '$lib/server/invoices/voidNotify';
 import { superValidate } from 'sveltekit-superforms/server';
 import { addExpenseSchema } from '$lib/config/zod-schemas';
@@ -949,13 +950,19 @@ export const actions = {
 			const clientProfile = await getClientProfileById(overridden.associatedClientId);
 			const isPaperBilling = clientProfile?.profile.clientInvoiceMethod === 'PAPER';
 
+			// Billing contact — stamps `customerEmail` on the row (previously NULL on
+			// this path, which made the overdue-reminder cron skip it) and addresses
+			// the invoice-created email.
+			const billingRecipient = await resolveBillingRecipient(overridden.associatedClientId);
+
 			if (isPaperBilling) {
 				const effectiveRateDollars = effectiveRate ?? 0;
 
-				await createPaperInvoiceRecord(
+				const paperInvoice = await createPaperInvoiceRecord(
 					{
 						clientId: overridden.associatedClientId,
 						amountInDollars: (finalAmt / 100).toFixed(2),
+						customerEmail: billingRecipient?.email ?? undefined,
 						sourceType: 'timesheet',
 						timesheetId: overridden.id,
 						requisitionId: overridden.requisitionId ?? undefined,
@@ -986,6 +993,13 @@ export const actions = {
 					},
 					user.id
 				);
+
+				if (paperInvoice?.id) {
+					await notifyInvoiceCreated({
+						invoiceId: paperInvoice.id,
+						dueDate: paperInvoice.dueDate
+					});
+				}
 			} else {
 				const stripeCustomerId = await getClientSubscription(overridden.associatedClientId);
 
@@ -1026,7 +1040,7 @@ export const actions = {
 					})
 				);
 
-				await createInvoiceRecord(
+				const invoiceRow = await createInvoiceRecord(
 					{
 						clientId: overridden.associatedClientId,
 						timesheet: overridden,
@@ -1035,6 +1049,14 @@ export const actions = {
 					},
 					user.id
 				);
+
+				if (invoiceRow?.id) {
+					await notifyInvoiceCreated({
+						invoiceId: invoiceRow.id,
+						hostedUrl: stripeInvoice.hosted_invoice_url,
+						dueDate: invoiceRow.dueDate
+					});
+				}
 			}
 
 			setFlash({ type: 'success', message: 'Timesheet approved' }, event);

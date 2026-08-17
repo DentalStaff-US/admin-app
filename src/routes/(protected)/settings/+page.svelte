@@ -75,6 +75,7 @@
 				{profileForm}
 				{passwordForm}
 				{billingInfo}
+				billingContactForm={data.billingContactForm}
 				staffInviteForm={data.inviteForm}
 				{staff}
 				{user}

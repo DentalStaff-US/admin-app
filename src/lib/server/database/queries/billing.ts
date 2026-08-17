@@ -12,6 +12,56 @@ import { USER_ROLES } from '$lib/config/constants';
 import { env } from '$env/dynamic/public';
 import { nanoid } from 'nanoid';
 
+/**
+ * Resolve our user record from a Stripe customer.
+ *
+ * Stripe's `customer.email` used to be the join key here, which was fragile in
+ * two directions: clients can edit their email in the Stripe billing portal, and
+ * we now sync the *billing* email (not the login email) onto the customer. Both
+ * would make an email lookup miss and silently no-op the webhook.
+ *
+ * `ensureStripeCustomer` stamps `metadata: { clientId, userId }` on every
+ * customer it creates, so that is the durable key. The email lookup is kept as a
+ * last-resort fallback for customers created before the metadata existed.
+ */
+async function resolveUserFromStripeCustomer(
+	customer: Stripe.Customer
+): Promise<{ id: string } | null> {
+	const metadataUserId = customer.metadata?.userId;
+	if (metadataUserId) {
+		const [byId] = await db
+			.select({ id: userTable.id })
+			.from(userTable)
+			.where(eq(userTable.id, metadataUserId))
+			.limit(1);
+		if (byId) return byId;
+		console.warn('[stripe] customer.metadata.userId did not resolve', {
+			customerId: customer.id,
+			userId: metadataUserId
+		});
+	}
+
+	const metadataClientId = customer.metadata?.clientId;
+	if (metadataClientId) {
+		const [byClient] = await db
+			.select({ id: userTable.id })
+			.from(clientProfileTable)
+			.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
+			.where(eq(clientProfileTable.id, metadataClientId))
+			.limit(1);
+		if (byClient) return byClient;
+	}
+
+	// Legacy customers predating the metadata stamp.
+	if (customer.email) {
+		const byEmail = await getUserByEmail(customer.email);
+		if (byEmail) return byEmail;
+	}
+
+	console.warn('[stripe] could not resolve a user for customer', { customerId: customer.id });
+	return null;
+}
+
 export type SubscriptionStatus =
 	| 'incomplete'
 	| 'incomplete_expired'
@@ -144,14 +194,9 @@ export async function handleSubscriptionCreated(subscription: Stripe.Subscriptio
 			return;
 		}
 
-		if (!customerData.email) {
-			console.log('No customer email found, skipping subscription creation');
-			return;
-		}
-
-		const user = await getUserByEmail(customerData.email);
+		const user = await resolveUserFromStripeCustomer(customerData);
 		if (!user) {
-			console.log('No user found for email:', customerData.email);
+			console.log('No user found for Stripe customer:', customerId);
 			return;
 		}
 
@@ -202,12 +247,7 @@ export async function handleSubscriptionUpdated(subscription: Stripe.Subscriptio
 		return;
 	}
 
-	if (!customerData.email) {
-		console.log('No customer email found, skipping subscription creation');
-		return;
-	}
-
-	const user = await getUserByEmail(customerData.email);
+	const user = await resolveUserFromStripeCustomer(customerData);
 	console.log('Updating subscription for user:', user?.id, JSON.stringify(subscription, null, 2));
 
 	await db
@@ -298,23 +338,25 @@ export async function handleCustomerSetupCompleted(session: Stripe.Checkout.Sess
 
 export async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 	try {
-		if (!session.customer_email) {
-			console.log('No customer email in session');
-			return;
-		}
-
 		if (!session.subscription) {
 			console.log('No subscription in session');
 			return;
 		}
 
-		const [subscription, user] = await Promise.all([
-			stripe.subscriptions.retrieve(session.subscription as string),
-			getUserByEmail(session.customer_email)
-		]);
+		const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
 
+		// Resolve via the customer's metadata rather than `session.customer_email`,
+		// which is the Stripe-side address and may now be the billing contact
+		// rather than a login email.
+		const customerData = await stripe.customers.retrieve(subscription.customer as string);
+		if (customerData.deleted === true) {
+			console.log('Customer was deleted, skipping checkout completion');
+			return;
+		}
+
+		const user = await resolveUserFromStripeCustomer(customerData);
 		if (!user) {
-			console.log('No user found for email:', session.customer_email);
+			console.log('No user found for Stripe customer:', customerData.id);
 			return;
 		}
 

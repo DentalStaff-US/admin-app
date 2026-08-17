@@ -6,7 +6,8 @@ import {
 } from '$lib/server/database/schemas/candidate';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { eq, ne, and, asc, desc } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
+import { getCandidateDocumentEditability } from '$lib/server/documents/candidateDocumentGuards';
 import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
@@ -43,18 +44,23 @@ export const GET: RequestHandler = async ({ request }) => {
 				{ status: 404, headers: corsHeaders }
 			);
 		}
+		// Returns every document, resume included. It previously filtered RESUME
+		// out, which meant the settings page could neither show nor manage it —
+		// the professional had no way to replace a stale resume.
 		const documents = await db
 			.select()
 			.from(candidateDocumentUploadsTable)
-			.where(
-				and(
-					eq(candidateDocumentUploadsTable.candidateId, candidateProfile.id),
-					ne(candidateDocumentUploadsTable.type, 'RESUME')
-				)
-			)
+			.where(eq(candidateDocumentUploadsTable.candidateId, candidateProfile.id))
 			.orderBy(desc(candidateDocumentUploadsTable.createdAt));
 
-		return json({ success: true, documents }, { status: 200, headers: corsHeaders });
+		// Lets the UI render read-only rather than offering controls that the
+		// write endpoints would reject.
+		const editability = await getCandidateDocumentEditability(candidateProfile.id);
+
+		return json(
+			{ success: true, documents, editable: editability.editable, lockReason: editability.reason },
+			{ status: 200, headers: corsHeaders }
+		);
 	} catch (err) {
 		logger.error('getCandidateDocuments failed', { error: err });
 		return json(

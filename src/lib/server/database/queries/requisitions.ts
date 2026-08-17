@@ -213,6 +213,25 @@ export async function getAllRequisitions() {
 	return await db.select().from(requisitionTable).where(eq(requisitionTable.archived, false));
 }
 
+/**
+ * Search-by-requisition-number predicate, or `undefined` when the term isn't a
+ * usable id.
+ *
+ * `requisitions.id` is a `serial` (int4). The previous inline
+ * `eq(requisitionTable.id, parseInt(searchTerm))` bound NaN for any non-numeric
+ * term, and Postgres rejects that with `invalid input syntax for type integer:
+ * "NaN"` — so searching for anything with a letter in it 500'd the whole page.
+ * Out-of-range numbers fail the same way, hence the int4 ceiling check.
+ */
+function requisitionIdMatch(searchTerm?: string) {
+	if (!searchTerm) return undefined;
+	const trimmed = searchTerm.trim();
+	if (!/^\d+$/.test(trimmed)) return undefined;
+	const id = Number(trimmed);
+	if (!Number.isSafeInteger(id) || id > 2147483647) return undefined;
+	return eq(requisitionTable.id, id);
+}
+
 export async function getRequisitionsForClient(
 	companyId: string,
 	searchTerm?: string,
@@ -273,7 +292,7 @@ export async function getRequisitionsForClient(
 						searchTerm ? ilike(clientCompanyTable.companyName, `%${searchTerm}%`) : undefined,
 						searchTerm ? ilike(companyOfficeLocationTable.city, `%${searchTerm}%`) : undefined,
 						searchTerm ? ilike(companyOfficeLocationTable.state, `%${searchTerm}%`) : undefined,
-						searchTerm ? eq(requisitionTable.id, parseInt(searchTerm)) : undefined
+						requisitionIdMatch(searchTerm)
 					)
 				)
 			)
@@ -362,7 +381,7 @@ export async function getRequisitionsAdmin(searchTerm?: string) {
 						searchTerm ? ilike(clientCompanyTable.companyName, `%${searchTerm}%`) : undefined,
 						searchTerm ? ilike(companyOfficeLocationTable.city, `%${searchTerm}%`) : undefined,
 						searchTerm ? ilike(companyOfficeLocationTable.state, `%${searchTerm}%`) : undefined,
-						searchTerm ? eq(requisitionTable.id, parseInt(searchTerm)) : undefined
+						requisitionIdMatch(searchTerm)
 					)
 				)
 			)
