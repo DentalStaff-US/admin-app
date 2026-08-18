@@ -122,6 +122,15 @@ export async function runStalledOnboardingNudge(): Promise<{
 		.where(
 			and(
 				...baseCandidateConditions,
+				// Never chase someone already marked onboarded. This is the guard that
+				// matters most in production: legacy uploads were all stored as type
+				// OTHER (the documents step hardcoded it), so almost no historical
+				// professional has a RESUME row and the data predicate below considers
+				// them "incomplete" — including 276 ACTIVE, working professionals.
+				// Telling them they can't be matched with shifts would be both wrong
+				// and alarming. `completed_onboarding` is already true for them, so
+				// this reduces the first live run from ~277 to ~9.
+				sql`coalesce(${userTable.completedOnboarding}, false) = false`,
 				not(candidateProfileCompleteSql),
 				lt(candidateProfileTable.updatedAt, cutoff),
 				// Don't chase people who were rejected or switched off.

@@ -239,24 +239,22 @@ export const GET: RequestHandler = async ({ request }) => {
 					gte(recurrenceDayTable.date, new Date().toISOString())
 				)
 			)
-			// Soonest date first, then nearest location within that date.
+			// `recurrenceDayTable.id` MUST lead this list. The select above is
+			// `SELECT DISTINCT ON (recurrence_days.id)`, and Postgres requires the
+			// first ORDER BY expression to match the DISTINCT ON expression —
+			// otherwise it rejects the whole query with 42P10
+			// ("SELECT DISTINCT ON expressions must match initial ORDER BY
+			// expressions"). This is not a stylistic choice; reordering it breaks
+			// the endpoint outright.
 			//
-			// `recurrenceDayTable.id` used to lead this list, which silently killed
-			// the other two keys — id is unique per row, so distance and date could
-			// never break a tie and the tab was effectively ordered by id. Date is
-			// the calendar-day column (not dayStart) so that every shift on a given
-			// day is ranked by proximity rather than by start time.
-			//
-			// A candidate with no geocoded lat/lon yields a NULL distance, which
-			// Postgres sorts last within each date — the list still reads
-			// chronologically, it just isn't distance-ranked for that candidate.
+			// The user-facing date-then-distance ordering is therefore applied in
+			// memory below, after the DISTINCT ON has done its job.
 			.orderBy(
-				asc(recurrenceDayTable.date),
+				asc(recurrenceDayTable.id),
 				asc(sql`ST_Distance(
 					${companyOfficeLocationTable.geom}::geography,
 					ST_SetSRID(ST_MakePoint(${candidateProfile.lon}::float, ${candidateProfile.lat}::float), 4326)::geography
-				)`),
-				asc(recurrenceDayTable.id)
+				)`)
 			);
 
 		// In-memory filter via the shared qualification predicate. Coerce a
@@ -273,9 +271,33 @@ export const GET: RequestHandler = async ({ request }) => {
 				}).qualified
 		);
 
+		// Soonest date first, then nearest practice within that date.
+		//
+		// Done here rather than in SQL because the query is `DISTINCT ON
+		// (recurrence_days.id)`, which forces `id` to be the first ORDER BY
+		// expression (see the note on .orderBy above). Sorting the already-filtered
+		// result set is equivalent for the client and cannot break the query.
+		//
+		// A candidate with no geocoded coordinates gets a null distance; those sort
+		// last within their date rather than jumping to the front.
+		const sortedRecurrenceDays = [...filteredRecurrenceDays].sort((a, b) => {
+			const dateA = String(a.recurrenceDay.date ?? '');
+			const dateB = String(b.recurrenceDay.date ?? '');
+			if (dateA !== dateB) return dateA < dateB ? -1 : 1;
+
+			const distA = Number(a.location?.distanceMiles);
+			const distB = Number(b.location?.distanceMiles);
+			const aMissing = !Number.isFinite(distA);
+			const bMissing = !Number.isFinite(distB);
+			if (aMissing && bMissing) return 0;
+			if (aMissing) return 1;
+			if (bMissing) return -1;
+			return distA - distB;
+		});
+
 		// Practice identity is stripped server-side for every shift this candidate
 		// doesn't hold — see $lib/server/privacy/clientIdentity.
-		const visibleRecurrenceDays = filteredRecurrenceDays.map((shift) =>
+		const visibleRecurrenceDays = sortedRecurrenceDays.map((shift) =>
 			maskShiftRowForCandidate(shift, candidateProfile.id)
 		);
 
