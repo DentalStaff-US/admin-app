@@ -17,6 +17,11 @@ import {
 import type Stripe from 'stripe';
 import db from '$lib/server/database/drizzle';
 import { voidInvoiceAndNotify } from '$lib/server/invoices/voidNotify';
+import {
+	accrueCommissionForPaidInvoice,
+	reverseCommissionForInvoice
+} from '$lib/server/affiliate/accrual';
+import { syncConnectAccount } from '$lib/server/affiliate/connect';
 import { clientSubscriptionTable } from '$lib/server/database/schemas/client';
 import { eq } from 'drizzle-orm';
 import { logger } from '$lib/server/logger';
@@ -199,7 +204,21 @@ export const POST: RequestHandler = async ({ request }) => {
 						currency: invoicePaymentSucceeded.currency,
 						invoice_id: existingPaidInvoice.id
 					});
+
+					// Affiliate commission accrues on PAYMENT, not on timesheet approval.
+					// Idempotent (UNIQUE idempotency_key) so Stripe's webhook redelivery
+					// cannot double-pay, and it swallows its own errors so a bookkeeping
+					// failure never turns into an endless Stripe retry.
+					await accrueCommissionForPaidInvoice(existingPaidInvoice.id);
 				}
+				break;
+			}
+
+			// Affiliate Connect onboarding progress. `payouts_enabled` is the gate
+			// the monthly payout run checks; until it flips true the affiliate's
+			// balance simply carries.
+			case 'account.updated': {
+				await syncConnectAccount(event.data.object as Stripe.Account);
 				break;
 			}
 
@@ -222,6 +241,9 @@ export const POST: RequestHandler = async ({ request }) => {
 						.set({ stripeStatus: invoiceVoided.status })
 						.where(eq(invoiceTable.id, existingVoidedInvoice.id));
 					await voidInvoiceAndNotify(existingVoidedInvoice.id, 'Invoice voided in Stripe.');
+					// Unpaid commission drops out of its cohort; already-paid commission
+					// gets an offsetting negative row against the next payout.
+					await reverseCommissionForInvoice(existingVoidedInvoice.id, 'Invoice voided in Stripe.');
 				}
 				break;
 			}

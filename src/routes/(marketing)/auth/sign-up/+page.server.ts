@@ -1,4 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
+import { REF_COOKIE_NAME } from '$lib/server/affiliate/cookie';
+import { resolveReferralForSignup } from '$lib/server/affiliate/signup';
+import { applyAttribution } from '$lib/server/database/queries/affiliates';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { setError, superValidate } from 'sveltekit-superforms/server';
 import { auth } from '$lib/server/auth';
@@ -107,6 +110,18 @@ export const actions = {
 
 			const newUserId = signUpResult.user.id;
 
+			// Resolve the affiliate referral before opening the transaction — the
+			// decision needs DB reads, but the WRITE belongs inside the transaction
+			// below so a user is either fully set up and attributed, or neither.
+			const referral = await resolveReferralForSignup({
+				cookieValue: event.cookies.get(REF_COOKIE_NAME),
+				urlCode: event.url.searchParams.get('ref'),
+				hasInvite: Boolean(inviteData),
+				signupUserId: newUserId,
+				signupEmail: email,
+				signupRole: role
+			});
+
 			// Apply the fields Better Auth signUp can't set directly (role is
 			// admin-plane; verified/onboarding are input:false), plus invite setup.
 			await db.transaction(async (tx) => {
@@ -160,11 +175,15 @@ export const actions = {
 						.set({ token: null })
 						.where(eq(userInviteTable.token, inviteData.token));
 				}
+
+				await applyAttribution(referral, { referredUserId: newUserId, referredRole: role }, tx);
 			});
 
 			// Clear invite cookies.
 			if (staffInviteCookie) event.cookies.delete('staff_invite', { path: '/' });
 			if (adminInviteCookie) event.cookies.delete('admin_invite', { path: '/' });
+			// The referral is permanent in the DB now; the cookie has done its job.
+			event.cookies.delete(REF_COOKIE_NAME, { path: '/' });
 
 			logger.event('user_signed_up', {
 				distinctId: newUserId,

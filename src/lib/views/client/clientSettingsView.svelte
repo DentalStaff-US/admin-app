@@ -53,6 +53,8 @@
 	import { MapPin } from 'lucide-svelte';
 	import { Select } from 'flowbite-svelte';
 	import AvatarUpload from '$lib/components/avatar-upload.svelte';
+	import AffiliateSettingsCard from '$lib/components/affiliate/AffiliateSettingsCard.svelte';
+	import type { AffiliateSettingsStatus } from '$lib/server/affiliate/status';
 	import FileDropzone from '$lib/components/file-upload.svelte';
 	import { Download, Lock, Trash2, MoreHorizontal, FileText } from 'lucide-svelte';
 	import { enhance as formEnhance } from '$app/forms';
@@ -87,6 +89,9 @@
 	export let billingContactForm;
 	export let billingInfo;
 	export let selectedTab: string;
+	// Affiliate card data — status and link only; everything else is in the portal.
+	export let affiliateStatus: AffiliateSettingsStatus | null = null;
+	export let partnerPortalUrl = '/affiliate-portal';
 	export let staff;
 	export let searchTerm = '';
 	export let staffInviteForm;
@@ -569,8 +574,24 @@
 			)}
 			>Billing
 		</button>
+		{#if affiliateStatus?.programEnabled && affiliateStatus?.eligible}
+			<button
+				on:click={() => (selectedTab = SETTINGS_MENU_OPTIONS.CLIENT.AFFILIATE)}
+				class={cn(
+					'rounded-md hover:bg-gray-50 p-3 border border-white text-left',
+					selectedTab === SETTINGS_MENU_OPTIONS.CLIENT.AFFILIATE
+						? 'bg-gray-50 border-gray-100'
+						: ''
+				)}
+				>Affiliate
+			</button>
+		{/if}
 	</div>
 	<div class="col-span-5 md:col-span-4 pl-4 space-y-4">
+		{#if selectedTab === SETTINGS_MENU_OPTIONS.CLIENT.AFFILIATE && affiliateStatus}
+			<h2 class="text-3xl font-semibold">Affiliate Program</h2>
+			<AffiliateSettingsCard status={affiliateStatus} portalUrl={partnerPortalUrl} />
+		{/if}
 		{#if selectedTab === SETTINGS_MENU_OPTIONS.CLIENT.PROFILE}
 			<h2 class="text-3xl font-semibold">Profile Details</h2>
 			<AvatarUpload {user} onAvatarUpdated={handleAvatarUpdated} isForUser={true} />

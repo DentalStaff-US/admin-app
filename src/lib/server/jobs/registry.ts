@@ -73,6 +73,24 @@ export const jobs: JobDefinition[] = [
 		schedule: 'daily at 10:15 AM ET',
 		rule: () => ny({ hour: 10, minute: 15, second: 0 })
 	},
+	// Monthly affiliate payout run. Settles the cohort that matured on the 1st
+	// (March payments pay out May 1). Guarded by an advisory lock — a double run
+	// would double-pay.
+	{
+		name: 'processAffiliatePayouts',
+		endpoint: '/jobs/affiliates/processPayouts',
+		schedule: 'monthly, 1st at 4:00 AM ET',
+		rule: () => ny({ date: 1, hour: 4, minute: 0, second: 0 })
+	},
+	// Re-derives affiliate eligibility from client/candidate profile status.
+	// Needed because statuses are also edited directly in the DB during support
+	// work and by import scripts, where the in-app sync hooks cannot see them.
+	{
+		name: 'reconcileAffiliateEligibility',
+		endpoint: '/jobs/affiliates/reconcileEligibility',
+		schedule: 'daily at 3:00 AM ET',
+		rule: () => ny({ hour: 3, minute: 0, second: 0 })
+	},
 	{
 		name: 'processPendingApprovalTouchpoint',
 		endpoint: '/jobs/onboarding/processPendingApprovalTouchpoint',

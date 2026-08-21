@@ -1,4 +1,6 @@
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
+import { getAffiliateSettingsStatus } from '$lib/server/affiliate/status';
+import { TERMS_PRIVACY_WEBSITE } from '$lib/config/constants';
 import { setError, superValidate, message } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { auth } from '$lib/server/auth';
@@ -171,8 +173,18 @@ export async function load(event) {
 			billingZipcode: clientCompany.billingZipcode ?? ''
 		};
 
+		// Affiliate card data — status and link only; everything else is in the
+		// portal. Never throws: a settings page must not fail over this.
+		const affiliateStatus = await getAffiliateSettingsStatus(
+			user.id,
+			user.role,
+			TERMS_PRIVACY_WEBSITE
+		).catch(() => ({ programEnabled: false, eligible: false, enrolled: false }));
+
 		return {
 			user,
+			affiliateStatus,
+			partnerPortalUrl: '/affiliate-portal',
 			billingContactForm,
 			profile: clientProfile,
 			company: clientCompany,

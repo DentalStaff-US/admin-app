@@ -1,4 +1,5 @@
 import { candidateDocumentUploadsTable } from './../../../../lib/server/database/schemas/candidate';
+import { syncAffiliateEligibility } from '$lib/server/database/queries/affiliates';
 import type { PageServerLoad } from './$types';
 import {
 	getAllCandidateWorkHistory,
@@ -275,6 +276,13 @@ export const actions = {
 			await updateUser(user.id, { completedOnboarding: isActive });
 
 			await updateCandidateProfile(id, newValues);
+
+			// Affiliate participation is derived from this status: leaving ACTIVE puts
+			// the affiliate ON_HOLD (no link, no new accrual — already-earned balance
+			// still pays out), and returning to ACTIVE reinstates it. No-ops when the
+			// user is not an affiliate.
+			await syncAffiliateEligibility(user.id);
+
 			setFlash(
 				{
 					type: 'success',

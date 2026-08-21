@@ -1,4 +1,8 @@
 import { message, superValidate } from 'sveltekit-superforms/server';
+import {
+	accrueCommissionForPaidInvoice,
+	reverseCommissionForInvoice
+} from '$lib/server/affiliate/accrual';
 import { stripe, voidStripeInvoice, getStripeInvoicePayments } from '$lib/server/stripe';
 import { redirect, fail } from '@sveltejs/kit';
 import type { PageServerLoad, RequestEvent } from './$types';
@@ -236,6 +240,16 @@ export const actions = {
 					updatedAt: new Date()
 				})
 				.where(eq(invoiceTable.id, invoiceId));
+
+			// Affiliate commission tracks the invoice's settled state. A PAYMENT that
+			// closes the balance accrues; a REFUND that reopens a previously-paid
+			// invoice reverses. Both are idempotent and swallow their own errors, so
+			// neither can fail the admin's transaction.
+			if (newStatus === 'paid') {
+				await accrueCommissionForPaidInvoice(invoiceId);
+			} else if (currentInvoice.status === 'paid') {
+				await reverseCommissionForInvoice(invoiceId, `Invoice reopened by ${transactionType}.`);
+			}
 
 			await notifyMiscellaneousTransaction({
 				invoiceId,

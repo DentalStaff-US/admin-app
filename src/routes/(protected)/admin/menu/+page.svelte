@@ -21,7 +21,8 @@
 			{ name: 'Candidate Blacklists', link: '/admin/menu/blacklists' },
 			{ name: 'Record History', link: '/admin/menu/record-history' },
 			{ name: 'Documents', link: '/admin/menu/documents' },
-			{ name: 'Application Settings', link: '/admin/menu/application-settings' }
+			{ name: 'Application Settings', link: '/admin/menu/application-settings' },
+			{ name: 'Affiliate Program', link: '/admin/menu/affiliates' }
 		],
 		Communication: [{ name: 'Mass Notifications', link: '/admin/menu/mass-notifications' }]
 	};
