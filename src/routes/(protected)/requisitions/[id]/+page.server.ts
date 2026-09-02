@@ -6,7 +6,7 @@ import {
 	deleteRecurrenceDay,
 	editRecurrenceDay,
 	getCompanyByRequisitionIdAdmin,
-	getRecurrenceDaysForRequisition,
+	getRecurrenceDaysWithAssignmentsForRequisition,
 	getRequisitionApplications,
 	getRequisitionDetailsById,
 	getRequisitionTimesheets,
@@ -69,6 +69,13 @@ import {
 	isValidIanaTimezone,
 	setRequisitionReferenceTimezone
 } from '$lib/server/requisitions/referenceTimezone';
+import {
+	cancelRecurrenceDayAsActor,
+	cancelRecurrenceDayInTx,
+	notifyCancelledWorkday,
+	type CancelRecurrenceDaySnapshot
+} from '$lib/server/requisitions/cancelRecurrenceDay';
+import type { CancellationRole } from '$lib/server/cancellations';
 
 const invoiceLineItemSchema = z.array(
 	z.object({
@@ -127,7 +134,7 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		const requisition = await getRequisitionDetailsByIdAdmin(idAsNum);
 		const requisitionApplications = await getRequisitionApplications(idAsNum);
 		const requisitionTimesheets = await getRequisitionTimesheets(idAsNum);
-		const requisitionRecurrenceDays = await getRecurrenceDaysForRequisition(idAsNum);
+		const requisitionRecurrenceDays = await getRecurrenceDaysWithAssignmentsForRequisition(idAsNum);
 		const disciplines = await getAllDisciplines();
 		const experienceLevels = await getAllExperienceLevels();
 		const locations = await getAllClientLocationsByCompanyId(company.id);
@@ -182,7 +189,7 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		const result = await getRequisitionDetailsById(idAsNum);
 		const requisitionApplications = await getRequisitionApplications(idAsNum);
 		const requisitionTimesheets = await getRequisitionTimesheets(idAsNum);
-		const requisitionRecurrenceDays = await getRecurrenceDaysForRequisition(idAsNum);
+		const requisitionRecurrenceDays = await getRecurrenceDaysWithAssignmentsForRequisition(idAsNum);
 		const location = await getLocationByIdForCompany(result.requisition.location.id, company.id);
 		const disciplines = await getAllDisciplines();
 		const experienceLevels = await getAllExperienceLevels();
@@ -222,7 +229,7 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		await assertCanAccessLocation(user, result?.requisition?.location?.id);
 		const requisitionApplications = await getRequisitionApplications(idAsNum);
 		const requisitionTimesheets = await getRequisitionTimesheets(idAsNum);
-		const requisitionRecurrenceDays = await getRecurrenceDaysForRequisition(idAsNum);
+		const requisitionRecurrenceDays = await getRecurrenceDaysWithAssignmentsForRequisition(idAsNum);
 		const location = await getLocationByIdForCompany(result.requisition.location.id, company.id);
 		const disciplines = await getAllDisciplines();
 		const experienceLevels = await getAllExperienceLevels();
@@ -864,6 +871,38 @@ export const actions = {
 	// 		return setError(form, 'Something went wrong');
 	// 	}
 	// }
+	// Per-row cancel from the Workdays tab's action menu. Delegates to the same
+	// helper the workday detail page and the bulk cancel use, so the audit row,
+	// timesheet strip and candidate notification are identical regardless of
+	// which surface the cancel came from.
+	cancelRecurrenceDay: async (request: RequestEvent) => {
+		const user = request.locals.user;
+		if (!user) return fail(403);
+		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+			return fail(403, { error: 'Not authorized' });
+		}
+
+		const formData = await request.request.formData();
+		const recurrenceDayId = (formData.get('recurrenceDayId') as string | null)?.trim();
+		if (!recurrenceDayId) return fail(400, { error: 'Missing workday id' });
+
+		try {
+			await cancelRecurrenceDayAsActor({
+				recurrenceDayId,
+				actorUserId: user.id,
+				actorRole: user.role as CancellationRole
+			});
+			setFlash({ type: 'success', message: 'Workday cancelled' }, request);
+			return { success: true };
+		} catch (err) {
+			logger.error('requisition cancel recurrence day failed', {
+				error: err,
+				recurrenceDayId
+			});
+			setFlash({ type: 'error', message: 'Failed to cancel workday' }, request);
+			return fail(500, { error: 'Failed to cancel workday' });
+		}
+	},
 	// Bulk status change for selected workdays (OPEN / FILLED / UNFULFILLED only —
 	// CANCELED has its own action so notifications + audit fire correctly).
 	bulkUpdateRecurrenceDayStatus: async (request: RequestEvent) => {
@@ -888,13 +927,18 @@ export const actions = {
 			.where(inArray(recurrenceDayTable.id, ids));
 
 		setFlash(
-			{ type: 'success', message: `${ids.length} workday(s) updated to ${status}` },
+			{
+				type: 'success',
+				message: `${ids.length} workday${ids.length === 1 ? '' : 's'} updated to ${status}`
+			},
 			request
 		);
 		return { success: true };
 	},
-	// Bulk cancel. Available to admin + client (mirrors per-row cancel behavior:
-	// status -> CANCELED, workday.cancelledAt set, candidate notified per row).
+	// Bulk cancel. Available to admin + client. Each day goes through the same
+	// shared helper the per-row and workday-detail cancels use, so the audit row,
+	// timesheet strip and orphan-sheet sweep happen here too — this action used
+	// to skip all three.
 	bulkCancelRecurrenceDays: async (request: RequestEvent) => {
 		const user = request.locals.user;
 		if (!user) return fail(403);
@@ -907,45 +951,32 @@ export const actions = {
 			.filter(Boolean);
 		if (ids.length === 0) return fail(400, { error: 'No workdays selected' });
 
-		// Snapshot candidate + time data BEFORE the status flip so post-tx
-		// notifications can reference the row even if it's been changed.
-		const snapshots = await db
-			.select({
-				recurrenceDayId: recurrenceDayTable.id,
-				candidateId: workdayTable.candidateId,
-				requisitionId: workdayTable.requisitionId,
-				date: recurrenceDayTable.date,
-				dayStart: recurrenceDayTable.dayStart,
-				dayEnd: recurrenceDayTable.dayEnd
-			})
-			.from(recurrenceDayTable)
-			.leftJoin(workdayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
-			.where(inArray(recurrenceDayTable.id, ids));
-
-		await db.transaction(async (tx) => {
-			await tx
-				.update(recurrenceDayTable)
-				.set({ status: 'CANCELED', updatedAt: new Date() })
-				.where(inArray(recurrenceDayTable.id, ids));
-			await tx
-				.update(workdayTable)
-				.set({ cancelledAt: new Date(), updatedAt: new Date() })
-				.where(inArray(workdayTable.recurrenceDayId, ids));
+		// One transaction for the whole batch: either every day cancels or none
+		// does, so we never leave half the selection audited and half not.
+		const snapshots = await db.transaction(async (tx) => {
+			const collected: CancelRecurrenceDaySnapshot[] = [];
+			for (const id of ids) {
+				collected.push(
+					await cancelRecurrenceDayInTx(tx, {
+						recurrenceDayId: id,
+						actorUserId: user.id,
+						actorRole: user.role as CancellationRole
+					})
+				);
+			}
+			return collected;
 		});
 
-		// Notifications fire after the tx commits. Dispatcher swallows its own
-		// failures, so partial notification delivery doesn't roll back the cancel.
-		for (const s of snapshots) {
-			if (s.candidateId && s.requisitionId !== null) {
-				await notifyWorkdayDeleted({
-					candidateId: s.candidateId,
-					requisitionId: s.requisitionId,
-					recurrenceDay: { date: s.date, dayStart: s.dayStart, dayEnd: s.dayEnd }
-				});
-			}
+		// Notifications fire after the tx commits. The dispatcher swallows its own
+		// failures, so partial delivery doesn't roll back the cancel.
+		for (const snapshot of snapshots) {
+			await notifyCancelledWorkday(snapshot);
 		}
 
-		setFlash({ type: 'success', message: `${ids.length} workday(s) canceled` }, request);
+		setFlash(
+			{ type: 'success', message: `${ids.length} workday${ids.length === 1 ? '' : 's'} canceled` },
+			request
+		);
 		return { success: true };
 	},
 	// Bulk delete. Admin-only — clients should cancel, not delete.
@@ -990,7 +1021,10 @@ export const actions = {
 			}
 		}
 
-		setFlash({ type: 'success', message: `${ids.length} workday(s) deleted` }, request);
+		setFlash(
+			{ type: 'success', message: `${ids.length} workday${ids.length === 1 ? '' : 's'} deleted` },
+			request
+		);
 		return { success: true };
 	}
 };

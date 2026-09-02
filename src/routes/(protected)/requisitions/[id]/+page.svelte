@@ -49,8 +49,9 @@
 	import { onMount } from 'svelte';
 	import { writable } from 'svelte/store';
 	import * as Table from '$lib/components/ui/table';
-	import type { RecurrenceDaySelect } from '$lib/server/database/schemas/requisition';
+	import type { RecurrenceDayResults } from '$lib/server/database/queries/requisitions';
 	import WorkDayActionMenu from '$lib/components/dashboard/shared/workday-action-menu.svelte';
+	import ProfessionalCell from '$lib/components/tables/ProfessionalCell.svelte';
 	import { TIMEZONES, USER_ROLES } from '$lib/config/constants';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import {
@@ -115,7 +116,7 @@
 	let editPanelOpen = false;
 	let editSaving = false;
 	let applicationTableData: ApplicationResults[] = [];
-	let recurrenceDaysTableData: RecurrenceDaySelect[] = [];
+	let recurrenceDaysTableData: RecurrenceDayResults[] = [];
 	let timesheetTableData: TimeSheetResults[] = [];
 	let selectedWorkDayStatus: 'OPEN' | 'FILLED' | 'UNFULFILLED' | 'CANCELED' = 'OPEN';
 
@@ -169,13 +170,48 @@
 	let bulkDeleteDialogOpen = false;
 	let bulkActionSubmitting = false;
 
+	// Row-level action state. The confirmation dialogs live at page level (see
+	// the markup at the bottom of this file) rather than inside the action menu:
+	// `flexRender` rebuilds every cell component whenever the table store
+	// re-emits, which `await update()` guarantees, so a dialog mounted in a cell
+	// would be destroyed mid-submit.
+	let rowCancelDialogOpen = false;
+	let rowDeleteDialogOpen = false;
+	let rowActionSubmitting = false;
+	let pendingRecurrenceDay: RecurrenceDayResults | null = null;
+
+	function requestCancelRecurrenceDay(day: RecurrenceDayResults) {
+		pendingRecurrenceDay = day;
+		rowCancelDialogOpen = true;
+	}
+
+	function requestDeleteRecurrenceDay(day: RecurrenceDayResults) {
+		pendingRecurrenceDay = day;
+		rowDeleteDialogOpen = true;
+	}
+
+	// A day only has a professional worth naming when the assignment is live, or
+	// when the day itself is CANCELED (then we show who lost the shift). Flipping
+	// a CANCELED day back to OPEN in bulk leaves `workdayCancelledAt` set, so
+	// presence of a workday row alone is not enough to claim someone is on it.
+	function activeProfessional(day: RecurrenceDayResults) {
+		if (!day.professional) return null;
+		if (!day.workdayCancelledAt) return day.professional;
+		return day.status === 'CANCELED' ? day.professional : null;
+	}
+
+	$: pendingProfessional = pendingRecurrenceDay ? activeProfessional(pendingRecurrenceDay) : null;
+	$: pendingDayLabel = pendingRecurrenceDay
+		? new Date(pendingRecurrenceDay.date).toLocaleDateString('en-US', { timeZone: 'UTC' })
+		: '';
+
 	$: {
 		applicationTableData = (applications as ApplicationResults[]) || [];
 		applicationsOptions.update((o) => ({ ...o, data: applicationTableData }));
 	}
 
 	$: {
-		recurrenceDaysTableData = (recurrenceDays as RecurrenceDaySelect[]) ?? [];
+		recurrenceDaysTableData = (recurrenceDays as RecurrenceDayResults[]) ?? [];
 	}
 
 	$: {
@@ -185,16 +221,7 @@
 		(a, b) => (a.order ?? 0) - (b.order ?? 0)
 	);
 
-	const recurrenceDaysColumns: ColumnDef<RecurrenceDaySelect>[] = [
-		{
-			header: '',
-			id: 'id',
-			accessorFn: (original) => original.id,
-			cell: (original) =>
-				flexRender(ViewLink, {
-					href: `/requisitions/${requisition.id}/workday/${original.getValue()}`
-				})
-		},
+	const recurrenceDaysColumns: ColumnDef<RecurrenceDayResults>[] = [
 		{
 			header: 'Date',
 			accessorFn: (original) =>
@@ -206,15 +233,46 @@
 				`${formatInTimeZone(original.dayStart, requisition.referenceTimezone, 'h:mm a')} - ${formatInTimeZone(original.dayEnd, requisition.referenceTimezone, 'h:mm a')}`
 		},
 		{
+			header: 'Professional',
+			id: 'professional',
+			// String accessor so sorting stays meaningful; `cell` overrides display.
+			accessorFn: (original) => {
+				const pro = activeProfessional(original);
+				return pro ? `${pro.lastName ?? ''}, ${pro.firstName ?? ''}` : '';
+			},
+			cell: (info) => {
+				const day = info.row.original;
+				const pro = activeProfessional(day);
+				return flexRender(ProfessionalCell, {
+					firstName: pro?.firstName ?? null,
+					lastName: pro?.lastName ?? null,
+					avatarUrl: pro?.avatarUrl ?? null,
+					cancelled: Boolean(pro && day.workdayCancelledAt)
+				});
+			}
+		},
+		{
 			header: 'Status',
 			accessorKey: 'status',
 			cell: (original) =>
 				flexRender(StatusBadge, { status: original.getValue() as string })
 		},
 		{
+			// `isAdmin` / `hasRequisitionRights` are read inside the cell, not when
+			// this array is built: instance-level consts run before the first
+			// reactive flush, so up here they'd still be undefined.
 			header: 'Actions',
 			id: 'actions',
-			cell: () => flexRender(WorkDayActionMenu, { href: '' })
+			cell: (info) => {
+				const day = info.row.original;
+				return flexRender(WorkDayActionMenu, {
+					href: `/requisitions/${requisition.id}/workday/${day.id}`,
+					canCancel: hasRequisitionRights && day.status !== 'CANCELED',
+					canDelete: isAdmin,
+					onCancel: () => requestCancelRecurrenceDay(day),
+					onDelete: () => requestDeleteRecurrenceDay(day)
+				});
+			}
 		}
 	];
 
@@ -300,7 +358,7 @@
 		getCoreRowModel: getCoreRowModel(),
 		getSortedRowModel: getSortedRowModel()
 	});
-	const recurrenceDaysOptions = writable<TableOptions<RecurrenceDaySelect>>({
+	const recurrenceDaysOptions = writable<TableOptions<RecurrenceDayResults>>({
 		data: filteredRecurrenceDays,
 		columns: recurrenceDaysColumns,
 		getCoreRowModel: getCoreRowModel(),
@@ -316,7 +374,7 @@
 	onMount(() => {
 		applicationTableData = (applications as ApplicationResults[]) ?? [];
 		applicationsOptions.update((o) => ({ ...o, data: applicationTableData }));
-		recurrenceDaysTableData = (recurrenceDays as RecurrenceDaySelect[]) ?? [];
+		recurrenceDaysTableData = (recurrenceDays as RecurrenceDayResults[]) ?? [];
 		recurrenceDaysOptions.update((o) => ({ ...o, data: filteredRecurrenceDays }));
 		timesheetTableData = (data.timesheets as TimeSheetResults[]) ?? [];
 		timesheetOptions.update((o) => ({ ...o, data: timesheetTableData }));
@@ -1320,6 +1378,97 @@
 					disabled={bulkActionSubmitting}
 				>
 					{bulkActionSubmitting ? 'Deleting...' : 'Delete'}
+				</AlertDialogAction>
+			</form>
+		</AlertDialogFooter>
+	</AlertDialogContent>
+</AlertDialog>
+
+<!-- ─── Row Cancel Confirm Dialog ──────────────────────────────────────────── -->
+<AlertDialog bind:open={rowCancelDialogOpen}>
+	<AlertDialogContent>
+		<AlertDialogHeader>
+			<AlertDialogTitle>Cancel this workday?</AlertDialogTitle>
+			<AlertDialogDescription>
+				{#if pendingRecurrenceDay}
+					This cancels the shift on <strong>{pendingDayLabel}</strong>.
+					{#if pendingProfessional}
+						<strong>{pendingProfessional.firstName} {pendingProfessional.lastName}</strong>
+						will be notified and the day's hours removed from their timesheet.
+					{/if}
+					This action cannot be undone.
+				{/if}
+			</AlertDialogDescription>
+		</AlertDialogHeader>
+		<AlertDialogFooter>
+			<AlertDialogCancel>Keep workday</AlertDialogCancel>
+			<form
+				method="POST"
+				action="?/cancelRecurrenceDay"
+				use:enhance={() => {
+					rowActionSubmitting = true;
+					return async ({ update }) => {
+						rowActionSubmitting = false;
+						rowCancelDialogOpen = false;
+						pendingRecurrenceDay = null;
+						await update();
+					};
+				}}
+			>
+				<input type="hidden" name="recurrenceDayId" value={pendingRecurrenceDay?.id ?? ''} />
+				<AlertDialogAction
+					type="submit"
+					class="bg-destructive hover:bg-destructive/90"
+					disabled={rowActionSubmitting}
+				>
+					{rowActionSubmitting ? 'Cancelling...' : 'Cancel workday'}
+				</AlertDialogAction>
+			</form>
+		</AlertDialogFooter>
+	</AlertDialogContent>
+</AlertDialog>
+
+<!-- ─── Row Delete Confirm Dialog (admin only) ─────────────────────────────── -->
+<AlertDialog bind:open={rowDeleteDialogOpen}>
+	<AlertDialogContent>
+		<AlertDialogHeader>
+			<AlertDialogTitle>Delete this workday?</AlertDialogTitle>
+			<AlertDialogDescription>
+				{#if pendingRecurrenceDay}
+					This will permanently archive the workday on <strong>{pendingDayLabel}</strong> and its
+					assigned timesheet.
+					{#if pendingProfessional}
+						<strong>{pendingProfessional.firstName} {pendingProfessional.lastName}</strong>
+						will be notified.
+					{/if}
+					This action cannot be undone.
+				{/if}
+			</AlertDialogDescription>
+		</AlertDialogHeader>
+		<AlertDialogFooter>
+			<AlertDialogCancel>Cancel</AlertDialogCancel>
+			<!-- Posts to the bulk action with a one-element CSV: it is already
+			     SUPERADMIN-gated and audit-logs each delete. -->
+			<form
+				method="POST"
+				action="?/bulkDeleteRecurrenceDays"
+				use:enhance={() => {
+					rowActionSubmitting = true;
+					return async ({ update }) => {
+						rowActionSubmitting = false;
+						rowDeleteDialogOpen = false;
+						pendingRecurrenceDay = null;
+						await update();
+					};
+				}}
+			>
+				<input type="hidden" name="ids" value={pendingRecurrenceDay?.id ?? ''} />
+				<AlertDialogAction
+					type="submit"
+					class="bg-destructive hover:bg-destructive/90"
+					disabled={rowActionSubmitting}
+				>
+					{rowActionSubmitting ? 'Deleting...' : 'Delete'}
 				</AlertDialogAction>
 			</form>
 		</AlertDialogFooter>
