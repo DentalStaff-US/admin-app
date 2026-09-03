@@ -18,6 +18,7 @@
 	import { formatCurrency } from '$lib/_helpers';
 	import { Badge } from '$lib/components/ui/badge';
 	import { StatusBadge } from '$lib/components/ui/status-badge';
+	import DisciplineCell from '$lib/components/tables/DisciplineCell.svelte';
 	import { cn } from '$lib/utils';
 	import { format } from 'date-fns';
 	import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
@@ -472,11 +473,14 @@
 														{profileData.user.firstName}
 														{profileData.user.lastName}
 													</p>
-													<p class="text-xs text-gray-500 truncate">
-														{profileData.profile.desiredPosition || 'Position not specified'}
-													</p>
+													<div class="mt-1">
+														<DisciplineCell disciplines={profileData.disciplines ?? []} max={2} />
+													</div>
 												</div>
-												<StatusBadge status={profileData.profile.status || 'PENDING'} />
+												<StatusBadge
+													status={profileData.profile.status || 'PENDING'}
+													class="ml-2 shrink-0"
+												/>
 											</a>
 										</li>
 									{/each}
