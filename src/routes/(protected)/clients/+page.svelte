@@ -1,13 +1,8 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import {
-		ArrowUpDown,
-		Users,
-		ChevronLeft,
-		ChevronRight,
-		Plus
-	} from 'lucide-svelte';
+	import { ArrowUpDown, Users, Plus } from 'lucide-svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { writable } from 'svelte/store';
 	import * as Table from '$lib/components/ui/table';
 	import * as Tabs from '$lib/components/ui/tabs';
@@ -19,7 +14,6 @@
 		getCoreRowModel,
 		type ColumnDef,
 		getSortedRowModel,
-		getPaginationRowModel,
 		type TableOptions,
 		createSvelteTable,
 		flexRender
@@ -28,6 +22,15 @@
 	import { superForm } from 'sveltekit-superforms/client';
 	import { Label } from '$lib/components/ui/label';
 	import type { AdminNewUserSchema } from '$lib/config/zod-schemas';
+	import FilterBar from '$lib/components/filters/FilterBar.svelte';
+	import type { FilterDimension } from '$lib/components/filters/types';
+	import LocationCell from '$lib/components/tables/LocationCell.svelte';
+	import {
+		buildClientFiltersHref,
+		type ClientFilterChanges,
+		type LocationSummary
+	} from '$lib/_helpers/client-filters';
+	import { debounce } from '$lib/_helpers/debounce';
 
 	export let data: PageData;
 	$: newProfileForm = data.newProfileForm;
@@ -53,21 +56,14 @@
 			id: string;
 			userId: string;
 			createdAt: Date;
-			updatedAt: Date;
-			birthday: string | null;
 			status: string | null;
+			cellPhone: string | null;
 		};
 		company: {
-			companyName: string;
 			id: string;
-			createdAt: Date;
-			updatedAt: Date;
-			operatingHours: Record<string, any>;
-			licenseNumber: string | null;
-			companyLogo: string | null;
-			companyDescription: string | null;
-			baseLocation: string | null;
+			companyName: string;
 		};
+		locations: LocationSummary[];
 	};
 
 	type StatusKey = 'PENDING' | 'ACTIVE' | 'INACTIVE' | 'DENIED';
@@ -78,12 +74,37 @@
 		{ value: 'DENIED', label: 'Denied' }
 	];
 
-	let searchTerm = data.searchTerm || '';
 	let addDialogOpen = false;
 
 	$: activeTab = (data.status as StatusKey) || 'ACTIVE';
 	$: clients = (data.clients as ClientData[]) || [];
 	$: statusCounts = data.statusCounts as Record<StatusKey, number>;
+	$: filters = data.filters;
+	$: facets = data.facets;
+
+	// Reactive off `data` (not a one-time initializer) so a pasted URL, a shared
+	// link, or back/forward navigation forces the filter state onto the UI.
+	$: appliedSearch = data.searchTerm ?? '';
+	$: selectedCities = filters.cities ?? [];
+	$: selectedStates = filters.states ?? [];
+
+	// The input keeps its own copy: re-syncing it on every `data` change would
+	// let a slow in-flight navigation overwrite characters typed since. Only
+	// adopt the URL value when it changed to something we didn't just submit.
+	let searchInput = data.searchTerm ?? '';
+	let lastSubmittedSearch = data.searchTerm ?? '';
+	$: if (appliedSearch !== lastSubmittedSearch) {
+		searchInput = appliedSearch;
+		lastSubmittedSearch = appliedSearch;
+	}
+
+	$: filterDimensions = [
+		{ key: 'city', label: 'City', options: facets.cities, selected: selectedCities },
+		{ key: 'state', label: 'State', options: facets.states, selected: selectedStates },
+		{ key: 'zip', label: 'Zip', options: facets.zipcodes, selected: filters.zipcodes ?? [] }
+	] satisfies FilterDimension[];
+
+	$: activeFilterCount = filterDimensions.reduce((total, d) => total + d.selected.length, 0);
 
 	function statusLabel(s: string | null | undefined) {
 		switch (s) {
@@ -119,6 +140,20 @@
 			enableSorting: true
 		},
 		{
+			header: 'Location',
+			id: 'locations',
+			accessorFn: (row) =>
+				row.locations?.map((entry) => [entry.city, entry.state].filter(Boolean).join(', ')).join('; ') ??
+				'',
+			enableSorting: true,
+			cell: ({ row }) =>
+				flexRender(LocationCell, {
+					locations: row.original.locations ?? [],
+					highlightCities: selectedCities,
+					highlightStates: selectedStates
+				})
+		},
+		{
 			header: 'Status',
 			id: 'status',
 			accessorFn: (row) => row.profile.status ?? 'PENDING',
@@ -144,32 +179,44 @@
 		data: clients,
 		columns,
 		getCoreRowModel: getCoreRowModel(),
-		getSortedRowModel: getSortedRowModel(),
-		getPaginationRowModel: getPaginationRowModel(),
-		initialState: {
-			pagination: { pageSize: 10 }
-		}
+		getSortedRowModel: getSortedRowModel()
 	});
 	const table = createSvelteTable(options);
 
 	$: options.update((o) => ({ ...o, data: clients, columns }));
 
-	function buildHref(nextStatus: StatusKey, nextSearch = searchTerm) {
-		const params = new URLSearchParams();
-		params.set('status', nextStatus);
-		if (nextSearch && nextSearch.trim()) params.set('search', nextSearch.trim());
-		return `/clients?${params.toString()}`;
+	// Merges onto the CURRENT params, so switching tabs or typing a search no
+	// longer drops the active city/state/zip filters.
+	function applyFilters(changes: ClientFilterChanges, replaceState = false) {
+		goto(buildClientFiltersHref($page.url.searchParams, changes), {
+			keepFocus: true,
+			noScroll: true,
+			replaceState
+		});
 	}
 
 	function handleTabChange(value: string | undefined) {
 		if (!value) return;
 		const next = value as StatusKey;
 		if (next === activeTab) return;
-		goto(buildHref(next), { keepFocus: true, noScroll: true });
+		applyFilters({ status: next });
 	}
 
-	function handleSearch(value: string) {
-		goto(buildHref(activeTab, value), { replaceState: true });
+	// Each search fires four queries (the list plus three facet counts), so wait
+	// until typing settles — but not so long that the page feels unresponsive.
+	const SEARCH_DEBOUNCE_MS = 800;
+
+	const pushSearch = debounce((value: string) => {
+		lastSubmittedSearch = value.trim();
+		applyFilters({ search: value }, true);
+	}, SEARCH_DEBOUNCE_MS);
+
+	function handleDimensionChange(key: string, values: string[]) {
+		applyFilters({ [key]: values } as ClientFilterChanges);
+	}
+
+	function handleClearAll() {
+		applyFilters({ search: null, city: [], state: [], zip: [] });
 	}
 
 	function handleRowClick(clientId: string) {
@@ -186,21 +233,29 @@
 		</div>
 	</div>
 
-	<div class="flex justify-between flex-wrap items-center">
+	<div class="flex justify-between flex-wrap items-center gap-4">
 		<!-- Search -->
-		<form on:submit|preventDefault={() => handleSearch(searchTerm)} class="flex items-center gap-2">
-			<Input bind:value={searchTerm} placeholder="Search clients..." class="bg-white max-w-xs" />
-			<Button
-				size="sm"
-				class="bg-primary hover:bg-primary/90"
-				on:click={() => handleSearch(searchTerm)}
-				>Search
-			</Button>
+		<form on:submit|preventDefault class="flex items-center gap-2">
+			<Input
+				bind:value={searchInput}
+				on:input={() => pushSearch(searchInput)}
+				placeholder="Search name, email, company, address..."
+				class="bg-white w-72 max-w-full"
+			/>
 		</form>
 		<Button class="bg-primary hover:bg-primary/90 gap-2" on:click={() => (addDialogOpen = true)}
 			><Plus />Add Client</Button
 		>
 	</div>
+
+	<!-- Filters -->
+	<FilterBar
+		dimensions={filterDimensions}
+		searchTerm={appliedSearch || null}
+		on:change={(event) => handleDimensionChange(event.detail.key, event.detail.values)}
+		on:clearSearch={() => applyFilters({ search: null })}
+		on:clearAll={handleClearAll}
+	/>
 
 	<!-- Tabs with single status-filtered table -->
 	<Tabs.Root value={activeTab} onValueChange={handleTabChange}>
@@ -269,42 +324,10 @@
 								</Table.Root>
 							</div>
 
-							<!-- Pagination -->
-							<div class="flex items-center justify-between space-x-2 p-4 border-t">
-								<div class="flex-1 text-sm text-muted-foreground">
-									Showing {$table.getState().pagination.pageIndex *
-										$table.getState().pagination.pageSize +
-										1} to {Math.min(
-										($table.getState().pagination.pageIndex + 1) *
-											$table.getState().pagination.pageSize,
-										$table.getFilteredRowModel().rows.length
-									)} of {$table.getFilteredRowModel().rows.length} clients
-								</div>
-								<div class="flex items-center space-x-2">
-									<Button
-										variant="outline"
-										size="sm"
-										on:click={() => $table.previousPage()}
-										disabled={!$table.getCanPreviousPage()}
-									>
-										<ChevronLeft class="h-4 w-4" />
-										Previous
-									</Button>
-									<div class="flex items-center space-x-1">
-										<span class="text-sm text-muted-foreground">
-											Page {$table.getState().pagination.pageIndex + 1} of {$table.getPageCount()}
-										</span>
-									</div>
-									<Button
-										variant="outline"
-										size="sm"
-										on:click={() => $table.nextPage()}
-										disabled={!$table.getCanNextPage()}
-									>
-										Next
-										<ChevronRight class="h-4 w-4" />
-									</Button>
-								</div>
+							<div class="p-4 border-t text-sm text-muted-foreground">
+								{$table.getRowModel().rows.length} client{$table.getRowModel().rows.length === 1
+									? ''
+									: 's'}
 							</div>
 						{:else}
 							<!-- Empty state -->
@@ -318,8 +341,8 @@
 									No {tab.label.toLowerCase()} clients found
 								</h3>
 								<p class="text-sm text-gray-500">
-									{#if searchTerm}
-										Try adjusting your search terms
+									{#if appliedSearch || activeFilterCount}
+										Try adjusting your search or filters
 									{:else}
 										No client profiles in this status
 									{/if}

@@ -1,10 +1,6 @@
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import {
-	clientCanCreateRequisitions,
-	USER_ROLES,
-	type ClientStatus
-} from '$lib/config/constants';
+import { clientCanCreateRequisitions, USER_ROLES, type ClientStatus } from '$lib/config/constants';
 import {
 	addStaffToLocation,
 	getAllClientStaffProfilesForLocation,
@@ -13,6 +9,7 @@ import {
 	getClientProfilebyUserId,
 	getClientStaffProfilebyClientId,
 	getClientStaffProfilebyUserId,
+	getLocationAddressSnapshot,
 	getLocationByIdForCompany,
 	getLocationTimezone,
 	getPendingInvitesForLocation,
@@ -24,6 +21,8 @@ import {
 	updateCompanyLocation
 } from '$lib/server/database/queries/clients';
 import { getRequsitionsForLocation } from '$lib/server/database/queries/requisitions';
+import { buildLocationAddressPatch } from '$lib/server/address';
+import { geocodingQueue } from '$lib/server/geocode-queue';
 import { setError, superValidate } from 'sveltekit-superforms/server';
 import { z } from 'zod';
 import { setFlash } from 'sveltekit-flash-message/server';
@@ -181,9 +180,7 @@ export const actions = {
 
 		const isClient = user.role === USER_ROLES.CLIENT;
 		const staffSelf =
-			user.role === USER_ROLES.CLIENT_STAFF
-				? await getClientStaffProfilebyUserId(user.id)
-				: null;
+			user.role === USER_ROLES.CLIENT_STAFF ? await getClientStaffProfilebyUserId(user.id) : null;
 		const isClientAdmin = staffSelf?.staffRole === 'CLIENT_ADMIN';
 		if (!isClient && !isClientAdmin) return fail(403, { error: 'Not allowed' });
 
@@ -220,9 +217,7 @@ export const actions = {
 
 		const isClient = user.role === USER_ROLES.CLIENT;
 		const staffSelf =
-			user.role === USER_ROLES.CLIENT_STAFF
-				? await getClientStaffProfilebyUserId(user.id)
-				: null;
+			user.role === USER_ROLES.CLIENT_STAFF ? await getClientStaffProfilebyUserId(user.id) : null;
 		const isClientAdmin = staffSelf?.staffRole === 'CLIENT_ADMIN';
 		if (!isClient && !isClientAdmin) return fail(403, { error: 'Not allowed' });
 
@@ -257,9 +252,7 @@ export const actions = {
 		const isAdmin = user.role === USER_ROLES.SUPERADMIN;
 		const isClient = user.role === USER_ROLES.CLIENT;
 		const staffSelf =
-			user.role === USER_ROLES.CLIENT_STAFF
-				? await getClientStaffProfilebyUserId(user.id)
-				: null;
+			user.role === USER_ROLES.CLIENT_STAFF ? await getClientStaffProfilebyUserId(user.id) : null;
 		const isClientAdmin = staffSelf?.staffRole === 'CLIENT_ADMIN';
 		if (!isAdmin && !isClient && !isClientAdmin) {
 			return fail(403, { error: 'Not allowed' });
@@ -393,7 +386,16 @@ export const actions = {
 
 		const { completeAddress, lat, lon, name, email, companyPhone, website, timezone } = form.data;
 
+		// The schema already carries streetOne/city/state/zipcode; they used to be
+		// dropped here, so editing an address left the old city/state/zipcode
+		// behind. The clients index filters on those columns.
+		const previousAddress = await getLocationAddressSnapshot(id);
+		const address = buildLocationAddressPatch(form.data, {
+			previousCompleteAddress: previousAddress?.completeAddress ?? null
+		});
+
 		const details = {
+			...address.patch,
 			completeAddress,
 			lat: lat?.toString(),
 			lon: lon?.toString(),
@@ -407,6 +409,18 @@ export const actions = {
 		try {
 			const previousTimezone = await getLocationTimezone(id);
 			await updateCompanyLocation(id, details);
+
+			// Mapbox is the backstop when the string alone can't be resolved.
+			if (address.needsGeocode && address.completeAddress) {
+				geocodingQueue.addJobs([
+					{
+						locationId: id,
+						address: address.completeAddress,
+						email: email ?? '',
+						type: 'location'
+					}
+				]);
+			}
 
 			// Keep every requisition at this location on the location's zone; their
 			// upcoming shifts keep the same local start/end times.

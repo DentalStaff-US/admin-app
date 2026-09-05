@@ -251,3 +251,96 @@ export function buildCandidateAddressPatch(payload: {
 		completeAddress
 	};
 }
+
+/**
+ * Granular address fields as stored on `company_office_locations` (`street` is
+ * stored in the `street_one` column).
+ *
+ * `streetTwo` is deliberately absent. A formatted address string cannot be
+ * split back into line 1 / line 2 — "123 Main St, Apt 2, Austin, TX, 78701"
+ * parses with `street = "123 Main St, Apt 2"` — so deriving `streetTwo` would
+ * duplicate the unit and orphan whatever was already stored. Callers that have
+ * a real street_two field set it themselves.
+ */
+export type LocationAddressPatch = {
+	streetOne: string | null;
+	city: string | null;
+	state: string | null;
+	zipcode: string | null;
+};
+
+/** Location counterpart of `addressComponentsToProfilePatch`. */
+export function addressComponentsToLocationPatch(
+	components: AddressComponents
+): LocationAddressPatch {
+	return {
+		streetOne: components.street,
+		city: components.city,
+		state: components.state,
+		zipcode: components.zipcode
+	};
+}
+
+/**
+ * Normalizes the address portion of a company office location payload.
+ *
+ * Diverges from `buildCandidateAddressPatch` in one deliberate way: when the
+ * address cannot be resolved, this returns an EMPTY patch rather than one that
+ * nulls city/state/zipcode — unless the caller proves the address actually
+ * changed by passing `previousCompleteAddress`. Location forms save unrelated
+ * fields (phone, hours, website) alongside the address, and blanking a good
+ * city every time someone edits a phone number would keep the filter
+ * permanently under-reporting.
+ *
+ * When the address DID change and still can't be resolved, the stored
+ * components are nulled: they belong to the old address, so they are now
+ * simply wrong. NULL is invisible to the filter; wrong is worse.
+ */
+export function buildLocationAddressPatch(
+	payload: {
+		completeAddress?: string | null;
+		streetOne?: string | null;
+		city?: string | null;
+		state?: string | null;
+		zipcode?: string | null;
+	},
+	options: { previousCompleteAddress?: string | null } = {}
+): {
+	patch: Partial<LocationAddressPatch>;
+	needsGeocode: boolean;
+	completeAddress: string | null;
+} {
+	const completeAddress = cleanFormValue(payload.completeAddress);
+	if (!completeAddress) {
+		return { patch: {}, needsGeocode: false, completeAddress: null };
+	}
+
+	const resolved = resolveAddressComponents({
+		completeAddress,
+		components: {
+			street: cleanFormValue(payload.streetOne),
+			city: cleanFormValue(payload.city),
+			state: cleanFormValue(payload.state),
+			zipcode: cleanFormValue(payload.zipcode)
+		}
+	});
+
+	// City + state are the pair the filters actually need; `parseCompleteAddress`
+	// only ever returns both or neither.
+	if (resolved.city && resolved.state) {
+		return {
+			patch: addressComponentsToLocationPatch(resolved),
+			needsGeocode: resolved.needsGeocode,
+			completeAddress
+		};
+	}
+
+	const previous = cleanFormValue(options.previousCompleteAddress);
+	const addressChanged = previous !== null && previous !== completeAddress;
+
+	return {
+		patch: addressChanged ? addressComponentsToLocationPatch(resolved) : {},
+		needsGeocode: true,
+		completeAddress
+	};
+}

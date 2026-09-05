@@ -1008,16 +1008,21 @@ export async function bulkCreateClients(tx: any, users: ImportUser[]): Promise<B
 		});
 
 		if (user.address) {
+			// Derive city/state/zipcode so imported clients are filterable on the
+			// clients index immediately. Rows that don't parse still queue for
+			// geocoding below, and the queue fills the components in.
+			const importedComponents = parseCompleteAddress(user.address);
+
 			locationRecords.push({
 				id: locationId,
 				createdAt: new Date(),
 				updatedAt: new Date(),
 				email: user.email,
-				streetOne: user.address || null,
+				streetOne: importedComponents?.street ?? user.address ?? null,
 				streetTwo: null,
-				city: null,
-				state: null,
-				zipcode: null,
+				city: importedComponents?.city ?? null,
+				state: importedComponents?.state ?? null,
+				zipcode: importedComponents?.zipcode ?? null,
 				companyPhone: null,
 				cellPhone: null,
 				companyId: companyId,
