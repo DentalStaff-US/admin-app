@@ -52,6 +52,7 @@
 	import type { RecurrenceDayResults } from '$lib/server/database/queries/requisitions';
 	import WorkDayActionMenu from '$lib/components/dashboard/shared/workday-action-menu.svelte';
 	import ProfessionalCell from '$lib/components/tables/ProfessionalCell.svelte';
+	import { shouldShowProfessional } from '$lib/_helpers/assignment';
 	import { TIMEZONES, USER_ROLES } from '$lib/config/constants';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import {
@@ -190,14 +191,14 @@
 		rowDeleteDialogOpen = true;
 	}
 
-	// A day only has a professional worth naming when the assignment is live, or
-	// when the day itself is CANCELED (then we show who lost the shift). Flipping
-	// a CANCELED day back to OPEN in bulk leaves `workdayCancelledAt` set, so
-	// presence of a workday row alone is not enough to claim someone is on it.
+	// Shared with the workday detail page so the two surfaces cannot disagree
+	// about whether a shift is assigned. A workday row outlives its assignment
+	// (cancel keeps it; blacklist additionally reopens the day), so presence of
+	// a row is not enough to claim someone is on the shift.
 	function activeProfessional(day: RecurrenceDayResults) {
 		if (!day.professional) return null;
-		if (!day.workdayCancelledAt) return day.professional;
-		return day.status === 'CANCELED' ? day.professional : null;
+		const assignment = { cancelledAt: day.workdayCancelledAt };
+		return shouldShowProfessional(assignment, day.status) ? day.professional : null;
 	}
 
 	$: pendingProfessional = pendingRecurrenceDay ? activeProfessional(pendingRecurrenceDay) : null;
