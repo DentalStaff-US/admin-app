@@ -9,6 +9,8 @@ import {
 	getClientProfilebyUserId,
 	getPrimaryLocationForCompany
 } from '$lib/server/database/queries/clients.js';
+import { buildLocationAddressPatch } from '$lib/server/address';
+import { geocodingQueue } from '$lib/server/geocode-queue';
 
 const companyLocationSchema = clientCompanyLocationSchema.pick({
 	name: true,
@@ -19,7 +21,14 @@ const companyLocationSchema = clientCompanyLocationSchema.pick({
 	phoneNumber: true,
 	phoneNumberType: true,
 	email: true,
-	website: true
+	website: true,
+	// Included so the components reach the server if the picker ever posts them;
+	// today they're absent and buildLocationAddressPatch parses completeAddress.
+	streetOne: true,
+	streetTwo: true,
+	city: true,
+	state: true,
+	zipcode: true
 });
 
 export const load = async (event) => {
@@ -61,12 +70,18 @@ export const actions = {
 			const locationId = await crypto.randomUUID();
 			const client = await getClientProfilebyUserId(event.locals.user!.id);
 			const company = await getClientCompanyByClientId(client.id);
+			// Onboarding only collects a formatted address string. Derive
+			// city/state/zipcode from it so the client is filterable on the
+			// clients index from the moment it's created.
+			const address = buildLocationAddressPatch(form.data);
+
 			const newLocation = await createCompanyLocation({
 				id: locationId,
 				createdAt: new Date(),
 				updatedAt: new Date(),
 				companyId: company.id,
 				name: form.data.name,
+				...address.patch,
 				completeAddress: form.data.completeAddress,
 				lat: form.data.lat?.toString(),
 				lon: form.data.lon?.toString(),
@@ -76,6 +91,18 @@ export const actions = {
 				email: form.data.email || null,
 				website: form.data.website || null
 			});
+
+			// Mapbox is the backstop when the string alone can't be resolved.
+			if (address.needsGeocode && address.completeAddress) {
+				geocodingQueue.addJobs([
+					{
+						locationId,
+						address: address.completeAddress,
+						email: form.data.email || '',
+						type: 'location'
+					}
+				]);
+			}
 
 			if (newLocation) {
 				setFlash(

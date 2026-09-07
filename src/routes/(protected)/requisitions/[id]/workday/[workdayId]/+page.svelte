@@ -56,6 +56,7 @@
 	} from 'lucide-svelte';
 	import { enhance } from '$app/forms';
 	import { USER_ROLES } from '$lib/config/constants';
+	import { isAssignmentActive, isAssignmentHistory } from '$lib/_helpers/assignment';
 	import { superForm } from 'sveltekit-superforms/client';
 
 	export let data: PageData;
@@ -67,6 +68,15 @@
 	$: candidate = workday?.candidate;
 	$: timesheet = workday?.timesheet;
 	$: hasWorkday = !!workday?.workday;
+
+	// A workday row can outlive its assignment: cancelling keeps the row with
+	// `cancelledAt` set, and blacklisting a candidate additionally flips the day
+	// back to OPEN so it can be refilled. Treating "row exists" as "assigned" is
+	// what made those reopened days still render the old professional.
+	$: assignment = workday?.workday ?? null;
+	$: dayStatus = recurrenceDay?.recurrenceDay?.status;
+	$: hasActiveWorkday = isAssignmentActive(assignment);
+	$: showAssignmentHistory = isAssignmentHistory(assignment, dayStatus);
 	$: qualifiedProfessionals = data.qualifiedProfessionals || [];
 	$: defaultSearchRadiusMiles = data.defaultSearchRadiusMiles ?? 60;
 	$: editWorkdayScheduleForm = data.editWorkdayScheduleForm;
@@ -230,13 +240,17 @@
 	</div>
 
 	<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-		<!-- Professional Details card -->
-		{#if hasWorkday && candidate}
+		<!-- Professional Details card. Shown for a live assignment, or for a
+		     cancelled one on a CANCELED day where "who lost this shift" is still
+		     the useful answer. A reopened day falls through to the Assign card. -->
+		{#if (hasActiveWorkday || showAssignmentHistory) && candidate}
 			<Card>
 				<CardHeader class="flex flex-row items-center justify-between">
 					<CardTitle>Professional:</CardTitle>
-					<!-- Reassign / Unassign menu (replaces the Assign button when someone is assigned) -->
-					{#if isAdmin}
+					<!-- Reassign / Unassign menu (replaces the Assign button when someone is assigned).
+					     Hidden once the assignment is cancelled: there is nobody to unassign, and
+					     unassignCandidate would hard-delete the row we keep for history. -->
+					{#if isAdmin && hasActiveWorkday}
 					<DropdownMenu>
 						<DropdownMenuTrigger>
 							<Button variant="outline" size="sm" class="gap-1">
@@ -268,7 +282,13 @@
 							<AvatarFallback>{candidate.firstName?.[0]}{candidate.lastName?.[0]}</AvatarFallback>
 						</Avatar>
 						<div>
-							<h3 class="text-xl font-bold">{candidate.firstName} {candidate.lastName}</h3>
+							<h3 class="text-xl font-bold" class:line-through={showAssignmentHistory}>
+								{candidate.firstName}
+								{candidate.lastName}
+							</h3>
+							{#if showAssignmentHistory}
+								<p class="text-sm text-muted-foreground">Assignment cancelled</p>
+							{/if}
 							<p class="text-sm text-muted-foreground">ID: {candidate.id}</p>
 						</div>
 					</div>
@@ -290,7 +310,10 @@
 			<Card>
 				<CardHeader class="flex flex-row justify-between items-center">
 					<CardTitle>Professional:</CardTitle>
-					{#if !candidate && recurrenceDay?.recurrenceDay?.status === 'OPEN' && isAdmin}
+					<!-- Gated on the day being open, NOT on `candidate` being absent: a day
+					     reopened by a blacklist still carries the cancelled candidate, and
+					     checking `!candidate` there left it unfillable. -->
+					{#if dayStatus === 'OPEN' && isAdmin}
 						<Button
 							class="gap-2 bg-primary hover:bg-primary/90"
 							on:click={() => (assignDialogOpen = true)}

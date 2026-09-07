@@ -10,10 +10,14 @@ import {
 	or,
 	ilike,
 	SQL,
+	type SQLWrapper,
 	inArray,
-	isNotNull
+	isNotNull,
+	exists
 } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import db from '$lib/server/database/drizzle';
+import type { ClientFilters, LocationSummary } from '$lib/_helpers/client-filters';
 import {
 	clientCompanyTable,
 	clientDocumentUploadsTable,
@@ -210,22 +214,130 @@ export async function getClientStatusCounts(): Promise<ClientStatusCounts> {
 	return counts;
 }
 
-export async function getAllClientProfiles(searchTerm?: string, status?: ClientStatus) {
-	const filters: SQL[] = [];
+/** Which filter dimension to leave out — used to build facet-aware option lists. */
+type ClientFilterDimension = 'city' | 'state' | 'zipcode';
+
+/**
+ * Client-level location predicate: "this company has at least one office
+ * matching".
+ *
+ * This MUST be an EXISTS subquery over an ALIASED locations table rather than a
+ * join-level WHERE. The list query left-joins locations to aggregate every
+ * office a client holds; filtering the join instead would shrink that aggregate,
+ * so filtering by one city would make a multi-office client render only its
+ * matching pill. Aliasing matters for the same reason it does in
+ * `disciplineNameMatches` (queries/candidates.ts): an unaliased reference binds
+ * to the outer join in the list query and hard-errors in the facet queries,
+ * which have no such join.
+ */
+function locationCityMatches(cities: string[]) {
+	const loc = alias(companyOfficeLocationTable, 'filter_location_city');
+	// City has no canonical stored form (Mapbox "Austin", CSV imports "AUSTIN"),
+	// so the comparison is case-insensitive. This matches the
+	// `company_office_locations_city_idx` expression index on lower(city).
+	return exists(
+		db
+			.select({ one: sql`1` })
+			.from(loc)
+			.where(
+				and(
+					eq(loc.companyId, clientCompanyTable.id),
+					inArray(
+						sql`lower(${loc.city})`,
+						cities.map((city) => city.toLowerCase())
+					)
+				)
+			)
+	);
+}
+
+function locationStateMatches(states: string[]) {
+	const loc = alias(companyOfficeLocationTable, 'filter_location_state');
+	// state/zipcode are canonicalized at write time by normalizeState /
+	// normalizeZip, so plain equality matches the plain btree indexes.
+	return exists(
+		db
+			.select({ one: sql`1` })
+			.from(loc)
+			.where(and(eq(loc.companyId, clientCompanyTable.id), inArray(loc.state, states)))
+	);
+}
+
+function locationZipcodeMatches(zipcodes: string[]) {
+	const loc = alias(companyOfficeLocationTable, 'filter_location_zip');
+	return exists(
+		db
+			.select({ one: sql`1` })
+			.from(loc)
+			.where(and(eq(loc.companyId, clientCompanyTable.id), inArray(loc.zipcode, zipcodes)))
+	);
+}
+
+/** Free-text search across any of the company's office addresses. */
+function locationAddressMatches(term: string) {
+	const loc = alias(companyOfficeLocationTable, 'filter_location_search');
+	return exists(
+		db
+			.select({ one: sql`1` })
+			.from(loc)
+			.where(
+				and(
+					eq(loc.companyId, clientCompanyTable.id),
+					or(
+						ilike(loc.city, term),
+						ilike(loc.state, term),
+						ilike(loc.zipcode, term),
+						ilike(loc.completeAddress, term)
+					)
+				)
+			)
+	);
+}
+
+/**
+ * Builds the WHERE conditions for the clients list. `exclude` omits one
+ * dimension so each facet list can be counted against every *other* active
+ * filter (selecting a state narrows the city options, but not the state ones).
+ */
+function buildClientFilterConditions(
+	filters: ClientFilters,
+	exclude?: ClientFilterDimension
+): SQLWrapper[] {
+	const conditions: SQLWrapper[] = [];
+	const { search, status, cities, states, zipcodes } = filters;
 
 	if (status && status in CLIENT_STATUS) {
-		filters.push(eq(clientProfileTable.status, status));
+		conditions.push(eq(clientProfileTable.status, status));
 	}
 
-	if (searchTerm) {
+	if (search) {
+		const term = `%${search}%`;
 		const searchFilter = or(
-			ilike(userTable.email, `%${searchTerm}%`),
-			ilike(userTable.firstName, `%${searchTerm}%`),
-			ilike(userTable.lastName, `%${searchTerm}%`),
-			ilike(clientCompanyTable.companyName, `%${searchTerm}%`)
+			ilike(userTable.email, term),
+			ilike(userTable.firstName, term),
+			ilike(userTable.lastName, term),
+			ilike(clientCompanyTable.companyName, term),
+			locationAddressMatches(term)
 		);
-		if (searchFilter) filters.push(searchFilter);
+		if (searchFilter) conditions.push(searchFilter);
 	}
+
+	if (exclude !== 'city' && cities?.length) {
+		conditions.push(locationCityMatches(cities));
+	}
+	if (exclude !== 'state' && states?.length) {
+		conditions.push(locationStateMatches(states));
+	}
+	if (exclude !== 'zipcode' && zipcodes?.length) {
+		conditions.push(locationZipcodeMatches(zipcodes));
+	}
+
+	return conditions;
+}
+
+export async function getAllClientProfiles(filters: ClientFilters = {}) {
+	const conditions = buildClientFilterConditions(filters);
+	const listLocation = alias(companyOfficeLocationTable, 'list_location');
 
 	const results = await db
 		.select({
@@ -236,16 +348,116 @@ export async function getAllClientProfiles(searchTerm?: string, status?: ClientS
 				email: userTable.email,
 				avatarUrl: userTable.avatarUrl
 			},
-			profile: { ...clientProfileTable },
-			company: { ...clientCompanyTable }
+			// Explicit column lists — the previous `{ ...clientProfileTable }` and
+			// `{ ...clientCompanyTable }` spreads shipped every column, billing
+			// address and EIN included, to the browser.
+			profile: {
+				id: clientProfileTable.id,
+				userId: clientProfileTable.userId,
+				status: clientProfileTable.status,
+				cellPhone: clientProfileTable.cellPhone,
+				createdAt: clientProfileTable.createdAt
+			},
+			company: {
+				id: clientCompanyTable.id,
+				companyName: clientCompanyTable.companyName
+			},
+			// Distinct city/state per client, rendered as pills. The left join means
+			// clients with no office still appear.
+			locations: sql<LocationSummary[]>`
+				coalesce(
+					jsonb_agg(distinct jsonb_build_object(
+						'city', ${listLocation.city},
+						'state', ${listLocation.state}
+					)) filter (where ${listLocation.city} is not null or ${listLocation.state} is not null),
+					'[]'::jsonb
+				)`.as('locations')
 		})
 		.from(clientProfileTable)
 		.innerJoin(clientCompanyTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
 		.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
-		.where(filters.length ? and(...filters) : undefined)
+		.leftJoin(listLocation, eq(listLocation.companyId, clientCompanyTable.id))
+		.where(conditions.length ? and(...conditions) : undefined)
+		// All three are primary keys, so every other selected column is
+		// functionally dependent and needs no explicit grouping.
+		.groupBy(clientProfileTable.id, clientCompanyTable.id, userTable.id)
 		.orderBy(asc(userTable.lastName), asc(userTable.firstName));
 
-	return results;
+	return results.map((res) => ({
+		user: res.user,
+		profile: res.profile,
+		company: res.company,
+		// jsonb_agg(distinct ...) orders by jsonb comparison, so sort for display.
+		locations: (res.locations ?? []).slice().sort((a, b) =>
+			`${a.city ?? ''}${a.state ?? ''}`.localeCompare(
+				`${b.city ?? ''}${b.state ?? ''}`,
+				undefined,
+				{
+					sensitivity: 'base'
+				}
+			)
+		)
+	}));
+}
+
+export type ClientFacetOption = {
+	value: string;
+	label: string;
+	count: number;
+};
+
+export type ClientFacets = {
+	cities: ClientFacetOption[];
+	states: ClientFacetOption[];
+	zipcodes: ClientFacetOption[];
+};
+
+const CLIENT_FACET_LIMIT = 500;
+
+/**
+ * Option lists for the filter dropdowns, counted against the currently active
+ * filters minus the dimension being listed. Keeps combinations that would
+ * return zero rows out of the menus.
+ */
+export async function getClientFilterFacets(filters: ClientFilters = {}): Promise<ClientFacets> {
+	// count(distinct client) — a company with three Austin offices counts once.
+	const distinctClients = sql<number>`count(distinct ${clientProfileTable.id})`;
+	const facetLocation = alias(companyOfficeLocationTable, 'facet_location');
+
+	const columnFacet = async (
+		column: typeof facetLocation.city | typeof facetLocation.state | typeof facetLocation.zipcode,
+		dimension: ClientFilterDimension,
+		/** City is grouped case-insensitively so "Austin" and "AUSTIN" collapse
+		 *  into one option instead of two that each match half the rows. */
+		caseInsensitive = false
+	): Promise<ClientFacetOption[]> => {
+		const conditions = buildClientFilterConditions(filters, dimension);
+		const groupExpr = caseInsensitive ? sql`lower(${column})` : column;
+		const labelExpr = caseInsensitive ? sql<string>`min(${column})` : column;
+
+		const rows = await db
+			.select({ value: labelExpr, total: distinctClients })
+			.from(clientProfileTable)
+			.innerJoin(clientCompanyTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
+			.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
+			.innerJoin(facetLocation, eq(facetLocation.companyId, clientCompanyTable.id))
+			.where(and(...conditions, isNotNull(column), ne(column, '')))
+			.groupBy(groupExpr)
+			.orderBy(desc(distinctClients), asc(groupExpr))
+			.limit(CLIENT_FACET_LIMIT);
+
+		return rows
+			.filter((row): row is { value: string; total: number } => Boolean(row.value))
+			.map((row) => ({ value: row.value, label: row.value, count: Number(row.total) }));
+	};
+
+	const [cities, states, zipcodes] = await Promise.all([
+		columnFacet(facetLocation.city, 'city', true),
+		columnFacet(facetLocation.state, 'state'),
+		columnFacet(facetLocation.zipcode, 'zipcode')
+	]);
+
+	return { cities, states, zipcodes };
 }
 
 export async function getClientProfileById(clientId: string) {
@@ -579,6 +791,26 @@ export async function getLocationTimezone(locationId: string | undefined): Promi
 		.from(companyOfficeLocationTable)
 		.where(eq(companyOfficeLocationTable.id, locationId));
 	return loc?.timezone || 'America/New_York';
+}
+
+/**
+ * The stored address of a location, read before an update so the caller can
+ * tell whether the address actually changed. `buildLocationAddressPatch` uses
+ * that to decide between clearing now-stale city/state/zipcode and leaving
+ * good values alone when an unrelated field was saved.
+ */
+export async function getLocationAddressSnapshot(locationId: string | undefined) {
+	if (!locationId) return null;
+	const [loc] = await db
+		.select({
+			completeAddress: companyOfficeLocationTable.completeAddress,
+			city: companyOfficeLocationTable.city,
+			state: companyOfficeLocationTable.state,
+			zipcode: companyOfficeLocationTable.zipcode
+		})
+		.from(companyOfficeLocationTable)
+		.where(eq(companyOfficeLocationTable.id, locationId));
+	return loc ?? null;
 }
 
 export async function getAllClientLocationsByCompanyId(

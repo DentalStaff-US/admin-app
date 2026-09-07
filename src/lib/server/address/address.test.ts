@@ -4,7 +4,9 @@ import {
 	normalizeZip,
 	parseCompleteAddress,
 	composeCompleteAddress,
-	resolveAddressComponents
+	resolveAddressComponents,
+	addressComponentsToLocationPatch,
+	buildLocationAddressPatch
 } from './index';
 
 describe('normalizeState', () => {
@@ -156,5 +158,98 @@ describe('resolveAddressComponents', () => {
 
 	it('does not ask for a geocode when there is no address at all', () => {
 		expect(resolveAddressComponents({ completeAddress: null }).needsGeocode).toBe(false);
+	});
+});
+
+describe('addressComponentsToLocationPatch', () => {
+	it('maps street to streetOne and never emits streetTwo', () => {
+		const patch = addressComponentsToLocationPatch({
+			street: '123 Main St, Apt 2',
+			city: 'Austin',
+			state: 'TX',
+			zipcode: '78701'
+		});
+		expect(patch).toEqual({
+			streetOne: '123 Main St, Apt 2',
+			city: 'Austin',
+			state: 'TX',
+			zipcode: '78701'
+		});
+		expect('streetTwo' in patch).toBe(false);
+	});
+});
+
+describe('buildLocationAddressPatch', () => {
+	it('returns an empty patch when there is no address, so partial saves never blank stored data', () => {
+		expect(buildLocationAddressPatch({})).toEqual({
+			patch: {},
+			needsGeocode: false,
+			completeAddress: null
+		});
+		expect(buildLocationAddressPatch({ completeAddress: 'undefined' }).patch).toEqual({});
+	});
+
+	it('fills components by parsing the complete address', () => {
+		const result = buildLocationAddressPatch({
+			completeAddress: '123 Main St, Austin, Texas 78701, United States'
+		});
+		expect(result.patch).toEqual({
+			streetOne: '123 Main St',
+			city: 'Austin',
+			state: 'TX',
+			zipcode: '78701'
+		});
+		expect(result.needsGeocode).toBe(false);
+	});
+
+	it('normalizes explicitly supplied state and zip', () => {
+		const result = buildLocationAddressPatch({
+			completeAddress: '123 Main St, Austin, Texas 78701',
+			city: 'Round Rock',
+			state: 'texas',
+			zipcode: '78664-0001'
+		});
+		expect(result.patch).toMatchObject({ city: 'Round Rock', state: 'TX', zipcode: '78664' });
+	});
+
+	it('preserves stored components when an unparseable address did not change', () => {
+		// Saving a phone number on a location whose address Mapbox never resolved
+		// must not wipe a city that is already correct.
+		const result = buildLocationAddressPatch(
+			{ completeAddress: '123 Main St' },
+			{ previousCompleteAddress: '123 Main St' }
+		);
+		expect(result.patch).toEqual({});
+		expect(result.needsGeocode).toBe(true);
+	});
+
+	it('clears stale components when the address changed to something unparseable', () => {
+		// Every component belonged to the old address, street included, so all of
+		// them are now wrong. NULL is invisible to the filter; wrong is worse.
+		const result = buildLocationAddressPatch(
+			{ completeAddress: '456 Elm St' },
+			{ previousCompleteAddress: '123 Main St, Austin, TX 78701' }
+		);
+		expect(result.patch).toEqual({
+			streetOne: null,
+			city: null,
+			state: null,
+			zipcode: null
+		});
+		expect(result.needsGeocode).toBe(true);
+	});
+
+	it('keeps an explicitly supplied street when clearing stale components', () => {
+		const result = buildLocationAddressPatch(
+			{ completeAddress: '456 Elm St', streetOne: '456 Elm St' },
+			{ previousCompleteAddress: '123 Main St, Austin, TX 78701' }
+		);
+		expect(result.patch).toMatchObject({ streetOne: '456 Elm St', city: null });
+	});
+
+	it('preserves components when no previous address is known', () => {
+		const result = buildLocationAddressPatch({ completeAddress: '123 Main St' });
+		expect(result.patch).toEqual({});
+		expect(result.needsGeocode).toBe(true);
 	});
 });
