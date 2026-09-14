@@ -57,6 +57,7 @@
 	import { enhance } from '$app/forms';
 	import { USER_ROLES } from '$lib/config/constants';
 	import { isAssignmentActive, isAssignmentHistory } from '$lib/_helpers/assignment';
+	import ProfessionalSearch from '$lib/components/professionals/ProfessionalSearch.svelte';
 	import { superForm } from 'sveltekit-superforms/client';
 
 	export let data: PageData;
@@ -91,6 +92,18 @@
 	let deletingWorkday = false;
 	let assigningCandidateId: string | null = null;
 	let reassigningCandidateId: string | null = null;
+
+	// Name-search override. Each dialog owns its own instance so a query typed
+	// in one doesn't leak into the other; `searching` hides the qualified list
+	// and the "Show more" footer, which are meaningless while searching.
+	let assignSearch: ProfessionalSearch;
+	let reassignSearch: ProfessionalSearch;
+	let assignSearching = false;
+	let reassignSearching = false;
+
+	// Clear the query when a dialog closes, so reopening starts fresh.
+	$: if (!assignDialogOpen) assignSearch?.reset();
+	$: if (!reassignDialogOpen) reassignSearch?.reset();
 
 	// "Show more" extension: fetched on-demand from
 	// /api/requisitions/[id]/qualified-candidates?includeAllExperience=true&includeOutsidePayRange=true,
@@ -665,7 +678,38 @@
 					: ''}
 			</DialogDescription>
 		</DialogHeader>
-		<div class="space-y-4 mt-4">
+		<ProfessionalSearch
+			bind:this={assignSearch}
+			bind:searching={assignSearching}
+			requisitionId={data.requisition?.requisition?.id}
+			let:professional
+		>
+			<form
+				method="POST"
+				action="?/assignCandidate"
+				use:enhance={() => {
+					assigningCandidateId = professional.candidateId;
+					return async ({ result, update }) => {
+						assigningCandidateId = null;
+						if (result.type === 'success') assignDialogOpen = false;
+						await update();
+					};
+				}}
+			>
+				<input type="hidden" name="candidateId" value={professional.candidateId} />
+				<input type="hidden" name="recurrenceDayId" value={recurrenceDay?.recurrenceDay.id} />
+				<Button
+					class="bg-primary hover:bg-primary/90"
+					type="submit"
+					size="sm"
+					disabled={assigningCandidateId === professional.candidateId}
+				>
+					{assigningCandidateId === professional.candidateId ? 'Assigning...' : 'Assign'}
+				</Button>
+			</form>
+		</ProfessionalSearch>
+
+		<div class="space-y-4 mt-4" class:hidden={assignSearching}>
 			{#each allProfessionals as professional}
 				<div class="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
 					<div class="flex items-start justify-between">
@@ -728,7 +772,7 @@
 				</div>
 			{/each}
 		</div>
-		{#if !extendedLoaded}
+		{#if !extendedLoaded && !assignSearching}
 			<DialogFooter class="sm:justify-center mt-2">
 				<button
 					type="button"
@@ -760,7 +804,39 @@
 					: ''}.
 			</DialogDescription>
 		</DialogHeader>
-		<div class="space-y-4 mt-4">
+		<ProfessionalSearch
+			bind:this={reassignSearch}
+			bind:searching={reassignSearching}
+			requisitionId={data.requisition?.requisition?.id}
+			excludeCandidateId={candidate?.id ?? null}
+			let:professional
+		>
+			<form
+				method="POST"
+				action="?/reassignRecurrenceDay"
+				use:enhance={() => {
+					reassigningCandidateId = professional.candidateId;
+					return async ({ result, update }) => {
+						reassigningCandidateId = null;
+						if (result.type === 'success') reassignDialogOpen = false;
+						await update();
+					};
+				}}
+			>
+				<input type="hidden" name="candidateId" value={professional.candidateId} />
+				<input type="hidden" name="recurrenceDayId" value={recurrenceDay?.recurrenceDay.id} />
+				<Button
+					class="bg-primary hover:bg-primary/90"
+					type="submit"
+					size="sm"
+					disabled={reassigningCandidateId === professional.candidateId}
+				>
+					{reassigningCandidateId === professional.candidateId ? 'Reassigning...' : 'Reassign'}
+				</Button>
+			</form>
+		</ProfessionalSearch>
+
+		<div class="space-y-4 mt-4" class:hidden={reassignSearching}>
 			{#each allProfessionals as professional}
 				<!-- Skip the currently assigned candidate -->
 				{#if professional.candidateId !== candidate?.id}
@@ -833,7 +909,7 @@
 			{/each}
 		</div>
 		<DialogFooter class="flex-col sm:flex-row sm:justify-between gap-2">
-			{#if !extendedLoaded}
+			{#if !extendedLoaded && !reassignSearching}
 				<button
 					type="button"
 					class="text-sm text-primary hover:underline disabled:opacity-50 sm:mr-auto"

@@ -569,15 +569,23 @@ export const actions = {
 			redirect(302, '/dashboard');
 		}
 
-		const form = await superValidate(event, updateClientSchema);
+		// Read the body once so we can tell which fields were actually submitted.
+		// This page has three independent edit cards (header / personal / billing)
+		// sharing one schema and one action, and each posts only its own inputs.
+		// Superforms fills every ABSENT field it knows about: `.optional()` ones
+		// become undefined, but `.optional().nullable()` ones become `null` — so a
+		// parsed value cannot distinguish "left alone" from "cleared", and guarding
+		// on `!== undefined` wrote NULL over the other cards' columns.
+		// Presence in the FormData is the only reliable signal.
+		const formData = await event.request.formData();
+		const form = await superValidate(formData, updateClientSchema);
+		const posted = (field: string) => formData.has(field);
 
 		if (!form.valid) {
-			console.log('Invalid form data:', form.data);
 			setFlash({ type: 'error', message: 'Invalid form data' }, event);
 			return { form };
 		}
 
-		console.log(form.data);
 		try {
 			const client = await getClientProfileById(clientId);
 
@@ -585,33 +593,27 @@ export const actions = {
 			const profileUpdate: Partial<ClientProfile> = { updatedAt: new Date() };
 			const companyUpdate: Partial<ClientCompany> = { updatedAt: new Date() };
 
-			if (form.data.firstName !== undefined) userUpdate.firstName = form.data.firstName;
-			if (form.data.lastName !== undefined) userUpdate.lastName = form.data.lastName;
-			if (form.data.email !== undefined) userUpdate.email = form.data.email;
+			if (posted('firstName')) userUpdate.firstName = form.data.firstName;
+			if (posted('lastName')) userUpdate.lastName = form.data.lastName;
+			if (posted('email')) userUpdate.email = form.data.email;
 			// Billing email is a company attribute, deliberately separate from the
 			// login email above. Blank clears it, which falls delivery back to the
 			// account owner via `resolveBillingRecipient`.
-			if (form.data.billingEmail !== undefined)
-				companyUpdate.billingEmail = form.data.billingEmail || null;
-			if (form.data.billingContactName !== undefined)
+			if (posted('billingEmail')) companyUpdate.billingEmail = form.data.billingEmail || null;
+			if (posted('billingContactName'))
 				companyUpdate.billingContactName = form.data.billingContactName || null;
-			if (form.data.billingStreetOne !== undefined)
+			if (posted('billingStreetOne'))
 				companyUpdate.billingStreetOne = form.data.billingStreetOne || null;
-			if (form.data.billingStreetTwo !== undefined)
+			if (posted('billingStreetTwo'))
 				companyUpdate.billingStreetTwo = form.data.billingStreetTwo || null;
-			if (form.data.billingCity !== undefined)
-				companyUpdate.billingCity = form.data.billingCity || null;
-			if (form.data.billingState !== undefined)
-				companyUpdate.billingState = form.data.billingState || null;
-			if (form.data.billingZipcode !== undefined)
-				companyUpdate.billingZipcode = form.data.billingZipcode || null;
-			if (form.data.companyName !== undefined) companyUpdate.companyName = form.data.companyName;
-			if (form.data.baseLocation !== undefined)
-				companyUpdate.baseLocation = form.data.baseLocation || null;
-			if (form.data.website !== undefined) companyUpdate.website = form.data.website || null;
-			if (form.data.cellPhone !== undefined) profileUpdate.cellPhone = form.data.cellPhone || null;
-			if (form.data.invoiceMethod !== undefined)
-				profileUpdate.clientInvoiceMethod = form.data.invoiceMethod;
+			if (posted('billingCity')) companyUpdate.billingCity = form.data.billingCity || null;
+			if (posted('billingState')) companyUpdate.billingState = form.data.billingState || null;
+			if (posted('billingZipcode')) companyUpdate.billingZipcode = form.data.billingZipcode || null;
+			if (posted('companyName')) companyUpdate.companyName = form.data.companyName;
+			if (posted('baseLocation')) companyUpdate.baseLocation = form.data.baseLocation || null;
+			if (posted('website')) companyUpdate.website = form.data.website || null;
+			if (posted('cellPhone')) profileUpdate.cellPhone = form.data.cellPhone || null;
+			if (posted('invoiceMethod')) profileUpdate.clientInvoiceMethod = form.data.invoiceMethod;
 
 			if (Object.keys(userUpdate).length > 1) {
 				await db.update(userTable).set(userUpdate).where(eq(userTable.id, client.user.id));
@@ -636,11 +638,11 @@ export const actions = {
 			// not fail the admin's save, and the nightly reconcile plus the next
 			// `ensureStripeCustomer` call will re-converge it.
 			if (
-				form.data.billingEmail !== undefined ||
-				form.data.billingStreetOne !== undefined ||
-				form.data.billingCity !== undefined ||
-				form.data.billingState !== undefined ||
-				form.data.billingZipcode !== undefined
+				posted('billingEmail') ||
+				posted('billingStreetOne') ||
+				posted('billingCity') ||
+				posted('billingState') ||
+				posted('billingZipcode')
 			) {
 				await syncStripeCustomerBillingEmail(client.profile.id).catch((err) =>
 					logger.error('billing email stripe sync failed', {
