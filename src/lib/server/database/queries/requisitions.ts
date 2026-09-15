@@ -3065,7 +3065,13 @@ export async function getWorkdaysByRecurrenceDayId(
 	}
 }
 
-export async function revertTimesheetToPending(timesheetId: string, userId: string | null) {
+export async function revertTimesheetToPending(
+	timesheetId: string,
+	userId: string | null,
+	// Status to restore. Defaults to PENDING; pass DISCREPANCY when rolling back
+	// a failed approval of a flagged sheet so it keeps its flag and note.
+	restoreStatus: 'PENDING' | 'DISCREPANCY' = 'PENDING'
+) {
 	try {
 		const [original] = await db
 			.select()
@@ -3087,7 +3093,7 @@ export async function revertTimesheetToPending(timesheetId: string, userId: stri
 		const [result] = await db
 			.update(timeSheetTable)
 			.set({
-				status: 'PENDING',
+				status: restoreStatus,
 				wagesStatus: null,
 				totalHoursBilled: null,
 				approvedAt: null,
@@ -3104,12 +3110,12 @@ export async function revertTimesheetToPending(timesheetId: string, userId: stri
 			entityId: timesheetId,
 			beforeState: original,
 			afterState: result,
-			metadata: { status: 'PENDING' }
+			metadata: { status: restoreStatus, rollback: true }
 		});
 
 		return result;
 	} catch (err) {
-		throw error(500, `Error rejecting timesheet: ${error}`);
+		throw error(500, `Error reverting timesheet: ${err}`);
 	}
 }
 
