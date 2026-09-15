@@ -11,6 +11,8 @@
 	import type { DateRange } from 'bits-ui';
 	import type { RecurrenceDay, Requisition } from '$lib/server/database/schemas/requisition';
 	import { superForm } from 'sveltekit-superforms/client';
+	import { updateFlash } from 'sveltekit-flash-message';
+	import { page } from '$app/stores';
 	import {
 		getUserTimezone,
 		toUTCDateString,
@@ -41,6 +43,9 @@
 	// new day(s) are created FILLED and the professional is notified to verify.
 	export let isAdmin = false;
 	export let qualifiedProfessionals: QualifiedPro[] = [];
+	// When set, the trigger is disabled and this explains why (e.g. the client
+	// has no billing set up). The server enforces the same rule on submit.
+	export let blockedReason: string | null = null;
 
 	let selectedCandidateId = '';
 	let comboOpen = false;
@@ -159,7 +164,11 @@
 		}
 	}
 
-	const { enhance, submitting } = superForm(form, {
+	const {
+		enhance,
+		submitting,
+		message: serverMessage
+	} = superForm(form, {
 		onResult({ result }) {
 			if (result.type === 'success') {
 				isOpen = false;
@@ -169,6 +178,11 @@
 			if (form.message === 'success') {
 				resetForm();
 			}
+		},
+		// A flash set alongside a failure (billing gate) isn't read until the next
+		// invalidate; superforms only invalidates on success. Pull it in now.
+		onUpdated: async ({ form }) => {
+			if (!form.valid) await updateFlash(page);
 		},
 		onError(err) {
 			console.error('Form submission error:', err);
@@ -391,7 +405,12 @@
 
 <Sheet.Root bind:open={isOpen}>
 	<Sheet.Trigger asChild let:builder>
-		<Button builders={[builder]} class="bg-primary hover:bg-primary/90 mb-4">
+		<Button
+			builders={[builder]}
+			class="bg-primary hover:bg-primary/90 mb-4"
+			disabled={!!blockedReason}
+			title={blockedReason ?? undefined}
+		>
 			<PlusIcon class="w-4 h-4 mr-2" />
 			Add Shifts
 		</Button>
@@ -407,6 +426,14 @@
 					All times will be shown in local timezone ({localTimezoneDisplay}) but stored in UTC.
 				</small>
 			</Sheet.Description>
+			{#if $serverMessage && $serverMessage !== 'success'}
+				<div
+					class="mt-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+					role="alert"
+				>
+					{$serverMessage}
+				</div>
+			{/if}
 		</Sheet.Header>
 
 		<div class="flex flex-col flex-1 mt-4 h-full">

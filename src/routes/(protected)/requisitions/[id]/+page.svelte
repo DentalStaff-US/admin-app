@@ -548,6 +548,31 @@
 				{/if}
 			</div>
 
+			{#if data.billingBlockedMessage}
+				<!-- The owning client can't be invoiced yet (Stripe billing, no Stripe
+				     customer). Shifts can't be added until that's fixed; anyone looking
+				     at the requisition should know why. -->
+				<div
+					class="mt-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+				>
+					<AlertCircle class="h-4 w-4 mt-0.5 flex-shrink-0" />
+					<div>
+						<strong>Billing setup required.</strong>
+						{data.billingBlockedMessage}
+						{#if isAdmin}
+							<a
+								href={`/clients/${requisition.company.clientId}`}
+								class="underline font-medium ml-1">Open client page</a
+							>
+						{:else}
+							<a href="/settings?tab=BILLING&role=CLIENT" class="underline font-medium ml-1"
+								>Go to billing settings</a
+							>
+						{/if}
+					</div>
+				</div>
+			{/if}
+
 			<!-- Stat grid -->
 			<div class="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
 				<div class="bg-gray-50 rounded-md p-3">
@@ -894,6 +919,7 @@
 									{requisition}
 									{isAdmin}
 									qualifiedProfessionals={data.qualifiedProfessionals ?? []}
+									blockedReason={data.billingBlockedMessage}
 								/>
 							{/if}
 						</CardHeader>

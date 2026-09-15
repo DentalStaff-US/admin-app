@@ -267,7 +267,15 @@
 		<div
 			class="rounded-md border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-900"
 		>
-			{#if data.clientStatus === 'PENDING'}
+			{#if data.billingBlockedMessage && data.clientStatus === 'ACTIVE'}
+				<!-- Account is approved but can't be invoiced yet — billing must be
+				     set up before any requisition can be posted. -->
+				<strong>Billing setup required.</strong>
+				{data.billingBlockedMessage}
+				<a href="/settings?tab=BILLING&role=CLIENT" class="underline font-medium ml-1"
+					>Go to billing settings</a
+				>
+			{:else if data.clientStatus === 'PENDING'}
 				Your account is <strong>pending approval</strong>. You'll be able to create new
 				requisitions once an admin approves you.
 			{:else if data.clientStatus === 'DENIED'}
