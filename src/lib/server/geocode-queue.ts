@@ -5,7 +5,10 @@ import db from '$lib/server/database/drizzle';
 import { companyOfficeLocationTable } from '$lib/server/database/schemas/client';
 import { eq } from 'drizzle-orm';
 import { candidateProfileTable } from './database/schemas/candidate';
-import { addressComponentsToProfilePatch } from '$lib/server/address';
+import {
+	addressComponentsToLocationPatch,
+	addressComponentsToProfilePatch
+} from '$lib/server/address';
 
 interface GeocodingJob {
 	locationId?: string; // For client locations
@@ -56,7 +59,11 @@ class GeocodingQueue {
 				if (geoData) {
 					// Update based on type
 					if (job.type === 'location' && job.locationId) {
-						// Update client company location
+						// Update client company location. Granular fields are written
+						// here too so this queue is the backstop that keeps them in
+						// sync with complete_address on every address change — the
+						// clients index filters on city/state/zipcode, and several
+						// location write paths can only supply a formatted string.
 						await db
 							.update(companyOfficeLocationTable)
 							.set({
@@ -64,6 +71,7 @@ class GeocodingQueue {
 								lon: geoData.lon.toString(),
 								timezone: geoData.timezone,
 								completeAddress: geoData.formattedAddress,
+								...addressComponentsToLocationPatch(geoData.components),
 								updatedAt: new Date()
 							})
 							.where(eq(companyOfficeLocationTable.id, job.locationId));

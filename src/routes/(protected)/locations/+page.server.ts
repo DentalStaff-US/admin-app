@@ -1,4 +1,5 @@
 import { redirect } from '@sveltejs/kit';
+import { buildLocationAddressPatch } from '$lib/server/address';
 import type { PageServerLoad } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
 import { superValidate } from 'sveltekit-superforms/server';
@@ -114,11 +115,10 @@ export const actions = {
 				companyPhone: form.data.companyPhone,
 				email: form.data.email || null,
 				companyId: form.data.companyId,
-				streetOne: form.data.streetOne || null,
+				// Routed through the shared helper so a hand-typed "Texas" or a zip+4
+				// is canonicalized before it becomes a filter facet on the clients index.
+				...buildLocationAddressPatch(form.data).patch,
 				streetTwo: form.data.streetTwo || null,
-				city: form.data.city || null,
-				state: form.data.state || null,
-				zipcode: form.data.zipcode || null,
 				timezone: form.data.timezone,
 				lat: form.data.lat.toString(),
 				lon: form.data.lon.toString(),

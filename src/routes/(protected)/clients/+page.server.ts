@@ -1,13 +1,15 @@
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { CLIENT_STATUS, USER_ROLES, type ClientStatus } from '$lib/config/constants';
+import { USER_ROLES } from '$lib/config/constants';
 import {
 	createClientCompany,
 	createClientProfile,
 	getAllClientProfiles,
+	getClientFilterFacets,
 	getClientProfilesCount,
 	getClientStatusCounts
 } from '$lib/server/database/queries/clients';
+import { parseClientFilters } from '$lib/_helpers/client-filters';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { adminNewUserSchema } from '$lib/config/zod-schemas';
 import db from '$lib/server/database/drizzle';
@@ -20,18 +22,12 @@ import { setFlash } from 'sveltekit-flash-message/server';
 import type { ClientProfile } from '$lib/server/database/schemas/client';
 
 export const load: PageServerLoad = async (event) => {
-	const { url, locals, setHeaders } = event;
+	const { url, locals } = event;
 
-	const searchTerm = url.searchParams.get('search') || '';
-	const statusParam = url.searchParams.get('status')?.toUpperCase();
-	const status: ClientStatus =
-		statusParam && statusParam in CLIENT_STATUS
-			? (statusParam as ClientStatus)
-			: CLIENT_STATUS.ACTIVE;
+	// Deliberately uncached: the result set now varies by several filter
+	// dimensions, and a cached response would serve one filter's results for
+	// another's URL.
 
-	setHeaders({
-		'cache-control': 'max-age=60'
-	});
 	const user = locals.user;
 
 	if (!user) {
@@ -42,10 +38,13 @@ export const load: PageServerLoad = async (event) => {
 		redirect(302, '/dashboard');
 	}
 
-	const [clients, count, statusCounts, newProfileForm] = await Promise.all([
-		getAllClientProfiles(searchTerm, status),
+	const filters = parseClientFilters(url.searchParams);
+
+	const [clients, count, statusCounts, facets, newProfileForm] = await Promise.all([
+		getAllClientProfiles(filters),
 		getClientProfilesCount(),
 		getClientStatusCounts(),
+		getClientFilterFacets(filters),
 		superValidate(event, adminNewUserSchema)
 	]);
 
@@ -53,8 +52,10 @@ export const load: PageServerLoad = async (event) => {
 		clients: clients || [],
 		count: count || 0,
 		statusCounts,
-		status,
-		searchTerm,
+		facets,
+		filters,
+		status: filters.status,
+		searchTerm: filters.search ?? '',
 		newProfileForm
 	};
 };

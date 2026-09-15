@@ -9,8 +9,10 @@ import {
 	jsonb,
 	decimal,
 	customType,
-	uuid
+	uuid,
+	index
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { userTable } from './auth';
 import { candidateProfileTable } from './candidate';
 
@@ -191,85 +193,104 @@ const geometry = customType<{ data: string; notNull: false; default: false }>({
 	}
 });
 
-export const companyOfficeLocationTable = pgTable('company_office_locations', {
-	id: text('id').notNull().primaryKey(),
-	companyId: text('company_id')
-		.notNull()
-		.references(() => clientCompanyTable.id, { onDelete: 'cascade' }),
-	createdAt: timestamp('created_at', {
-		withTimezone: true,
-		mode: 'date'
+export const companyOfficeLocationTable = pgTable(
+	'company_office_locations',
+	{
+		id: text('id').notNull().primaryKey(),
+		companyId: text('company_id')
+			.notNull()
+			.references(() => clientCompanyTable.id, { onDelete: 'cascade' }),
+		createdAt: timestamp('created_at', {
+			withTimezone: true,
+			mode: 'date'
+		})
+			.notNull()
+			.defaultNow(),
+		updatedAt: timestamp('updated_at', {
+			withTimezone: true,
+			mode: 'date'
+		})
+			.notNull()
+			.defaultNow(),
+		name: text('location_name').notNull(),
+		streetOne: text('street_one'),
+		streetTwo: text('street_two'),
+		city: text('city'),
+		state: text('state'),
+		zipcode: text('zipcode'),
+		companyPhone: text('company_phone'),
+		cellPhone: text('cell_phone'),
+		operatingHours: jsonb('operating_hours')
+			.$type<OperatingHours>()
+			.default({
+				0: {
+					openTime: '00:00',
+					closeTime: '00:00',
+					isClosed: false,
+					timezone: 'America/New_York'
+				},
+				1: {
+					openTime: '00:00',
+					closeTime: '00:00',
+					isClosed: false,
+					timezone: 'America/New_York'
+				},
+				2: {
+					openTime: '00:00',
+					closeTime: '00:00',
+					isClosed: false,
+					timezone: 'America/New_York'
+				},
+				3: {
+					openTime: '00:00',
+					closeTime: '00:00',
+					isClosed: false,
+					timezone: 'America/New_York'
+				},
+				4: {
+					openTime: '00:00',
+					closeTime: '00:00',
+					isClosed: false,
+					timezone: 'America/New_York'
+				},
+				5: {
+					openTime: '00:00',
+					closeTime: '00:00',
+					isClosed: false,
+					timezone: 'America/New_York'
+				},
+				6: {
+					openTime: '00:00',
+					closeTime: '00:00',
+					isClosed: false,
+					timezone: 'America/New_York'
+				}
+			}),
+		email: text('email'),
+		website: text('website'),
+		timezone: text('timezone').notNull().default('America/New_York'),
+		completeAddress: text('complete_address'),
+		lat: decimal('lat'),
+		lon: decimal('lon'),
+		geom: geometry('geom')
+	},
+	(table) => ({
+		// The clients index filters by "any office of this company matches", i.e.
+		// EXISTS (... WHERE company_id = client_companies.id AND ...). company_id
+		// was unindexed — Postgres does not index foreign keys automatically — so
+		// every such subquery was a sequential scan.
+		companyIdIdx: index('company_office_locations_company_id_idx').on(table.companyId),
+		// City is indexed lower-case because city has no canonical stored form
+		// (Mapbox returns "Austin", CSV imports may carry "AUSTIN"). The runtime
+		// predicate MUST therefore be lower(city) IN (lowered values) or Postgres
+		// silently ignores this index — the mistake made on candidate_profiles.
+		cityIdx: index('company_office_locations_city_idx').on(sql`lower(${table.city})`),
+		// state and zipcode are canonicalized at write time by normalizeState /
+		// normalizeZip (2-letter, 5-digit), so plain equality matches.
+		stateIdx: index('company_office_locations_state_idx').on(table.state),
+		zipcodeIdx: index('company_office_locations_zipcode_idx').on(table.zipcode)
 	})
-		.notNull()
-		.defaultNow(),
-	updatedAt: timestamp('updated_at', {
-		withTimezone: true,
-		mode: 'date'
-	})
-		.notNull()
-		.defaultNow(),
-	name: text('location_name').notNull(),
-	streetOne: text('street_one'),
-	streetTwo: text('street_two'),
-	city: text('city'),
-	state: text('state'),
-	zipcode: text('zipcode'),
-	companyPhone: text('company_phone'),
-	cellPhone: text('cell_phone'),
-	operatingHours: jsonb('operating_hours')
-		.$type<OperatingHours>()
-		.default({
-			0: {
-				openTime: '00:00',
-				closeTime: '00:00',
-				isClosed: false,
-				timezone: 'America/New_York'
-			},
-			1: {
-				openTime: '00:00',
-				closeTime: '00:00',
-				isClosed: false,
-				timezone: 'America/New_York'
-			},
-			2: {
-				openTime: '00:00',
-				closeTime: '00:00',
-				isClosed: false,
-				timezone: 'America/New_York'
-			},
-			3: {
-				openTime: '00:00',
-				closeTime: '00:00',
-				isClosed: false,
-				timezone: 'America/New_York'
-			},
-			4: {
-				openTime: '00:00',
-				closeTime: '00:00',
-				isClosed: false,
-				timezone: 'America/New_York'
-			},
-			5: {
-				openTime: '00:00',
-				closeTime: '00:00',
-				isClosed: false,
-				timezone: 'America/New_York'
-			},
-			6: {
-				openTime: '00:00',
-				closeTime: '00:00',
-				isClosed: false,
-				timezone: 'America/New_York'
-			}
-		}),
-	email: text('email'),
-	website: text('website'),
-	timezone: text('timezone').notNull().default('America/New_York'),
-	completeAddress: text('complete_address'),
-	lat: decimal('lat'),
-	lon: decimal('lon'),
-	geom: geometry('geom')
-});
+);
 
 export const locationContactDestinationTypeEnum = pgEnum('location_contact_destination_type', [
 	'EMAIL',

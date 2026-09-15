@@ -44,6 +44,7 @@ import type Stripe from 'stripe';
 import { error } from '@sveltejs/kit';
 import { disciplineTable } from '../schemas/skill';
 import { parseCompleteAddress } from '$lib/server/address';
+import type { DisciplineSummary } from '$lib/_helpers/professional-filters';
 
 export type ActionType = 'CREATE' | 'UPDATE' | 'DELETE';
 
@@ -564,25 +565,72 @@ export async function getDiscrepanciesForAdminDashboard() {
 }
 
 export async function getNewCandidateSignupsPreview(limit: number) {
-	const result = await db
+	const results = await db
 		.select({
 			user: {
 				id: userTable.id,
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
-				avatarUrl: userTable.avatarUrl,
-				email: userTable.email
+				avatarUrl: userTable.avatarUrl
 			},
-			profile: { ...candidateProfileTable }
+			// Explicit column list — the previous `{ ...candidateProfileTable }` spread
+			// serialized ssnLast4, birthday, geom, lat/lon, puid and workersCompCode to
+			// the browser. Same fix as the professionals index (see candidates.ts). The
+			// dashboard widget only needs the link target and the status badge.
+			profile: {
+				id: candidateProfileTable.id,
+				status: candidateProfileTable.status,
+				createdAt: candidateProfileTable.createdAt
+			},
+			// Same rollup as getAllCandidateProfiles, so the dashboard pills match the
+			// professionals table exactly and we avoid a query per candidate.
+			disciplines: sql<DisciplineSummary[]>`
+				coalesce(
+					jsonb_agg(distinct jsonb_build_object(
+						'id', ${disciplineTable.id},
+						'name', ${disciplineTable.name},
+						'abbreviation', ${disciplineTable.abbreviation}
+					)) filter (where ${disciplineTable.id} is not null),
+					'[]'::jsonb
+				)`.as('disciplines')
 		})
 		.from(candidateProfileTable)
 		.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+		.leftJoin(
+			candidateDisciplineExperienceTable,
+			eq(candidateDisciplineExperienceTable.candidateId, candidateProfileTable.id)
+		)
+		.leftJoin(
+			disciplineTable,
+			eq(candidateDisciplineExperienceTable.disciplineId, disciplineTable.id)
+		)
 		.where(eq(candidateProfileTable.status, 'PENDING'))
-		.limit(limit)
-		.orderBy(desc(candidateProfileTable.createdAt));
+		// Both are primary keys, so every other selected column is functionally
+		// dependent and needs no explicit grouping. GROUP BY also collapses the
+		// discipline join fan-out before LIMIT, so `limit` counts professionals
+		// rather than candidate×discipline rows.
+		.groupBy(candidateProfileTable.id, userTable.id)
+		// `id` breaks createdAt ties so the preview is stable across reloads.
+		.orderBy(desc(candidateProfileTable.createdAt), desc(candidateProfileTable.id))
+		.limit(limit);
 
-	return result;
+	return results.map((row) => ({
+		user: row.user,
+		profile: row.profile,
+		// jsonb_agg(distinct ...) orders by jsonb comparison (id first), so sort for
+		// display here. This can't move into SQL: Postgres requires an aggregate's
+		// ORDER BY to match the DISTINCT argument.
+		disciplines: (row.disciplines ?? [])
+			.slice()
+			.sort((a, b) =>
+				(a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' })
+			)
+	}));
 }
+
+export type NewCandidateSignupPreview = Awaited<
+	ReturnType<typeof getNewCandidateSignupsPreview>
+>[number];
 
 export async function getTimesheetsDueCount() {
 	// "Timesheets Due" = anything not yet finalized that needs attention.
@@ -960,16 +1008,21 @@ export async function bulkCreateClients(tx: any, users: ImportUser[]): Promise<B
 		});
 
 		if (user.address) {
+			// Derive city/state/zipcode so imported clients are filterable on the
+			// clients index immediately. Rows that don't parse still queue for
+			// geocoding below, and the queue fills the components in.
+			const importedComponents = parseCompleteAddress(user.address);
+
 			locationRecords.push({
 				id: locationId,
 				createdAt: new Date(),
 				updatedAt: new Date(),
 				email: user.email,
-				streetOne: user.address || null,
+				streetOne: importedComponents?.street ?? user.address ?? null,
 				streetTwo: null,
-				city: null,
-				state: null,
-				zipcode: null,
+				city: importedComponents?.city ?? null,
+				state: importedComponents?.state ?? null,
+				zipcode: importedComponents?.zipcode ?? null,
 				companyPhone: null,
 				cellPhone: null,
 				companyId: companyId,

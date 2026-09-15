@@ -393,6 +393,13 @@
       "when": 1787004178229,
       "tag": "0055_hard_rattler",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1788404170670,
+      "tag": "0056_optimal_molly_hayes",
+      "breakpoints": true
     }
   ]
 }

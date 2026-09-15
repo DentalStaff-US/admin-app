@@ -207,17 +207,11 @@
 	});
 
 	function cancelEdit() {
-		// Reset form to original values
-		if (client) {
-			$updateForm = {
-				firstName: client.user.firstName,
-				lastName: client.user.lastName,
-				email: client.user.email,
-				companyName: client.company.companyName || '',
-				baseLocation: client.company.baseLocation || '',
-				website: client.company.website || ''
-			};
-		}
+		// Re-seed from the loader's prefill, which is built from the DB and holds
+		// every field. Rebuilding from a hand-listed subset dropped cellPhone,
+		// invoiceMethod and the billing fields, so they rendered blank on reopen
+		// even when the stored data was fine.
+		$updateForm = { ...data.updateClientForm.data };
 		editingSection = null;
 	}
 
@@ -1120,15 +1114,6 @@
 												/>
 											</div>
 
-											<!-- Hidden fields to preserve other data -->
-											<input type="hidden" name="firstName" bind:value={$updateForm.firstName} />
-											<input type="hidden" name="lastName" bind:value={$updateForm.lastName} />
-											<input
-												type="hidden"
-												name="companyName"
-												bind:value={$updateForm.companyName}
-											/>
-
 											<div class="flex gap-2">
 												<Button type="submit" size="sm" disabled={$updateSubmitting}>
 													{$updateSubmitting ? 'Saving...' : 'Save'}
@@ -1348,18 +1333,6 @@
 													<p class="text-sm text-red-500 mt-1">{$updateErrors.invoiceMethod}</p>
 												{/if}
 											</div>
-
-											<!-- Hidden fields -->
-											<input
-												type="hidden"
-												name="companyName"
-												bind:value={$updateForm.companyName}
-											/>
-											<input
-												type="hidden"
-												name="baseLocation"
-												bind:value={$updateForm.baseLocation}
-											/>
 
 											<div class="flex gap-2">
 												<Button type="submit" size="sm" disabled={$updateSubmitting}>

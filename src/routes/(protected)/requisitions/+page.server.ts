@@ -7,7 +7,13 @@ import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
 import { adminRequisitionSchema, clientRequisitionSchema } from '$lib/config/zod-schemas.js';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
 import {
+	billingNotReadyMessage,
+	getClientBillingReadiness,
+	getCompanyBillingReadiness
+} from '$lib/server/billing/readiness';
+import {
 	getClientCompanyByClientId,
+	getClientCompanyById,
 	getClientProfileByStaffUserId,
 	getClientProfilebyUserId
 } from '$lib/server/database/queries/clients.js';
@@ -18,7 +24,7 @@ import {
 } from '$lib/server/database/queries/requisitions';
 import { error, fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { setFlash } from 'sveltekit-flash-message/server';
-import { superValidate } from 'sveltekit-superforms/server';
+import { message, superValidate } from 'sveltekit-superforms/server';
 
 export const load = async (event: RequestEvent) => {
 	const user = event.locals.user;
@@ -38,7 +44,8 @@ export const load = async (event: RequestEvent) => {
 			adminForm: form,
 			clientForm: null,
 			clientStatus: null,
-			canCreateRequisitions: true
+			canCreateRequisitions: true,
+			billingBlockedMessage: null
 		};
 	}
 
@@ -54,13 +61,19 @@ export const load = async (event: RequestEvent) => {
 		const requisitions = await getRequisitionsForClient(clientCompany.id, searchTerm);
 
 		const clientStatus = (client?.status ?? 'PENDING') as ClientStatus;
+		// Billing gate: a STRIPE-billed client with no Stripe customer can't be
+		// invoiced, so they may not post requisitions until billing is set up.
+		const billing = await getClientBillingReadiness(client.id);
 		return {
 			user,
 			requisitions: requisitions || [],
 			clientForm: form,
 			adminForm: null,
 			clientStatus,
-			canCreateRequisitions: clientCanCreateRequisitions(clientStatus)
+			canCreateRequisitions: clientCanCreateRequisitions(clientStatus) && billing.ready,
+			billingBlockedMessage: billing.ready
+				? null
+				: billingNotReadyMessage({ audience: 'CLIENT', what: 'post requisitions' })
 		};
 	}
 
@@ -74,13 +87,17 @@ export const load = async (event: RequestEvent) => {
 		const requisitions = await getRequisitionsForClient(company.id, searchTerm, scopedLocationIds);
 
 		const clientStatus = (client?.status ?? 'PENDING') as ClientStatus;
+		const billing = await getClientBillingReadiness(client?.id);
 		return {
 			user,
 			requisitions: requisitions || [],
 			clientForm: form,
 			adminForm: null,
 			clientStatus,
-			canCreateRequisitions: clientCanCreateRequisitions(clientStatus)
+			canCreateRequisitions: clientCanCreateRequisitions(clientStatus) && billing.ready,
+			billingBlockedMessage: billing.ready
+				? null
+				: billingNotReadyMessage({ audience: 'CLIENT', what: 'post requisitions' })
 		};
 	}
 
@@ -90,7 +107,8 @@ export const load = async (event: RequestEvent) => {
 		adminForm: null,
 		clientForm: null,
 		clientStatus: null,
-		canCreateRequisitions: false
+		canCreateRequisitions: false,
+		billingBlockedMessage: null
 	};
 };
 
@@ -117,6 +135,26 @@ export const actions = {
 		const permanentPosition = formData.get('permanentPosition');
 		const hourlyRate = Number(formData.get('hourlyRate'));
 		const purchaseOrderNumber = formData.get('purchaseOrderNumber') as string;
+
+		// Billing gate: never create work for a client we can't invoice. Admins
+		// bypass the client-status gate but not this one — a requisition for a
+		// STRIPE client with no customer produces timesheets that can't be approved.
+		const billing = await getCompanyBillingReadiness(companyId);
+		if (!billing.ready) {
+			const company = await getClientCompanyById(companyId);
+			const msg = billingNotReadyMessage({
+				audience: 'ADMIN',
+				what: 'create a requisition',
+				companyName: company?.companyName
+			});
+			setFlash({ type: 'error', message: msg }, event);
+			// The drawer submits via superforms `enhance`, which needs a `form` back
+			// on failure (a bare fail() leaves it stuck in the submitting state).
+			// Built from the submitted data so the admin's inputs survive the
+			// round-trip; `message(...)` returns fail(400, { form }) with `msg` in $message.
+			const form = await superValidate(formData, adminRequisitionSchema);
+			return message(form, msg, { status: 400 });
+		}
 
 		const newRequisition = await createRequisition(
 			{
@@ -177,6 +215,17 @@ export const actions = {
 		if (!companyId) error(500, 'Invalid or missing CompanyId');
 
 		const formData = await event.request.formData();
+
+		// Billing gate (defense-in-depth for the hidden button): STRIPE-billed
+		// clients must have a Stripe customer before they can post.
+		const billing = await getClientBillingReadiness(client?.id);
+		if (!billing.ready) {
+			const msg = billingNotReadyMessage({ audience: 'CLIENT', what: 'post a requisition' });
+			setFlash({ type: 'error', message: msg }, event);
+			// See the admin action: superforms needs a form back on failure.
+			const form = await superValidate(formData, clientRequisitionSchema);
+			return message(form, msg, { status: 400 });
+		}
 
 		const locationId = formData.get('locationId') as string;
 		const disciplineId = formData.get('disciplineId') as string;

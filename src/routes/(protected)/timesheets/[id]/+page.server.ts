@@ -61,7 +61,10 @@ import { timeSheetTable } from '$lib/server/database/schemas/requisition';
 import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import type { RawTimesheetHours } from '$lib/server/database/schemas/requisition';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
-import { notifyInvoiceCreated, notifyTimesheetSubmitted } from '$lib/server/notifications/transactional';
+import {
+	notifyInvoiceCreated,
+	notifyTimesheetSubmitted
+} from '$lib/server/notifications/transactional';
 import { resolveBillingRecipient } from '$lib/server/billing/recipients';
 import { voidInvoiceAndNotify } from '$lib/server/invoices/voidNotify';
 import { superValidate } from 'sveltekit-superforms/server';
@@ -688,12 +691,14 @@ export const actions = {
 					: result.reason === 'ZERO_AMOUNT'
 						? 'Cannot approve timesheet: Invoice amount is $0.00. Please verify hours worked and hourly rate.'
 						: result.reason === 'NO_STRIPE_CUSTOMER'
-							? 'No Stripe customer found for this client.'
-							: result.reason === 'NOT_FOUND'
-								? 'Timesheet not found.'
-								: result.reason === 'NOT_PENDING'
-									? 'Cannot approve: the timesheet must be submitted (PENDING) first.'
-									: 'Error approving timesheet';
+							? 'Cannot approve: this client is billed via Stripe but has no Stripe customer yet. Open the client\'s page and use "Setup Customer", or switch the client to paper invoicing, then approve again.'
+							: result.reason === 'NO_REQUISITION'
+								? 'Cannot approve: the requisition this timesheet belongs to no longer exists (deleted or archived).'
+								: result.reason === 'NOT_FOUND'
+									? 'Timesheet not found.'
+									: result.reason === 'NOT_PENDING'
+										? 'Cannot approve: the timesheet must be submitted (PENDING) first.'
+										: 'Error approving timesheet — the timesheet was left unchanged. Check the server logs for details.';
 		setFlash({ type: 'error', message }, event);
 		return fail(result.reason === 'ERROR' ? 500 : 400, { error: message });
 	},

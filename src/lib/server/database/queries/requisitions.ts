@@ -643,6 +643,87 @@ export async function getRecurrenceDaysForRequisition(
 	}
 }
 
+export type RecurrenceDayResults = RecurrenceDaySelect & {
+	/** Assignment row id, if this day was ever assigned. */
+	workdayId: string | null;
+	/**
+	 * Non-null when an admin/client cancelled the assignment. The workday row is
+	 * kept in that case, so this can outlive the cancellation: flipping a
+	 * CANCELED day back to OPEN via bulk status update does NOT clear it. Callers
+	 * must treat "has a professional" as `workdayCancelledAt === null`.
+	 */
+	workdayCancelledAt: Date | null;
+	/** The professional on this day, or null if it was never assigned. */
+	professional: {
+		candidateId: string;
+		firstName: string | null;
+		lastName: string | null;
+		avatarUrl: string | null;
+	} | null;
+};
+
+/**
+ * Recurrence days for a requisition, each with its assigned professional.
+ *
+ * Cancelled workday rows are deliberately NOT filtered out — the CANCELED view
+ * needs to name who lost the shift. `isActiveWorkdayCondition` is for timesheet
+ * hour math, not for this; the active/inactive decision is the caller's, via
+ * `workdayCancelledAt`.
+ *
+ * Only the display columns are selected off the candidate/user rows. Do not
+ * spread `candidateProfileTable` here — this payload reaches CLIENT users.
+ */
+export async function getRecurrenceDaysWithAssignmentsForRequisition(
+	requisitionId: number
+): Promise<RecurrenceDayResults[]> {
+	const rows = await db
+		.select({
+			recurrenceDay: { ...recurrenceDayTable },
+			workdayId: workdayTable.id,
+			workdayCancelledAt: workdayTable.cancelledAt,
+			candidateId: candidateProfileTable.id,
+			firstName: userTable.firstName,
+			lastName: userTable.lastName,
+			avatarUrl: userTable.avatarUrl
+		})
+		.from(recurrenceDayTable)
+		.leftJoin(workdayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
+		.leftJoin(candidateProfileTable, eq(candidateProfileTable.id, workdayTable.candidateId))
+		.leftJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+		.where(
+			and(
+				eq(recurrenceDayTable.requisitionId, requisitionId),
+				eq(recurrenceDayTable.archived, false)
+			)
+		)
+		.orderBy(asc(recurrenceDayTable.date));
+
+	// The left join can return more than one workday per day (a cancelled row
+	// alongside a revived one). Collapse to one row per recurrence day, keeping
+	// the active assignment — duplicate ids would double up the table's
+	// id-keyed bulk-selection checkboxes.
+	const byDay = new Map<string, RecurrenceDayResults>();
+	for (const row of rows) {
+		const existing = byDay.get(row.recurrenceDay.id);
+		if (existing && existing.workdayCancelledAt === null) continue;
+		byDay.set(row.recurrenceDay.id, {
+			...row.recurrenceDay,
+			workdayId: row.workdayId,
+			workdayCancelledAt: row.workdayCancelledAt,
+			professional: row.candidateId
+				? {
+						candidateId: row.candidateId,
+						firstName: row.firstName,
+						lastName: row.lastName,
+						avatarUrl: row.avatarUrl
+					}
+				: null
+		});
+	}
+
+	return Array.from(byDay.values());
+}
+
 export async function getRequsitionsForLocation(locationId: string) {
 	return await db
 		.select({
@@ -2984,7 +3065,13 @@ export async function getWorkdaysByRecurrenceDayId(
 	}
 }
 
-export async function revertTimesheetToPending(timesheetId: string, userId: string | null) {
+export async function revertTimesheetToPending(
+	timesheetId: string,
+	userId: string | null,
+	// Status to restore. Defaults to PENDING; pass DISCREPANCY when rolling back
+	// a failed approval of a flagged sheet so it keeps its flag and note.
+	restoreStatus: 'PENDING' | 'DISCREPANCY' = 'PENDING'
+) {
 	try {
 		const [original] = await db
 			.select()
@@ -3006,7 +3093,7 @@ export async function revertTimesheetToPending(timesheetId: string, userId: stri
 		const [result] = await db
 			.update(timeSheetTable)
 			.set({
-				status: 'PENDING',
+				status: restoreStatus,
 				wagesStatus: null,
 				totalHoursBilled: null,
 				approvedAt: null,
@@ -3023,12 +3110,12 @@ export async function revertTimesheetToPending(timesheetId: string, userId: stri
 			entityId: timesheetId,
 			beforeState: original,
 			afterState: result,
-			metadata: { status: 'PENDING' }
+			metadata: { status: restoreStatus, rollback: true }
 		});
 
 		return result;
 	} catch (err) {
-		throw error(500, `Error rejecting timesheet: ${error}`);
+		throw error(500, `Error reverting timesheet: ${err}`);
 	}
 }
 

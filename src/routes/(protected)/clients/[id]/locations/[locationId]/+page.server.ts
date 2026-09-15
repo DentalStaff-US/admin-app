@@ -2,11 +2,13 @@ import {
 	createLocationContactDestination,
 	deleteLocationContactDestination,
 	getClientProfileById,
+	getLocationAddressSnapshot,
 	getLocationByIdForCompany,
 	getLocationContactDestinations,
 	getLocationTimezone,
 	updateCompanyLocation
 } from '$lib/server/database/queries/clients';
+import { buildLocationAddressPatch } from '$lib/server/address';
 import { fail, redirect } from '@sveltejs/kit';
 import { setError, superValidate } from 'sveltekit-superforms/server';
 import type { PageServerLoad } from './$types';
@@ -102,7 +104,17 @@ export const actions = {
 		const { locationId } = event.params;
 
 		const { completeAddress, lat, lon } = form.data;
+
+		// Keep city/state/zipcode in step with the address. Without this an
+		// address change left the old city behind, and the clients index filters
+		// on those columns.
+		const previous = await getLocationAddressSnapshot(locationId);
+		const address = buildLocationAddressPatch(form.data, {
+			previousCompleteAddress: previous?.completeAddress ?? null
+		});
+
 		const addressData = {
+			...address.patch,
 			completeAddress,
 			lat: lat.toString() || null,
 			lon: lon.toString() || null
@@ -110,6 +122,19 @@ export const actions = {
 
 		try {
 			await updateCompanyLocation(locationId, addressData);
+
+			// Mapbox is the backstop when the string alone can't be resolved.
+			if (address.needsGeocode && address.completeAddress) {
+				geocodingQueue.addJobs([
+					{
+						locationId,
+						address: address.completeAddress,
+						email: '',
+						type: 'location'
+					}
+				]);
+			}
+
 			setFlash(
 				{
 					type: 'success',
@@ -325,10 +350,7 @@ export const actions = {
 				locationId,
 				distinctId: user.id
 			});
-			setFlash(
-				{ type: 'error', message: 'Failed to re-sync requisition timezones.' },
-				event
-			);
+			setFlash({ type: 'error', message: 'Failed to re-sync requisition timezones.' }, event);
 			return fail(500, { error: 'Failed to re-sync requisition timezones' });
 		}
 	},
@@ -451,11 +473,15 @@ export const actions = {
 			}
 
 			// Queue the geocoding job
+			// `type` is required: processQueue branches on it, and a job without
+			// one matched neither branch — the button reported success and wrote
+			// nothing.
 			geocodingQueue.addJobs([
 				{
 					locationId: loc.id,
 					address: loc.completeAddress,
-					email: loc.email || ''
+					email: loc.email || '',
+					type: 'location'
 				}
 			]);
 
