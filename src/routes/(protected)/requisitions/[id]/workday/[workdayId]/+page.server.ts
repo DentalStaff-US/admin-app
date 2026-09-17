@@ -32,6 +32,8 @@ import {
 import { stripWorkdayFromTimesheet, type CancellationRole } from '$lib/server/cancellations';
 import { cancelRecurrenceDayAsActor } from '$lib/server/requisitions/cancelRecurrenceDay';
 import { and, eq, inArray } from 'drizzle-orm';
+import { recordAction, recordView } from '$lib/server/audit/audit';
+import { getActivityForEntity } from '$lib/server/audit/queries';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { editRecurrenceDaySchema } from '$lib/config/zod-schemas';
 import { superValidate, message, setError } from 'sveltekit-superforms/server';
@@ -119,8 +121,21 @@ export async function load(event: RequestEvent) {
 			)
 		};
 
+		const activity = await getActivityForEntity('RECURRENCE_DAYS', recurrenceDayId);
+
+		void recordView({
+			entityType: 'RECURRENCE_DAYS',
+			entityId: recurrenceDayId,
+			metadata: {
+				requisitionId,
+				workdayId: workday?.workday?.id ?? null,
+				candidateId: workday?.workday?.candidateId ?? null
+			}
+		});
+
 		return {
 			user,
+			activity,
 			recurrenceDay,
 			workday,
 			client,
@@ -160,8 +175,19 @@ export async function load(event: RequestEvent) {
 			)
 		};
 
+		void recordView({
+			entityType: 'RECURRENCE_DAYS',
+			entityId: recurrenceDayId,
+			metadata: {
+				requisitionId,
+				workdayId: workday?.workday?.id ?? null,
+				candidateId: workday?.workday?.candidateId ?? null
+			}
+		});
+
 		return {
 			user,
+			activity: [],
 			recurrenceDay,
 			workday,
 			client,
@@ -201,8 +227,19 @@ export async function load(event: RequestEvent) {
 			)
 		};
 
+		void recordView({
+			entityType: 'RECURRENCE_DAYS',
+			entityId: recurrenceDayId,
+			metadata: {
+				requisitionId,
+				workdayId: workday?.workday?.id ?? null,
+				candidateId: workday?.workday?.candidateId ?? null
+			}
+		});
+
 		return {
 			user,
+			activity: [],
 			recurrenceDay,
 			workday,
 			client,
@@ -375,6 +412,22 @@ export const actions = {
 					.set({ status: 'FILLED', updatedAt: new Date() })
 					.where(eq(recurrenceDayTable.id, recurrenceDayId));
 
+				await recordAction({
+					tx,
+					entityType: 'RECURRENCE_DAYS',
+					entityId: recurrenceDayId,
+					action: 'ASSIGN',
+					before: { status: recurrenceDay.status },
+					after: { status: 'FILLED' },
+					metadata: {
+						requisitionId,
+						candidateId,
+						workdayId,
+						revived: !!existingWorkday,
+						shiftStart: recurrenceDay.dayStart?.toISOString?.() ?? null
+					}
+				});
+
 				return workdayId;
 			});
 
@@ -473,6 +526,22 @@ export const actions = {
 					.update(recurrenceDayTable)
 					.set({ status: 'OPEN', updatedAt: new Date() })
 					.where(eq(recurrenceDayTable.id, recurrenceDayId));
+
+				await recordAction({
+					tx,
+					entityType: 'RECURRENCE_DAYS',
+					entityId: recurrenceDayId,
+					action: 'UNASSIGN',
+					before: { status: recurrenceDay?.status ?? null },
+					after: { status: 'OPEN' },
+					metadata: {
+						requisitionId: workday.requisitionId,
+						candidateId: workday.candidateId,
+						workdayId: workday.id,
+						timesheetId: timesheetId ?? null,
+						shiftStart: recurrenceDay?.dayStart?.toISOString?.() ?? null
+					}
+				});
 
 				return {
 					candidateId: workday.candidateId,
@@ -665,6 +734,21 @@ export const actions = {
 					.set({ status: 'FILLED', updatedAt: new Date() })
 					.where(eq(recurrenceDayTable.id, recurrenceDayId));
 
+				await recordAction({
+					tx,
+					entityType: 'RECURRENCE_DAYS',
+					entityId: recurrenceDayId,
+					action: 'REASSIGN',
+					metadata: {
+						requisitionId,
+						fromCandidateId: oldCandidateId,
+						toCandidateId: newCandidateId,
+						oldWorkdayId: existingWorkday.id,
+						newWorkdayId,
+						timesheetId: newTimesheetId ?? null
+					}
+				});
+
 				return {
 					oldCandidateId,
 					recurrenceDay,
@@ -811,9 +895,22 @@ export const actions = {
 				{
 					actorUserId: user.id,
 					actorRole: user.role as 'SUPERADMIN' | 'CLIENT' | 'CLIENT_STAFF',
-					reason: 'admin'
+					reason: 'admin',
+					context: { requisitionId, recurrenceDayId: params.workdayId }
 				}
 			);
+			// Mirror on the workday timeline so the admin sees it where it happened.
+			await recordAction({
+				entityType: 'RECURRENCE_DAYS',
+				entityId: params.workdayId,
+				action: 'BLACKLIST',
+				metadata: {
+					requisitionId,
+					candidateId,
+					companyId: requisition.companyId,
+					cancelledWorkdays
+				}
+			});
 			setFlash(
 				{
 					type: 'success',

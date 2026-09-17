@@ -22,6 +22,7 @@ import {
 } from '$lib/server/database/queries/clients';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
 import { getPostHogClient } from '$lib/server/posthog';
+import { recordView } from '$lib/server/audit/audit';
 
 export const load: PageServerLoad = async (event) => {
 	const { id, applicationId } = event.params;
@@ -47,6 +48,14 @@ export const load: PageServerLoad = async (event) => {
 
 		await redirectIfNotValidCustomer(client.id, user.role);
 
+		if (applicationDetails) {
+			void recordView({
+				entityType: 'REQUISITION_APPLICATIONS',
+				entityId: applicationId,
+				metadata: { requisitionId: +id, clientId: client.id }
+			});
+		}
+
 		return {
 			user,
 			application: applicationDetails || null,
@@ -63,6 +72,14 @@ export const load: PageServerLoad = async (event) => {
 		// Access guard: staff must be assigned to this requisition's location.
 		const requisition = await getRequisitionDetailsById(+id);
 		await assertCanAccessLocation(user, requisition?.requisition?.location?.id);
+
+		if (applicationDetails) {
+			void recordView({
+				entityType: 'REQUISITION_APPLICATIONS',
+				entityId: applicationId,
+				metadata: { requisitionId: +id, clientId: client?.id ?? null }
+			});
+		}
 
 		return {
 			user,

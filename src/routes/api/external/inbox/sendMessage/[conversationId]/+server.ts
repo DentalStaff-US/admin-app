@@ -38,24 +38,16 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	}
 
 	try {
-		await authenticateUser(request);
+		const user = await authenticateUser(request);
 		// Parse and validate the request body
 		const rawBody = await request.json();
 		const validatedData = externalMessageSchema.parse(rawBody);
 
-		console.log({ rawBody, validatedData });
-
-		const participants = await db
-			.select()
-			.from(conversationParticipantsTable)
-			.where(
-				and(
-					eq(conversationParticipantsTable.conversationId, conversationId),
-					eq(conversationParticipantsTable.isActive, true)
-				)
-			);
-
-		console.log({ participants, conversationId });
+		// The sender is whoever the JWT says it is — never the body. A client
+		// could otherwise post as someone else in the conversation.
+		if (validatedData.senderId !== user.id) {
+			throw error(403, 'Sender does not match the authenticated user');
+		}
 
 		const [participant] = await db
 			.select()
@@ -63,7 +55,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 			.where(
 				and(
 					eq(conversationParticipantsTable.conversationId, conversationId),
-					eq(conversationParticipantsTable.userId, validatedData.senderId),
+					eq(conversationParticipantsTable.userId, user.id),
 					eq(conversationParticipantsTable.isActive, true)
 				)
 			)
@@ -79,7 +71,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		// Send the message
 		const messageId = await inboxService.sendMessage({
 			conversationId,
-			senderId: validatedData.senderId,
+			senderId: user.id,
 			body: validatedData.body,
 			isSystemMessage: validatedData.isSystemMessage
 		});

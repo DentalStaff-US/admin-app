@@ -23,10 +23,41 @@ export const DEFAULT_MAX_RECORD_LIMIT = 1000;
 
 export const USER_ROLES = {
 	SUPERADMIN: 'SUPERADMIN',
+	// Present in the `user_roles` pgEnum and accepted by checkIsAdmin, but was
+	// historically missing from this map.
+	ADMIN: 'ADMIN',
 	CLIENT: 'CLIENT',
 	CLIENT_STAFF: 'CLIENT_STAFF',
-	CANDIDATE: 'CANDIDATE'
+	CANDIDATE: 'CANDIDATE',
+	// Home role for an affiliate who has no other identity on the platform —
+	// dental schools, supply companies, consultants, influencers. Practices and
+	// professionals keep their own role and gain affiliate access via an
+	// `affiliate_profiles` row instead; affiliation is a capability, not a role.
+	//
+	// NOTE: users.role is plain text (not the user_roles pgEnum), so adding this
+	// needs no migration on `users`.
+	EXTERNAL_PARTNER: 'EXTERNAL_PARTNER'
 } as const;
+
+export type UserRole = (typeof USER_ROLES)[keyof typeof USER_ROLES];
+
+/**
+ * Affiliate "type" is not stored anywhere — it is derived from users.role.
+ * Used for display and filtering only.
+ */
+export function affiliateTypeForRole(role: string | null | undefined): string {
+	switch (role) {
+		case USER_ROLES.CLIENT:
+		case USER_ROLES.CLIENT_STAFF:
+			return 'Practice';
+		case USER_ROLES.CANDIDATE:
+			return 'Professional';
+		case USER_ROLES.EXTERNAL_PARTNER:
+			return 'External Partner';
+		default:
+			return 'Other';
+	}
+}
 
 export const CLIENT_STAFF_ROLES = {
 	CLIENT_ADMIN: 'CLIENT_ADMIN',
@@ -318,14 +349,16 @@ export const SETTINGS_MENU_OPTIONS = {
 		NOTIFICATIONS: 'CLIENT-NOTIFICATIONS',
 		BILLING: 'CLIENT-BILLING',
 		STAFF: 'CLIENT-STAFF',
-		DOCUMENTS: 'DOCUMENTS'
+		DOCUMENTS: 'DOCUMENTS',
+		AFFILIATE: 'CLIENT-AFFILIATE'
 	},
 	CLIENT_STAFF: {
 		PROFILE: 'STAFF-PROFILE',
 		COMPANY: 'STAFF-COMPANY',
 		PASSWORD: 'STAFF-PASSWORD',
 		NOTIFICATIONS: 'STAFF-NOTIFICATIONS',
-		STAFF: 'STAFF-STAFF'
+		STAFF: 'STAFF-STAFF',
+		AFFILIATE: 'STAFF-AFFILIATE'
 	}
 };
 

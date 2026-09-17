@@ -1,4 +1,5 @@
 import { authenticateUser } from '$lib/server/serverUtils';
+import { recordView } from '$lib/server/audit/audit';
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { and, eq } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
@@ -89,14 +90,25 @@ export const GET: RequestHandler = async ({ request, params }) => {
 		.innerJoin(clientProfileTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
 		.where(and(eq(workdayTable.id, id), eq(workdayTable.candidateId, candidateProfile.id)));
 
-	console.log({ workday });
-
 	if (!workday) {
 		return json(
 			{ success: false, message: 'Workday not found' },
 			{ status: 404, headers: corsHeaders }
 		);
 	}
+
+	// Keyed by recurrence-day id (not workday id) so it lands on the same
+	// timeline the admin workday page reads.
+	void recordView({
+		entityType: 'RECURRENCE_DAYS',
+		entityId: workday.recurrenceDay.id,
+		actor: user,
+		metadata: {
+			workdayId: id,
+			requisitionId: workday.requisition.id,
+			candidateId: candidateProfile.id
+		}
+	});
 
 	return json({ success: true, data: workday }, { headers: corsHeaders });
 };

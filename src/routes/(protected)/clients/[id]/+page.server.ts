@@ -1,4 +1,5 @@
 import type { PageServerLoad, RequestEvent } from './$types';
+import { syncAffiliateEligibility } from '$lib/server/database/queries/affiliates';
 import {
 	createCompanyLocation,
 	getAllClientLocationsByCompanyId,
@@ -308,7 +309,7 @@ export const actions = {
 
 		try {
 			const [previous] = await db
-				.select({ status: clientProfileTable.status })
+				.select({ status: clientProfileTable.status, userId: clientProfileTable.userId })
 				.from(clientProfileTable)
 				.where(eq(clientProfileTable.id, clientId))
 				.limit(1);
@@ -325,6 +326,14 @@ export const actions = {
 				.update(clientProfileTable)
 				.set({ status: next, updatedAt: new Date() })
 				.where(eq(clientProfileTable.id, clientId));
+
+			// Affiliate participation is derived from this status: leaving ACTIVE puts
+			// the affiliate ON_HOLD (no link, no new accrual — already-earned balance
+			// still pays out), and returning to ACTIVE reinstates it. No-ops when the
+			// client is not an affiliate.
+			if (previous.userId) {
+				await syncAffiliateEligibility(previous.userId);
+			}
 
 			// Fire-and-forget client-facing email. Dispatcher swallows its own
 			// errors; admin's save success doesn't depend on email delivery.
@@ -382,7 +391,8 @@ export const actions = {
 							unit_amount_excluding_tax: Math.round(item.rate * 100),
 							amount: Math.round(item.amount * 100),
 							currency: 'usd',
-							type: 'paper' as const
+							type: 'paper' as const,
+							category: 'OTHER' as const
 						})),
 						customerEmail,
 						customerName

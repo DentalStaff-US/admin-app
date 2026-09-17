@@ -4,6 +4,8 @@ import { getInvoiceByIdAdmin, getInvoiceById } from '$lib/server/database/querie
 import type { InvoiceWithRelations } from '$lib/server/database/schemas/requisition';
 import { getClientProfilebyUserId } from '$lib/server/database/queries/clients';
 import { generateAndStoreInvoicePdf } from '$lib/server/invoices/generateInvoicePdf';
+import { recordAction } from '$lib/server/audit/audit';
+import { logger } from '$lib/server/logger';
 
 // Authorized paper-invoice PDF download. Admins can fetch any invoice; a client
 // can only fetch their own (getInvoiceById is scoped by clientId and returns
@@ -26,6 +28,23 @@ export const GET: RequestHandler = async (event) => {
 	}
 
 	if (!invoice) error(404, 'Invoice not found');
+
+	// A download is a deliberate click, so it's recorded every time (no view
+	// throttle). A ledger failure must never stand between a client and their PDF.
+	try {
+		await recordAction({
+			entityType: 'INVOICES',
+			entityId: id,
+			action: 'DOWNLOAD',
+			metadata: {
+				invoiceType: invoice.invoice.invoiceType,
+				target: invoice.invoice.invoiceType === 'PAPER' ? 'PAPER_PDF' : 'STRIPE_PDF',
+				status: invoice.invoice.status
+			}
+		});
+	} catch (err) {
+		logger.warn('invoice pdf: failed to record download', { error: err, invoiceId: id });
+	}
 
 	if (invoice.invoice.invoiceType !== 'PAPER') {
 		// Stripe invoices already have their own hosted PDF.

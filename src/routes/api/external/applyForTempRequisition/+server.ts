@@ -13,6 +13,7 @@ import {
 } from '$lib/server/database/schemas/requisition';
 import { experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
+import { recordAction } from '$lib/server/audit/audit';
 import { and, eq } from 'drizzle-orm';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { notifyWorkdayClaimed } from '$lib/server/notifications/transactional';
@@ -263,6 +264,26 @@ export const POST: RequestHandler = async ({ request }) => {
 					.update(recurrenceDayTable)
 					.set({ status: 'FILLED' })
 					.where(eq(recurrenceDayTable.id, recurrenceDayId));
+
+				const shiftStart = recurrenceDay.recurrenceDay.dayStart as Date;
+				await recordAction({
+					tx,
+					entityType: 'RECURRENCE_DAYS',
+					entityId: recurrenceDayId,
+					action: 'CLAIM',
+					actor: user,
+					before: { status: recurrenceDay.recurrenceDay.status },
+					after: { status: 'FILLED' },
+					metadata: {
+						requisitionId: recurrenceDay.requisition.id,
+						candidateId: candidateProfile.id,
+						workdayId: newWorkday.id,
+						shiftStart: shiftStart?.toISOString?.() ?? null,
+						hoursBeforeShift: shiftStart
+							? Number(((shiftStart.getTime() - Date.now()) / 3_600_000).toFixed(2))
+							: null
+					}
+				});
 
 				return { kind: 'success', workdayId: newWorkday.id, createdAt: newWorkday.createdAt };
 			}

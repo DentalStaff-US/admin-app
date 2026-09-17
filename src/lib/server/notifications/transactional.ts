@@ -55,6 +55,8 @@ import {
 	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
 import { USER_ROLES } from '$lib/config/constants';
+import { recordAction } from '$lib/server/audit/audit';
+import type { AuditEntityType } from '$lib/audit/constants';
 
 const emailService = new EmailService();
 
@@ -62,10 +64,22 @@ const emailService = new EmailService();
 
 type SendResult = { success?: boolean; error?: string; sid?: string; id?: string };
 
+/**
+ * When set, a successful send is written to the ledger as EMAIL_SENT against
+ * the entity, with the provider's message id — the "we did send it, here's the
+ * receipt" evidence for invoice disputes.
+ */
+type EmailAudit = {
+	entityType: AuditEntityType;
+	entityId: string;
+	metadata?: Record<string, unknown>;
+};
+
 async function safeEmail(
 	label: string,
 	to: string | null | undefined,
-	run: () => Promise<SendResult>
+	run: () => Promise<SendResult>,
+	audit?: EmailAudit
 ): Promise<boolean> {
 	if (!to) {
 		console.warn(`[transactional:${label}] email skipped: no recipient address`);
@@ -76,6 +90,22 @@ async function safeEmail(
 		if (r && r.success === false) {
 			console.error(`[transactional:${label}] email failed (to=${to}):`, r.error);
 			return false;
+		}
+		if (audit) {
+			// Actor is null on purpose: the human action that triggered the email
+			// already has its own row. This row proves the handoff to the provider.
+			recordAction({
+				entityType: audit.entityType,
+				entityId: audit.entityId,
+				action: 'EMAIL_SENT',
+				actor: null,
+				metadata: {
+					to,
+					template: label,
+					providerMessageId: r?.id ?? null,
+					...(audit.metadata ?? {})
+				}
+			}).catch((err) => console.error(`[transactional:${label}] audit row failed:`, err));
 		}
 		return true;
 	} catch (e) {
@@ -999,21 +1029,26 @@ export async function notifyInvoicePaymentProcessed(invoiceId: string): Promise<
 		if (!client) return;
 
 		await dispatch('invoicePaymentProcessed', [
-			safeEmail('invoicePaymentProcessed', client.email, () => {
-				const t = EMAIL_TEMPLATES.invoicePaymentProcessedNotificationEmail({
-					clientName: client.name,
-					requisitionNumber: invRow.requisitionId ? String(invRow.requisitionId) : null,
-					description: invRow.description ?? null,
-					invoiceId: invRow.id,
-					transactionAmount: `$${invRow.amount}`
-				});
-				return emailService.sendEmail({
-					to: [{ email: client.email, name: client.name }],
-					subject: t.subject,
-					html: t.htmlEmail,
-					text: t.textEmail
-				});
-			})
+			safeEmail(
+				'invoicePaymentProcessed',
+				client.email,
+				() => {
+					const t = EMAIL_TEMPLATES.invoicePaymentProcessedNotificationEmail({
+						clientName: client.name,
+						requisitionNumber: invRow.requisitionId ? String(invRow.requisitionId) : null,
+						description: invRow.description ?? null,
+						invoiceId: invRow.id,
+						transactionAmount: `$${invRow.amount}`
+					});
+					return emailService.sendEmail({
+						to: [{ email: client.email, name: client.name }],
+						subject: t.subject,
+						html: t.htmlEmail,
+						text: t.textEmail
+					});
+				},
+				{ entityType: 'INVOICES', entityId: invRow.id }
+			)
 		]);
 	} catch (e) {
 		console.error('[transactional:invoicePaymentProcessed] top-level error:', e);
@@ -1036,20 +1071,29 @@ export async function notifyMiscellaneousTransaction(args: {
 		if (!client) return;
 
 		await dispatch('miscellaneousTransaction', [
-			safeEmail('miscellaneousTransaction', client.email, () => {
-				const t = EMAIL_TEMPLATES.miscelaneousTransactionNotificationEmail({
-					clientName: client.name,
-					transactionAmount: `$${args.amount.toFixed(2)}`,
-					transactionType: args.transactionType,
-					transactionReason: args.notes ?? 'No reason provided'
-				});
-				return emailService.sendEmail({
-					to: [{ email: client.email, name: client.name }],
-					subject: t.subject,
-					html: t.htmlEmail,
-					text: t.textEmail
-				});
-			})
+			safeEmail(
+				'miscellaneousTransaction',
+				client.email,
+				() => {
+					const t = EMAIL_TEMPLATES.miscelaneousTransactionNotificationEmail({
+						clientName: client.name,
+						transactionAmount: `$${args.amount.toFixed(2)}`,
+						transactionType: args.transactionType,
+						transactionReason: args.notes ?? 'No reason provided'
+					});
+					return emailService.sendEmail({
+						to: [{ email: client.email, name: client.name }],
+						subject: t.subject,
+						html: t.htmlEmail,
+						text: t.textEmail
+					});
+				},
+				{
+					entityType: 'INVOICES',
+					entityId: invRow.id,
+					metadata: { transactionType: args.transactionType, amount: args.amount.toFixed(2) }
+				}
+			)
 		]);
 	} catch (e) {
 		console.error('[transactional:miscellaneousTransaction] top-level error:', e);
@@ -1067,19 +1111,24 @@ export async function notifyInvoiceVoided(invoiceId: string, reason: string): Pr
 		if (!client) return;
 
 		await dispatch('invoiceVoided', [
-			safeEmail('invoiceVoided', client.email, () => {
-				const t = EMAIL_TEMPLATES.invoiceVoidedNotificationEmail({
-					clientName: client.name,
-					invoiceNumber: invRow.invoiceNumber,
-					reason: reason || 'No reason provided'
-				});
-				return emailService.sendEmail({
-					to: [{ email: client.email, name: client.name }],
-					subject: t.subject,
-					html: t.htmlEmail,
-					text: t.textEmail
-				});
-			})
+			safeEmail(
+				'invoiceVoided',
+				client.email,
+				() => {
+					const t = EMAIL_TEMPLATES.invoiceVoidedNotificationEmail({
+						clientName: client.name,
+						invoiceNumber: invRow.invoiceNumber,
+						reason: reason || 'No reason provided'
+					});
+					return emailService.sendEmail({
+						to: [{ email: client.email, name: client.name }],
+						subject: t.subject,
+						html: t.htmlEmail,
+						text: t.textEmail
+					});
+				},
+				{ entityType: 'INVOICES', entityId: invRow.id, metadata: { reason } }
+			)
 		]);
 	} catch (e) {
 		console.error('[transactional:invoiceVoided] top-level error:', e);
@@ -1101,8 +1150,13 @@ export async function notifyOverdueInvoice(invoice: Invoice): Promise<void> {
 			return;
 		}
 		await dispatch('overdueInvoice', [
-			safeEmail('overdueInvoice', recipient, () =>
-				emailService.sendOverdueInvoiceReminderEmail(recipient, invoice)
+			safeEmail(
+				'overdueInvoice',
+				recipient,
+				() => emailService.sendOverdueInvoiceReminderEmail(recipient, invoice),
+				invoice.id
+					? { entityType: 'INVOICES', entityId: invoice.id, metadata: { dueDate: invoice.dueDate } }
+					: undefined
 			)
 		]);
 	} catch (e) {
@@ -1151,23 +1205,32 @@ export async function notifyInvoiceCreated(args: {
 					: null;
 
 		await dispatch('invoiceCreated', [
-			safeEmail('invoiceCreated', client.email, () => {
-				const t = EMAIL_TEMPLATES.invoiceCreatedNotificationEmail({
-					clientName: client.name,
-					invoiceNumber: invRow.invoiceNumber,
-					description: invRow.description ?? null,
-					amount: `$${invRow.amount}`,
-					dueDate,
-					invoiceUrl: args.hostedUrl || `${BASE_URL}/invoices/${invRow.id}`,
-					isPayableOnline: Boolean(args.hostedUrl)
-				});
-				return emailService.sendEmail({
-					to: [{ email: client.email, name: client.name }],
-					subject: t.subject,
-					html: t.htmlEmail,
-					text: t.textEmail
-				});
-			})
+			safeEmail(
+				'invoiceCreated',
+				client.email,
+				() => {
+					const t = EMAIL_TEMPLATES.invoiceCreatedNotificationEmail({
+						clientName: client.name,
+						invoiceNumber: invRow.invoiceNumber,
+						description: invRow.description ?? null,
+						amount: `$${invRow.amount}`,
+						dueDate,
+						invoiceUrl: args.hostedUrl || `${BASE_URL}/invoices/${invRow.id}`,
+						isPayableOnline: Boolean(args.hostedUrl)
+					});
+					return emailService.sendEmail({
+						to: [{ email: client.email, name: client.name }],
+						subject: t.subject,
+						html: t.htmlEmail,
+						text: t.textEmail
+					});
+				},
+				{
+					entityType: 'INVOICES',
+					entityId: invRow.id,
+					metadata: { invoiceNumber: invRow.invoiceNumber, hostedUrl: args.hostedUrl ?? null }
+				}
+			)
 		]);
 	} catch (e) {
 		console.error('[transactional:invoiceCreated] top-level error:', e);

@@ -84,6 +84,8 @@
 				pendingInvites={data.pendingInvites ?? []}
 				{handleAvatarUpdated}
 				documents={data.documents ?? []}
+				affiliateStatus={data.affiliateStatus ?? null}
+				partnerPortalUrl={data.partnerPortalUrl ?? '/affiliate-portal'}
 			/>
 		{:else if user?.role === USER_ROLES.CLIENT_STAFF}
 			<ClientStaffSettingsView
@@ -94,6 +96,8 @@
 				{hasAdminPrivileges}
 				{user}
 				{handleAvatarUpdated}
+				affiliateStatus={data.affiliateStatus ?? null}
+				partnerPortalUrl={data.partnerPortalUrl ?? '/affiliate-portal'}
 			/>
 		{:else if user?.role === USER_ROLES.SUPERADMIN}
 			<AdminSettingsView
