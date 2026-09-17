@@ -22,6 +22,7 @@ import {
 	workdayTable,
 	type RawTimesheetHours
 } from '$lib/server/database/schemas/requisition';
+import { recordAction } from '$lib/server/audit/audit';
 
 export type CancellationRole = 'SUPERADMIN' | 'CLIENT' | 'CLIENT_STAFF' | 'CANDIDATE';
 
@@ -80,6 +81,25 @@ export async function recordRecurrenceDayCancellation(
 		shiftStart,
 		hoursBeforeShift,
 		reason: args.reason ?? null
+	});
+
+	// Every cancel path (admin per-row, admin bulk, workday page, candidate app)
+	// funnels through here, so this is the one place the ledger learns about
+	// cancellations — including how far ahead of the shift they happened.
+	await recordAction({
+		tx,
+		entityType: 'RECURRENCE_DAYS',
+		entityId: args.recurrenceDayId,
+		action: 'CANCEL',
+		actor: args.cancelledByUserId,
+		metadata: {
+			requisitionId: args.requisitionId,
+			candidateId: args.candidateId ?? null,
+			cancelledByRole: args.cancelledByRole,
+			shiftStart: shiftStart.toISOString(),
+			hoursBeforeShift: Number(hoursBeforeShift),
+			reason: args.reason ?? null
+		}
 	});
 }
 

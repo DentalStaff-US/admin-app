@@ -120,12 +120,18 @@ export const POST: RequestHandler = async ({ request, params }) => {
 			.returning();
 
 		await writeActionHistory({
-			action: 'UPDATE',
+			action: 'SUBMIT',
 			userId: user.id,
 			entityId: timesheet.id,
 			table: 'TIMESHEETS',
 			beforeState: timesheet,
-			afterState: result
+			afterState: result,
+			metadata: {
+				requisitionId: timesheet.requisitionId ?? null,
+				from: timesheet.status,
+				to: status,
+				revalidation: true
+			}
 		});
 		return json(
 			{ success: true, message: 'Timesheet sent for revalidation', data: result },

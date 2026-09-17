@@ -2,8 +2,6 @@
 	import type { LayoutData } from './$types';
 	import DashboardNav from '$lib/components/navigation/dashboard-nav.svelte';
 	import { ProgressBar } from '@prgm/sveltekit-progress-bar';
-	import { authClient } from '$lib/auth-client';
-	import { invalidateAll } from '$app/navigation';
 
 	export let data: LayoutData;
 
@@ -13,7 +11,9 @@
 	let exiting = false;
 	async function stopImpersonating() {
 		exiting = true;
-		await authClient.admin.stopImpersonating();
+		// Server endpoint so the exit is recorded in the ledger before the
+		// admin's own session is restored.
+		await fetch('/admin/impersonation/stop', { method: 'POST' });
 		exiting = false;
 		// Restores the admin's own session; reload to reflect it.
 		window.location.href = '/admin/menu/users';

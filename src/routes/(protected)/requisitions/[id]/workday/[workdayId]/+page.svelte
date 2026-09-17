@@ -8,6 +8,7 @@
 		CardTitle
 	} from '$lib/components/ui/card';
 	import { Separator } from '$lib/components/ui/separator';
+	import ActivityLog from '$lib/components/audit/ActivityLog.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import {
@@ -662,6 +663,21 @@
 						{/if}
 					</div>
 				</div>
+			</CardContent>
+		</Card>
+	{/if}
+
+	{#if isAdmin}
+		<Card>
+			<CardHeader>
+				<CardTitle>Activity</CardTitle>
+				<CardDescription>
+					Every view, claim, assignment and cancellation on this workday — who, when, and
+					from where.
+				</CardDescription>
+			</CardHeader>
+			<CardContent>
+				<ActivityLog entries={data.activity ?? []} />
 			</CardContent>
 		</Card>
 	{/if}

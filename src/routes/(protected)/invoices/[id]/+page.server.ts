@@ -28,6 +28,8 @@ import {
 } from '$lib/server/notifications/transactional';
 import { voidInvoiceAndNotify } from '$lib/server/invoices/voidNotify';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
+import { recordView } from '$lib/server/audit/audit';
+import { getActivityForEntity } from '$lib/server/audit/queries';
 
 const RecordTransactionSchema = z.object({
 	invoiceId: z.string().min(1),
@@ -71,7 +73,26 @@ export const load: PageServerLoad = async (event) => {
 			invoiceDetails?.invoice?.invoiceType !== 'PAPER' && invoiceDetails?.invoice?.stripeInvoiceId
 				? await getStripeInvoicePayments(invoiceDetails.invoice.stripeInvoiceId)
 				: [];
-		return { user, invoice: invoiceDetails, transactionForm, paperTransactions, stripePayments };
+		const activity = invoiceDetails ? await getActivityForEntity('INVOICES', event.params.id) : [];
+		if (invoiceDetails) {
+			void recordView({
+				entityType: 'INVOICES',
+				entityId: event.params.id,
+				metadata: {
+					status: invoiceDetails.invoice.status,
+					invoiceType: invoiceDetails.invoice.invoiceType,
+					amount: invoiceDetails.invoice.amountDue
+				}
+			});
+		}
+		return {
+			user,
+			invoice: invoiceDetails,
+			transactionForm,
+			paperTransactions,
+			stripePayments,
+			activity
+		};
 	}
 
 	if (user.role === USER_ROLES.CLIENT) {
@@ -79,16 +100,38 @@ export const load: PageServerLoad = async (event) => {
 		const client = await getClientProfilebyUserId(user.id);
 		const invoiceDetails = await getInvoiceById(event.params.id, client.id);
 		const paperTransactions = await getPaperTransactionsByInvoiceId(event.params.id);
+		// This is the row the client can't argue with: their own account opened
+		// their own invoice. Only written when the scoped lookup actually found it.
+		if (invoiceDetails) {
+			void recordView({
+				entityType: 'INVOICES',
+				entityId: event.params.id,
+				metadata: {
+					status: invoiceDetails.invoice.status,
+					invoiceType: invoiceDetails.invoice.invoiceType,
+					amount: invoiceDetails.invoice.amountDue,
+					clientId: client.id
+				}
+			});
+		}
 		return {
 			user,
 			invoice: invoiceDetails,
 			transactionForm: null,
 			paperTransactions,
-			stripePayments: []
+			stripePayments: [],
+			activity: []
 		};
 	}
 
-	return { user, invoice: null, transactionForm: null, paperTransactions: [], stripePayments: [] };
+	return {
+		user,
+		invoice: null,
+		transactionForm: null,
+		paperTransactions: [],
+		stripePayments: [],
+		activity: []
+	};
 };
 
 export const actions = {
@@ -136,6 +179,21 @@ export const actions = {
 					})
 					.where(eq(invoiceTable.id, id));
 
+				await writeActionHistory({
+					table: 'INVOICES',
+					userId: user.id,
+					action: 'PAYMENT_RECORDED',
+					entityId: id,
+					beforeState: { status: invoice.invoice.status, amountPaid: invoice.invoice.amountPaid },
+					afterState: { status: result.status, amountPaid: (result.amount_paid / 100).toFixed(2) },
+					metadata: {
+						via: 'STRIPE_PAY',
+						stripeInvoiceId: invoice.invoice.stripeInvoiceId,
+						amountPaid: (result.amount_paid / 100).toFixed(2),
+						timesheetId: invoice.invoice.timesheetId ?? null
+					}
+				});
+
 				await notifyInvoicePaymentProcessed(id);
 				setFlash({ type: 'success', message: 'Invoice processed successfully' }, event);
 				return { success: true };
@@ -172,7 +230,8 @@ export const actions = {
 					status: invoiceTable.status,
 					amountRemaining: invoiceTable.amountRemaining,
 					amountPaid: invoiceTable.amountPaid,
-					total: invoiceTable.total
+					total: invoiceTable.total,
+					timesheetId: invoiceTable.timesheetId
 				})
 				.from(invoiceTable)
 				.where(eq(invoiceTable.id, invoiceId))
@@ -216,8 +275,9 @@ export const actions = {
 			if (newRemaining <= 0) newStatus = 'paid';
 
 			// Write transaction record
+			const transactionId = crypto.randomUUID();
 			await db.insert(paperInvoiceTransactionTable).values({
-				id: crypto.randomUUID(),
+				id: transactionId,
 				invoiceId,
 				timesheetId: null,
 				batchNumber: batchNumber || null,
@@ -240,6 +300,32 @@ export const actions = {
 					updatedAt: new Date()
 				})
 				.where(eq(invoiceTable.id, invoiceId));
+
+			await writeActionHistory({
+				table: 'INVOICES',
+				userId: user.id,
+				action: transactionType === 'REFUND' ? 'PAYMENT_REVERSED' : 'PAYMENT_RECORDED',
+				entityId: invoiceId,
+				beforeState: {
+					status: currentInvoice.status,
+					amountPaid: currentInvoice.amountPaid,
+					amountRemaining: currentInvoice.amountRemaining
+				},
+				afterState: {
+					status: newStatus,
+					amountPaid: newPaid.toFixed(2),
+					amountRemaining: newRemaining.toFixed(2)
+				},
+				metadata: {
+					via: 'PAPER',
+					transactionType,
+					transactionId,
+					amount: amount.toFixed(2),
+					batchNumber: batchNumber || null,
+					notes: notes ?? null,
+					timesheetId: currentInvoice.timesheetId ?? null
+				}
+			});
 
 			// Affiliate commission tracks the invoice's settled state. A PAYMENT that
 			// closes the balance accrues; a REFUND that reopens a previously-paid
@@ -353,7 +439,7 @@ export const actions = {
 			await writeActionHistory({
 				table: 'INVOICES',
 				userId: user.id,
-				action: 'UPDATE',
+				action: 'PAYMENT_REVERSED',
 				entityId: invoiceId,
 				beforeState: {
 					status: currentInvoice.status,
@@ -456,7 +542,7 @@ export const actions = {
 			await writeActionHistory({
 				table: 'INVOICES',
 				userId: user.id,
-				action: 'UPDATE',
+				action: 'VOID',
 				entityId: invoiceId,
 				beforeState: { status: currentInvoice.status },
 				afterState: { status: 'void' },

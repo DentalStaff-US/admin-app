@@ -391,7 +391,8 @@ export const actions = {
 							unit_amount_excluding_tax: Math.round(item.rate * 100),
 							amount: Math.round(item.amount * 100),
 							currency: 'usd',
-							type: 'paper' as const
+							type: 'paper' as const,
+							category: 'OTHER' as const
 						})),
 						customerEmail,
 						customerName

@@ -9,6 +9,7 @@ import {
 } from '$lib/server/database/schemas/requisition';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
+import { recordView } from '$lib/server/audit/audit';
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { eq, and, isNull } from 'drizzle-orm';
 import { logger } from '$lib/server/logger';
@@ -104,6 +105,19 @@ export const GET: RequestHandler = async ({ params, request }) => {
 					createdBefore: timesheet.timesheet.createdAt
 				})
 			: 0;
+
+		// Professional opened their own timesheet — JWT user is the actor
+		// (no session here), source resolves to CANDIDATE_APP from the path.
+		void recordView({
+			entityType: 'TIMESHEETS',
+			entityId: id,
+			actor: user,
+			metadata: {
+				requisitionId: timesheet.requisition.id,
+				status: timesheet.timesheet.status,
+				candidateId: candidateProfile.id
+			}
+		});
 
 		return json({
 			...timesheet,

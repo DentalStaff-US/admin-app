@@ -130,19 +130,26 @@ CREATE TABLE "affiliate_referrals" (
 	CONSTRAINT "affiliate_referrals_referred_user_id_unique" UNIQUE("referred_user_id")
 );
 --> statement-breakpoint
-ALTER TABLE "candidate_discipline_experience" ALTER COLUMN "created_at" SET DEFAULT '2026-09-15T22:36:40.320Z';--> statement-breakpoint
-ALTER TABLE "candidate_discipline_experience" ALTER COLUMN "updated_at" SET DEFAULT '2026-09-15T22:36:40.320Z';--> statement-breakpoint
-ALTER TABLE "candidate_document_uploads" ALTER COLUMN "created_at" SET DEFAULT '2026-09-15T22:36:40.320Z';--> statement-breakpoint
-ALTER TABLE "candidate_document_uploads" ALTER COLUMN "updated_at" SET DEFAULT '2026-09-15T22:36:40.320Z';--> statement-breakpoint
-ALTER TABLE "candidate_profiles" ALTER COLUMN "created_at" SET DEFAULT '2026-09-15T22:36:40.320Z';--> statement-breakpoint
-ALTER TABLE "candidate_profiles" ALTER COLUMN "updated_at" SET DEFAULT '2026-09-15T22:36:40.320Z';--> statement-breakpoint
-ALTER TABLE "candidate_ratings" ALTER COLUMN "created_at" SET DEFAULT '2026-09-15T22:36:40.320Z';--> statement-breakpoint
-ALTER TABLE "candidate_ratings" ALTER COLUMN "updated_at" SET DEFAULT '2026-09-15T22:36:40.320Z';--> statement-breakpoint
-ALTER TABLE "client_document_uploads" ALTER COLUMN "created_at" SET DEFAULT '2026-09-15T22:36:40.320Z';--> statement-breakpoint
-ALTER TABLE "client_document_uploads" ALTER COLUMN "updated_at" SET DEFAULT '2026-09-15T22:36:40.320Z';--> statement-breakpoint
-ALTER TABLE "admin_config" ALTER COLUMN "id" SET DEFAULT 'c3a8a3f6-1147-4d1f-8a16-0ce488d9f75e';--> statement-breakpoint
-ALTER TABLE "admin_config" ALTER COLUMN "created_at" SET DEFAULT '2026-09-15T22:36:40.333Z';--> statement-breakpoint
-ALTER TABLE "admin_config" ALTER COLUMN "updated_at" SET DEFAULT '2026-09-15T22:36:40.333Z';--> statement-breakpoint
+ALTER TABLE "candidate_discipline_experience" ALTER COLUMN "created_at" SET DEFAULT now();--> statement-breakpoint
+ALTER TABLE "candidate_discipline_experience" ALTER COLUMN "updated_at" SET DEFAULT now();--> statement-breakpoint
+ALTER TABLE "candidate_document_uploads" ALTER COLUMN "created_at" SET DEFAULT now();--> statement-breakpoint
+ALTER TABLE "candidate_document_uploads" ALTER COLUMN "updated_at" SET DEFAULT now();--> statement-breakpoint
+ALTER TABLE "candidate_profiles" ALTER COLUMN "created_at" SET DEFAULT now();--> statement-breakpoint
+ALTER TABLE "candidate_profiles" ALTER COLUMN "updated_at" SET DEFAULT now();--> statement-breakpoint
+ALTER TABLE "candidate_ratings" ALTER COLUMN "created_at" SET DEFAULT now();--> statement-breakpoint
+ALTER TABLE "candidate_ratings" ALTER COLUMN "updated_at" SET DEFAULT now();--> statement-breakpoint
+ALTER TABLE "client_document_uploads" ALTER COLUMN "created_at" SET DEFAULT now();--> statement-breakpoint
+ALTER TABLE "client_document_uploads" ALTER COLUMN "updated_at" SET DEFAULT now();--> statement-breakpoint
+ALTER TABLE "admin_config" ALTER COLUMN "id" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "admin_config" ALTER COLUMN "created_at" SET DEFAULT now();--> statement-breakpoint
+ALTER TABLE "admin_config" ALTER COLUMN "updated_at" SET DEFAULT now();--> statement-breakpoint
+ALTER TABLE "action_history" ADD COLUMN "actor_role" text;--> statement-breakpoint
+ALTER TABLE "action_history" ADD COLUMN "actor_snapshot" jsonb;--> statement-breakpoint
+ALTER TABLE "action_history" ADD COLUMN "impersonated_by" text;--> statement-breakpoint
+ALTER TABLE "action_history" ADD COLUMN "ip_address" text;--> statement-breakpoint
+ALTER TABLE "action_history" ADD COLUMN "user_agent" text;--> statement-breakpoint
+ALTER TABLE "action_history" ADD COLUMN "source" text;--> statement-breakpoint
+ALTER TABLE "action_history" ADD COLUMN "request_path" text;--> statement-breakpoint
 ALTER TABLE "admin_config" ADD COLUMN "affiliate_commission_rate" numeric(5, 2) DEFAULT '2.50' NOT NULL;--> statement-breakpoint
 ALTER TABLE "admin_config" ADD COLUMN "affiliate_payout_minimum" numeric(10, 2) DEFAULT '25.00' NOT NULL;--> statement-breakpoint
 ALTER TABLE "admin_config" ADD COLUMN "affiliate_program_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint
@@ -178,4 +185,9 @@ CREATE INDEX "affiliate_referral_clicks_dedupe_idx" ON "affiliate_referral_click
 CREATE INDEX "affiliate_referral_codes_affiliate_idx" ON "affiliate_referral_codes" USING btree ("affiliate_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "affiliate_referral_codes_primary_uidx" ON "affiliate_referral_codes" USING btree ("affiliate_id") WHERE "affiliate_referral_codes"."is_primary" = true;--> statement-breakpoint
 CREATE INDEX "affiliate_referrals_affiliate_idx" ON "affiliate_referrals" USING btree ("affiliate_id");--> statement-breakpoint
-CREATE INDEX "affiliate_referrals_status_idx" ON "affiliate_referrals" USING btree ("status");
+CREATE INDEX "affiliate_referrals_status_idx" ON "affiliate_referrals" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "action_history_entity_idx" ON "action_history" USING btree ("entity_type","entity_id","created_at");--> statement-breakpoint
+CREATE INDEX "action_history_user_idx" ON "action_history" USING btree ("user_id","created_at");--> statement-breakpoint
+CREATE INDEX "action_history_created_idx" ON "action_history" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX "action_history_meta_timesheet_idx" ON "action_history" USING btree (("metadata"->>'timesheetId'));--> statement-breakpoint
+CREATE INDEX "action_history_meta_requisition_idx" ON "action_history" USING btree (("metadata"->>'requisitionId'));

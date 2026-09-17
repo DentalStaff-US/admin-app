@@ -10,13 +10,10 @@ import {
 	listRecentPayouts,
 	listReferralsForAdmin,
 	updateAffiliateProgramSettings,
-	setAffiliateRateOverride,
-	setAffiliateStatus,
 	resolveFlaggedReferral,
 	manuallyAttributeReferral
 } from '$lib/server/database/queries/affiliatesAdmin';
 import { logger } from '$lib/server/logger';
-import type { AffiliateStatus } from '$lib/server/affiliate/eligibility';
 
 // Commission and the payout floor are money settings — validate hard rather than
 // coercing, so a typo cannot silently set the rate to 0 or NaN.
@@ -27,19 +24,6 @@ const programSettingsSchema = z.object({
 		.max(100, 'Rate cannot exceed 100%'),
 	payoutMinimum: z.coerce.number().min(0, 'Minimum cannot be negative'),
 	programEnabled: z.boolean().default(false)
-});
-
-const rateOverrideSchema = z.object({
-	affiliateId: z.string().min(1),
-	// Empty string clears the override and falls back to the program default.
-	ratePercent: z.string().optional(),
-	reason: z.string().max(500).optional()
-});
-
-const statusSchema = z.object({
-	affiliateId: z.string().min(1),
-	status: z.enum(['PENDING', 'ACTIVE', 'ON_HOLD', 'DENIED']),
-	reason: z.string().min(1, 'A reason is required').max(500)
 });
 
 const flaggedSchema = z.object({
@@ -60,10 +44,19 @@ function requireSuperadmin(locals: App.Locals) {
 }
 
 export async function load(event) {
+	const q = event.url.searchParams.get('q') ?? '';
+	const status = event.url.searchParams.get('status') ?? '';
+	const role = event.url.searchParams.get('role') ?? '';
+	const filters = {
+		q: q || undefined,
+		status: (['PENDING', 'ACTIVE', 'ON_HOLD', 'DENIED'] as const).find((s) => s === status),
+		role: role || undefined
+	};
+
 	const [config, totals, affiliates, payouts, referrals] = await Promise.all([
 		getAffiliateConfig(),
 		getAffiliateProgramTotals(),
-		listAffiliatesForAdmin(),
+		listAffiliatesForAdmin(filters),
 		listRecentPayouts(),
 		listReferralsForAdmin()
 	]);
@@ -82,6 +75,7 @@ export async function load(event) {
 		payouts,
 		referrals,
 		settingsForm,
+		filters: { q, status, role },
 		isSuperadmin: event.locals.user?.role === USER_ROLES.SUPERADMIN
 	};
 }
@@ -105,60 +99,6 @@ export const actions = {
 			logger.error('updateAffiliateProgramSettings failed', { error: err });
 			return setError(form, 'Could not update settings');
 		}
-	},
-
-	setRateOverride: async (event) => {
-		if (!requireSuperadmin(event.locals)) return fail(403, { message: 'Superadmin only' });
-
-		const data = Object.fromEntries(await event.request.formData());
-		const parsed = rateOverrideSchema.safeParse(data);
-		if (!parsed.success) return fail(400, { message: 'Invalid override' });
-
-		const raw = (parsed.data.ratePercent ?? '').trim();
-		let ratePercent: string | null = null;
-		if (raw !== '') {
-			const n = Number(raw);
-			if (!Number.isFinite(n) || n < 0 || n > 100) {
-				return fail(400, { message: 'Override must be between 0 and 100' });
-			}
-			ratePercent = n.toFixed(2);
-		}
-
-		await setAffiliateRateOverride({
-			affiliateId: parsed.data.affiliateId,
-			ratePercent,
-			reason: parsed.data.reason ?? null,
-			setBy: event.locals.user!.id
-		});
-
-		setFlash(
-			{
-				type: 'success',
-				message: ratePercent
-					? `Override set to ${ratePercent}%`
-					: 'Override cleared — using the program default'
-			},
-			event
-		);
-		return { success: true };
-	},
-
-	setStatus: async (event) => {
-		if (!requireSuperadmin(event.locals)) return fail(403, { message: 'Superadmin only' });
-
-		const data = Object.fromEntries(await event.request.formData());
-		const parsed = statusSchema.safeParse(data);
-		if (!parsed.success) return fail(400, { message: 'A reason is required' });
-
-		await setAffiliateStatus({
-			affiliateId: parsed.data.affiliateId,
-			status: parsed.data.status as AffiliateStatus,
-			reason: parsed.data.reason,
-			setBy: event.locals.user!.id
-		});
-
-		setFlash({ type: 'success', message: `Affiliate set to ${parsed.data.status}` }, event);
-		return { success: true };
 	},
 
 	resolveFlagged: async (event) => {

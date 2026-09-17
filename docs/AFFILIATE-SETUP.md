@@ -193,7 +193,8 @@ must be a deliberate, announced step.
 | `AFFILIATE_IP_HASH_SECRET` | recommended | HMAC salt for click IP hashing. Falls back to `CRON_SECRET`, then a dev salt |
 | `CRON_SECRET` | already set | Reused to sign the two new cron endpoints |
 | `STRIPE_SECRET_KEY` | already set | Must be a key on an account with **Connect enabled** (§4) |
-| `STRIPE_WEBHOOK_SECRET` | already set | The endpoint now also needs `account.updated` (§4.2) |
+| `STRIPE_WEBHOOK_SECRET` | already set | Signs the platform-account endpoint |
+| `STRIPE_CONNECT_WEBHOOK_SECRET` | prod | Signs the **second**, connected-accounts endpoint (§4.2). Optional locally — `stripe listen` uses one secret for both |
 
 ### `dtss-candidate-app`
 
@@ -225,16 +226,37 @@ web server.
 
 | Job | Schedule (ET) | Endpoint | What it does |
 |---|---|---|---|
-| `processAffiliatePayouts` | monthly, 1st @ 04:00 | `/api/jobs/affiliates/processPayouts` | Approves matured commission, transfers via Connect |
+| `processAffiliatePayouts` | monthly, 1st @ 04:00 | `/api/jobs/affiliates/processPayouts` | Approves matured commission, transfers via Connect, emails "payout sent"; emails admins on any failure |
 | `reconcileAffiliateEligibility` | daily @ 03:00 | `/api/jobs/affiliates/reconcileEligibility` | Re-derives affiliate status from profile status |
+| `reconcileAffiliateFinance` | daily @ 03:30 | `/api/jobs/affiliates/reconcileFinance` | Re-syncs every Connect account from Stripe; **retries `FAILED` payouts** from the last 60 days |
+| `notifyUpcomingAffiliatePayouts` | monthly, 26th @ 10:00 | `/api/jobs/affiliates/notifyUpcomingPayouts` | "Your $X is coming on the 1st" heads-up |
 
-No action needed beyond deploying — the cron service reads the registry. Both are
+No action needed beyond deploying — the cron service reads the registry. All are
 verified with `CRON_SECRET` and guarded with a Postgres advisory lock.
+`reconcileAffiliateFinance` shares the payout lock (it can call the payout run)
+and is scheduled at 03:30 so it can never overlap the 04:00 monthly run.
 
 **Why the nightly reconcile is not optional:** client and candidate statuses get
 edited directly in the DB during support work and by import scripts, where the
 in-app sync hooks cannot observe them. Without the sweep, a deactivated account
 could keep a live referral link and keep accruing.
+
+---
+
+## 3.1 Emails
+
+All affiliate emails live in `src/lib/server/affiliate/notifications.ts`, use
+the standard `EmailService`, respect `users.receive_email`, and are
+**fire-and-forget** — a notification failure can never fail a payout, a webhook
+or a signup. That also means a broken email config fails *quietly*, in the logs
+(`affiliate email failed: …`), not loudly. Check logs after the first real run.
+
+| Email | To | Trigger |
+|---|---|---|
+| New referral | affiliate | someone signs up through their link (QUALIFIED only — not flagged ones) |
+| Payout coming | affiliate | the 26th, if they'll be paid on the 1st |
+| Payout sent | affiliate | a transfer succeeds |
+| Payout failures | **admins** | any run with a `FAILED` payout |
 
 ---
 
@@ -252,17 +274,85 @@ gates money actually moving.
 Also decide: do transfers draw from the **platform balance**, or from a funded
 reserve? Transfers fail if the platform balance is insufficient.
 
-### 4.2 Add the `account.updated` webhook event
+### 4.2 The `account.updated` webhook — needs a SECOND endpoint
 
-The existing endpoint (`/api/webhooks/stripe`) now handles `account.updated`. Add
-that event type to the webhook in the Stripe Dashboard, alongside the existing
-invoice and subscription events.
+`account.updated` for an affiliate's Express account is a **connected-account
+event**, and Stripe has a hard constraint: a webhook endpoint listens to either
+*your account's* events or *connected accounts'* events — never both. So the same
+URL must be registered **twice** in the Dashboard.
 
-This is what flips `connect_payouts_enabled` to true once an affiliate finishes
-Stripe's KYC. The payout run checks that flag; until it's true the affiliate's
-balance simply carries forward rather than being lost.
+| Endpoint | Type | Events | Signing secret env var |
+|---|---|---|---|
+| `…/api/webhooks/stripe` | **Events on your account** *(existing)* | the 10 invoice/subscription/checkout events | `STRIPE_WEBHOOK_SECRET` |
+| `…/api/webhooks/stripe` | **Events on Connected accounts** *(new)* | `account.updated` | `STRIPE_CONNECT_WEBHOOK_SECRET` |
 
-### 4.3 What Stripe handles for us
+**Developers → Webhooks → Add endpoint** — the account-vs-connected radio is the
+first choice on that screen. Each registration gets its own signing secret; the
+handler tries both. `STRIPE_CONNECT_WEBHOOK_SECRET` is optional, so a
+single-secret setup (dev with `stripe listen`) keeps working.
+
+**This must be done per environment** — the sandbox has its own endpoints and
+Connect enablement; nothing propagates from live.
+
+#### Environment matrix
+
+Staging is the odd one out: it shares BOTH the database and the Stripe sandbox
+with local development, but has its own webhook endpoints.
+
+| | Database | Stripe | Webhook delivery | Secrets come from |
+|---|---|---|---|---|
+| **Local** | dev | sandbox | `stripe listen` with both flags | the one `whsec_` the CLI prints |
+| **Staging** | dev *(shared with local)* | sandbox *(shared with local)* | 2 Dashboard endpoints **in the sandbox** → staging URL | the sandbox Dashboard |
+| **Prod** | prod | live | 2 Dashboard endpoints **in live** → prod URL | the live Dashboard |
+
+Because local and staging share the sandbox, **every sandbox event is delivered
+to both** — your local listener *and* staging's endpoint — and both write the
+same row in the same dev DB. This is harmless (the sync is idempotent) and means
+staging acts as a fallback delivery path when the local listener is down. Do not
+be surprised when a Connect flag flips without your listener having logged it.
+
+Connect must be enabled in the sandbox AND in live, separately (§4.1).
+
+**Locally**, `stripe listen` needs the `--forward-connect-to` flag or
+connected-account events are silently dropped:
+
+```bash
+stripe listen \
+  --forward-to         localhost:3000/api/webhooks/stripe \
+  --forward-connect-to localhost:3000/api/webhooks/stripe
+```
+
+**Why it matters:** `account.updated` is what flips `connect_payouts_enabled`
+once an affiliate finishes Stripe's KYC, and the payout run checks that flag. As
+a backstop against a missed webhook, the portal's `summary` endpoint reconciles
+the flag directly from Stripe whenever it sees an account that exists but isn't
+payouts-enabled yet — so a misconfigured subscription delays an affiliate until
+their next portal visit rather than stranding them. The webhook is still the
+primary path; get it right.
+
+**To verify delivery end to end:** update the connected account's metadata (any
+harmless key) and confirm `affiliate_profiles.connect_updated_at` moves.
+
+### 4.3 When a transfer fails — how it gets reconciled
+
+The most common failure is **insufficient platform balance** on the 1st. Nothing
+automated can fix that; a human has to top up. So reconciliation is three layers:
+
+1. **The run itself** marks the payout `FAILED` with Stripe's reason, releases
+   the events back to `APPROVED` (never marked paid), and **emails every admin**
+   the affiliate, amount and reason.
+2. **Nightly retry** — `reconcileAffiliateFinance` re-attempts any `FAILED`
+   payout from the last 60 days. Top up on the 2nd, money moves on the 3rd, not
+   next month. A retry **reuses the `FAILED` row** (history preserved) and sends a
+   fresh Stripe request rather than replaying the cached failure.
+3. **Manual** — the `FAILED` row and its reason are visible in the admin
+   console's payout history and in the payouts CSV.
+
+**Keep the platform balance funded before the 1st.** Transfers draw from it; a
+short balance fails every affiliate that month. Decide whether it's fed by
+incoming invoice payments or a standing reserve.
+
+### 4.4 What Stripe handles for us
 
 Express accounts mean **Stripe hosts the identity verification and issues the
 affiliate's 1099**. That is why tax-form generation is not on our roadmap.
@@ -359,9 +449,9 @@ is no cross-domain bridge to build or maintain.
 
 ---
 
-## 7. How it works across the apps
+## 8. How it works across the apps
 
-### 7.1 Attribution
+### 8.1 Attribution
 
 ```
 Affiliate shares  https://www.dtstaffingsolutions.com/r?c=ABCD2345
@@ -395,7 +485,7 @@ cookie achieves exactly what clicking the link achieves. Every real check happen
 server-side at consume time (code exists, is active, affiliate is ACTIVE,
 self-referral guard).
 
-### 7.2 Earning
+### 8.2 Earning
 
 ```
 Practice pays an invoice
@@ -408,7 +498,10 @@ Practice pays an invoice
    │  whoever referred the professional (invoices.candidate_id). Each earns
    │  on their own side, as two rows with distinct idempotency keys
    ├─ base = REGULAR hours only, taken from the invoice line items (what the
-   │  client actually paid), falling back to recomputation
+   │  client actually paid), falling back to recomputation. Lines are identified
+   │  by their structural `category` (LABOR_REGULAR etc. — Stripe metadata /
+   │  paper field); description string-matching survives ONLY for invoices
+   │  created before the category rollout. The snapshot records which was used.
    ├─ rate = affiliate override ?? admin_config.affiliate_commission_rate
    └─ writes PENDING event, cohort = month of payment (America/New_York)
 ```
@@ -418,7 +511,7 @@ discrepancy — is frozen into the row's `rule_snapshot`. **A later rate change,
 adding a per-affiliate override, can never retroactively rewrite what was already
 earned.**
 
-### 7.3 Getting paid
+### 8.3 Getting paid
 
 ```
 1st of the month, 04:00 ET
@@ -438,7 +531,7 @@ Events are marked `PAID` **only after the transfer confirms**. A failed transfer
 releases the events for the next run and leaves a `FAILED` payout row carrying the
 Stripe error.
 
-### 7.4 Eligibility
+### 8.4 Eligibility
 
 Affiliate status is **derived**, not set independently:
 
@@ -456,7 +549,32 @@ already owed is reconciled and paid.
 
 ---
 
-## 8. Verifying an environment
+## 8.5 CSV exports — Admin → Admin Menu → Exports
+
+`/admin/menu/exports` (superadmin only) is the home for **all** financial
+downloads — the affiliate ones are the first two; invoicing and professional
+wages exports are expected to join them. Optional inclusive From/To dates apply
+to every export on the page.
+
+```
+/admin/menu/exports/affiliate-ledger?from=YYYY-MM-DD&to=YYYY-MM-DD
+/admin/menu/exports/affiliate-payouts?from=…&to=…
+```
+
+- **Commission ledger** — one row per event: affiliate, invoice #, base, rate and
+  its source, regular/overtime hours, commission, status, payout id, and for
+  reversals which event they reverse and why. Enough to reconcile every dollar.
+- **Payouts** — one row per payout: cohort, amount, status, Stripe transfer id,
+  Connect account, paid-at, failure reason.
+
+**Adding a new export** is one entry in `src/lib/server/export/registry.ts` plus
+a function returning a CSV string. The core (`src/lib/server/export/csv.ts`)
+handles RFC 4180 quoting, ISO dates, money as plain decimals so spreadsheets keep
+them numeric, and formula-injection defusing.
+
+---
+
+## 9. Verifying an environment
 
 ```bash
 cd dental-staff-app && npm test && npm run check
@@ -488,9 +606,28 @@ Then, end to end:
    advisory lock must make it a no-op.** Force a transfer failure → payout is
    `FAILED`, events stay `APPROVED`, nothing marked paid.
 
+9. **Category:** approve a fresh timesheet → confirm each line in `invoices.line_items` carries a
+   `category` (paper) or `metadata.category` (Stripe), and the resulting commission event's
+   `rule_snapshot.baseSource` is `INVOICE_LINE_CATEGORY`.
+10. **Exports:** download both CSVs from `/admin/menu/exports`; open in a spreadsheet; confirm money
+    columns are numeric and a clawback row shows a negative amount with `Reversal Of` populated.
+11. **Failed-payout retry:** with an empty sandbox balance, run the payout job → `FAILED` + admin email.
+    Fund the balance, run `reconcileAffiliateFinance` → the **same** payout row flips to `PAID` with a
+    transfer id.
 ---
 
-## 9. Production mirror checklist
+## 10. Staging checklist
+
+Staging shares the dev database and the Stripe sandbox with local (§4.2 matrix),
+so the schema and config steps are already done once dev is. What staging needs
+of its own:
+
+- [ ] `PUBLIC_PARTNER_PORTAL_URL` pointed at the staging portal host (§2)
+- [ ] In the **sandbox** Dashboard: 2 webhook endpoints → the staging URL (§4.2)
+- [ ] `STRIPE_WEBHOOK_SECRET` + `STRIPE_CONNECT_WEBHOOK_SECRET` from those sandbox endpoints
+- [ ] Deploy all apps + confirm the cron service sees all four affiliate jobs (§3)
+
+## 11. Production mirror checklist
 
 In order. Nothing here is optional except where marked.
 
@@ -507,17 +644,19 @@ schema must land **before** the code deploy (§1.2).
 - [ ] `AFFILIATE_IP_HASH_SECRET` on the admin app (§2)
 - [ ] Enable Stripe **Connect / Express + transfers** (§4.1) — *blocking for payouts only*
 - [ ] Decide platform balance vs funded reserve (§4.1)
-- [ ] Add `account.updated` to the Stripe webhook (§4.2)
+- [ ] Register the webhook URL **twice** in the Dashboard: once for platform events, once for **Connected accounts** with `account.updated` (§4.2)
+- [ ] Set `STRIPE_WEBHOOK_SECRET` **and** `STRIPE_CONNECT_WEBHOOK_SECRET` from those two endpoints (§2, §4.2)
+- [ ] Verify delivery: touch a connected account's metadata, confirm `connect_updated_at` moves (§4.2)
 - [ ] Deploy admin app, candidate app, landing site
-- [ ] Confirm the cron service picked up both new jobs (§3)
+- [ ] Confirm the cron service picked up all four affiliate jobs (§3)
 - [ ] Run the backfill: dry run, then `--commit` (§5)
-- [ ] Walk §8 steps 1–4 against production with a test affiliate
+- [ ] Walk §9 steps 1–4 against production with a test affiliate
 - [ ] Flip `affiliate_program_enabled = true`
 - [ ] *(optional, separate)* Drop `referral_keys` (§1.4)
 
 ---
 
-## 10. Operational notes
+## 12. Operational notes
 
 **Rolling back.** Set `affiliate_program_enabled = false`. The portal goes dark and
 the API returns 503, but `?ref=` capture keeps running and the ledger is untouched.

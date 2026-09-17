@@ -140,3 +140,35 @@ export async function createConnectDashboardLink(affiliateId: string): Promise<s
 	const link = await stripe.accounts.createLoginLink(affiliate.accountId);
 	return link.url;
 }
+
+/**
+ * Reconcile an affiliate's Connect flags straight from Stripe.
+ *
+ * The primary path is the `account.updated` webhook — but webhooks are not
+ * guaranteed, and a missed or misconfigured subscription would otherwise strand
+ * an affiliate indefinitely: fully onboarded on Stripe's side, "Setup incomplete"
+ * on ours, and skipped by every payout run with no error anywhere.
+ *
+ * Cheap enough to call opportunistically whenever we observe the transient
+ * "account exists but payouts not yet enabled" state. Returns the fresh flags,
+ * or null when there is no connected account to reconcile.
+ */
+export async function reconcileConnectFromStripe(
+	affiliateId: string
+): Promise<{ payoutsEnabled: boolean; detailsSubmitted: boolean } | null> {
+	const [affiliate] = await db
+		.select({ accountId: affiliateProfileTable.stripeConnectAccountId })
+		.from(affiliateProfileTable)
+		.where(eq(affiliateProfileTable.id, affiliateId))
+		.limit(1);
+
+	if (!affiliate?.accountId) return null;
+
+	const account = await stripe.accounts.retrieve(affiliate.accountId);
+	await syncConnectAccount(account);
+
+	return {
+		payoutsEnabled: Boolean(account.payouts_enabled),
+		detailsSubmitted: Boolean(account.details_submitted)
+	};
+}

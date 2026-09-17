@@ -189,7 +189,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			entityId: result.id,
 			table: 'TIMESHEETS',
 			beforeState: existingTimesheet,
-			afterState: result
+			afterState: result,
+			metadata: { requisitionId: result.requisitionId ?? null, draft: true }
 		});
 
 		return json(

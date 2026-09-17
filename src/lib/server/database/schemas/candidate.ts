@@ -41,13 +41,13 @@ export const candidateProfileTable = pgTable(
 			mode: 'date'
 		})
 			.notNull()
-			.default(new Date()),
+			.defaultNow(),
 		updatedAt: timestamp('updated_at', {
 			withTimezone: true,
 			mode: 'date'
 		})
 			.notNull()
-			.default(new Date()),
+			.defaultNow(),
 		address: text('address'),
 		hourlyRateMin: smallint('hourly_rate_min'),
 		hourlyRateMax: smallint('hourly_rate_max'),
@@ -98,13 +98,13 @@ export const candidateRatingTable = pgTable('candidate_ratings', {
 		mode: 'date'
 	})
 		.notNull()
-		.default(new Date()),
+		.defaultNow(),
 	updatedAt: timestamp('updated_at', {
 		withTimezone: true,
 		mode: 'date'
 	})
 		.notNull()
-		.default(new Date()),
+		.defaultNow(),
 	notes: text('notes'),
 	rating: smallint('rating').notNull()
 });
@@ -140,13 +140,13 @@ export const candidateDisciplineExperienceTable = pgTable(
 			mode: 'date'
 		})
 			.notNull()
-			.default(new Date()),
+			.defaultNow(),
 		updatedAt: timestamp('updated_at', {
 			withTimezone: true,
 			mode: 'date'
 		})
 			.notNull()
-			.default(new Date()),
+			.defaultNow(),
 		candidateId: text('candidate_id')
 			.notNull()
 			.references(() => candidateProfileTable.id, { onDelete: 'cascade' }),
@@ -177,13 +177,13 @@ export const candidateDocumentUploadsTable = pgTable('candidate_document_uploads
 		mode: 'date'
 	})
 		.notNull()
-		.default(new Date()),
+		.defaultNow(),
 	updatedAt: timestamp('updated_at', {
 		withTimezone: true,
 		mode: 'date'
 	})
 		.notNull()
-		.default(new Date()),
+		.defaultNow(),
 	candidateId: text('candidate_id')
 		.references(() => candidateProfileTable.id, { onDelete: 'cascade' })
 		.notNull(),

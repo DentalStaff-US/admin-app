@@ -415,13 +415,13 @@ export const clientDocumentUploadsTable = pgTable('client_document_uploads', {
 		mode: 'date'
 	})
 		.notNull()
-		.default(new Date()),
+		.defaultNow(),
 	updatedAt: timestamp('updated_at', {
 		withTimezone: true,
 		mode: 'date'
 	})
 		.notNull()
-		.default(new Date()),
+		.defaultNow(),
 	clientId: text('client_id')
 		.references(() => clientProfileTable.id, { onDelete: 'cascade' })
 		.notNull(),

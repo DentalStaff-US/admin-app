@@ -22,11 +22,8 @@ import {
 } from '$lib/server/database/schemas/client';
 import { convertRecurrenceDayToEvent } from '$lib/components/calendar/utils';
 import type { PgTable, PgTableWithColumns } from 'drizzle-orm/pg-core';
-import {
-	actionHistoryTable,
-	adminProfileCommentTable,
-	supportTicketTable
-} from '$lib/server/database/schemas/admin';
+import type { AuditAction } from '$lib/audit/constants';
+import { adminProfileCommentTable, supportTicketTable } from '$lib/server/database/schemas/admin';
 import type { PaginateOptions } from '$lib/types';
 import {
 	candidateDisciplineExperienceTable,
@@ -46,7 +43,10 @@ import { disciplineTable } from '../schemas/skill';
 import { parseCompleteAddress } from '$lib/server/address';
 import type { DisciplineSummary } from '$lib/_helpers/professional-filters';
 
-export type ActionType = 'CREATE' | 'UPDATE' | 'DELETE';
+// The ledger writer lives in $lib/server/audit; re-exported here so the
+// pre-ledger call sites keep importing from this module.
+export { writeActionHistory } from '$lib/server/audit/audit';
+export type ActionType = AuditAction;
 
 export type AdminUserRaw = {
 	id: string;
@@ -371,50 +371,6 @@ export async function getNewClientSignupsPreview(limit: number) {
 
 	return result;
 }
-
-export const writeActionHistory = async ({
-	table,
-	userId,
-	action,
-	entityId,
-	beforeState,
-	afterState,
-	metadata = {}
-}: {
-	table: string;
-	// Nullable so automated/system actions (e.g. the 24h auto-approval cron) can
-	// be attributed to no user — the action_history.user_id column is a nullable
-	// FK (SET NULL on user delete).
-	userId: string | null;
-	action: ActionType;
-	entityId: string;
-	beforeState?: Record<string, any>;
-	afterState?: Record<string, any>;
-	metadata?: Record<string, any>;
-}) => {
-	try {
-		const [result] = await db
-			.insert(actionHistoryTable)
-			.values({
-				id: crypto.randomUUID(),
-				entityId,
-				entityType: table,
-				userId,
-				action,
-				changes: {
-					before: beforeState,
-					after: afterState
-				},
-				metadata
-			})
-			.returning();
-
-		return result;
-	} catch (error) {
-		console.error('Failed to write action history:', error);
-		throw new Error('Failed to record action history');
-	}
-};
 
 export async function getOpenSupportTicketsCount() {
 	const [result] = await db

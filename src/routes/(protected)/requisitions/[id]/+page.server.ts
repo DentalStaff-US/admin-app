@@ -80,6 +80,8 @@ import {
 	type CancelRecurrenceDaySnapshot
 } from '$lib/server/requisitions/cancelRecurrenceDay';
 import type { CancellationRole } from '$lib/server/cancellations';
+import { recordAction, recordView } from '$lib/server/audit/audit';
+import { getActivityForEntity } from '$lib/server/audit/queries';
 
 const invoiceLineItemSchema = z.array(
 	z.object({
@@ -171,8 +173,21 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			location
 		);
 
+		// Ledger timeline for this requisition plus every workday/application row
+		// that points back at it via metadata.requisitionId.
+		const activity = await getActivityForEntity('REQUISITIONS', id, {
+			relatedKey: 'requisitionId'
+		});
+
+		void recordView({
+			entityType: 'REQUISITIONS',
+			entityId: id,
+			metadata: { companyId: company.id, status: requisition.requisition.status }
+		});
+
 		return {
 			user,
+			activity,
 			hasRequisitionRights: true,
 			changeStatusForm,
 			recurrenceDayForm,
@@ -218,8 +233,15 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			? null
 			: billingNotReadyMessage({ audience: 'CLIENT', what: 'add shifts' });
 
+		void recordView({
+			entityType: 'REQUISITIONS',
+			entityId: id,
+			metadata: { companyId: company.id, status: result?.requisition?.status }
+		});
+
 		return {
 			user,
+			activity: [],
 			company,
 			location,
 			hasRequisitionRights,
@@ -264,8 +286,19 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			? null
 			: billingNotReadyMessage({ audience: 'CLIENT', what: 'add shifts' });
 
+		void recordView({
+			entityType: 'REQUISITIONS',
+			entityId: id,
+			metadata: {
+				companyId: company.id,
+				status: result?.requisition?.status,
+				staffRole: profile?.staffRole ?? null
+			}
+		});
+
 		return {
 			user,
+			activity: [],
 			company,
 			location,
 			changeStatusForm,
@@ -442,6 +475,19 @@ export const actions = {
 							requisitionId: idAsNum,
 							dayStart: day.dayStart,
 							referenceTimezone: requisition.requisition.referenceTimezone
+						});
+
+						await recordAction({
+							tx,
+							entityType: 'RECURRENCE_DAYS',
+							entityId: day.id,
+							action: 'ASSIGN',
+							metadata: {
+								requisitionId: idAsNum,
+								candidateId,
+								workdayId,
+								onCreate: true
+							}
 						});
 					}
 				});
@@ -715,7 +761,8 @@ export const actions = {
 							unit_amount_excluding_tax: Math.round(item.rate * 100),
 							amount: Math.round(item.amount * 100),
 							currency: 'usd',
-							type: 'paper' as const
+							type: 'paper' as const,
+							category: 'PLACEMENT_FEE' as const
 						})),
 						customerEmail,
 						customerName
@@ -966,10 +1013,28 @@ export const actions = {
 			return fail(400, { error: 'Invalid status for bulk update' });
 		}
 
-		await db
-			.update(recurrenceDayTable)
-			.set({ status, updatedAt: new Date() })
-			.where(inArray(recurrenceDayTable.id, ids));
+		const idAsNum = Number(request.params.id);
+		await db.transaction(async (tx) => {
+			const before = await tx
+				.select({ id: recurrenceDayTable.id, status: recurrenceDayTable.status })
+				.from(recurrenceDayTable)
+				.where(inArray(recurrenceDayTable.id, ids));
+			await tx
+				.update(recurrenceDayTable)
+				.set({ status, updatedAt: new Date() })
+				.where(inArray(recurrenceDayTable.id, ids));
+			for (const day of before) {
+				await recordAction({
+					tx,
+					entityType: 'RECURRENCE_DAYS',
+					entityId: day.id,
+					action: 'STATUS_CHANGE',
+					before: { status: day.status },
+					after: { status },
+					metadata: { requisitionId: idAsNum, from: day.status, to: status, bulk: true }
+				});
+			}
+		});
 
 		setFlash(
 			{

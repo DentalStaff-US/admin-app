@@ -77,8 +77,8 @@ import { calculateMaxHours, toUTCDateString } from '$lib/_helpers/UTCTimezoneUti
 import { toZonedTime } from 'date-fns-tz';
 import { voidStripeInvoice } from '$lib/server/stripe';
 import { DEFAULT_MAX_RECORD_LIMIT } from '$lib/config/constants';
-import { actionHistoryTable } from '../schemas/admin';
 import { logger } from '$lib/server/logger';
+import type { InvoiceLineCategory } from '$lib/server/invoices/lineCategory';
 
 /**
  * Candidate columns safe to attach to timesheet payloads.
@@ -203,6 +203,8 @@ export type PaperInvoiceLineItem = {
 	amount: number; // total in cents - mirrors Stripe
 	currency: string;
 	type: 'paper'; // discriminator
+	/** Structural category; absent on invoices created before tagging. */
+	category?: InvoiceLineCategory;
 };
 
 export type InvoiceLineItem = Stripe.InvoiceLineItem | PaperInvoiceLineItem;
@@ -805,11 +807,12 @@ export async function changeRequisitionStatus(
 		await writeActionHistory({
 			table: 'REQUISITIONS',
 			userId,
-			action: 'UPDATE',
+			action: 'STATUS_CHANGE',
 			entityId: id.toString(),
 			beforeState: original,
 			afterState: update,
-			metadata: { updatedField: 'STATUS' }
+			metadata: { updatedField: 'STATUS', from: original.status, to: update.status },
+			tx
 		});
 
 		return update;
@@ -831,7 +834,8 @@ export async function createNewRecurrenceDay(values: RecurrenceDay, userId: stri
 			userId,
 			action: 'CREATE',
 			entityId: result.id,
-			afterState: result
+			afterState: result,
+			metadata: { requisitionId: result.requisitionId }
 		});
 
 		return result;
@@ -905,7 +909,9 @@ export async function findOrReuseRecurrenceDay(
 					action: 'UPDATE',
 					entityId: row.id,
 					beforeState: reusable,
-					afterState: row
+					afterState: row,
+					metadata: { requisitionId: row.requisitionId, reopened: true },
+					tx
 				});
 
 				return { row, outcome: 'reopened' as const };
@@ -917,7 +923,9 @@ export async function findOrReuseRecurrenceDay(
 				userId,
 				action: 'CREATE',
 				entityId: row.id,
-				afterState: row
+				afterState: row,
+				metadata: { requisitionId: row.requisitionId },
+				tx
 			});
 			return { row, outcome: 'inserted' as const };
 		});
@@ -945,7 +953,8 @@ export async function editRecurrenceDay(id: string, values: UpdateRecurrenceDay,
 			userId,
 			action: 'UPDATE',
 			beforeState: existing,
-			afterState: result
+			afterState: { ...existing, ...values },
+			metadata: { requisitionId: existing?.requisitionId ?? null, fields: Object.keys(values) }
 		});
 
 		return result;
@@ -991,7 +1000,9 @@ export async function deleteRecurrenceDay(id: string, userId: string) {
 				entityId: id,
 				beforeState: original,
 				afterState: update,
-				action: 'DELETE'
+				action: 'DELETE',
+				metadata: { requisitionId: original?.requisitionId ?? null },
+				tx
 			});
 
 			return update;
@@ -1240,19 +1251,21 @@ export async function approveApplication(applicationId: string, userId: string) 
 		await writeActionHistory({
 			table: 'REQUISITION_APPLICATIONS',
 			userId,
-			action: 'UPDATE',
+			action: 'APPROVE',
 			entityId: applicationId,
 			beforeState: application,
-			afterState: result
+			afterState: result,
+			metadata: { requisitionId: requisition.id, candidateId: application.candidateId }
 		});
 
 		await writeActionHistory({
 			table: 'REQUISITIONS',
 			userId,
-			action: 'UPDATE',
+			action: 'STATUS_CHANGE',
 			entityId: requisition.id.toString(),
 			beforeState: requisition,
-			afterState: reqResult
+			afterState: reqResult,
+			metadata: { from: requisition.status, to: nextStatus, trigger: 'APPLICATION_APPROVED' }
 		});
 
 		// Auto-deny rivals (perm only). Approving one perm application means
@@ -1289,10 +1302,15 @@ export async function approveApplication(applicationId: string, userId: string) 
 					await writeActionHistory({
 						table: 'REQUISITION_APPLICATIONS',
 						userId,
-						action: 'UPDATE',
+						action: 'REJECT',
 						entityId: rivalId,
 						beforeState: { status: 'PENDING' },
-						afterState: { status: 'DENIED', autoDenied: true }
+						afterState: { status: 'DENIED', autoDenied: true },
+						metadata: {
+							requisitionId: requisition.id,
+							auto: true,
+							approvedApplicationId: applicationId
+						}
 					});
 				}
 			}
@@ -1323,10 +1341,11 @@ export async function denyApplication(applicationId: string, userId: string) {
 		await writeActionHistory({
 			table: 'REQUISITION_APPLICATIONS',
 			userId,
-			action: 'UPDATE',
+			action: 'REJECT',
 			entityId: applicationId,
 			beforeState: application,
-			afterState: result
+			afterState: result,
+			metadata: { requisitionId: application.requisitionId, candidateId: application.candidateId }
 		});
 
 		return result;
@@ -1771,10 +1790,12 @@ export async function closeAllUpcomingRecurrenceDays(
 			await writeActionHistory({
 				table: 'RECURRENCE_DAYS',
 				userId,
-				action: 'UPDATE',
+				action: 'CANCEL',
 				entityId: day.id,
-				beforeState: day,
-				afterState: { ...day, status: 'CANCELED', updatedAt: new Date() }
+				beforeState: { ...day, status: 'OPEN' },
+				afterState: day,
+				metadata: { requisitionId, reason: 'REQUISITION_STATUS_CHANGE' },
+				tx
 			});
 		}
 
@@ -3106,11 +3127,11 @@ export async function revertTimesheetToPending(
 		await writeActionHistory({
 			table: 'TIMESHEETS',
 			userId,
-			action: 'UPDATE',
+			action: 'STATUS_CHANGE',
 			entityId: timesheetId,
 			beforeState: original,
 			afterState: result,
-			metadata: { status: restoreStatus, rollback: true }
+			metadata: { status: restoreStatus, from: original?.status, to: restoreStatus, rollback: true }
 		});
 
 		return result;
@@ -3155,7 +3176,8 @@ export async function deleteTimesheet(timesheetId: string, userId: string) {
 				action: 'DELETE',
 				entityId: timesheetId,
 				beforeState: original,
-				metadata: { reason: 'timesheet_deleted', disconnectedWorkdays: true }
+				metadata: { reason: 'timesheet_deleted', disconnectedWorkdays: true },
+				tx
 			});
 
 			return original;
@@ -3234,7 +3256,7 @@ export async function voidTimesheetWithInvoice(timesheetId: string, userId: stri
 		await writeActionHistory({
 			table: 'TIMESHEETS',
 			userId,
-			action: 'UPDATE',
+			action: 'VOID',
 			entityId: timesheetId,
 			beforeState: original,
 			afterState: voidedTimesheet,
@@ -3243,7 +3265,8 @@ export async function voidTimesheetWithInvoice(timesheetId: string, userId: stri
 				voidedInvoiceId: invoice.id,
 				invoiceType: invoice.invoiceType,
 				disconnectedWorkdays: true
-			}
+			},
+			tx
 		});
 
 		return { timesheet: voidedTimesheet, invoiceId: invoice.id };
@@ -3274,11 +3297,11 @@ export async function rejectTimesheet(
 		await writeActionHistory({
 			table: 'TIMESHEETS',
 			userId,
-			action: 'UPDATE',
+			action: 'REJECT',
 			entityId: timesheetId,
 			beforeState: original,
 			afterState: result,
-			metadata: { status: 'DISCREPANCY' }
+			metadata: { status: 'DISCREPANCY', discrepancyNote: discrepancyNote || null }
 		});
 
 		return result;
@@ -3316,11 +3339,11 @@ export async function approveTimesheet(timesheetId: string, userId: string | nul
 		await writeActionHistory({
 			table: 'TIMESHEETS',
 			userId,
-			action: 'UPDATE',
+			action: 'APPROVE',
 			entityId: timesheetId,
 			beforeState: original,
 			afterState: result,
-			metadata: { status: 'APPROVED' }
+			metadata: { status: 'APPROVED', totalHoursBilled: original.totalHoursWorked }
 		});
 
 		return result;
@@ -3364,28 +3387,17 @@ export async function updateTimesheetHours(
 		.where(eq(timeSheetTable.id, timesheetId))
 		.returning();
 
-	// Create audit history entry
-	await db.insert(actionHistoryTable).values({
-		id: crypto.randomUUID(),
-		entityId: timesheetId,
-		entityType: 'TIMESHEETS',
+	await writeActionHistory({
+		table: 'TIMESHEETS',
 		userId,
 		action: 'UPDATE',
-		changes: {
-			before: {
-				hoursRaw: currentTimesheet.hoursRaw,
-				totalHoursWorked: currentTimesheet.totalHoursWorked
-			},
-			after: {
-				hoursRaw,
-				totalHoursWorked
-			}
+		entityId: timesheetId,
+		beforeState: {
+			hoursRaw: currentTimesheet.hoursRaw,
+			totalHoursWorked: currentTimesheet.totalHoursWorked
 		},
-		metadata: {
-			editType: 'HOURS_EDIT'
-		},
-		createdAt: new Date(),
-		updatedAt: new Date()
+		afterState: { hoursRaw, totalHoursWorked },
+		metadata: { editType: 'HOURS_EDIT' }
 	});
 
 	return updatedTimesheet;
@@ -3431,6 +3443,7 @@ export const adminOverrideTimesheet = async (
 			afterState: result,
 			metadata: {
 				status: 'APPROVED',
+				override: true,
 				overriddenBy: userId,
 				overriddenFields: Object.keys(updatedValues).join(', ')
 			}
@@ -3526,7 +3539,13 @@ export async function createInvoiceRecord(
 				userId,
 				action: 'CREATE',
 				entityId: invoice.id,
-				afterState: invoice
+				afterState: invoice,
+				metadata: {
+					requisitionId: invoice.requisitionId ?? null,
+					timesheetId: invoice.timesheetId ?? null,
+					invoiceType: invoice.invoiceType,
+					amount: invoice.amountDue
+				}
 			});
 
 			return invoice;
@@ -3565,7 +3584,13 @@ export async function createInvoiceRecord(
 				userId,
 				action: 'CREATE',
 				entityId: invoice.id,
-				afterState: invoice
+				afterState: invoice,
+				metadata: {
+					requisitionId: invoice.requisitionId ?? null,
+					timesheetId: invoice.timesheetId ?? null,
+					invoiceType: invoice.invoiceType,
+					amount: invoice.amountDue
+				}
 			});
 
 			return invoice;
@@ -3653,7 +3678,13 @@ export async function createPaperInvoiceRecord(
 			userId,
 			action: 'CREATE',
 			entityId: invoice.id,
-			afterState: invoice
+			afterState: invoice,
+			metadata: {
+				requisitionId: invoice.requisitionId ?? null,
+				timesheetId: invoice.timesheetId ?? null,
+				invoiceType: invoice.invoiceType,
+				amount: invoice.amountDue
+			}
 		});
 
 		return invoice;
@@ -3986,12 +4017,12 @@ export async function approveTimesheetExpense(
 
 	await writeActionHistory({
 		table: 'TIMESHEETS',
-		action: 'UPDATE',
+		action: 'APPROVE',
 		userId: actorUserId,
 		entityId: expenseId,
 		beforeState: before,
 		afterState: row,
-		metadata: { kind: 'TIMESHEET_EXPENSE_APPROVAL', timesheetId: before.timesheetId }
+		metadata: { kind: 'TIMESHEET_EXPENSE', timesheetId: before.timesheetId }
 	});
 
 	return row;
@@ -4020,12 +4051,12 @@ export async function rejectTimesheetExpense(
 
 	await writeActionHistory({
 		table: 'TIMESHEETS',
-		action: 'UPDATE',
+		action: 'REJECT',
 		userId: actorUserId,
 		entityId: expenseId,
 		beforeState: before,
 		afterState: row,
-		metadata: { kind: 'TIMESHEET_EXPENSE_REJECTION', timesheetId: before.timesheetId }
+		metadata: { kind: 'TIMESHEET_EXPENSE', timesheetId: before.timesheetId, reason: reason.trim() }
 	});
 
 	return row;

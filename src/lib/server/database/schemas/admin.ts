@@ -1,4 +1,14 @@
-import { boolean, jsonb, pgEnum, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import {
+	boolean,
+	index,
+	jsonb,
+	pgEnum,
+	pgTable,
+	serial,
+	text,
+	timestamp
+} from 'drizzle-orm/pg-core';
 import { userTable } from './auth';
 import { candidateProfileTable } from './candidate';
 import { clientCompanyTable, clientProfileTable } from './client';
@@ -130,32 +140,67 @@ export const supportTicketCommentTable = pgTable('support_ticket_comments', {
 	body: text('comment_body').notNull()
 });
 
-export const actionHistoryTable = pgTable('action_history', {
-	id: text('id').notNull().primaryKey(),
-	createdAt: timestamp('created_at', {
-		withTimezone: true,
-		mode: 'date'
-	})
-		.notNull()
-		.defaultNow(),
-	updatedAt: timestamp('updated_at', {
-		withTimezone: true,
-		mode: 'date'
-	})
-		.notNull()
-		.defaultNow(),
-	entityId: text('entity_id').notNull(),
-	entityType: text('entity_type').notNull(),
-	// Nullable + SET NULL so deleting a user preserves the audit row (entity,
-	// before/after, timestamp all intact) — only the attributed user is dropped.
-	userId: text('user_id').references(() => userTable.id, { onDelete: 'set null' }),
-	action: text('action').notNull(),
-	changes: jsonb('changes').$type<{
-		before?: Record<string, any>;
-		after?: Record<string, any>;
-	}>(),
-	metadata: jsonb('metadata').$type<Record<string, any>>().default({})
-});
+// Platform ledger. One row per acute action (or throttled view) taken against an
+// entity. Rows are evidence — they must stay attributable and readable even after
+// the actor is deleted or renamed, hence the snapshot columns. Written only via
+// src/lib/server/audit/audit.ts (recordAction / recordView).
+export const actionHistoryTable = pgTable(
+	'action_history',
+	{
+		id: text('id').notNull().primaryKey(),
+		createdAt: timestamp('created_at', {
+			withTimezone: true,
+			mode: 'date'
+		})
+			.notNull()
+			.defaultNow(),
+		updatedAt: timestamp('updated_at', {
+			withTimezone: true,
+			mode: 'date'
+		})
+			.notNull()
+			.defaultNow(),
+		entityId: text('entity_id').notNull(),
+		entityType: text('entity_type').notNull(),
+		// Nullable + SET NULL so deleting a user preserves the audit row (entity,
+		// before/after, timestamp all intact) — only the attributed user is dropped.
+		userId: text('user_id').references(() => userTable.id, { onDelete: 'set null' }),
+		action: text('action').notNull(),
+		changes: jsonb('changes').$type<{
+			before?: Record<string, any>;
+			after?: Record<string, any>;
+		}>(),
+		metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
+
+		// Actor context captured at write time. Role/name/email are snapshotted so
+		// a later role change, rename or deletion can't rewrite history.
+		actorRole: text('actor_role'),
+		actorSnapshot: jsonb('actor_snapshot').$type<{
+			firstName?: string | null;
+			lastName?: string | null;
+			email?: string | null;
+		}>(),
+		// users.id of the SUPERADMIN whose impersonation session performed the
+		// action. Deliberately no FK — the evidence must outlive the admin account.
+		impersonatedBy: text('impersonated_by'),
+		ipAddress: text('ip_address'),
+		userAgent: text('user_agent'),
+		// ADMIN_APP | CANDIDATE_APP | CRON | STRIPE | SYSTEM. NULL = legacy row
+		// written before the ledger captured context.
+		source: text('source'),
+		requestPath: text('request_path')
+	},
+	(table) => [
+		// Per-entity timelines and the VIEW throttle lookup.
+		index('action_history_entity_idx').on(table.entityType, table.entityId, table.createdAt),
+		index('action_history_user_idx').on(table.userId, table.createdAt),
+		index('action_history_created_idx').on(table.createdAt),
+		// "Related rows" pulls: expense rows under a timesheet, recurrence-day and
+		// application rows under a requisition.
+		index('action_history_meta_timesheet_idx').on(sql`(${table.metadata}->>'timesheetId')`),
+		index('action_history_meta_requisition_idx').on(sql`(${table.metadata}->>'requisitionId')`)
+	]
+);
 
 export type AdminNote = typeof adminNoteTable.$inferInsert;
 export type UpdateAdminNote = Partial<typeof adminNoteTable.$inferInsert>;

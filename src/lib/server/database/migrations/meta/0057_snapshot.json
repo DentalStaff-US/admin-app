@@ -1,5 +1,5 @@
 {
-  "id": "b3fdcd7b-4231-41b7-927a-a2b087a7cf6e",
+  "id": "d2e6f4b1-808a-4713-915e-bbfdbf291457",
   "prevId": "e50957ae-2180-497a-94da-5a8596a74b6a",
   "version": "7",
   "dialect": "postgresql",
@@ -64,9 +64,145 @@
           "primaryKey": false,
           "notNull": false,
           "default": "'{}'::jsonb"
+        },
+        "actor_role": {
+          "name": "actor_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "actor_snapshot": {
+          "name": "actor_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "impersonated_by": {
+          "name": "impersonated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ip_address": {
+          "name": "ip_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "request_path": {
+          "name": "request_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "action_history_entity_idx": {
+          "name": "action_history_entity_idx",
+          "columns": [
+            {
+              "expression": "entity_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "action_history_user_idx": {
+          "name": "action_history_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "action_history_created_idx": {
+          "name": "action_history_created_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "action_history_meta_timesheet_idx": {
+          "name": "action_history_meta_timesheet_idx",
+          "columns": [
+            {
+              "expression": "(\"metadata\"->>'timesheetId')",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "action_history_meta_requisition_idx": {
+          "name": "action_history_meta_requisition_idx",
+          "columns": [
+            {
+              "expression": "(\"metadata\"->>'requisitionId')",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "action_history_user_id_users_id_fk": {
           "name": "action_history_user_id_users_id_fk",
@@ -2830,14 +2966,14 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
-          "default": "'2026-09-15T22:36:40.320Z'"
+          "default": "now()"
         },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
-          "default": "'2026-09-15T22:36:40.320Z'"
+          "default": "now()"
         },
         "candidate_id": {
           "name": "candidate_id",
@@ -2943,14 +3079,14 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
-          "default": "'2026-09-15T22:36:40.320Z'"
+          "default": "now()"
         },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
-          "default": "'2026-09-15T22:36:40.320Z'"
+          "default": "now()"
         },
         "candidate_id": {
           "name": "candidate_id",
@@ -3041,14 +3177,14 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
-          "default": "'2026-09-15T22:36:40.320Z'"
+          "default": "now()"
         },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
-          "default": "'2026-09-15T22:36:40.320Z'"
+          "default": "now()"
         },
         "address": {
           "name": "address",
@@ -3292,14 +3428,14 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
-          "default": "'2026-09-15T22:36:40.320Z'"
+          "default": "now()"
         },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
-          "default": "'2026-09-15T22:36:40.320Z'"
+          "default": "now()"
         },
         "notes": {
           "name": "notes",
@@ -3522,14 +3658,14 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
-          "default": "'2026-09-15T22:36:40.320Z'"
+          "default": "now()"
         },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
-          "default": "'2026-09-15T22:36:40.320Z'"
+          "default": "now()"
         },
         "client_id": {
           "name": "client_id",
@@ -4339,22 +4475,21 @@
           "name": "id",
           "type": "text",
           "primaryKey": true,
-          "notNull": true,
-          "default": "'c3a8a3f6-1147-4d1f-8a16-0ce488d9f75e'"
+          "notNull": true
         },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
-          "default": "'2026-09-15T22:36:40.333Z'"
+          "default": "now()"
         },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
-          "default": "'2026-09-15T22:36:40.333Z'"
+          "default": "now()"
         },
         "admin_payment_fee": {
           "name": "admin_payment_fee",

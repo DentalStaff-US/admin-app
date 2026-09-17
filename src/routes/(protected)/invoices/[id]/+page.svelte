@@ -5,6 +5,7 @@
 	import * as Table from '$lib/components/ui/table';
 	import { Button } from '$lib/components/ui/button';
 	import { Separator } from '$lib/components/ui/separator';
+	import ActivityLog from '$lib/components/audit/ActivityLog.svelte';
 	import {
 		Download,
 		Calendar,
@@ -20,7 +21,8 @@
 		Pause,
 		ArrowDownCircle,
 		Undo2,
-		Sliders
+		Sliders,
+		History
 	} from 'lucide-svelte';
 	import { USER_ROLES } from '$lib/config/constants';
 	import { StatusBadge } from '$lib/components/ui/status-badge';
@@ -693,6 +695,22 @@
 								<p>No payments recorded</p>
 							</div>
 						{/if}
+					</Card.Content>
+				</Card.Root>
+
+				<Card.Root>
+					<Card.Header>
+						<Card.Title class="flex items-center gap-2">
+							<History class="h-5 w-5" />
+							Activity
+						</Card.Title>
+						<Card.Description>
+							When the client opened or downloaded this invoice, every email we sent
+							about it, and every payment or status change — with who, when, and from where.
+						</Card.Description>
+					</Card.Header>
+					<Card.Content>
+						<ActivityLog entries={data.activity ?? []} />
 					</Card.Content>
 				</Card.Root>
 			{/if}

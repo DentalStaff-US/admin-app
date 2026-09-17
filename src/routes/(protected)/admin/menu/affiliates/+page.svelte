@@ -20,6 +20,12 @@
 					: 'bg-gray-100 text-gray-700';
 
 	$: flagged = data.referrals.filter((r) => r.status === 'PENDING');
+	// A negative approved balance means clawbacks (reversals of already-paid
+	// commission) exceed unpaid earnings — the affiliate owes DTSS, and it nets
+	// against their next commission. Label it as such rather than showing "-$x
+	// awaiting payout", which reads like a bug.
+	$: approvedIsNegative = Number(data.totals.approved) < 0;
+
 	$: failedPayouts = data.payouts.filter((p) => p.status === 'FAILED');
 </script>
 
@@ -40,10 +46,11 @@
 
 	<!-- Totals -->
 	<div class="px-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-		{#each [['Affiliates', data.totals.affiliates], ['Qualified referrals', data.totals.qualifiedReferrals], ['Pending commission', money(data.totals.pending)], ['Approved (awaiting payout)', money(data.totals.approved)], ['Paid out', money(data.totals.paid)], ['Reversed', money(data.totals.reversed)], ['Flagged for review', data.totals.flaggedReferrals], ['Failed payouts', failedPayouts.length]] as [label, value]}
-			<div class="rounded-lg border border-gray-200 bg-white p-4">
+		{#each [['Affiliates', data.totals.affiliates, ''], ['Qualified referrals', data.totals.qualifiedReferrals, ''], ['Pending commission', money(data.totals.pending), 'Earned; still inside the cohort hold'], [approvedIsNegative ? 'Net owed back to DTSS' : 'Approved (awaiting payout)', money(Math.abs(Number(data.totals.approved))), approvedIsNegative ? 'Clawbacks exceed unpaid earnings. Nets against future commission before anything is transferred.' : 'Matured; pays on the next run'], ['Paid out', money(data.totals.paid), ''], ['Reversed', money(data.totals.reversed), 'Voided/refunded before payout'], ['Flagged for review', data.totals.flaggedReferrals, ''], ['Failed payouts', failedPayouts.length, '']] as [label, value, hint]}
+			<div class="rounded-lg border border-gray-200 bg-white p-4 {approvedIsNegative && label === 'Net owed back to DTSS' ? 'border-amber-300 bg-amber-50' : ''}">
 				<p class="text-xs text-gray-500">{label}</p>
 				<p class="mt-1 text-2xl font-semibold">{value}</p>
+				{#if hint}<p class="mt-1 text-[11px] leading-snug text-gray-500">{hint}</p>{/if}
 			</div>
 		{/each}
 	</div>
@@ -157,6 +164,48 @@
 	<!-- Affiliates -->
 	<div class="px-6 pt-8">
 		<h2 class="text-xl font-semibold">Affiliates</h2>
+
+		<!-- Plain GET form: filters live in the URL, so a filtered view is
+		     bookmarkable and survives a refresh. -->
+		<form method="GET" class="mt-3 flex flex-wrap items-end gap-2" data-sveltekit-keepfocus>
+			<div class="min-w-[16rem] flex-1">
+				<label class="block text-xs font-medium text-gray-500" for="q">Search</label>
+				<input
+					id="q"
+					name="q"
+					value={data.filters.q}
+					placeholder="Name, email, organization, code, or #id"
+					class="mt-1 w-full rounded border border-gray-300 px-3 py-1.5 text-sm"
+				/>
+			</div>
+			<div>
+				<label class="block text-xs font-medium text-gray-500" for="status">Status</label>
+				<select id="status" name="status" class="mt-1 rounded border border-gray-300 px-2 py-1.5 text-sm">
+					<option value="">Any</option>
+					{#each ['ACTIVE', 'ON_HOLD', 'PENDING', 'DENIED'] as s}
+						<option value={s} selected={data.filters.status === s}>{s}</option>
+					{/each}
+				</select>
+			</div>
+			<div>
+				<label class="block text-xs font-medium text-gray-500" for="role">Type</label>
+				<select id="role" name="role" class="mt-1 rounded border border-gray-300 px-2 py-1.5 text-sm">
+					<option value="">Any</option>
+					<option value="CLIENT" selected={data.filters.role === 'CLIENT'}>Practice</option>
+					<option value="CLIENT_STAFF" selected={data.filters.role === 'CLIENT_STAFF'}>Practice staff</option>
+					<option value="CANDIDATE" selected={data.filters.role === 'CANDIDATE'}>Professional</option>
+					<option value="EXTERNAL_PARTNER" selected={data.filters.role === 'EXTERNAL_PARTNER'}>External partner</option>
+				</select>
+			</div>
+			<Button type="submit" variant="outline">Filter</Button>
+			{#if data.filters.q || data.filters.status || data.filters.role}
+				<a href="/admin/menu/affiliates" class="text-sm text-gray-500 underline">clear</a>
+			{/if}
+		</form>
+		<p class="mt-2 text-xs text-gray-500">
+			{data.affiliates.length} affiliate{data.affiliates.length === 1 ? '' : 's'}{data.filters.q || data.filters.status || data.filters.role ? ' matching' : ''}
+		</p>
+
 		<div class="mt-3 overflow-x-auto">
 			<table class="w-full text-sm">
 				<thead class="text-left text-xs uppercase text-gray-500">
@@ -176,7 +225,7 @@
 						<tr class="border-t border-gray-100 align-top">
 							<td class="py-2">{a.pid}</td>
 							<td>
-								<div>{a.name ?? '—'}</div>
+								<a href="/admin/menu/affiliates/{a.id}" class="hover:underline">{a.name ?? '—'}</a>
 								<div class="text-xs text-gray-500">{a.email}</div>
 							</td>
 							<td>{affiliateTypeForRole(a.role)}</td>
@@ -210,49 +259,28 @@
 								{/if}
 							</td>
 							<td class="py-2">
-								{#if data.isSuperadmin}
-									<div class="flex flex-col gap-2">
-										<form method="POST" action="?/setRateOverride" class="flex gap-1">
-											<input type="hidden" name="affiliateId" value={a.id} />
-											<input
-												name="ratePercent"
-												type="number"
-												step="0.01"
-												min="0"
-												max="100"
-												placeholder="rate"
-												value={a.commissionRateOverride ?? ''}
-												class="w-20 rounded border border-gray-300 px-2 py-1 text-xs"
-											/>
-											<Button type="submit" variant="outline">Set</Button>
-										</form>
-										<form method="POST" action="?/setStatus" class="flex gap-1">
-											<input type="hidden" name="affiliateId" value={a.id} />
-											<select name="status" class="rounded border border-gray-300 px-2 py-1 text-xs">
-												<option value="ACTIVE">ACTIVE</option>
-												<option value="ON_HOLD">ON_HOLD</option>
-												<option value="DENIED">DENIED</option>
-												<option value="PENDING">PENDING</option>
-											</select>
-											<input
-												name="reason"
-												placeholder="reason"
-												required
-												class="w-28 rounded border border-gray-300 px-2 py-1 text-xs"
-											/>
-											<Button type="submit" variant="outline">Apply</Button>
-										</form>
-									</div>
-								{/if}
+								<a href="/admin/menu/affiliates/{a.id}" class="text-sm text-blue-600 hover:underline">
+									Manage →
+								</a>
 							</td>
 						</tr>
 					{:else}
-						<tr><td colspan="8" class="py-4 text-gray-500">No affiliates yet.</td></tr>
+						<tr><td colspan="8" class="py-4 text-gray-500">{data.filters.q || data.filters.status || data.filters.role ? 'No affiliates match those filters.' : 'No affiliates yet.'}</td></tr>
 					{/each}
 				</tbody>
 			</table>
 		</div>
 	</div>
+
+	<!-- Exports live in Records Management → Exports, with the rest of the
+	     financial downloads. -->
+	{#if data.isSuperadmin}
+		<div class="px-6 pt-8">
+			<a href="/admin/menu/exports" class="text-sm text-blue-600 underline">
+				Download ledger / payouts CSV → Exports
+			</a>
+		</div>
+	{/if}
 
 	<!-- Payout history -->
 	<div class="px-6 py-8">

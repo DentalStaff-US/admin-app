@@ -31,6 +31,7 @@
 	import { format, parse } from 'date-fns';
 	import { cn } from '$lib/utils';
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from '$lib/components/ui/tabs';
+	import ActivityLog from '$lib/components/audit/ActivityLog.svelte';
 	import {
 		getCoreRowModel,
 		type ColumnDef,
@@ -657,8 +658,12 @@
 		<Tabs class="w-full" value={requisition.permanentPosition ? "applications" : "workdays"}>
 			<TabsList
 				class="grid lg:w-fit bg-muted h-fit {requisition.permanentPosition
-					? 'grid-cols-2'
-					: 'grid-cols-3'}"
+					? isAdmin
+						? 'grid-cols-3'
+						: 'grid-cols-2'
+					: isAdmin
+						? 'grid-cols-4'
+						: 'grid-cols-3'}"
 			>
 				{#if requisition.permanentPosition}
 					<TabsTrigger value="applications" class="data-[state=active]:bg-background"
@@ -673,7 +678,29 @@
 					>
 				{/if}
 				<TabsTrigger value="details" class="data-[state=active]:bg-background">Details</TabsTrigger>
+				{#if isAdmin}
+					<TabsTrigger value="activity" class="data-[state=active]:bg-background"
+						>Activity</TabsTrigger
+					>
+				{/if}
 			</TabsList>
+
+			{#if isAdmin}
+				<TabsContent value="activity" class="mt-4">
+					<Card class="max-w-none">
+						<CardHeader>
+							<CardTitle>Activity</CardTitle>
+							<CardDescription>
+								Ledger of every view and action on this requisition, its workdays and
+								applications — who, when, and from where.
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<ActivityLog entries={data.activity ?? []} showEntity />
+						</CardContent>
+					</Card>
+				</TabsContent>
+			{/if}
 
 			<!-- Details tab -->
 			<TabsContent value="details" class="mt-4">

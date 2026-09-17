@@ -189,12 +189,20 @@ export const POST: RequestHandler = async ({ request }) => {
 				.returning();
 
 			await writeActionHistory({
-				action: 'UPDATE',
+				// A DISCREPANCY sheet coming back is a resubmission after the client
+				// pushed it back; anything else is the first submission.
+				action: existingTimesheet.status === 'DISCREPANCY' ? 'RESUBMIT' : 'SUBMIT',
 				userId: user.id,
 				entityId: result.id,
 				table: 'TIMESHEETS',
 				beforeState: existingTimesheet,
-				afterState: result
+				afterState: result,
+				metadata: {
+					requisitionId: result.requisitionId ?? null,
+					from: existingTimesheet.status,
+					to: 'PENDING',
+					totalHoursWorked: result.totalHoursWorked
+				}
 			});
 		} else {
 			// Timesheet creation is owned exclusively by the
@@ -212,15 +220,6 @@ export const POST: RequestHandler = async ({ request }) => {
 				{ status: 409, headers: corsHeaders }
 			);
 		}
-
-		await writeActionHistory({
-			action: 'CREATE',
-			userId: user.id,
-			entityId: result.id,
-			table: 'TIMESHEETS',
-			beforeState: {},
-			afterState: result
-		});
 
 		const posthog = getPostHogClient();
 		posthog.capture({

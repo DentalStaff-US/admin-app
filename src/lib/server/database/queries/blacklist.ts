@@ -24,6 +24,7 @@ import {
 	stripWorkdayFromTimesheet,
 	type CancellationRole
 } from '$lib/server/cancellations';
+import { recordAction } from '$lib/server/audit/audit';
 
 interface AddBlacklistOptions {
 	/** User performing the action — recorded on cancellation audit rows. */
@@ -32,6 +33,12 @@ interface AddBlacklistOptions {
 	actorRole?: CancellationRole;
 	/** Free-text reason, e.g. 'experience survey' or 'admin'. */
 	reason?: string | null;
+	/** Where the blacklist was triggered from, for the ledger row. */
+	context?: {
+		requisitionId?: number | null;
+		recurrenceDayId?: string | null;
+		timesheetId?: string | null;
+	};
 }
 
 /**
@@ -107,6 +114,20 @@ export async function addCandidateToBlacklist(
 				.set({ status: 'OPEN', updatedAt: new Date() })
 				.where(eq(recurrenceDayTable.id, wd.recurrenceDayId));
 		}
+
+		await recordAction({
+			tx,
+			entityType: 'CANDIDATES',
+			entityId: candidateId,
+			action: 'BLACKLIST',
+			actor: actorUserId,
+			metadata: {
+				companyId,
+				reason: options.reason ?? null,
+				cancelledWorkdays: futureWorkdays.length,
+				...(options.context ?? {})
+			}
+		});
 
 		return { cancelledWorkdays: futureWorkdays.length };
 	});

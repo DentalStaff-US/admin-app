@@ -24,6 +24,7 @@ import { normalizeCode } from '$lib/server/affiliate/code';
 import { decideEligibility, type AffiliateStatus } from '$lib/server/affiliate/eligibility';
 import type { AttributionDecision } from '$lib/server/affiliate/attribution';
 import { logger } from '$lib/server/logger';
+import { notifyNewReferral } from '$lib/server/affiliate/notifications';
 import { getAffiliateByUserId, getInternalProfileStatus } from '$lib/server/affiliate/enroll';
 
 // Enrolment lives in affiliate/enroll.ts so it stays importable from tsx-run
@@ -282,7 +283,7 @@ export async function applyAttribution(
 		return { written: true };
 	}
 
-	await tx
+	const [row] = await tx
 		.insert(affiliateReferralTable)
 		.values({
 			id: nanoid(),
@@ -296,9 +297,20 @@ export async function applyAttribution(
 			flaggedReason: decision.flaggedReason ?? null,
 			firstTouchAt: decision.firstTouchAt
 		})
-		.onConflictDoNothing({ target: affiliateReferralTable.referredUserId });
+		.onConflictDoNothing({ target: affiliateReferralTable.referredUserId })
+		.returning({ id: affiliateReferralTable.id });
 
-	return { written: true };
+	// Only on a genuine new QUALIFIED referral — not on a conflict no-op, and not
+	// for one parked in the review queue (telling the affiliate "you earned a
+	// referral" before an admin has cleared it would be premature).
+	if (row && decision.status === 'QUALIFIED') {
+		void notifyNewReferral({
+			affiliateId: decision.affiliateId,
+			referredRole: input.referredRole
+		});
+	}
+
+	return { written: Boolean(row) };
 }
 
 /**

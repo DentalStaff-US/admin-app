@@ -52,6 +52,11 @@ function cookieDomain(): string | null {
 }
 
 export async function captureReferral(event: RequestEvent): Promise<void> {
+	// Only a top-level GET is a "click". Form POSTs and SvelteKit's data
+	// refetches carry ?ref= along in the URL but are the SAME visit — logging
+	// them produced three rows per signup, two of them bot-flagged noise.
+	if (event.request.method !== 'GET') return;
+
 	const rawCode = event.url.searchParams.get('ref');
 	if (!rawCode) return;
 	if (!validateCode(rawCode).ok) return;

@@ -2,6 +2,7 @@ import { invoiceTable } from './../../../../lib/server/database/schemas/requisit
 import { stripe } from '$lib/server/stripe';
 import { json } from '@sveltejs/kit';
 import { STRIPE_WEBHOOK_SECRET } from '$env/static/private';
+import { env } from '$env/dynamic/private';
 import type { RequestHandler } from './$types';
 import {
 	getClientProfileById,
@@ -25,6 +26,52 @@ import { syncConnectAccount } from '$lib/server/affiliate/connect';
 import { clientSubscriptionTable } from '$lib/server/database/schemas/client';
 import { eq } from 'drizzle-orm';
 import { logger } from '$lib/server/logger';
+import { recordAction, type RecordActionInput } from '$lib/server/audit/audit';
+
+// Ledger rows for Stripe-driven transitions. Never let a ledger failure 500
+// the webhook — Stripe would retry and we'd double-process the event.
+async function auditFromStripe(
+	stripeEvent: Stripe.Event,
+	input: Omit<RecordActionInput, 'actor' | 'source'>
+) {
+	try {
+		await recordAction({
+			...input,
+			actor: null,
+			source: 'STRIPE',
+			metadata: {
+				stripeEventId: stripeEvent.id,
+				stripeEventType: stripeEvent.type,
+				...(input.metadata ?? {})
+			}
+		});
+	} catch (err) {
+		logger.error('stripe webhook: ledger write failed', {
+			error: err,
+			stripeEventId: stripeEvent.id
+		});
+	}
+}
+
+/** Try each configured signing secret in turn; null if none verifies. */
+function constructEventWithAnySecret(payload: string, signature: string): Stripe.Event | null {
+	const secrets = [STRIPE_WEBHOOK_SECRET, env.STRIPE_CONNECT_WEBHOOK_SECRET].filter(
+		(s): s is string => Boolean(s)
+	);
+	let lastError: unknown;
+	for (const secret of secrets) {
+		try {
+			return stripe.webhooks.constructEvent(payload, signature, secret);
+		} catch (err) {
+			lastError = err;
+		}
+	}
+	logger.error('stripe webhook signature verification failed', {
+		error: lastError,
+		secretsTried: secrets.length
+	});
+	return null;
+}
 
 export const POST: RequestHandler = async ({ request }) => {
 	const payload = await request.text();
@@ -36,14 +83,16 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	// Step 1: verify signature. A failure here is a 400 — Stripe will not retry.
-	let event: Stripe.Event;
-	try {
-		event = stripe.webhooks.constructEvent(payload, signature, STRIPE_WEBHOOK_SECRET);
-	} catch (err) {
-		logger.error('stripe webhook signature verification failed', { error: err });
-		return new Response(`Webhook Error: ${err instanceof Error ? err.message : 'Unknown Error'}`, {
-			status: 400
-		});
+	//
+	// In production this URL is registered TWICE in the Stripe dashboard, because
+	// an endpoint listens to either the platform account's events OR connected
+	// accounts' events, never both — and each registration has its own signing
+	// secret. The connected-account endpoint (which delivers `account.updated` for
+	// affiliate Express accounts) signs with STRIPE_CONNECT_WEBHOOK_SECRET. Locally,
+	// `stripe listen` uses one secret for both, so the second is optional.
+	const event = constructEventWithAnySecret(payload, signature);
+	if (!event) {
+		return new Response('Webhook Error: signature verification failed', { status: 400 });
 	}
 
 	// Step 2: dispatch handlers. A failure here is a 500 so Stripe retries.
@@ -113,6 +162,23 @@ export const POST: RequestHandler = async ({ request }) => {
 							updatedAt: new Date()
 						})
 						.where(eq(invoiceTable.id, existingInvoice.id));
+					// Only a real status transition is ledger-worthy; Stripe fires
+					// invoice.updated for plenty of no-op metadata changes.
+					if (invoiceUpdated.status && invoiceUpdated.status !== existingInvoice.status) {
+						await auditFromStripe(event, {
+							entityType: 'INVOICES',
+							entityId: existingInvoice.id,
+							action: 'STATUS_CHANGE',
+							before: { status: existingInvoice.status },
+							after: { status: invoiceUpdated.status },
+							metadata: {
+								stripeInvoiceId: invoiceUpdated.id,
+								from: existingInvoice.status,
+								to: invoiceUpdated.status,
+								timesheetId: existingInvoice.timesheetId ?? null
+							}
+						});
+					}
 				}
 				break;
 			}
@@ -172,6 +238,25 @@ export const POST: RequestHandler = async ({ request }) => {
 							updatedAt: new Date()
 						})
 						.where(eq(invoiceTable.stripeInvoiceId, invoicePaymentFailed.id));
+					const [failedRow] = await db
+						.select({ id: invoiceTable.id, timesheetId: invoiceTable.timesheetId })
+						.from(invoiceTable)
+						.where(eq(invoiceTable.stripeInvoiceId, invoicePaymentFailed.id))
+						.limit(1);
+					if (failedRow) {
+						await auditFromStripe(event, {
+							entityType: 'INVOICES',
+							entityId: failedRow.id,
+							action: 'STATUS_CHANGE',
+							metadata: {
+								stripeInvoiceId: invoicePaymentFailed.id,
+								paymentFailed: true,
+								attemptCount: invoicePaymentFailed.attempt_count ?? 0,
+								amountDue: (invoicePaymentFailed.amount_due / 100).toFixed(2),
+								timesheetId: failedRow.timesheetId ?? null
+							}
+						});
+					}
 				}
 				break;
 			}
@@ -203,6 +288,26 @@ export const POST: RequestHandler = async ({ request }) => {
 						amount_paid: invoicePaymentSucceeded.amount_paid / 100,
 						currency: invoicePaymentSucceeded.currency,
 						invoice_id: existingPaidInvoice.id
+					});
+
+					await auditFromStripe(event, {
+						entityType: 'INVOICES',
+						entityId: existingPaidInvoice.id,
+						action: 'PAYMENT_RECORDED',
+						before: {
+							status: existingPaidInvoice.status,
+							amountPaid: existingPaidInvoice.amountPaid
+						},
+						after: {
+							status: invoicePaymentSucceeded.status || 'open',
+							amountPaid: (invoicePaymentSucceeded.amount_paid / 100).toFixed(2)
+						},
+						metadata: {
+							via: 'STRIPE_WEBHOOK',
+							stripeInvoiceId: invoicePaymentSucceeded.id,
+							amountPaid: (invoicePaymentSucceeded.amount_paid / 100).toFixed(2),
+							timesheetId: existingPaidInvoice.timesheetId ?? null
+						}
 					});
 
 					// Affiliate commission accrues on PAYMENT, not on timesheet approval.
@@ -241,6 +346,20 @@ export const POST: RequestHandler = async ({ request }) => {
 						.set({ stripeStatus: invoiceVoided.status })
 						.where(eq(invoiceTable.id, existingVoidedInvoice.id));
 					await voidInvoiceAndNotify(existingVoidedInvoice.id, 'Invoice voided in Stripe.');
+					if (existingVoidedInvoice.status !== 'void') {
+						await auditFromStripe(event, {
+							entityType: 'INVOICES',
+							entityId: existingVoidedInvoice.id,
+							action: 'VOID',
+							before: { status: existingVoidedInvoice.status },
+							after: { status: 'void' },
+							metadata: {
+								stripeInvoiceId: invoiceVoided.id,
+								reason: 'Invoice voided in Stripe.',
+								timesheetId: existingVoidedInvoice.timesheetId ?? null
+							}
+						});
+					}
 					// Unpaid commission drops out of its cohort; already-paid commission
 					// gets an offsetting negative row against the next payout.
 					await reverseCommissionForInvoice(existingVoidedInvoice.id, 'Invoice voided in Stripe.');

@@ -216,7 +216,7 @@ describe('computeCommission — end to end', () => {
 	});
 });
 
-describe('extractRegularCentsFromInvoice', () => {
+describe('extractRegularCentsFromInvoice — legacy (description) invoices', () => {
 	const REGULAR = { description: 'Regular hours worked for Jane Doe', amount: 180_000 };
 	const OVERTIME = { description: 'Overtime hours (1.5×)', amount: 54_000 };
 	const OVERTIME_SPLIT = {
@@ -227,26 +227,26 @@ describe('extractRegularCentsFromInvoice', () => {
 	const PROCESSING = { description: 'Processing Fee (3%)', amount: 5_940 };
 	const EXPENSE = { description: 'Expense: parking', amount: 1_200 };
 
-	it('returns only the regular-hours line', () => {
+	it('returns only the regular-hours line, resolved by DESCRIPTION', () => {
 		expect(
 			extractRegularCentsFromInvoice([REGULAR, OVERTIME, ADMIN_FEE, PROCESSING, EXPENSE])
-		).toBe(180_000);
+		).toEqual({ cents: 180_000, method: 'DESCRIPTION' });
 	});
 
 	it('excludes overtime even when the description carries the split-week suffix', () => {
-		expect(extractRegularCentsFromInvoice([REGULAR, OVERTIME_SPLIT])).toBe(180_000);
+		expect(extractRegularCentsFromInvoice([REGULAR, OVERTIME_SPLIT])?.cents).toBe(180_000);
 	});
 
 	it('excludes the administration fee — that is the platform fee, not commissionable', () => {
-		expect(extractRegularCentsFromInvoice([REGULAR, ADMIN_FEE])).toBe(180_000);
+		expect(extractRegularCentsFromInvoice([REGULAR, ADMIN_FEE])?.cents).toBe(180_000);
 	});
 
 	it('excludes the card processing fee', () => {
-		expect(extractRegularCentsFromInvoice([REGULAR, PROCESSING])).toBe(180_000);
+		expect(extractRegularCentsFromInvoice([REGULAR, PROCESSING])?.cents).toBe(180_000);
 	});
 
 	it('excludes reimbursed expenses', () => {
-		expect(extractRegularCentsFromInvoice([REGULAR, EXPENSE])).toBe(180_000);
+		expect(extractRegularCentsFromInvoice([REGULAR, EXPENSE])?.cents).toBe(180_000);
 	});
 
 	it('sums multiple labour lines', () => {
@@ -254,7 +254,7 @@ describe('extractRegularCentsFromInvoice', () => {
 			extractRegularCentsFromInvoice([
 				{ description: 'Regular hours worked for Jane Doe', amount: 90_000 },
 				{ description: 'Regular hours worked for John Roe', amount: 45_000 }
-			])
+			])?.cents
 		).toBe(135_000);
 	});
 
@@ -269,9 +269,79 @@ describe('extractRegularCentsFromInvoice', () => {
 	});
 
 	it('ignores items with a non-numeric amount rather than counting them as zero', () => {
-		expect(extractRegularCentsFromInvoice([REGULAR, { description: 'Weird', amount: null }])).toBe(
-			180_000
-		);
+		expect(
+			extractRegularCentsFromInvoice([REGULAR, { description: 'Weird', amount: null }])?.cents
+		).toBe(180_000);
+	});
+});
+
+describe('extractRegularCentsFromInvoice — categorised invoices (structural)', () => {
+	// Paper lines: category top-level. Stripe lines: metadata.category.
+	const REG_PAPER = {
+		description: 'Regular hours worked for Jane',
+		amount: 180_000,
+		category: 'LABOR_REGULAR'
+	};
+	const OT_PAPER = {
+		description: 'Overtime hours (1.5×)',
+		amount: 54_000,
+		category: 'LABOR_OVERTIME'
+	};
+	const REG_STRIPE = {
+		description: 'Regular hours worked for Jane',
+		amount: 180_000,
+		metadata: { category: 'LABOR_REGULAR' }
+	};
+	const FEE_STRIPE = {
+		description: 'Administration Fees',
+		amount: 90_000,
+		metadata: { category: 'ADMIN_FEE' }
+	};
+
+	it('resolves by CATEGORY and never touches the description', () => {
+		expect(extractRegularCentsFromInvoice([REG_PAPER, OT_PAPER])).toEqual({
+			cents: 180_000,
+			method: 'CATEGORY'
+		});
+	});
+
+	it('reads the Stripe metadata form', () => {
+		expect(extractRegularCentsFromInvoice([REG_STRIPE, FEE_STRIPE])).toEqual({
+			cents: 180_000,
+			method: 'CATEGORY'
+		});
+	});
+
+	it('is immune to a description copy edit once categorised', () => {
+		// The exact failure mode this feature exists to prevent: someone renames
+		// "Administration Fees" and the string matcher starts counting it as labour.
+		const renamedFee = {
+			description: 'Platform Service Charge',
+			amount: 90_000,
+			category: 'ADMIN_FEE'
+		};
+		expect(extractRegularCentsFromInvoice([REG_PAPER, renamedFee])?.cents).toBe(180_000);
+	});
+
+	it('ignores an unknown category value rather than trusting it', () => {
+		const bogus = {
+			description: 'Regular hours worked for Jane',
+			amount: 180_000,
+			category: 'LABOUR'
+		};
+		// Falls through to description matching, which still identifies it as labour.
+		expect(extractRegularCentsFromInvoice([bogus])).toEqual({
+			cents: 180_000,
+			method: 'DESCRIPTION'
+		});
+	});
+
+	it('reports DESCRIPTION when ANY line needed the fallback (mixed invoice)', () => {
+		const legacyExpense = { description: 'Expense: parking', amount: 1_200 };
+		expect(extractRegularCentsFromInvoice([REG_PAPER, legacyExpense])).toEqual({
+			cents: 180_000,
+			method: 'DESCRIPTION'
+		});
 	});
 });
 
@@ -289,7 +359,15 @@ describe('resolveCommissionBase', () => {
 			invoiceLineItems: [{ description: 'Regular hours worked for Jane', amount: 180_000 }],
 			recomputed: breakdown
 		});
-		expect(result).toEqual({ baseCents: 180_000, source: 'INVOICE_LINE_ITEMS' });
+		expect(result).toEqual({ baseCents: 180_000, source: 'INVOICE_LINE_DESCRIPTION' });
+	});
+
+	it('reports INVOICE_LINE_CATEGORY when the invoice is fully categorised', () => {
+		const result = resolveCommissionBase({
+			invoiceLineItems: [{ description: 'x', amount: 180_000, category: 'LABOR_REGULAR' }],
+			recomputed: breakdown
+		});
+		expect(result).toEqual({ baseCents: 180_000, source: 'INVOICE_LINE_CATEGORY' });
 	});
 
 	it('falls back to recomputation when the invoice is unusable', () => {
@@ -305,7 +383,7 @@ describe('resolveCommissionBase', () => {
 		});
 		expect(result).toEqual({
 			baseCents: 135_000,
-			source: 'INVOICE_LINE_ITEMS',
+			source: 'INVOICE_LINE_DESCRIPTION',
 			discrepancyCents: -45_000
 		});
 	});

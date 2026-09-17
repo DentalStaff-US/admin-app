@@ -1,5 +1,7 @@
 import db from '$lib/server/database/drizzle';
 import { adminConfigTable } from '$lib/server/database/schemas/config';
+import type { InvoiceLineCategory } from '$lib/server/invoices/lineCategory';
+import type { PaperInvoiceLineItem } from '$lib/server/database/queries/requisitions';
 import type {
 	TimesheetExpenseSelect,
 	TimeSheetSelect
@@ -109,6 +111,8 @@ export function calculateAdminFeeCents(
 export type StripeLineItem = {
 	amountInCents: number;
 	description: string;
+	/** Structural category — travels to Stripe as metadata.category. */
+	category?: InvoiceLineCategory;
 	// When set, the item bills as `quantity × unitAmountInCents` (hours × rate)
 	// instead of a single lump `amount`. Hours can be fractional — see the
 	// `quantity_decimal` handling in createStripeInvoice.
@@ -151,6 +155,7 @@ export function buildStripeLineItems({
 		lineItems.push({
 			amountInCents: regularCents,
 			description: hoursDescription,
+			category: 'LABOR_REGULAR',
 			quantity: regularHours,
 			unitAmountInCents: rateCents
 		});
@@ -159,6 +164,7 @@ export function buildStripeLineItems({
 		lineItems.push({
 			amountInCents: overtimeCents,
 			description: overtimeLineDescription(priorWeekHours),
+			category: 'LABOR_OVERTIME',
 			quantity: overtimeHours,
 			unitAmountInCents: overtimeRateCents
 		});
@@ -167,11 +173,16 @@ export function buildStripeLineItems({
 	for (const expense of expenses) {
 		lineItems.push({
 			amountInCents: expense.amountCents,
-			description: `Expense: ${expense.description}`
+			description: `Expense: ${expense.description}`,
+			category: 'EXPENSE'
 		});
 	}
 	if (adminFeeCents > 0) {
-		lineItems.push({ amountInCents: adminFeeCents, description: ADMIN_FEE_LINE_DESCRIPTION });
+		lineItems.push({
+			amountInCents: adminFeeCents,
+			description: ADMIN_FEE_LINE_DESCRIPTION,
+			category: 'ADMIN_FEE'
+		});
 	}
 	// The card-processing surcharge is appended later by withCardProcessingFee
 	// (only for card-paying clients), so it isn't part of the base line items.
@@ -201,17 +212,7 @@ export function buildPaperLineItems({
 }) {
 	const rateCents = Math.round(effectiveRateDollars * 100);
 	const overtimeRateCents = Math.round(effectiveRateDollars * 1.5 * 100);
-	const items: Array<{
-		id: string;
-		description: string;
-		quantity: number;
-		rate: number;
-		unit_amount: number;
-		unit_amount_excluding_tax: number;
-		amount: number;
-		currency: string;
-		type: 'paper';
-	}> = [];
+	const items: PaperInvoiceLineItem[] = [];
 	// Skip the regular line when this timesheet is all overtime (week's 40h
 	// already used on a prior sheet).
 	if (regularHours > 0) {
@@ -224,6 +225,7 @@ export function buildPaperLineItems({
 			unit_amount_excluding_tax: rateCents,
 			amount: regularCents,
 			currency: 'usd',
+			category: 'LABOR_REGULAR' as const,
 			type: 'paper'
 		});
 	}
@@ -237,6 +239,7 @@ export function buildPaperLineItems({
 			unit_amount_excluding_tax: overtimeRateCents,
 			amount: overtimeCents,
 			currency: 'usd',
+			category: 'LABOR_OVERTIME' as const,
 			type: 'paper' as const
 		});
 	}
@@ -250,6 +253,7 @@ export function buildPaperLineItems({
 			unit_amount_excluding_tax: expense.amountCents,
 			amount: expense.amountCents,
 			currency: 'usd',
+			category: 'EXPENSE' as const,
 			type: 'paper' as const
 		});
 	}
@@ -263,6 +267,7 @@ export function buildPaperLineItems({
 			unit_amount_excluding_tax: adminFeeCents,
 			amount: adminFeeCents,
 			currency: 'usd',
+			category: 'ADMIN_FEE' as const,
 			type: 'paper' as const
 		});
 	}
@@ -530,7 +535,7 @@ export async function approveAndInvoiceTimesheet(
 			await writeActionHistory({
 				table: 'TIMESHEETS',
 				userId: null,
-				action: 'UPDATE',
+				action: 'APPROVE',
 				entityId: timesheetId,
 				beforeState: preApproval,
 				afterState: timesheet,

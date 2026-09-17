@@ -31,6 +31,7 @@ export type AffiliateSettingsStatus = {
 export async function getAffiliateSettingsStatus(
 	userId: string,
 	role: string | null | undefined,
+	/** The portal origin — referral links land on the portal's /r/<CODE>. */
 	marketingBaseUrl: string
 ): Promise<AffiliateSettingsStatus> {
 	const config = await getAffiliateConfig();
@@ -63,9 +64,11 @@ export async function getAffiliateSettingsStatus(
 		linkActive,
 		connectComplete: affiliate.connectPayoutsEnabled,
 		referralCode: linkActive ? (code?.code ?? null) : null,
+		// The landing lives on the PORTAL (/r/<CODE>), not the marketing site — that
+		// is currently WordPress and cannot capture the cookie server-side.
 		referralUrl:
 			linkActive && code?.code
-				? `${marketingBaseUrl.replace(/\/$/, '')}/r?c=${encodeURIComponent(code.code)}`
+				? `${marketingBaseUrl.replace(/\/$/, '')}/r/${encodeURIComponent(code.code)}`
 				: null
 	};
 }

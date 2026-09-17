@@ -1,6 +1,6 @@
+import { PARTNER_PORTAL_URL } from '$lib/config/portal';
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { getAffiliateSettingsStatus } from '$lib/server/affiliate/status';
-import { TERMS_PRIVACY_WEBSITE } from '$lib/config/constants';
 import { setError, superValidate, message } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { auth } from '$lib/server/auth';
@@ -178,7 +178,7 @@ export async function load(event) {
 		const affiliateStatus = await getAffiliateSettingsStatus(
 			user.id,
 			user.role,
-			TERMS_PRIVACY_WEBSITE
+			PARTNER_PORTAL_URL
 		).catch(() => ({ programEnabled: false, eligible: false, enrolled: false }));
 
 		return {

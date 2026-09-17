@@ -15,6 +15,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { and, eq, gte, isNull, ne, or } from 'drizzle-orm';
 import { clientIsActiveCondition } from '$lib/server/clientStatusGuards';
 import { authenticateUser } from '$lib/server/serverUtils';
+import { recordView } from '$lib/server/audit/audit';
 import { logger } from '$lib/server/logger';
 import {
 	isApplicationUnlocked,
@@ -143,6 +144,13 @@ export const GET: RequestHandler = async ({ request, params }) => {
 			.limit(1);
 
 		const unlocked = isApplicationUnlocked(application) || Boolean(heldWorkday);
+
+		void recordView({
+			entityType: 'REQUISITIONS',
+			entityId: String(numId),
+			actor: user,
+			metadata: { identityLocked: !unlocked, applicationId: application?.id ?? null }
+		});
 
 		if (!unlocked) {
 			return json({

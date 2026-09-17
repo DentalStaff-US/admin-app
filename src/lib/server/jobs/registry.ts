@@ -82,6 +82,23 @@ export const jobs: JobDefinition[] = [
 		schedule: 'monthly, 1st at 4:00 AM ET',
 		rule: () => ny({ date: 1, hour: 4, minute: 0, second: 0 })
 	},
+	// Nightly finance sweep: re-syncs Connect flags from Stripe for every
+	// connected affiliate (catches missed account.updated webhooks) and retries
+	// recently FAILED payouts (e.g. after a platform-balance top-up). Runs at
+	// 3:30 so it never overlaps the 4:00 monthly payout on the 1st.
+	{
+		name: 'reconcileAffiliateFinance',
+		endpoint: '/jobs/affiliates/reconcileFinance',
+		schedule: 'daily at 3:30 AM ET',
+		rule: () => ny({ hour: 3, minute: 30, second: 0 })
+	},
+	// "Your payout is coming" heads-up, a few days before the 1st.
+	{
+		name: 'notifyUpcomingAffiliatePayouts',
+		endpoint: '/jobs/affiliates/notifyUpcomingPayouts',
+		schedule: 'monthly, 26th at 10:00 AM ET',
+		rule: () => ny({ date: 26, hour: 10, minute: 0, second: 0 })
+	},
 	// Re-derives affiliate eligibility from client/candidate profile status.
 	// Needed because statuses are also edited directly in the DB during support
 	// work and by import scripts, where the in-app sync hooks cannot see them.

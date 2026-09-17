@@ -16,19 +16,26 @@ export const adminPaymentFeeTypeEnum = pgEnum('admin_payment_fee_type_enum', [
 ]);
 
 export const adminConfigTable = pgTable('admin_config', {
-	id: text('id').notNull().primaryKey().default(crypto.randomUUID()),
+	// $defaultFn (app-side, per insert) rather than .default(crypto.randomUUID()),
+	// which evaluated ONCE at import and baked a single literal UUID into the DDL —
+	// so every `drizzle-kit generate` re-emitted an ALTER with a new frozen value.
+	// Same bug class as the .default(new Date()) timestamps fixed alongside this.
+	id: text('id')
+		.notNull()
+		.primaryKey()
+		.$defaultFn(() => crypto.randomUUID()),
 	createdAt: timestamp('created_at', {
 		withTimezone: true,
 		mode: 'date'
 	})
 		.notNull()
-		.default(new Date()),
+		.defaultNow(),
 	updatedAt: timestamp('updated_at', {
 		withTimezone: true,
 		mode: 'date'
 	})
 		.notNull()
-		.default(new Date()),
+		.defaultNow(),
 	// The PLATFORM fee — what DTSS charges the practice, billed as the
 	// "Administration Fees" line on the invoice. Applied to REGULAR HOURS ONLY;
 	// overtime is exempt. Unrelated to affiliate commission below.

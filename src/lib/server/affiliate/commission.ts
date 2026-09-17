@@ -173,6 +173,8 @@ export function centsToDollarString(cents: number): string {
  * which also means a future line type defaults to being treated as labour, and
  * would be caught by the reconciliation check rather than silently mis-priced.
  */
+import { lineCategoryOf } from '$lib/server/invoices/lineCategory';
+
 export const ADMIN_FEE_LINE_DESCRIPTION = 'Administration Fees';
 export const OVERTIME_LINE_PREFIX = 'Overtime hours';
 export const PROCESSING_FEE_LINE_PREFIX = 'Processing Fee';
@@ -181,6 +183,10 @@ export const EXPENSE_LINE_PREFIX = 'Expense: ';
 export type InvoiceLineItemLike = {
 	description?: string | null;
 	amount?: number | null;
+	/** Paper lines carry it top-level… */
+	category?: unknown;
+	/** …Stripe lines carry it in metadata. Absent on legacy invoices. */
+	metadata?: { category?: unknown } | null;
 };
 
 /**
@@ -191,22 +197,40 @@ export type InvoiceLineItemLike = {
  * split can shift as sibling timesheets in the same week are approved, whereas
  * the invoice is a fixed record of what was charged.
  *
- * Returns null when the shape is unrecognisable, so the caller falls back to
- * recomputation rather than silently commissioning zero.
+ * Resolution, per line:
+ *   1. STRUCTURAL — the line's category (paper `category`, Stripe
+ *      `metadata.category`). Set at creation since the category rollout.
+ *   2. DESCRIPTION — legacy fallback for invoices created before tagging.
+ *      Brittle by nature; kept only so historical invoices still resolve.
+ *
+ * Returns the cents and HOW they were resolved, or null when nothing on the
+ * invoice looks like labour, so the caller can fall back to recomputation.
  */
 export function extractRegularCentsFromInvoice(
 	lineItems: InvoiceLineItemLike[] | null | undefined
-): number | null {
+): { cents: number; method: 'CATEGORY' | 'DESCRIPTION' } | null {
 	if (!Array.isArray(lineItems) || lineItems.length === 0) return null;
 
 	let regular = 0;
 	let sawLabourLine = false;
+	let usedDescription = false;
 
 	for (const item of lineItems) {
-		const description = (item?.description ?? '').trim();
 		const amount = typeof item?.amount === 'number' ? item.amount : null;
 		if (amount === null) continue;
 
+		const category = lineCategoryOf(item);
+		if (category) {
+			if (category === 'LABOR_REGULAR') {
+				regular += amount;
+				sawLabourLine = true;
+			}
+			continue;
+		}
+
+		// Legacy line with no category: fall back to description exclusion.
+		usedDescription = true;
+		const description = (item?.description ?? '').trim();
 		if (description === ADMIN_FEE_LINE_DESCRIPTION) continue;
 		if (description.startsWith(PROCESSING_FEE_LINE_PREFIX)) continue;
 		if (description.startsWith(OVERTIME_LINE_PREFIX)) continue;
@@ -216,10 +240,11 @@ export function extractRegularCentsFromInvoice(
 		sawLabourLine = true;
 	}
 
-	return sawLabourLine ? regular : null;
+	if (!sawLabourLine) return null;
+	return { cents: regular, method: usedDescription ? 'DESCRIPTION' : 'CATEGORY' };
 }
 
-export type BaseSource = 'INVOICE_LINE_ITEMS' | 'RECOMPUTED';
+export type BaseSource = 'INVOICE_LINE_CATEGORY' | 'INVOICE_LINE_DESCRIPTION' | 'RECOMPUTED';
 
 export type ResolvedBase = {
 	baseCents: number;
@@ -247,10 +272,11 @@ export function resolveCommissionBase(input: {
 		return { baseCents: recomputedCents, source: 'RECOMPUTED' };
 	}
 
-	const discrepancy = fromInvoice - recomputedCents;
+	const discrepancy = fromInvoice.cents - recomputedCents;
 	return {
-		baseCents: fromInvoice,
-		source: 'INVOICE_LINE_ITEMS',
+		baseCents: fromInvoice.cents,
+		source:
+			fromInvoice.method === 'CATEGORY' ? 'INVOICE_LINE_CATEGORY' : 'INVOICE_LINE_DESCRIPTION',
 		...(discrepancy !== 0 ? { discrepancyCents: discrepancy } : {})
 	};
 }
