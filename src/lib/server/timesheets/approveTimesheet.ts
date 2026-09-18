@@ -30,6 +30,17 @@ import { logger } from '$lib/server/logger';
 const ADMIN_FEE_LINE_DESCRIPTION = 'Administration Fees';
 const OVERTIME_LINE_DESCRIPTION = 'Overtime hours (1.5×)';
 
+// Payment window for invoices generated from an approved timesheet. Both
+// billing methods MUST use this: the Stripe path used to rely on Stripe's
+// `days_until_due: 1` while the paper path fell back to "due upon receipt"
+// (dueDate = now), so a paper client's invoice was overdue the instant the
+// timesheet was approved — before they'd even been emailed it.
+export const TIMESHEET_INVOICE_DUE_HOURS = 24;
+
+export function timesheetInvoiceDueDate(from: Date = new Date()): Date {
+	return new Date(from.getTime() + TIMESHEET_INVOICE_DUE_HOURS * 60 * 60 * 1000);
+}
+
 /**
  * A robust, human-readable description for timesheet-generated invoices (used on
  * both paper PDFs and Stripe invoices). It identifies the work (professional,
@@ -431,6 +442,7 @@ export async function approveAndInvoiceTimesheet(
 					clientId: timesheet.associatedClientId,
 					amountInDollars: (finalAmt / 100).toFixed(2),
 					customerEmail: billingRecipient?.email ?? undefined,
+					dueDate: timesheetInvoiceDueDate(),
 					sourceType: 'timesheet',
 					timesheetId: timesheet.id,
 					requisitionId: timesheet.requisitionId ?? undefined,
@@ -504,7 +516,8 @@ export async function approveAndInvoiceTimesheet(
 					hasProcessingFee,
 					disciplineName: discipline?.name ?? null,
 					disciplineAbbreviation: discipline?.abbreviation ?? null
-				})
+				}),
+				timesheetInvoiceDueDate()
 			);
 
 			const invoiceRow = await createInvoiceRecord(

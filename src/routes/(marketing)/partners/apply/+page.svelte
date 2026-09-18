@@ -42,6 +42,11 @@
 				Thanks — our team will review your application and email you once it's approved. Your
 				referral link becomes active at that point.
 			</p>
+			<p class="mt-3 text-sm text-green-800">
+				In the meantime you can sign in to the
+				<a href={data.portalUrl} class="font-medium underline">Affiliate Portal</a>
+				with the email and password you just chose to see your application status.
+			</p>
 		</div>
 	{:else}
 		{#if form?.message}

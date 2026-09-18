@@ -8,6 +8,7 @@ import { affiliateProfileTable } from '$lib/server/database/schemas/affiliate';
 import { ensureAffiliateProfile } from '$lib/server/affiliate/enroll';
 import { getAffiliateConfig } from '$lib/server/database/queries/affiliates';
 import { USER_ROLES } from '$lib/config/constants';
+import { PARTNER_PORTAL_URL } from '$lib/config/portal';
 import { logger } from '$lib/server/logger';
 
 /**
@@ -32,7 +33,7 @@ const applicationSchema = z.object({
 
 export async function load() {
 	const config = await getAffiliateConfig();
-	return { programEnabled: config.programEnabled };
+	return { programEnabled: config.programEnabled, portalUrl: PARTNER_PORTAL_URL };
 }
 
 export const actions = {

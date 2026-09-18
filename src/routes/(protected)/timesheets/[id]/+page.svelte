@@ -1543,7 +1543,9 @@
 									</div>
 									<div>
 										<p class="text-xs text-gray-600">Position</p>
-										<p class="text-sm whitespace-pre-line">{data?.requisition.title}</p>
+										<p class="text-sm whitespace-pre-line">
+											{data?.requisition?.discipline?.name ?? data?.requisition?.title ?? '—'}
+										</p>
 									</div>
 								</div>
 							</div>
