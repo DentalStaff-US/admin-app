@@ -4,6 +4,8 @@
 	import type { ClientRequisitionSchema } from '$lib/config/zod-schemas';
 	import { onMount, onDestroy } from 'svelte';
 	import { superForm } from 'sveltekit-superforms/client';
+	import { updateFlash } from 'sveltekit-flash-message';
+	import { page } from '$app/stores';
 	import { Label } from '$lib/components/ui/label';
 	import { Input } from '$lib/components/ui/input';
 	import type { ClientCompanyLocationSelect } from '$lib/server/database/schemas/client';
@@ -16,6 +18,7 @@
 		form: formObj,
 		errors,
 		enhance,
+		message,
 		submitting,
 		reset,
 		tainted
@@ -28,7 +31,13 @@
 			if (!validateRequiredFields()) cancel();
 		},
 		clearOnSubmit: 'errors-and-message',
-		resetForm: true
+		resetForm: true,
+		// superforms only invalidates on success, so a flash set alongside a
+		// failure (e.g. the billing gate) would otherwise sit in the cookie until
+		// the next page load. Read it now so the toast fires immediately.
+		onUpdated: async ({ form }) => {
+			if (!form.valid) await updateFlash(page);
+		}
 	});
 
 	// Populates the shared `errors` store used by the inline error markup; returns
@@ -142,6 +151,16 @@
 >
 	<input type="hidden" bind:value={$formObj.timezone} name="timezone" />
 	<div class="grow p-4 overflow-y-auto">
+		{#if $message}
+			<!-- Server-side rejection (e.g. billing not set up). Shown here as well
+			     as via the toast so it's visible next to the form that failed. -->
+			<div
+				class="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+				role="alert"
+			>
+				{$message}
+			</div>
+		{/if}
 		<div class="mb-4">
 			<Label for="locationId">Location <span class="text-red-600">*</span></Label>
 			<select

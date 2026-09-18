@@ -40,6 +40,18 @@ export async function findTimesheetsToAutoApprove(now: Date): Promise<AutoApprov
 		.map((r) => ({ timesheetId: r.timesheetId, submittedAt: r.submittedAt }));
 }
 
+// Skip reasons that will not change on their own — an admin has to act (set
+// up the Stripe customer, review expenses, fix hours/rate, restore the
+// requisition). approveAndInvoiceTimesheet writes nothing for these, so the
+// hourly retry is inert, but each one is surfaced as its own event so the stuck
+// sheet is visible in PostHog instead of silently retried forever.
+const NEEDS_ADMIN_ACTION = new Set<string>([
+	'NO_STRIPE_CUSTOMER',
+	'ZERO_AMOUNT',
+	'PENDING_EXPENSES',
+	'NO_REQUISITION'
+]);
+
 /**
  * Approve each eligible timesheet via the shared {@link approveAndInvoiceTimesheet}
  * (actor = null/system, with the auto-approval audit context). Each runs in its
@@ -63,6 +75,15 @@ export async function autoApproveTimesheets(
 				approved.push(timesheetId);
 			} else {
 				skipped.push({ timesheetId, reason: result.reason });
+				if (NEEDS_ADMIN_ACTION.has(result.reason)) {
+					// `event` (not `warn`) so it reaches PostHog in prod — one row per
+					// stuck sheet per tick, filterable by reason/timesheetId.
+					logger.event?.('timesheet_auto_approval_needs_admin', {
+						timesheetId,
+						reason: result.reason,
+						submittedAt
+					});
+				}
 			}
 		} catch (err) {
 			logger.error('autoApproveTimesheets: timesheet failed', { error: err, timesheetId });

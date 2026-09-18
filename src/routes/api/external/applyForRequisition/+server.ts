@@ -11,6 +11,7 @@ import {
 } from '$lib/server/database/schemas/requisition';
 import { experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { authenticateUser } from '$lib/server/serverUtils';
+import { recordAction } from '$lib/server/audit/audit';
 import { and, eq } from 'drizzle-orm';
 import { env } from '$env/dynamic/private';
 import { getClientIdByCompanyId } from '$lib/server/database/queries/clients';
@@ -210,8 +211,19 @@ export const POST: RequestHandler = async ({ request }) => {
 				})
 				.returning();
 
-			// Log successful application
-			console.log(`New application created: ${application.id} for requisition: ${requisitionId}`);
+			await recordAction({
+				tx,
+				entityType: 'REQUISITION_APPLICATIONS',
+				entityId: application.id,
+				action: 'APPLY',
+				actor: user,
+				after: { status: 'PENDING' },
+				metadata: {
+					requisitionId,
+					candidateId: candidateProfile.id,
+					companyId: requisition.companyId
+				}
+			});
 
 			const posthog = getPostHogClient();
 			posthog.capture({

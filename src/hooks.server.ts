@@ -11,6 +11,7 @@ import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { logger } from '$lib/server/logger';
 import { isBotScanPath } from '$lib/server/noise';
 import type { AppUser } from '$lib/server/auth';
+import { captureReferralSafely } from '$lib/server/affiliate/capture';
 
 export const handleError: HandleServerError = async ({ error, event, status }) => {
 	const errorId = crypto.randomUUID();
@@ -93,6 +94,18 @@ export const handle: Handle = async ({ event, resolve }) => {
 	}
 	const startTimer = Date.now();
 	event.locals.startTimer = startTimer;
+
+	// Affiliate referral capture. Deliberately placed BEFORE session resolution
+	// and before the CANDIDATE eviction below: a logged-in professional who
+	// clicks a referral link on this app must get the cookie written before the
+	// 302 fires, or the attribution is lost.
+	//
+	// Gated on the param so this stays entirely off the hot path — it runs a few
+	// hundred times a day, not on every request. captureReferralSafely swallows
+	// its own errors because handleError would turn a throw into a 500.
+	if (event.url.searchParams.has('ref')) {
+		await captureReferralSafely(event);
+	}
 
 	// During build/prerender there's no request session to resolve.
 	if (building) {

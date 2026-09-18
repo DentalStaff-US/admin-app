@@ -41,6 +41,7 @@ import { clientCompanyTable, companyOfficeLocationTable } from '../schemas/clien
 import { candidateDocumentUploadSchema, documentResultSchema } from '$lib/config/zod-schemas';
 import { getDefaultSearchRadius } from './config';
 import type { ProfessionalFilters, DisciplineSummary } from '$lib/_helpers/professional-filters';
+import type { ProfessionalSearchResult } from '$lib/_helpers/professional-search';
 
 export type { ProfessionalFilters, DisciplineSummary };
 
@@ -293,7 +294,9 @@ export async function getAllCandidateProfiles(filters: ProfessionalFilters = {})
 		// for display here.
 		disciplines: (res.disciplines ?? [])
 			.slice()
-			.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' }))
+			.sort((a, b) =>
+				(a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' })
+			)
 	}));
 
 	return {
@@ -772,6 +775,133 @@ export async function getQualifiedProfessionalsForRequisition(
 		}));
 	} catch (error) {
 		console.error('Error finding qualified professionals:', error);
+		return [];
+	}
+}
+
+/**
+ * A professional as rendered in the "search by name" assign override.
+ * Deliberately a different shape from the qualified-professional row: that one
+ * returns ONE ROW PER matching discipline, whereas this aggregates every
+ * discipline the professional holds so the UI can show the same chips as the
+ * professionals index.
+ */
+export type { ProfessionalSearchResult };
+
+/**
+ * Name search across professionals for the admin "assign anyone" override.
+ *
+ * `getQualifiedProfessionalsForRequisition` gates on seven things; this one
+ * deliberately keeps only the two that are not matching preferences:
+ *
+ *   - status must be ACTIVE — an inactive account shouldn't be staffable
+ *   - not blacklisted by this client company — that's a deliberate ban, and
+ *     honouring it here keeps the blacklist symmetric with the notification blast
+ *
+ * Discipline, experience level, pay range, search radius and the requirement to
+ * have been geocoded are ALL ignored: the whole point is to place a specific
+ * person the filters would otherwise hide. Because the geocode requirement is
+ * dropped, `distance` is null for professionals who have never been geocoded —
+ * they sort last rather than appearing to be the closest match.
+ */
+export async function searchProfessionalsForRequisition(
+	requisition: { companyId: string },
+	location: { lat?: string | null; lon?: string | null },
+	options: { search: string; limit?: number }
+): Promise<ProfessionalSearchResult[]> {
+	const term = options.search?.trim();
+	// Two characters is the floor; below that the result set is meaningless and
+	// the query is needlessly expensive.
+	if (!term || term.length < 2) return [];
+
+	const limit = options.limit ?? 25;
+	const pattern = `%${term}%`;
+
+	const locationLat = location?.lat != null ? Number(location.lat) : null;
+	const locationLon = location?.lon != null ? Number(location.lon) : null;
+	const hasOrigin = Number.isFinite(locationLat) && Number.isFinite(locationLon);
+
+	// Null when the location itself has no coordinates, so the column is always
+	// present and the UI has one case to handle rather than two.
+	const distanceExpr = hasOrigin
+		? sql<number | null>`
+				CASE WHEN ${candidateProfileTable.geom} IS NULL THEN NULL ELSE
+					ST_Distance(
+						${candidateProfileTable.geom}::geography,
+						ST_SetSRID(ST_MakePoint(${locationLon}, ${locationLat}), 4326)::geography
+					) * 0.000621371
+				END`
+		: sql<number | null>`NULL::double precision`;
+
+	try {
+		const rows = await db
+			.select({
+				candidateId: candidateProfileTable.id,
+				firstName: userTable.firstName,
+				lastName: userTable.lastName,
+				email: userTable.email,
+				avatarUrl: userTable.avatarUrl,
+				city: candidateProfileTable.city,
+				state: candidateProfileTable.state,
+				// Every discipline held, matching the professionals index so the
+				// same DisciplineCell renders it. Left-joined, so a professional
+				// with none still appears.
+				disciplines: sql<DisciplineSummary[]>`
+					coalesce(
+						jsonb_agg(distinct jsonb_build_object(
+							'id', ${disciplineTable.id},
+							'name', ${disciplineTable.name},
+							'abbreviation', ${disciplineTable.abbreviation}
+						)) filter (where ${disciplineTable.id} is not null),
+						'[]'::jsonb
+					)`.as('disciplines'),
+				distance: distanceExpr.as('distance')
+			})
+			.from(candidateProfileTable)
+			.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+			.leftJoin(
+				candidateDisciplineExperienceTable,
+				eq(candidateDisciplineExperienceTable.candidateId, candidateProfileTable.id)
+			)
+			.leftJoin(
+				disciplineTable,
+				eq(disciplineTable.id, candidateDisciplineExperienceTable.disciplineId)
+			)
+			.where(
+				and(
+					eq(candidateProfileTable.status, 'ACTIVE'),
+					// Same symmetric blacklist gate the qualified search uses.
+					sql`NOT EXISTS (
+						SELECT 1 FROM candidate_blacklists cb
+						WHERE cb.candidate_id = ${candidateProfileTable.id}
+						AND cb.company_id = ${requisition.companyId}
+					)`,
+					or(
+						ilike(userTable.firstName, pattern),
+						ilike(userTable.lastName, pattern),
+						ilike(userTable.email, pattern),
+						// So "jane doe" matches across the two columns.
+						sql`${userTable.firstName} || ' ' || ${userTable.lastName} ILIKE ${pattern}`
+					)
+				)
+			)
+			// Both are primary keys, so every other selected column is functionally
+			// dependent and needs no explicit grouping.
+			.groupBy(candidateProfileTable.id, userTable.id)
+			.orderBy(sql`distance ASC NULLS LAST`, asc(userTable.lastName))
+			.limit(limit);
+
+		return rows.map((row) => ({
+			...row,
+			disciplines: (row.disciplines ?? [])
+				.slice()
+				.sort((a, b) =>
+					(a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' })
+				),
+			distance: row.distance == null ? null : Number(row.distance).toFixed(1)
+		}));
+	} catch (err) {
+		console.error('Error searching professionals for requisition:', err);
 		return [];
 	}
 }

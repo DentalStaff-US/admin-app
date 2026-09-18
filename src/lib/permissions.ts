@@ -23,10 +23,16 @@ export const SUPERADMIN = ac.newRole({ ...adminAc.statements });
 export const CLIENT = ac.newRole({});
 export const CLIENT_STAFF = ac.newRole({});
 export const CANDIDATE = ac.newRole({});
+// External affiliates (schools, suppliers, consultants, influencers). Like the
+// other non-admin roles it holds no admin-plane permissions — its authorization
+// is route gating plus affiliate-profile eligibility. Registered here so the
+// roles map is exhaustive.
+export const EXTERNAL_PARTNER = ac.newRole({});
 
 export const roles = {
 	SUPERADMIN,
 	CLIENT,
 	CLIENT_STAFF,
-	CANDIDATE
+	CANDIDATE,
+	EXTERNAL_PARTNER
 };

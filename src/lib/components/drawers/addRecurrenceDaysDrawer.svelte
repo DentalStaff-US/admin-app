@@ -11,6 +11,8 @@
 	import type { DateRange } from 'bits-ui';
 	import type { RecurrenceDay, Requisition } from '$lib/server/database/schemas/requisition';
 	import { superForm } from 'sveltekit-superforms/client';
+	import { updateFlash } from 'sveltekit-flash-message';
+	import { page } from '$app/stores';
 	import {
 		getUserTimezone,
 		toUTCDateString,
@@ -20,6 +22,10 @@
 	import * as Command from '$lib/components/ui/command';
 	import * as Popover from '$lib/components/ui/popover';
 	import { cn } from '$lib/utils';
+	import DisciplineCell from '$lib/components/tables/DisciplineCell.svelte';
+	import { debounce } from '$lib/_helpers/debounce';
+	import { Loader2 } from 'lucide-svelte';
+	import type { ProfessionalSearchResult } from '$lib/_helpers/professional-search';
 
 	type QualifiedPro = {
 		candidateId: string;
@@ -37,9 +43,95 @@
 	// new day(s) are created FILLED and the professional is notified to verify.
 	export let isAdmin = false;
 	export let qualifiedProfessionals: QualifiedPro[] = [];
+	// When set, the trigger is disabled and this explains why (e.g. the client
+	// has no billing set up). The server enforces the same rule on submit.
+	export let blockedReason: string | null = null;
 
 	let selectedCandidateId = '';
 	let comboOpen = false;
+
+	// Name-search override. Rendered OUTSIDE the Command combobox on purpose:
+	// cmdk filters its items client-side against each item's `value`, so server
+	// results dropped into that list would be filtered a second time and could
+	// silently disappear. Keeping it separate makes the server's matching
+	// authoritative.
+	// cmdk scores and REORDERS its items, which floated "Leave open" into the
+	// middle of the results (searching "eni" fuzzy-matches "leave opEN
+	// unassIgned"). We filter ourselves instead, so "Leave open" can stay pinned
+	// first — see `shouldFilter={false}` on Command.Root.
+	let comboQuery = '';
+	$: comboFiltered = comboQuery.trim()
+		? allProfessionals.filter((pro) =>
+				`${pro.firstName ?? ''} ${pro.lastName ?? ''} ${pro.disciplineAbbr ?? ''}`
+					.toLowerCase()
+					.includes(comboQuery.trim().toLowerCase())
+			)
+		: allProfessionals;
+
+	let searchedPro: ProfessionalSearchResult | null = null;
+
+	// The combobox query also hits the server, so typing a name finds ANY active
+	// professional — not just the qualified ones already loaded. Without this a
+	// search only filtered `allProfessionals`, so someone outside the discipline
+	// or radius could never be found by name.
+	let serverResults: ProfessionalSearchResult[] = [];
+	let serverLoading = false;
+	let serverError: string | null = null;
+	/** The query `serverResults` belongs to, so the loader stays up until the
+	 *  results actually correspond to what's typed. */
+	let lastSearchedTerm = '';
+
+	const runServerSearch = debounce(async (value: string) => {
+		const query = value.trim();
+		if (query.length < 2) {
+			serverResults = [];
+			serverError = null;
+			serverLoading = false;
+			lastSearchedTerm = '';
+			return;
+		}
+		serverLoading = true;
+		serverError = null;
+		try {
+			const res = await fetch(
+				`/api/requisitions/${requisition.id}/search-professionals?q=${encodeURIComponent(query)}`
+			);
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const data: ProfessionalSearchResult[] = await res.json();
+			// Drop a response that landed after the box moved on.
+			if (query !== comboQuery.trim()) return;
+			serverResults = data;
+			lastSearchedTerm = query;
+		} catch (err) {
+			serverError = err instanceof Error ? err.message : 'Search failed';
+			serverResults = [];
+			lastSearchedTerm = query;
+		} finally {
+			serverLoading = false;
+		}
+	}, 300);
+
+	// Anyone the qualified list already covers is shown in the first group, so
+	// the second group is strictly "people the filters would have hidden".
+	$: otherResults = serverResults.filter(
+		(r) => !comboFiltered.some((p) => p.candidateId === r.candidateId)
+	);
+
+	// Driven reactively rather than from on:input — the shadcn Command.Input
+	// wrapper forwards no DOM events, and `on:` handlers aren't part of
+	// $$restProps, so an on:input handler silently never fires.
+	$: runServerSearch(comboQuery);
+
+	// True from the first keystroke, before the debounce fires, so the list
+	// shows a loader instead of briefly claiming there are no matches.
+	$: serverPending = comboQuery.trim().length >= 2 && (serverLoading || comboQuery.trim() !== lastSearchedTerm);
+
+	// A searched professional won't be in `allProfessionals`, so `selectedPro`
+	// can't describe them — track them separately for the trigger label.
+	$: pickedLabel =
+		searchedPro && searchedPro.candidateId === selectedCandidateId
+			? `${searchedPro.firstName} ${searchedPro.lastName}${searchedPro.distance ? ` — ${searchedPro.distance} mi` : ''}`
+			: null;
 
 	// "Show more" extension: fetch candidates outside the requisition's
 	// experience-level filter on demand, then dedupe against the reductive set
@@ -72,7 +164,11 @@
 		}
 	}
 
-	const { enhance, submitting } = superForm(form, {
+	const {
+		enhance,
+		submitting,
+		message: serverMessage
+	} = superForm(form, {
 		onResult({ result }) {
 			if (result.type === 'success') {
 				isOpen = false;
@@ -82,6 +178,11 @@
 			if (form.message === 'success') {
 				resetForm();
 			}
+		},
+		// A flash set alongside a failure (billing gate) isn't read until the next
+		// invalidate; superforms only invalidates on success. Pull it in now.
+		onUpdated: async ({ form }) => {
+			if (!form.valid) await updateFlash(page);
 		},
 		onError(err) {
 			console.error('Form submission error:', err);
@@ -129,6 +230,11 @@
 		};
 		selectedCandidateId = '';
 		comboOpen = false;
+		comboQuery = '';
+		serverResults = [];
+		serverError = null;
+		lastSearchedTerm = '';
+		searchedPro = null;
 		extendedProfessionals = [];
 		extendedLoaded = false;
 		extendedError = null;
@@ -299,7 +405,12 @@
 
 <Sheet.Root bind:open={isOpen}>
 	<Sheet.Trigger asChild let:builder>
-		<Button builders={[builder]} class="bg-primary hover:bg-primary/90 mb-4">
+		<Button
+			builders={[builder]}
+			class="bg-primary hover:bg-primary/90 mb-4"
+			disabled={!!blockedReason}
+			title={blockedReason ?? undefined}
+		>
 			<PlusIcon class="w-4 h-4 mr-2" />
 			Add Shifts
 		</Button>
@@ -315,6 +426,14 @@
 					All times will be shown in local timezone ({localTimezoneDisplay}) but stored in UTC.
 				</small>
 			</Sheet.Description>
+			{#if $serverMessage && $serverMessage !== 'success'}
+				<div
+					class="mt-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+					role="alert"
+				>
+					{$serverMessage}
+				</div>
+			{/if}
 		</Sheet.Header>
 
 		<div class="flex flex-col flex-1 mt-4 h-full">
@@ -503,7 +622,9 @@
 								aria-expanded={comboOpen}
 								class="w-full justify-between font-normal"
 							>
-								{#if selectedPro}
+								{#if pickedLabel}
+									<span class="truncate">{pickedLabel}</span>
+								{:else if selectedPro}
 									<span class="truncate">
 										{selectedPro.firstName}
 										{selectedPro.lastName}{selectedPro.distance
@@ -517,15 +638,18 @@
 							</Button>
 						</Popover.Trigger>
 						<Popover.Content class="w-[320px] p-0">
-							<Command.Root>
-								<Command.Input placeholder="Search professionals..." />
+							<Command.Root shouldFilter={false}>
+								<Command.Input
+									bind:value={comboQuery}
+									placeholder="Search professionals by name..."
+								/>
 								<Command.List>
-									<Command.Empty>No professional found.</Command.Empty>
 									<Command.Group>
 										<Command.Item
 											value="leave open unassigned notify all qualified"
 											onSelect={() => {
 												selectedCandidateId = '';
+												searchedPro = null;
 												comboOpen = false;
 											}}
 										>
@@ -537,11 +661,12 @@
 											/>
 											Leave open (notify all qualified)
 										</Command.Item>
-										{#each allProfessionals as pro (pro.candidateId)}
+										{#each comboFiltered as pro (pro.candidateId)}
 											<Command.Item
 												value={`${pro.firstName} ${pro.lastName} ${pro.disciplineAbbr ?? ''}`}
 												onSelect={() => {
 													selectedCandidateId = pro.candidateId;
+													searchedPro = null;
 													comboOpen = false;
 												}}
 											>
@@ -565,6 +690,54 @@
 											</Command.Item>
 										{/each}
 									</Command.Group>
+
+									{#if comboQuery.trim().length >= 2}
+										{#if serverPending}
+											<div
+												class="flex items-center justify-center gap-2 border-t px-3 py-3 text-sm text-muted-foreground"
+											>
+												<Loader2 class="h-4 w-4 animate-spin" />
+												Searching all professionals…
+											</div>
+										{:else if otherResults.length}
+											<Command.Group heading="Other active professionals (filters ignored)">
+												{#each otherResults as pro (pro.candidateId)}
+													<Command.Item
+														value={pro.candidateId}
+														onSelect={() => {
+															selectedCandidateId = pro.candidateId;
+															searchedPro = pro;
+															comboOpen = false;
+														}}
+													>
+														<Check
+															class={cn(
+																'mr-2 h-4 w-4 shrink-0',
+																selectedCandidateId === pro.candidateId ? 'opacity-100' : 'opacity-0'
+															)}
+														/>
+														<div class="flex min-w-0 flex-col gap-1">
+															<span class="truncate">{pro.firstName} {pro.lastName}</span>
+															<span class="flex items-center gap-2 text-xs text-muted-foreground">
+																<span class="flex items-center gap-0.5">
+																	<MapPin class="h-3 w-3" />
+																	{pro.distance ? `${pro.distance} mi` : 'Distance unknown'}
+																</span>
+															</span>
+															<DisciplineCell disciplines={pro.disciplines ?? []} max={3} />
+														</div>
+													</Command.Item>
+												{/each}
+											</Command.Group>
+										{:else if !comboFiltered.length}
+											<p class="px-3 py-4 text-center text-sm text-muted-foreground">
+												No professional found.
+											</p>
+										{/if}
+										{#if serverError}
+											<p class="px-3 py-1 text-xs text-red-600">Search failed: {serverError}</p>
+										{/if}
+									{/if}
 
 									{#if !extendedLoaded}
 										<div class="border-t p-1">
@@ -591,6 +764,7 @@
 							</Command.Root>
 						</Popover.Content>
 					</Popover.Root>
+
 				</div>
 			{/if}
 

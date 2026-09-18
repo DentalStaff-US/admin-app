@@ -31,6 +31,7 @@
 	import { format, parse } from 'date-fns';
 	import { cn } from '$lib/utils';
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from '$lib/components/ui/tabs';
+	import ActivityLog from '$lib/components/audit/ActivityLog.svelte';
 	import {
 		getCoreRowModel,
 		type ColumnDef,
@@ -548,6 +549,31 @@
 				{/if}
 			</div>
 
+			{#if data.billingBlockedMessage}
+				<!-- The owning client can't be invoiced yet (Stripe billing, no Stripe
+				     customer). Shifts can't be added until that's fixed; anyone looking
+				     at the requisition should know why. -->
+				<div
+					class="mt-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+				>
+					<AlertCircle class="h-4 w-4 mt-0.5 flex-shrink-0" />
+					<div>
+						<strong>Billing setup required.</strong>
+						{data.billingBlockedMessage}
+						{#if isAdmin}
+							<a
+								href={`/clients/${requisition.company.clientId}`}
+								class="underline font-medium ml-1">Open client page</a
+							>
+						{:else}
+							<a href="/settings?tab=BILLING&role=CLIENT" class="underline font-medium ml-1"
+								>Go to billing settings</a
+							>
+						{/if}
+					</div>
+				</div>
+			{/if}
+
 			<!-- Stat grid -->
 			<div class="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
 				<div class="bg-gray-50 rounded-md p-3">
@@ -632,8 +658,12 @@
 		<Tabs class="w-full" value={requisition.permanentPosition ? "applications" : "workdays"}>
 			<TabsList
 				class="grid lg:w-fit bg-muted h-fit {requisition.permanentPosition
-					? 'grid-cols-2'
-					: 'grid-cols-3'}"
+					? isAdmin
+						? 'grid-cols-3'
+						: 'grid-cols-2'
+					: isAdmin
+						? 'grid-cols-4'
+						: 'grid-cols-3'}"
 			>
 				{#if requisition.permanentPosition}
 					<TabsTrigger value="applications" class="data-[state=active]:bg-background"
@@ -648,7 +678,29 @@
 					>
 				{/if}
 				<TabsTrigger value="details" class="data-[state=active]:bg-background">Details</TabsTrigger>
+				{#if isAdmin}
+					<TabsTrigger value="activity" class="data-[state=active]:bg-background"
+						>Activity</TabsTrigger
+					>
+				{/if}
 			</TabsList>
+
+			{#if isAdmin}
+				<TabsContent value="activity" class="mt-4">
+					<Card class="max-w-none">
+						<CardHeader>
+							<CardTitle>Activity</CardTitle>
+							<CardDescription>
+								Ledger of every view and action on this requisition, its workdays and
+								applications — who, when, and from where.
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<ActivityLog entries={data.activity ?? []} showEntity />
+						</CardContent>
+					</Card>
+				</TabsContent>
+			{/if}
 
 			<!-- Details tab -->
 			<TabsContent value="details" class="mt-4">
@@ -894,6 +946,7 @@
 									{requisition}
 									{isAdmin}
 									qualifiedProfessionals={data.qualifiedProfessionals ?? []}
+									blockedReason={data.billingBlockedMessage}
 								/>
 							{/if}
 						</CardHeader>

@@ -52,16 +52,19 @@ import { setFlash } from 'sveltekit-flash-message/server';
 import { createStripeInvoice, withCardProcessingFee } from '$lib/server/stripe';
 import { logger } from '$lib/server/logger';
 import db from '$lib/server/database/drizzle';
-import { desc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { adminConfigTable } from '$lib/server/database/schemas/config';
-import { actionHistoryTable } from '$lib/server/database/schemas/admin';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
-import { getUserById } from '$lib/server/database/queries/users';
 import { timeSheetTable } from '$lib/server/database/schemas/requisition';
 import { createUTCDateTime } from '$lib/_helpers/UTCTimezoneUtils';
 import type { RawTimesheetHours } from '$lib/server/database/schemas/requisition';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
-import { notifyInvoiceCreated, notifyTimesheetSubmitted } from '$lib/server/notifications/transactional';
+import { recordAction, recordView } from '$lib/server/audit/audit';
+import { getActivityForEntity } from '$lib/server/audit/queries';
+import {
+	notifyInvoiceCreated,
+	notifyTimesheetSubmitted
+} from '$lib/server/notifications/transactional';
 import { resolveBillingRecipient } from '$lib/server/billing/recipients';
 import { voidInvoiceAndNotify } from '$lib/server/invoices/voidNotify';
 import { superValidate } from 'sveltekit-superforms/server';
@@ -115,18 +118,17 @@ export const load = async (event: RequestEvent) => {
 		const workdays = await getWorkdaysForTimesheet(timesheet);
 		const invoice = await getInvoiceByTimesheetId(id);
 		const expenses = await listTimesheetExpenses(id);
-		const auditHistoryRaw = await db
-			.select()
-			.from(actionHistoryTable)
-			.where(eq(actionHistoryTable.entityId, id))
-			.orderBy(desc(actionHistoryTable.createdAt));
+		// Expense rows are keyed by expense id with metadata.timesheetId pointing
+		// here, so relatedKey pulls them into the same timeline.
+		const auditHistory = await getActivityForEntity('TIMESHEETS', id, {
+			relatedKey: 'timesheetId'
+		});
 
-		const auditHistory = await Promise.allSettled(
-			auditHistoryRaw.map(async (history) => {
-				const user = await getUserById(history.userId);
-				return { ...history, user: user?.user || null };
-			})
-		);
+		void recordView({
+			entityType: 'TIMESHEETS',
+			entityId: id,
+			metadata: { requisitionId: timesheet.requisitionId, status: timesheet.status }
+		});
 
 		return {
 			user,
@@ -141,7 +143,7 @@ export const load = async (event: RequestEvent) => {
 			hasUnfinishedWorkdays,
 			unfinishedWorkdayCount,
 			priorWeekHours,
-			auditHistory: auditHistory.map((h) => h.status === 'fulfilled' && h.value)
+			auditHistory
 		};
 	}
 
@@ -158,6 +160,16 @@ export const load = async (event: RequestEvent) => {
 		const workdays = await getWorkdaysForTimesheet(timesheet);
 		const invoice = await getInvoiceByTimesheetId(id);
 		const expenses = await listTimesheetExpenses(id);
+
+		void recordView({
+			entityType: 'TIMESHEETS',
+			entityId: id,
+			metadata: {
+				requisitionId: timesheet.requisitionId,
+				status: timesheet.status,
+				clientId: client.id
+			}
+		});
 
 		return {
 			user,
@@ -187,6 +199,16 @@ export const load = async (event: RequestEvent) => {
 		const workdays = await getWorkdaysForTimesheet(timesheet);
 		const invoice = await getInvoiceByTimesheetId(id);
 		const expenses = await listTimesheetExpenses(id);
+
+		void recordView({
+			entityType: 'TIMESHEETS',
+			entityId: id,
+			metadata: {
+				requisitionId: timesheet.requisitionId,
+				status: timesheet.status,
+				clientId: client?.id
+			}
+		});
 
 		return {
 			user,
@@ -236,10 +258,24 @@ export const actions = {
 		}
 
 		try {
+			const [before] = await db
+				.select({ adjustedHourlyRate: timeSheetTable.adjustedHourlyRate })
+				.from(timeSheetTable)
+				.where(eq(timeSheetTable.id, id))
+				.limit(1);
 			await db
 				.update(timeSheetTable)
 				.set({ adjustedHourlyRate, updatedAt: new Date() })
 				.where(eq(timeSheetTable.id, id));
+
+			await recordAction({
+				entityType: 'TIMESHEETS',
+				entityId: id,
+				action: 'UPDATE',
+				before: { adjustedHourlyRate: before?.adjustedHourlyRate ?? null },
+				after: { adjustedHourlyRate },
+				metadata: { field: 'adjustedHourlyRate' }
+			});
 
 			setFlash({ type: 'success', message: 'Hourly rate updated successfully' }, event);
 			return { success: true };
@@ -353,12 +389,13 @@ export const actions = {
 				.returning();
 
 			await writeActionHistory({
-				action: 'UPDATE',
+				action: 'SUBMIT',
 				userId: user.id,
 				entityId: result.id,
 				table: 'TIMESHEETS',
 				beforeState: timesheet,
-				afterState: result
+				afterState: result,
+				metadata: { status: 'PENDING', onBehalfOfCandidate: true }
 			});
 
 			await notifyTimesheetSubmitted(result.id);
@@ -467,7 +504,7 @@ export const actions = {
 				table: 'TIMESHEETS',
 				beforeState: timesheet,
 				afterState: result,
-				metadata: { editType: 'ADMIN_SAVE_DRAFT' }
+				metadata: { editType: 'ADMIN_SAVE_DRAFT', draft: true }
 			});
 
 			setFlash({ type: 'success', message: 'Draft saved' }, event);
@@ -584,12 +621,13 @@ export const actions = {
 				.returning();
 
 			await writeActionHistory({
-				action: 'UPDATE',
+				action: 'RESUBMIT',
 				userId: user.id,
 				entityId: result.id,
 				table: 'TIMESHEETS',
 				beforeState: timesheet,
-				afterState: result
+				afterState: result,
+				metadata: { status: 'PENDING', onBehalfOfCandidate: true }
 			});
 
 			await notifyTimesheetSubmitted(result.id);
@@ -688,12 +726,14 @@ export const actions = {
 					: result.reason === 'ZERO_AMOUNT'
 						? 'Cannot approve timesheet: Invoice amount is $0.00. Please verify hours worked and hourly rate.'
 						: result.reason === 'NO_STRIPE_CUSTOMER'
-							? 'No Stripe customer found for this client.'
-							: result.reason === 'NOT_FOUND'
-								? 'Timesheet not found.'
-								: result.reason === 'NOT_PENDING'
-									? 'Cannot approve: the timesheet must be submitted (PENDING) first.'
-									: 'Error approving timesheet';
+							? 'Cannot approve: this client is billed via Stripe but has no Stripe customer yet. Open the client\'s page and use "Setup Customer", or switch the client to paper invoicing, then approve again.'
+							: result.reason === 'NO_REQUISITION'
+								? 'Cannot approve: the requisition this timesheet belongs to no longer exists (deleted or archived).'
+								: result.reason === 'NOT_FOUND'
+									? 'Timesheet not found.'
+									: result.reason === 'NOT_PENDING'
+										? 'Cannot approve: the timesheet must be submitted (PENDING) first.'
+										: 'Error approving timesheet — the timesheet was left unchanged. Check the server logs for details.';
 		setFlash({ type: 'error', message }, event);
 		return fail(result.reason === 'ERROR' ? 500 : 400, { error: message });
 	},
@@ -732,7 +772,8 @@ export const actions = {
 			await addCandidateToBlacklist(timesheet.associatedCandidateId, requisition.companyId, {
 				actorUserId: user.id,
 				actorRole: user.role as 'SUPERADMIN' | 'CLIENT' | 'CLIENT_STAFF',
-				reason: 'experience survey'
+				reason: 'experience survey',
+				context: { timesheetId: id, requisitionId: requisition.id }
 			});
 			setFlash(
 				{ type: 'success', message: "Thanks — this candidate won't be matched here again." },
@@ -1105,11 +1146,11 @@ export const actions = {
 			await writeActionHistory({
 				table: 'TIMESHEETS',
 				userId: user.id,
-				action: 'UPDATE',
+				action: 'STATUS_CHANGE',
 				entityId: id,
 				beforeState: original,
 				afterState: result,
-				metadata: { wagesStatus: 'WAGES_PAID' }
+				metadata: { field: 'wagesStatus', from: original.wagesStatus, to: 'WAGES_PAID' }
 			});
 
 			setFlash({ type: 'success', message: 'Wages marked as paid' }, event);
@@ -1149,11 +1190,11 @@ export const actions = {
 			await writeActionHistory({
 				table: 'TIMESHEETS',
 				userId: user.id,
-				action: 'UPDATE',
+				action: 'STATUS_CHANGE',
 				entityId: id,
 				beforeState: original,
 				afterState: result,
-				metadata: { wagesStatus: 'WAGES_DUE' }
+				metadata: { field: 'wagesStatus', from: original.wagesStatus, to: 'WAGES_DUE' }
 			});
 
 			setFlash({ type: 'success', message: 'Wages marked as due' }, event);

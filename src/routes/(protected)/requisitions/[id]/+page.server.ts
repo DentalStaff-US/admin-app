@@ -48,6 +48,10 @@ import {
 	dueDateEndOfDayInTimezone
 } from '$lib/_helpers/UTCTimezoneUtils';
 import { setFlash } from 'sveltekit-flash-message/server';
+import {
+	billingNotReadyMessage,
+	getRequisitionBillingReadiness
+} from '$lib/server/billing/readiness';
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
 import { getAllDisciplines } from '$lib/server/database/queries/disciplines';
 import { getAllExperienceLevels } from '$lib/server/database/queries/skills';
@@ -76,6 +80,8 @@ import {
 	type CancelRecurrenceDaySnapshot
 } from '$lib/server/requisitions/cancelRecurrenceDay';
 import type { CancellationRole } from '$lib/server/cancellations';
+import { recordAction, recordView } from '$lib/server/audit/audit';
+import { getActivityForEntity } from '$lib/server/audit/queries';
 
 const invoiceLineItemSchema = z.array(
 	z.object({
@@ -148,6 +154,18 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		// dialog defaults to it rather than always to PAPER.
 		const clientProfile = await getClientProfileByIdAdmin(company.clientId);
 
+		// Billing gate for adding shifts — a requisition created before the
+		// create-time gate existed may belong to a client who still can't be
+		// invoiced. Surface it on the page and disable Add Shifts.
+		const billing = await getRequisitionBillingReadiness(idAsNum);
+		const billingBlockedMessage = billing.ready
+			? null
+			: billingNotReadyMessage({
+					audience: 'ADMIN',
+					what: 'add shifts',
+					companyName: company.companyName
+				});
+
 		// Admin-only: qualified candidates near this requisition's location, used
 		// by the Add Shifts drawer to optionally assign a pro on creation.
 		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
@@ -155,8 +173,21 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			location
 		);
 
+		// Ledger timeline for this requisition plus every workday/application row
+		// that points back at it via metadata.requisitionId.
+		const activity = await getActivityForEntity('REQUISITIONS', id, {
+			relatedKey: 'requisitionId'
+		});
+
+		void recordView({
+			entityType: 'REQUISITIONS',
+			entityId: id,
+			metadata: { companyId: company.id, status: requisition.requisition.status }
+		});
+
 		return {
 			user,
+			activity,
 			hasRequisitionRights: true,
 			changeStatusForm,
 			recurrenceDayForm,
@@ -173,7 +204,8 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			experienceLevels,
 			locations,
 			qualifiedProfessionals,
-			clientInvoiceMethod: clientProfile?.clientInvoiceMethod ?? 'STRIPE'
+			clientInvoiceMethod: clientProfile?.clientInvoiceMethod ?? 'STRIPE',
+			billingBlockedMessage
 		};
 	}
 
@@ -196,12 +228,24 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		const locations = await getAllClientLocationsByCompanyId(company.id);
 
 		const hasRequisitionRights = true;
+		const billing = await getRequisitionBillingReadiness(idAsNum);
+		const billingBlockedMessage = billing.ready
+			? null
+			: billingNotReadyMessage({ audience: 'CLIENT', what: 'add shifts' });
+
+		void recordView({
+			entityType: 'REQUISITIONS',
+			entityId: id,
+			metadata: { companyId: company.id, status: result?.requisition?.status }
+		});
 
 		return {
 			user,
+			activity: [],
 			company,
 			location,
 			hasRequisitionRights,
+			billingBlockedMessage,
 			changeStatusForm,
 			recurrenceDayForm,
 			editRecurrenceDayForm,
@@ -237,13 +281,29 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 
 		const hasRequisitionRights =
 			profile?.staffRole === 'CLIENT_ADMIN' || profile?.staffRole === 'CLIENT_MANAGER';
+		const billing = await getRequisitionBillingReadiness(idAsNum);
+		const billingBlockedMessage = billing.ready
+			? null
+			: billingNotReadyMessage({ audience: 'CLIENT', what: 'add shifts' });
+
+		void recordView({
+			entityType: 'REQUISITIONS',
+			entityId: id,
+			metadata: {
+				companyId: company.id,
+				status: result?.requisition?.status,
+				staffRole: profile?.staffRole ?? null
+			}
+		});
 
 		return {
 			user,
+			activity: [],
 			company,
 			location,
 			changeStatusForm,
 			hasRequisitionRights,
+			billingBlockedMessage,
 			recurrenceDayForm,
 			editRecurrenceDayForm,
 			deleteRecurrenceDayForm,
@@ -353,6 +413,24 @@ export const actions = {
 			return fail(400, { form });
 		}
 
+		// Billing gate: no shifts for a client who can't be invoiced (STRIPE
+		// billing with no Stripe customer). Mirrors the disabled Add Shifts
+		// button; kept server-side so a stale page or direct POST can't bypass it.
+		const billing = await getRequisitionBillingReadiness(idAsNum);
+		if (!billing.ready) {
+			const company =
+				user.role === USER_ROLES.SUPERADMIN ? await getCompanyByRequisitionIdAdmin(idAsNum) : null;
+			const msg = billingNotReadyMessage({
+				audience: user.role === USER_ROLES.SUPERADMIN ? 'ADMIN' : 'CLIENT',
+				what: 'add shifts',
+				companyName: company?.companyName
+			});
+			setFlash({ type: 'error', message: msg }, event);
+			// superforms-shaped failure so the drawer resets its submitting state
+			// and can render the reason inline.
+			return message(form, msg, { status: 400 });
+		}
+
 		const requisition = await getRequisitionDetailsById(idAsNum);
 
 		console.log('Fetched requisition details:', requisition);
@@ -397,6 +475,19 @@ export const actions = {
 							requisitionId: idAsNum,
 							dayStart: day.dayStart,
 							referenceTimezone: requisition.requisition.referenceTimezone
+						});
+
+						await recordAction({
+							tx,
+							entityType: 'RECURRENCE_DAYS',
+							entityId: day.id,
+							action: 'ASSIGN',
+							metadata: {
+								requisitionId: idAsNum,
+								candidateId,
+								workdayId,
+								onCreate: true
+							}
 						});
 					}
 				});
@@ -670,7 +761,8 @@ export const actions = {
 							unit_amount_excluding_tax: Math.round(item.rate * 100),
 							amount: Math.round(item.amount * 100),
 							currency: 'usd',
-							type: 'paper' as const
+							type: 'paper' as const,
+							category: 'PLACEMENT_FEE' as const
 						})),
 						customerEmail,
 						customerName
@@ -921,10 +1013,28 @@ export const actions = {
 			return fail(400, { error: 'Invalid status for bulk update' });
 		}
 
-		await db
-			.update(recurrenceDayTable)
-			.set({ status, updatedAt: new Date() })
-			.where(inArray(recurrenceDayTable.id, ids));
+		const idAsNum = Number(request.params.id);
+		await db.transaction(async (tx) => {
+			const before = await tx
+				.select({ id: recurrenceDayTable.id, status: recurrenceDayTable.status })
+				.from(recurrenceDayTable)
+				.where(inArray(recurrenceDayTable.id, ids));
+			await tx
+				.update(recurrenceDayTable)
+				.set({ status, updatedAt: new Date() })
+				.where(inArray(recurrenceDayTable.id, ids));
+			for (const day of before) {
+				await recordAction({
+					tx,
+					entityType: 'RECURRENCE_DAYS',
+					entityId: day.id,
+					action: 'STATUS_CHANGE',
+					before: { status: day.status },
+					after: { status },
+					metadata: { requisitionId: idAsNum, from: day.status, to: status, bulk: true }
+				});
+			}
+		});
 
 		setFlash(
 			{

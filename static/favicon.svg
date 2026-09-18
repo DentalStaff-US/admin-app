@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- DTSS admin — navy -->
+  <rect width="64" height="64" rx="14" fill="#1e3a5f"/>
+  <!-- tooth: crown with two roots -->
+  <path fill="#ffffff" transform="translate(8 8) scale(2)"
+    d="M12 2C9.5 2 8.5 3.5 7 3.5S3 5 3 8.5c0 3 2 6.5 2.5 9.5.3 2 1 4 2.5 4s1.5-2 2-4c.3-1.2.8-2 2-2s1.7.8 2 2c.5 2 .5 4 2 4s2.2-2 2.5-4c.5-3 2.5-6.5 2.5-9.5S17.5 3.5 17 3.5 14.5 2 12 2z"/>
+</svg>

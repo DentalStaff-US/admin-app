@@ -1,5 +1,7 @@
 import db from '$lib/server/database/drizzle';
 import { adminConfigTable } from '$lib/server/database/schemas/config';
+import type { InvoiceLineCategory } from '$lib/server/invoices/lineCategory';
+import type { PaperInvoiceLineItem } from '$lib/server/database/queries/requisitions';
 import type {
 	TimesheetExpenseSelect,
 	TimeSheetSelect
@@ -109,6 +111,8 @@ export function calculateAdminFeeCents(
 export type StripeLineItem = {
 	amountInCents: number;
 	description: string;
+	/** Structural category — travels to Stripe as metadata.category. */
+	category?: InvoiceLineCategory;
 	// When set, the item bills as `quantity × unitAmountInCents` (hours × rate)
 	// instead of a single lump `amount`. Hours can be fractional — see the
 	// `quantity_decimal` handling in createStripeInvoice.
@@ -151,6 +155,7 @@ export function buildStripeLineItems({
 		lineItems.push({
 			amountInCents: regularCents,
 			description: hoursDescription,
+			category: 'LABOR_REGULAR',
 			quantity: regularHours,
 			unitAmountInCents: rateCents
 		});
@@ -159,6 +164,7 @@ export function buildStripeLineItems({
 		lineItems.push({
 			amountInCents: overtimeCents,
 			description: overtimeLineDescription(priorWeekHours),
+			category: 'LABOR_OVERTIME',
 			quantity: overtimeHours,
 			unitAmountInCents: overtimeRateCents
 		});
@@ -167,11 +173,16 @@ export function buildStripeLineItems({
 	for (const expense of expenses) {
 		lineItems.push({
 			amountInCents: expense.amountCents,
-			description: `Expense: ${expense.description}`
+			description: `Expense: ${expense.description}`,
+			category: 'EXPENSE'
 		});
 	}
 	if (adminFeeCents > 0) {
-		lineItems.push({ amountInCents: adminFeeCents, description: ADMIN_FEE_LINE_DESCRIPTION });
+		lineItems.push({
+			amountInCents: adminFeeCents,
+			description: ADMIN_FEE_LINE_DESCRIPTION,
+			category: 'ADMIN_FEE'
+		});
 	}
 	// The card-processing surcharge is appended later by withCardProcessingFee
 	// (only for card-paying clients), so it isn't part of the base line items.
@@ -201,17 +212,7 @@ export function buildPaperLineItems({
 }) {
 	const rateCents = Math.round(effectiveRateDollars * 100);
 	const overtimeRateCents = Math.round(effectiveRateDollars * 1.5 * 100);
-	const items: Array<{
-		id: string;
-		description: string;
-		quantity: number;
-		rate: number;
-		unit_amount: number;
-		unit_amount_excluding_tax: number;
-		amount: number;
-		currency: string;
-		type: 'paper';
-	}> = [];
+	const items: PaperInvoiceLineItem[] = [];
 	// Skip the regular line when this timesheet is all overtime (week's 40h
 	// already used on a prior sheet).
 	if (regularHours > 0) {
@@ -224,6 +225,7 @@ export function buildPaperLineItems({
 			unit_amount_excluding_tax: rateCents,
 			amount: regularCents,
 			currency: 'usd',
+			category: 'LABOR_REGULAR' as const,
 			type: 'paper'
 		});
 	}
@@ -237,6 +239,7 @@ export function buildPaperLineItems({
 			unit_amount_excluding_tax: overtimeRateCents,
 			amount: overtimeCents,
 			currency: 'usd',
+			category: 'LABOR_OVERTIME' as const,
 			type: 'paper' as const
 		});
 	}
@@ -250,6 +253,7 @@ export function buildPaperLineItems({
 			unit_amount_excluding_tax: expense.amountCents,
 			amount: expense.amountCents,
 			currency: 'usd',
+			category: 'EXPENSE' as const,
 			type: 'paper' as const
 		});
 	}
@@ -263,6 +267,7 @@ export function buildPaperLineItems({
 			unit_amount_excluding_tax: adminFeeCents,
 			amount: adminFeeCents,
 			currency: 'usd',
+			category: 'ADMIN_FEE' as const,
 			type: 'paper' as const
 		});
 	}
@@ -280,6 +285,7 @@ export type ApproveTimesheetResult =
 				| 'UNFINISHED_WORKDAYS'
 				| 'ZERO_AMOUNT'
 				| 'NO_STRIPE_CUSTOMER'
+				| 'NO_REQUISITION'
 				| 'ERROR';
 			pendingExpenseCount?: number;
 			unfinishedCount?: number;
@@ -291,14 +297,25 @@ export type ApproveTimesheetResult =
  * auto-approval job (actorUserId = null, with `autoApproved` context).
  *
  * Enforces the same guards as the manual path: no PENDING expenses, the approval
- * gate (all assigned workdays for the week have ended), and a > $0 invoice.
- * Reverts the timesheet to PENDING on any failure after the status flip.
+ * gate (all assigned workdays for the week have ended), a > $0 invoice, and a
+ * Stripe customer for STRIPE-billed clients.
+ *
+ * Every deterministic guard runs BEFORE the status flip. Nothing is written
+ * (no status change, no action_history row) unless the sheet can actually be
+ * invoiced — the hourly auto-approval job retries stuck sheets indefinitely, and
+ * a flip-then-revert on each tick used to leave the sheet momentarily APPROVED
+ * and pile up two audit rows per hour. Only a genuine post-flip failure (Stripe
+ * API / DB error while invoicing) rolls back, restoring the pre-flip status.
  */
 export async function approveAndInvoiceTimesheet(
 	timesheetId: string,
 	opts: { actorUserId: string | null; autoApproved?: { submittedAt: Date } }
 ): Promise<ApproveTimesheetResult> {
 	const { actorUserId } = opts;
+	// Set once the status flip has been written, so the catch knows whether a
+	// rollback is needed and what status to restore.
+	let flipped = false;
+	let preFlipStatus: 'PENDING' | 'DISCREPANCY' = 'PENDING';
 	try {
 		const [adminConfig] = await db.select().from(adminConfigTable).limit(1);
 
@@ -322,6 +339,7 @@ export async function approveAndInvoiceTimesheet(
 		if (preApproval.status !== 'PENDING' && preApproval.status !== 'DISCREPANCY') {
 			return { ok: false, reason: 'NOT_PENDING' };
 		}
+		preFlipStatus = preApproval.status;
 		const unfinishedWorkdays = await getUnfinishedWorkdaysForTimesheet(preApproval.id);
 		if (unfinishedWorkdays.length > 0) {
 			return {
@@ -331,34 +349,33 @@ export async function approveAndInvoiceTimesheet(
 			};
 		}
 
-		const timesheet = await approveTimesheetStatus(timesheetId, actorUserId);
-		const requisition = timesheet.requisitionId
-			? await getRequisitionById(timesheet.requisitionId)
+		// ---- Pre-flight: everything below reads only; no writes until it all passes.
+
+		const requisition = preApproval.requisitionId
+			? await getRequisitionById(preApproval.requisitionId)
 			: null;
 		if (!requisition) {
-			throw new Error('Requisition not found for timesheet');
+			return { ok: false, reason: 'NO_REQUISITION' };
 		}
 
 		const approvedExpenses = existingExpenses.filter((e) => e.status === 'APPROVED');
 		const expensesTotalCents = approvedExpenses.reduce((sum, e) => sum + e.amountCents, 0);
 
-		const effectiveRate = timesheet.adjustedHourlyRate ?? requisition.hourlyRate;
+		const effectiveRate = preApproval.adjustedHourlyRate ?? requisition.hourlyRate;
 
 		// Overtime is per-week: continue the 40h regular allotment across any
 		// APPROVED sibling timesheets for this candidate+requisition+week, so a
 		// backfilled day on a new timesheet bills as overtime when the week is
 		// already past 40h.
-		const priorWeekHours = timesheet.requisitionId
-			? await getApprovedBilledHoursForWeek({
-					candidateId: timesheet.associatedCandidateId,
-					requisitionId: timesheet.requisitionId,
-					weekBeginDate: timesheet.weekBeginDate,
-					excludeTimesheetId: timesheet.id
-				})
-			: 0;
+		const priorWeekHours = await getApprovedBilledHoursForWeek({
+			candidateId: preApproval.associatedCandidateId,
+			requisitionId: requisition.id,
+			weekBeginDate: preApproval.weekBeginDate,
+			excludeTimesheetId: preApproval.id
+		});
 
 		const breakdown = computeHoursBreakdown(
-			timesheet.totalHoursWorked || 0,
+			preApproval.totalHoursWorked || 0,
 			effectiveRate,
 			priorWeekHours
 		);
@@ -373,25 +390,39 @@ export async function approveAndInvoiceTimesheet(
 
 		const finalAmt = Math.round(amountInCents + expensesTotalCents + adminFeeCents);
 		if (finalAmt <= 0) {
-			await revertTimesheetToPending(timesheetId, actorUserId);
 			return { ok: false, reason: 'ZERO_AMOUNT' };
 		}
 
+		const clientProfile = await getClientProfileById(preApproval.associatedClientId);
+		const isPaperBilling = clientProfile?.profile.clientInvoiceMethod === 'PAPER';
+
+		// STRIPE-billed clients must already have a customer (created by the
+		// billing-setup flow). This is the gate that stuck sheets most often hit,
+		// so it has to run before the flip — otherwise the cron flips/reverts hourly.
+		const stripeCustomerId = isPaperBilling
+			? null
+			: await getClientSubscription(preApproval.associatedClientId);
+		if (!isPaperBilling && !stripeCustomerId) {
+			return { ok: false, reason: 'NO_STRIPE_CUSTOMER' };
+		}
+
 		// Only ever put the candidate/professional's name on the invoice.
-		const { candidate } = await getCandidateProfileById(timesheet.associatedCandidateId);
+		const { candidate } = await getCandidateProfileById(preApproval.associatedCandidateId);
 		const candidateName = `${candidate.user.firstName} ${candidate.user.lastName}`;
 
 		// Requisition rows carry only `disciplineId`; the memo shows the pair.
 		const discipline = await getDisciplineById(requisition.disciplineId);
 
-		const clientProfile = await getClientProfileById(timesheet.associatedClientId);
-		const isPaperBilling = clientProfile?.profile.clientInvoiceMethod === 'PAPER';
-
 		// Billing contact for this client — used both to stamp `customerEmail` on
 		// the invoice row (it was previously left NULL on this path, which made the
 		// overdue-reminder cron silently skip every timesheet invoice) and to
 		// address the invoice-created email.
-		const billingRecipient = await resolveBillingRecipient(timesheet.associatedClientId);
+		const billingRecipient = await resolveBillingRecipient(preApproval.associatedClientId);
+
+		// ---- Commit: flip the status. Anything that throws from here on is rolled
+		// back to the pre-flip status in the catch below.
+		const timesheet = await approveTimesheetStatus(timesheetId, actorUserId);
+		flipped = true;
 
 		if (isPaperBilling) {
 			const effectiveRateDollars = effectiveRate ?? 0;
@@ -438,12 +469,6 @@ export async function approveAndInvoiceTimesheet(
 				});
 			}
 		} else {
-			const stripeCustomerId = await getClientSubscription(timesheet.associatedClientId);
-			if (!stripeCustomerId) {
-				await revertTimesheetToPending(timesheetId, actorUserId);
-				return { ok: false, reason: 'NO_STRIPE_CUSTOMER' };
-			}
-
 			const baseLineItems = buildStripeLineItems({
 				regularHours: breakdown.regularHours,
 				regularCents: breakdown.regularCents,
@@ -456,11 +481,12 @@ export async function approveAndInvoiceTimesheet(
 				priorWeekHours
 			});
 			// Appends a card processing fee (3%) only for card-paying clients.
-			const lineItems = await withCardProcessingFee(stripeCustomerId, baseLineItems);
+			// Narrowed by the pre-flight NO_STRIPE_CUSTOMER guard above.
+			const lineItems = await withCardProcessingFee(stripeCustomerId!, baseLineItems);
 			const hasProcessingFee = lineItems.length > baseLineItems.length;
 
 			const stripeInvoice = await createStripeInvoice(
-				stripeCustomerId,
+				stripeCustomerId!,
 				lineItems,
 				{
 					userId: actorUserId ?? 'system',
@@ -509,7 +535,7 @@ export async function approveAndInvoiceTimesheet(
 			await writeActionHistory({
 				table: 'TIMESHEETS',
 				userId: null,
-				action: 'UPDATE',
+				action: 'APPROVE',
 				entityId: timesheetId,
 				beforeState: preApproval,
 				afterState: timesheet,
@@ -527,8 +553,18 @@ export async function approveAndInvoiceTimesheet(
 
 		return { ok: true, timesheet };
 	} catch (err) {
-		await revertTimesheetToPending(timesheetId, actorUserId);
-		logger.error('approveAndInvoiceTimesheet failed', { error: err, timesheetId, actorUserId });
+		// Only roll back a sheet we actually flipped; a pre-flight throw (e.g. a
+		// candidate lookup 404) must not write anything. Restore the pre-flip
+		// status so a DISCREPANCY sheet isn't silently relabelled PENDING.
+		if (flipped) {
+			await revertTimesheetToPending(timesheetId, actorUserId, preFlipStatus);
+		}
+		logger.error('approveAndInvoiceTimesheet failed', {
+			error: err,
+			timesheetId,
+			actorUserId,
+			flipped
+		});
 		return { ok: false, reason: 'ERROR' };
 	}
 }

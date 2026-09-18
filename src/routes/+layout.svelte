@@ -9,6 +9,7 @@
 	import { toast } from 'svelte-sonner';
 	import posthog from 'posthog-js';
 	import { browser } from '$app/environment';
+	import { pageTitle } from '$lib/pageTitle';
 
 	export let data: any;
 	let user: LayoutData['user'];
@@ -48,6 +49,13 @@
 		}
 	});
 </script>
+
+<!-- Default document title for every route. A page that sets its own <title>
+     in <svelte:head> overrides this (page head renders after layout head).
+     Without this, routes that set no title inherited the previous page's. -->
+<svelte:head>
+	<title>{pageTitle($page.url.pathname)}</title>
+</svelte:head>
 
 <ModeWatcher defaultMode="light" />
 <Toaster richColors />

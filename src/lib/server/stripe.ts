@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import type { InvoiceLineCategory } from '$lib/server/invoices/lineCategory';
 import * as dotenv from 'dotenv';
 import { logger } from '$lib/server/logger';
 dotenv.config();
@@ -17,15 +18,23 @@ type InvoiceItemCreateParamsWithDecimalQty = Stripe.InvoiceItemCreateParams & {
 	quantity_decimal?: string;
 };
 
+export type StripeInvoiceLineItemInput = {
+	amountInCents: number;
+	description?: string;
+	currency?: string;
+	quantity?: number;
+	unitAmountInCents?: number;
+	/**
+	 * Structural category — sent to Stripe as `metadata.category` on the invoice
+	 * item, so it survives into `invoices.line_items` and downstream logic never
+	 * has to string-match the description.
+	 */
+	category?: InvoiceLineCategory;
+};
+
 export async function createStripeInvoice(
 	stripeCustomerId: string,
-	lineItems: Array<{
-		amountInCents: number;
-		description?: string;
-		currency?: string;
-		quantity?: number;
-		unitAmountInCents?: number;
-	}>,
+	lineItems: StripeInvoiceLineItemInput[],
 	metadata: Stripe.MetadataParam = {},
 	additionalNotes?: string,
 	dueDate?: Date | string
@@ -84,7 +93,8 @@ export async function createStripeInvoice(
 					unit_amount_decimal: String(item.unitAmountInCents),
 					quantity_decimal: String(Number(item.quantity.toFixed(2))),
 					currency: item.currency || 'usd',
-					description: item.description || 'Service'
+					description: item.description || 'Service',
+					metadata: item.category ? { category: item.category } : undefined
 				};
 				try {
 					await stripe.invoiceItems.create(params, { apiVersion: DECIMAL_QTY_API_VERSION });
@@ -96,14 +106,16 @@ export async function createStripeInvoice(
 					// line. Loses the "qty × rate" display for this line; total stays exact.
 					console.warn('decimal invoice-item failed; falling back to lump amount', {
 						error: decimalErr,
-						description: item.description
+						description: item.description,
+						metadata: item.category ? { category: item.category } : undefined
 					});
 					await stripe.invoiceItems.create({
 						invoice: invoice.id,
 						customer: stripeCustomerId,
 						amount: item.amountInCents,
 						currency: item.currency || 'usd',
-						description: item.description || 'Service'
+						description: item.description || 'Service',
+						metadata: item.category ? { category: item.category } : undefined
 					});
 				}
 			} else if (item.quantity != null && item.quantity > 1) {
@@ -115,7 +127,8 @@ export async function createStripeInvoice(
 					unit_amount: Math.round(item.amountInCents / item.quantity),
 					quantity: item.quantity,
 					currency: item.currency || 'usd',
-					description: item.description || 'Service'
+					description: item.description || 'Service',
+					metadata: item.category ? { category: item.category } : undefined
 				});
 			} else {
 				// Single-unit charges (expenses, admin fee): one lump amount.
@@ -124,7 +137,8 @@ export async function createStripeInvoice(
 					customer: stripeCustomerId,
 					amount: item.amountInCents,
 					currency: item.currency || 'usd',
-					description: item.description || 'Service'
+					description: item.description || 'Service',
+					metadata: item.category ? { category: item.category } : undefined
 				});
 			}
 		}
@@ -385,14 +399,6 @@ export function computeCardProcessingFeeCents(baseCents: number): number {
 	return Math.round(baseCents * CARD_PROCESSING_FEE_RATE);
 }
 
-type StripeInvoiceLineItemInput = {
-	amountInCents: number;
-	description?: string;
-	currency?: string;
-	quantity?: number;
-	unitAmountInCents?: number;
-};
-
 /**
  * Append a "Processing Fee" line item when the customer's default payment method
  * is a card — a flat 3% of the summed line-item total. Returns the list
@@ -412,6 +418,7 @@ export async function withCardProcessingFee(
 		{
 			amountInCents: computeCardProcessingFeeCents(base),
 			description: PROCESSING_FEE_LINE_DESCRIPTION,
+			category: 'PROCESSING_FEE',
 			currency: 'usd'
 		}
 	];

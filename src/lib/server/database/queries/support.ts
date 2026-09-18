@@ -362,7 +362,7 @@ export async function updateSupportTicket(
 		await writeActionHistory({
 			table: 'SUPPORT_TICKETS',
 			userId,
-			action: 'DELETE',
+			action: 'UPDATE',
 			entityId: ticketId,
 			beforeState: original,
 			afterState: result

@@ -19,6 +19,7 @@ import {
 import { ac, roles } from '$lib/permissions';
 import { EmailService } from '$lib/server/email/emailService';
 import { USER_ROLES } from '$lib/config/constants';
+import { recordAction } from '$lib/server/audit/audit';
 
 const SESSION_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 30; // 30 days (matches Lucia)
 
@@ -102,6 +103,42 @@ export const auth = betterAuth({
 					<p><a href="${url}">Click here to reset your password</a></p>
 					<p>If you did not request this, you can safely ignore this email.</p>`
 			});
+		}
+	},
+	databaseHooks: {
+		session: {
+			create: {
+				// Every way a session comes into being (password, 2FA verify, OAuth,
+				// admin impersonation — internalAdapter.createSession runs these hooks
+				// too) lands here, so it is the one place the ledger learns about
+				// sign-ins and impersonation starts. Never let it fail the sign-in.
+				after: async (session) => {
+					// The admin plugin adds impersonatedBy to the session row; the hook's
+					// parameter type doesn't know about it.
+					const impersonatedBy = (session as { impersonatedBy?: string | null }).impersonatedBy;
+					try {
+						if (impersonatedBy) {
+							await recordAction({
+								entityType: 'USERS',
+								entityId: session.userId,
+								action: 'IMPERSONATE_START',
+								actor: impersonatedBy,
+								metadata: { impersonatedUserId: session.userId, sessionId: session.id }
+							});
+						} else {
+							await recordAction({
+								entityType: 'USERS',
+								entityId: session.userId,
+								action: 'SIGN_IN',
+								actor: session.userId,
+								metadata: { sessionId: session.id, expiresAt: session.expiresAt }
+							});
+						}
+					} catch (err) {
+						console.error('[auth] failed to record session ledger row', err);
+					}
+				}
+			}
 		}
 	},
 	emailVerification: {

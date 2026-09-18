@@ -30,6 +30,7 @@
 	import { ChevronDown } from 'lucide-svelte';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from '$lib/components/ui/tabs';
+	import ActivityLog from '$lib/components/audit/ActivityLog.svelte';
 	import {
 		Calendar,
 		Clock,
@@ -48,7 +49,6 @@
 		RefreshCw,
 		Save,
 		Shield,
-		History,
 		Clipboard,
 		Undo2,
 		Trash2,
@@ -1216,51 +1216,17 @@
 						<Card>
 							<CardHeader>
 								<CardTitle>Audit History</CardTitle>
-								<CardDescription>Record of all changes made to this timesheet</CardDescription>
+								<CardDescription>
+									Every view and action recorded against this timesheet and its expenses,
+									with who, when, and where from.
+								</CardDescription>
 							</CardHeader>
 							<CardContent>
-								{#if data.auditHistory && data.auditHistory.length > 0}
-									<div class="space-y-4">
-										{#each data.auditHistory as record}
-											<div class="p-4 border rounded-lg flex gap-3">
-												<div class="mt-0.5">
-													<History class="h-5 w-5 text-blue-600" />
-												</div>
-												<div class="flex-1">
-													<div class="flex items-start justify-between">
-														<div>
-															<p class="font-medium">
-																{#if record?.user}
-																{record?.user?.firstName}
-																{record?.user?.lastName}
-																{:else}
-																System (Automated)
-																{/if}
-																<span class="font-regular text-sm">
-																	{#if record.action === 'CREATE'}created{/if}
-																	{#if record.action === 'UPDATE'}updated{/if}
-																	{#if record.action === 'DELETE'}deleted{/if}
-																	timesheet
-																</span>
-															</p>
-															<p class="text-xs text-gray-500">
-																{format(record.createdAt, 'PPp')}
-															</p>
-														</div>
-													</div>
-												</div>
-											</div>
-										{/each}
-									</div>
-								{:else}
-									<div class="p-8 text-center">
-										<History class="h-12 w-12 text-gray-400 mx-auto mb-3" />
-										<h3 class="text-lg font-medium">No Audit History</h3>
-										<p class="text-gray-600 mt-1">
-											No corrections or overrides have been made to this timesheet.
-										</p>
-									</div>
-								{/if}
+								<ActivityLog
+									entries={data.auditHistory ?? []}
+									emptyTitle="No Audit History"
+									emptyDescription="No views or changes have been recorded for this timesheet yet."
+								/>
 							</CardContent>
 						</Card>
 					</TabsContent>

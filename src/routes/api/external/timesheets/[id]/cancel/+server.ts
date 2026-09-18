@@ -104,12 +104,13 @@ export const POST: RequestHandler = async ({ request, params }) => {
 			.returning();
 
 		await writeActionHistory({
-			action: 'DELETE',
+			action: 'CANCEL',
 			userId: user.id,
 			entityId: timesheet.id,
 			table: 'TIMESHEETS',
 			beforeState: timesheet,
-			afterState: result
+			afterState: result,
+			metadata: { requisitionId: timesheet.requisitionId ?? null, byCandidate: true }
 		});
 
 		return json(

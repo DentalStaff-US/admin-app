@@ -13,6 +13,8 @@
 	import TwoFactorSettings from '$lib/components/settings/two-factor-settings.svelte';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import AvatarUpload from '$lib/components/avatar-upload.svelte';
+	import AffiliateSettingsCard from '$lib/components/affiliate/AffiliateSettingsCard.svelte';
+	import type { AffiliateSettingsStatus } from '$lib/server/affiliate/status';
 
 	export let userProfileForm;
 	export let passwordForm;
@@ -29,6 +31,9 @@
 	} = superForm(passwordForm);
 
 	export let selectedTab: string;
+	// Affiliate card data — status and link only; everything else is in the portal.
+	export let affiliateStatus: AffiliateSettingsStatus | null = null;
+	export let partnerPortalUrl = '/affiliate-portal';
 
 	$: confirmPasswordError = $passwordErrors.confirmPassword;
 	const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -74,8 +79,23 @@
 					: ''
 			)}>Notifications</button
 		>
+		{#if affiliateStatus?.programEnabled && affiliateStatus?.eligible}
+			<button
+				on:click={() => (selectedTab = SETTINGS_MENU_OPTIONS.CLIENT_STAFF.AFFILIATE)}
+				class={cn(
+					'rounded-md hover:bg-gray-50 p-3 border border-white text-left',
+					selectedTab === SETTINGS_MENU_OPTIONS.CLIENT_STAFF.AFFILIATE
+						? 'bg-gray-50 border-gray-100'
+						: ''
+				)}>Affiliate</button
+			>
+		{/if}
 	</div>
 	<div class="col-span-5 md:col-span-4 pl-4 space-y-4">
+		{#if selectedTab === SETTINGS_MENU_OPTIONS.CLIENT_STAFF.AFFILIATE && affiliateStatus}
+			<h2 class="text-3xl font-semibold">Affiliate Program</h2>
+			<AffiliateSettingsCard status={affiliateStatus} portalUrl={partnerPortalUrl} />
+		{/if}
 		{#if selectedTab === SETTINGS_MENU_OPTIONS.CLIENT_STAFF.PROFILE}
 			<h2 class="text-3xl font-semibold">Profile Details</h2>
 			<AvatarUpload {user} onAvatarUpdated={handleAvatarUpdated} isForUser={true}/>
