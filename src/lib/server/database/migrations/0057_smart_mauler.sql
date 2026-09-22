@@ -1,3 +1,8 @@
+-- affiliate_profiles.pid defaults to nextval('affiliate_pid_seq'). Drizzle's
+-- sql`nextval(...)` default does not create the sequence (same trap as
+-- candidate_profiles.puid / puid_seq in 0029 → fixed in 0033), so create it
+-- here first. drizzle-kit push cannot do this — run it by hand before pushing.
+CREATE SEQUENCE IF NOT EXISTS "public"."affiliate_pid_seq" START WITH 1000 INCREMENT BY 1;--> statement-breakpoint
 CREATE TYPE "public"."affiliate_attribution_source" AS ENUM('COOKIE', 'URL', 'INVITE', 'MANUAL', 'SELF_REPORTED');--> statement-breakpoint
 CREATE TYPE "public"."affiliate_commission_source" AS ENUM('TEMP_SHIFT_INVOICE_PAID', 'PERMANENT_PLACEMENT', 'SUBSCRIPTION', 'MANUAL_ADJUSTMENT');--> statement-breakpoint
 CREATE TYPE "public"."affiliate_commission_status" AS ENUM('PENDING', 'APPROVED', 'PAID', 'REVERSED');--> statement-breakpoint

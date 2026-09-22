@@ -3617,7 +3617,9 @@ export async function createPaperInvoiceRecord(
 	}: {
 		clientId: string;
 		amountInDollars: string;
-		dueDate?: string;
+		// 'YYYY-MM-DD' from an admin form (parsed as local midnight) or an exact
+		// Date (timesheet approval passes now + 24h).
+		dueDate?: string | Date;
 		description?: string;
 		lineItems: PaperInvoiceLineItem[];
 		customerEmail?: string;
@@ -3667,7 +3669,12 @@ export async function createPaperInvoiceRecord(
 				timesheetId: timesheetId ?? null,
 				requisitionId: requisitionId ?? null,
 				candidateId: candidateId ?? null,
-				dueDate: dueDate ? new Date(dueDate + 'T00:00:00') : new Date(Date.now()), // due upon receipt if no date is provided
+				dueDate:
+					dueDate instanceof Date
+						? dueDate
+						: dueDate
+							? new Date(dueDate + 'T00:00:00')
+							: new Date(Date.now()), // due upon receipt if no date is provided
 				description,
 				lineItems: JSON.stringify(lineItems)
 			})

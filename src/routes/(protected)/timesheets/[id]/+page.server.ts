@@ -42,7 +42,8 @@ import {
 	buildPaperLineItems,
 	buildStripeLineItems,
 	calculateAdminFeeCents,
-	buildTimesheetInvoiceDescription
+	buildTimesheetInvoiceDescription,
+	timesheetInvoiceDueDate
 } from '$lib/server/timesheets/approveTimesheet';
 import { getDisciplineById } from '$lib/server/database/queries/disciplines';
 import type { TimesheetExpenseSelect } from '$lib/server/database/schemas/requisition';
@@ -1004,6 +1005,7 @@ export const actions = {
 						clientId: overridden.associatedClientId,
 						amountInDollars: (finalAmt / 100).toFixed(2),
 						customerEmail: billingRecipient?.email ?? undefined,
+						dueDate: timesheetInvoiceDueDate(),
 						sourceType: 'timesheet',
 						timesheetId: overridden.id,
 						requisitionId: overridden.requisitionId ?? undefined,
@@ -1078,7 +1080,8 @@ export const actions = {
 						hasProcessingFee,
 						disciplineName: discipline?.name ?? null,
 						disciplineAbbreviation: discipline?.abbreviation ?? null
-					})
+					}),
+					timesheetInvoiceDueDate()
 				);
 
 				const invoiceRow = await createInvoiceRecord(

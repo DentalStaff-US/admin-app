@@ -127,14 +127,19 @@ export const GET: RequestHandler = async ({ request }) => {
 			});
 		}
 
-		// First, fetch the dates this candidate already has accepted workdays for
+		// First, fetch the dates this candidate already has accepted workdays for.
+		// Admin/client cancellations keep the workday row with `cancelledAt` set
+		// (candidate cancels delete it) — those are NOT bookings, so exclude them
+		// or a cancelled shift on a date blocks every other shift that day.
 		const acceptedWorkdays = await db
 			.select({
 				date: recurrenceDayTable.date
 			})
 			.from(workdayTable)
 			.innerJoin(recurrenceDayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
-			.where(eq(workdayTable.candidateId, candidateProfile.id));
+			.where(
+				and(eq(workdayTable.candidateId, candidateProfile.id), isNull(workdayTable.cancelledAt))
+			);
 
 		const bookedDates = acceptedWorkdays.map((day) => day.date);
 
@@ -213,7 +218,18 @@ export const GET: RequestHandler = async ({ request }) => {
 				experienceLevelTable,
 				eq(requisitionTable.experienceLevelId, experienceLevelTable.id)
 			)
-			.leftJoin(workdayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
+			// Only LIVE workdays count as an assignment. A soft-cancelled row
+			// (cancelledAt set — blacklist reopen, admin cancel-then-reopen) must
+			// not make the day look taken, otherwise the `isNull(workday.id)` gate
+			// below hides a reopened day from every candidate except the one it
+			// was cancelled for, while the admin assign dropdown still lists them.
+			.leftJoin(
+				workdayTable,
+				and(
+					eq(workdayTable.recurrenceDayId, recurrenceDayTable.id),
+					isNull(workdayTable.cancelledAt)
+				)
+			)
 			.where(
 				and(
 					inArray(requisitionTable.locationId, officeLocationIds),
