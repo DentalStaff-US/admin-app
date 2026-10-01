@@ -14,6 +14,7 @@ import {
 	voidTimesheetWithInvoice
 } from '$lib/server/database/queries/requisitions';
 import { getClientProfilebyUserId } from '$lib/server/database/queries/clients';
+import { syncRequisitionPaymentStatus } from '$lib/server/requisitions/paymentStatus';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { z } from 'zod';
 import db from '$lib/server/database/drizzle';
@@ -194,6 +195,9 @@ export const actions = {
 					}
 				});
 
+				// A perm placement paid in full should stop reading "Payment Required".
+				await syncRequisitionPaymentStatus(invoice.invoice.requisitionId, user.id);
+
 				await notifyInvoicePaymentProcessed(id);
 				setFlash({ type: 'success', message: 'Invoice processed successfully' }, event);
 				return { success: true };
@@ -231,7 +235,8 @@ export const actions = {
 					amountRemaining: invoiceTable.amountRemaining,
 					amountPaid: invoiceTable.amountPaid,
 					total: invoiceTable.total,
-					timesheetId: invoiceTable.timesheetId
+					timesheetId: invoiceTable.timesheetId,
+					requisitionId: invoiceTable.requisitionId
 				})
 				.from(invoiceTable)
 				.where(eq(invoiceTable.id, invoiceId))
@@ -337,6 +342,10 @@ export const actions = {
 				await reverseCommissionForInvoice(invoiceId, `Invoice reopened by ${transactionType}.`);
 			}
 
+			// Same both ways: a PAYMENT that settles the last invoice marks the
+			// placement received, a REFUND that reopens a balance puts it back.
+			await syncRequisitionPaymentStatus(currentInvoice.requisitionId, user.id);
+
 			await notifyMiscellaneousTransaction({
 				invoiceId,
 				transactionType,
@@ -375,7 +384,8 @@ export const actions = {
 					invoiceType: invoiceTable.invoiceType,
 					amountRemaining: invoiceTable.amountRemaining,
 					amountPaid: invoiceTable.amountPaid,
-					paidAt: invoiceTable.paidAt
+					paidAt: invoiceTable.paidAt,
+					requisitionId: invoiceTable.requisitionId
 				})
 				.from(invoiceTable)
 				.where(eq(invoiceTable.id, invoiceId))
@@ -455,6 +465,10 @@ export const actions = {
 				},
 				metadata: { operation: 'REVERSE_PAYMENT', reason, amount: amount.toFixed(2) }
 			});
+
+			// Reversing a payment reopens the balance, so a placement previously marked
+			// received goes back to awaiting payment.
+			await syncRequisitionPaymentStatus(currentInvoice.requisitionId, user.id);
 
 			await notifyMiscellaneousTransaction({
 				invoiceId,

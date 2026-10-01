@@ -18,6 +18,7 @@ import {
 import type Stripe from 'stripe';
 import db from '$lib/server/database/drizzle';
 import { voidInvoiceAndNotify } from '$lib/server/invoices/voidNotify';
+import { syncRequisitionPaymentStatus } from '$lib/server/requisitions/paymentStatus';
 import {
 	accrueCommissionForPaidInvoice,
 	reverseCommissionForInvoice
@@ -315,6 +316,11 @@ export const POST: RequestHandler = async ({ request }) => {
 					// cannot double-pay, and it swallows its own errors so a bookkeeping
 					// failure never turns into an endless Stripe retry.
 					await accrueCommissionForPaidInvoice(existingPaidInvoice.id);
+
+					// A perm placement whose invoices are now all settled should stop reading
+					// "Payment Required". Actor is null — Stripe did this, not a person. Never
+					// throws, so it cannot turn into a Stripe retry loop.
+					await syncRequisitionPaymentStatus(existingPaidInvoice.requisitionId, null);
 				}
 				break;
 			}
