@@ -45,7 +45,8 @@ export const load = async (event: RequestEvent) => {
 			invoicesDueTotal,
 			wagesDueTotal,
 			wagesPaidCount,
-			wagesPaidTotal
+			wagesPaidTotal,
+			unbilledPermanentPlacementsCount
 		} = await getAdminDashboardData();
 		const form = superValidate(event, adminRequisitionSchema);
 		const newProfileForm = await superValidate(event, adminNewUserSchema);
@@ -66,7 +67,8 @@ export const load = async (event: RequestEvent) => {
 			invoicesDueTotal,
 			wagesDueTotal,
 			wagesPaidCount,
-			wagesPaidTotal
+			wagesPaidTotal,
+			unbilledPermanentPlacementsCount
 		};
 	}
 

@@ -13,6 +13,7 @@ import {
 	getRequisitionDetailsByIdAdmin,
 	closeAllUpcomingRecurrenceDays,
 	createInvoiceRecord,
+	getInvoicesByRequisitionId,
 	createPaperInvoiceRecord,
 	linkWorkdayToOpenTimesheet
 } from '$lib/server/database/queries/requisitions';
@@ -49,6 +50,7 @@ import {
 } from '$lib/_helpers/UTCTimezoneUtils';
 import { setFlash } from 'sveltekit-flash-message/server';
 import {
+	billingMethodMismatchMessage,
 	billingNotReadyMessage,
 	getRequisitionBillingReadiness
 } from '$lib/server/billing/readiness';
@@ -157,6 +159,11 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		// Billing gate for adding shifts — a requisition created before the
 		// create-time gate existed may belong to a client who still can't be
 		// invoiced. Surface it on the page and disable Add Shifts.
+		// Every invoice raised against this requisition, voids included. Without this
+		// the page offers "Create Invoice" while showing no sign the placement has
+		// already been billed — which is how one gets billed twice.
+		const requisitionInvoices = await getInvoicesByRequisitionId(idAsNum);
+
 		const billing = await getRequisitionBillingReadiness(idAsNum);
 		const billingBlockedMessage = billing.ready
 			? null
@@ -165,6 +172,17 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 					what: 'add shifts',
 					companyName: company.companyName
 				});
+
+		// Nothing is blocked here — the client is billable on paper — but they have
+		// an unused Stripe customer, so every invoice (approved timesheets included)
+		// comes out as paper. Admins bill from this page, so they see it here.
+		const billingMismatchMessage =
+			billing.ready && billing.mismatch
+				? billingMethodMismatchMessage({
+						audience: 'ADMIN',
+						companyName: company.companyName
+					})
+				: null;
 
 		// Admin-only: qualified candidates near this requisition's location, used
 		// by the Add Shifts drawer to optionally assign a pro on creation.
@@ -205,7 +223,9 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			locations,
 			qualifiedProfessionals,
 			clientInvoiceMethod: clientProfile?.clientInvoiceMethod ?? 'STRIPE',
-			billingBlockedMessage
+			requisitionInvoices,
+			billingBlockedMessage,
+			billingMismatchMessage
 		};
 	}
 
@@ -232,6 +252,10 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		const billingBlockedMessage = billing.ready
 			? null
 			: billingNotReadyMessage({ audience: 'CLIENT', what: 'add shifts' });
+		const billingMismatchMessage =
+			billing.ready && billing.mismatch
+				? billingMethodMismatchMessage({ audience: 'CLIENT' })
+				: null;
 
 		void recordView({
 			entityType: 'REQUISITIONS',
@@ -242,10 +266,12 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		return {
 			user,
 			activity: [],
+			requisitionInvoices: [],
 			company,
 			location,
 			hasRequisitionRights,
 			billingBlockedMessage,
+			billingMismatchMessage,
 			changeStatusForm,
 			recurrenceDayForm,
 			editRecurrenceDayForm,
@@ -285,6 +311,10 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		const billingBlockedMessage = billing.ready
 			? null
 			: billingNotReadyMessage({ audience: 'CLIENT', what: 'add shifts' });
+		const billingMismatchMessage =
+			billing.ready && billing.mismatch
+				? billingMethodMismatchMessage({ audience: 'CLIENT' })
+				: null;
 
 		void recordView({
 			entityType: 'REQUISITIONS',
@@ -299,11 +329,13 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		return {
 			user,
 			activity: [],
+			requisitionInvoices: [],
 			company,
 			location,
 			changeStatusForm,
 			hasRequisitionRights,
 			billingBlockedMessage,
+			billingMismatchMessage,
 			recurrenceDayForm,
 			editRecurrenceDayForm,
 			deleteRecurrenceDayForm,

@@ -53,6 +53,9 @@
 	$: wagesDueTotal = data.wagesDueTotal || 0;
 	$: wagesPaidCount = data.wagesPaidCount || 0;
 	$: wagesPaidTotal = data.wagesPaidTotal || 0;
+	// Filled permanent placements with no live invoice. Perm fees are raised by hand,
+	// so a forgotten one is otherwise uncollected and invisible.
+	$: unbilledPermanentPlacementsCount = data.unbilledPermanentPlacementsCount || 0;
 	// Calculate the % change in timesheets due from previous period (placeholder - you'll need to implement actual trend calculation)
 	// const timesheetsTrendPercent = 12; // This should be calculated based on historical data
 	// const supportTicketsTrendPercent = -5;
@@ -320,6 +323,37 @@
 					</div>
 				</Card.Content>
 			</Card.Root>
+			<!-- Unbilled permanent placements. Only rendered when non-zero: it's a
+			     to-do, not a metric, and an always-visible "0" trains people to ignore it. -->
+			{#if unbilledPermanentPlacementsCount > 0}
+				<Card.Root>
+					<Card.Content class="p-6">
+						<div class="flex justify-between items-start">
+							<div>
+								<p class="text-gray-500 text-sm font-medium">Unbilled Placements</p>
+								<div class="flex items-baseline mt-1">
+									<p class="text-4xl font-bold text-gray-900">
+										{unbilledPermanentPlacementsCount}
+									</p>
+								</div>
+								<p class="text-gray-500 text-sm mt-1">
+									permanent {unbilledPermanentPlacementsCount === 1 ? 'placement' : 'placements'}
+									awaiting an invoice
+								</p>
+							</div>
+							<div class="bg-amber-100 p-3 rounded-full">
+								<AlertCircle size={24} class="text-amber-600" />
+							</div>
+						</div>
+						<div class="mt-4">
+							<Button variant="link" class="text-amber-600 p-0 h-auto" href="/requisitions">
+								View requisitions
+								<ArrowRight size={16} class="ml-1" />
+							</Button>
+						</div>
+					</Card.Content>
+				</Card.Root>
+			{/if}
 		</div>
 
 		<!-- Main grid -->
