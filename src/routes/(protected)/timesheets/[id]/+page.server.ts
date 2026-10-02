@@ -41,10 +41,17 @@ import {
 	approveAndInvoiceTimesheet,
 	buildPaperLineItems,
 	buildStripeLineItems,
-	calculateAdminFeeCents,
 	buildTimesheetInvoiceDescription,
 	timesheetInvoiceDueDate
 } from '$lib/server/timesheets/approveTimesheet';
+import {
+	ADMIN_FEE_MAX_FIXED,
+	computeAdminFee,
+	formatAdminFeeLabel,
+	isAdminFeeOverrideInRange,
+	resolveAdminFeeForDisplay,
+	type AdminFeeType
+} from '$lib/server/timesheets/adminFee';
 import { getDisciplineById } from '$lib/server/database/queries/disciplines';
 import type { TimesheetExpenseSelect } from '$lib/server/database/schemas/requisition';
 import { error, fail, redirect } from '@sveltejs/kit';
@@ -80,10 +87,6 @@ export const load = async (event: RequestEvent) => {
 	const { id } = event.params;
 
 	const [adminConfig] = await db.select().from(adminConfigTable).limit(1);
-	const adminFeeSettings = {
-		amount: adminConfig?.adminPaymentFee ?? 0,
-		type: (adminConfig?.adminPaymentFeeType ?? 'PERCENTAGE') as 'PERCENTAGE' | 'FIXED'
-	};
 
 	const addExpenseForm = await superValidate(addExpenseSchema);
 
@@ -92,6 +95,39 @@ export const load = async (event: RequestEvent) => {
 	// last linked shift ends — not once the whole calendar week is over. Same
 	// check the submit/approve actions enforce server-side.
 	const rawTimesheet = await getTimesheetById(id);
+
+	// Resolve the fee ONCE, server-side, for every role. The component must not
+	// re-derive which rate wins: it cannot import from $lib/server, and a second
+	// implementation in the template is exactly how the admin and client views
+	// drift apart. Frozen snapshot once approved, live override/platform before.
+	const resolvedAdminFee = resolveAdminFeeForDisplay({
+		appliedAmount: rawTimesheet?.adminFeeApplied,
+		appliedType: rawTimesheet?.adminFeeTypeApplied,
+		appliedSource: rawTimesheet?.adminFeeSource,
+		overrideAmount: rawTimesheet?.adminFeeOverride,
+		overrideType: rawTimesheet?.adminFeeTypeOverride,
+		platformAmount: adminConfig?.adminPaymentFee ?? 0,
+		platformType: adminConfig?.adminPaymentFeeType ?? 'PERCENTAGE'
+	});
+	const adminFeeSettings = {
+		// `amount`/`type` keep their original names so the existing billing-summary
+		// arithmetic and both render sites need no change — they now just receive
+		// the resolved figures instead of the raw platform ones.
+		amount: resolvedAdminFee.amount,
+		type: resolvedAdminFee.type,
+		source: resolvedAdminFee.source,
+		label: formatAdminFeeLabel(resolvedAdminFee),
+		// For the editable tile: the admin's own input, and the platform value to
+		// show struck through beside it.
+		overrideAmount: rawTimesheet?.adminFeeOverride ?? null,
+		overrideType: rawTimesheet?.adminFeeTypeOverride ?? null,
+		platformAmount: adminConfig?.adminPaymentFee ?? 0,
+		platformType: (adminConfig?.adminPaymentFeeType ?? 'PERCENTAGE') as 'PERCENTAGE' | 'FIXED',
+		// True once approval froze a snapshot — the figure is then history, not a
+		// live preview, and the override editor is closed.
+		frozen: rawTimesheet?.adminFeeSource != null
+	};
+
 	const unfinishedWorkdays = rawTimesheet ? await getUnfinishedWorkdaysForTimesheet(id) : [];
 	const hasUnfinishedWorkdays = unfinishedWorkdays.length > 0;
 	const unfinishedWorkdayCount = unfinishedWorkdays.length;
@@ -284,6 +320,102 @@ export const actions = {
 			console.error('Error updating adjusted hourly rate:', err);
 			setFlash({ type: 'error', message: 'Failed to update hourly rate' }, event);
 			return fail(500, { error: 'Failed to update hourly rate' });
+		}
+	},
+	// Admin-negotiated Administration Fee for THIS timesheet. Mirrors the shape of
+	// the platform setting (amount + type) so an admin can agree either a
+	// percentage or a flat fee regardless of how the platform is configured.
+	setAdminFeeOverride: async (event: RequestEvent) => {
+		const { user } = event.locals;
+		const { id } = event.params;
+
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { error: 'Only admins can set the admin fee' });
+		}
+
+		const formData = await event.request.formData();
+		const rawAmount = formData.get('adminFeeOverride') as string | null;
+		const rawType = formData.get('adminFeeTypeOverride') as string | null;
+
+		const feeType: AdminFeeType = rawType === 'FIXED' ? 'FIXED' : 'PERCENTAGE';
+
+		// An empty field clears the override — same convention as the adjusted
+		// hourly rate above. Both columns go NULL together so a stale type can
+		// never outlive the amount it described.
+		const cleared = rawAmount === null || rawAmount.trim() === '';
+		const amount = cleared ? null : Number.parseFloat(rawAmount);
+
+		if (amount !== null && !isAdminFeeOverrideInRange(amount, feeType)) {
+			const message =
+				feeType === 'PERCENTAGE'
+					? 'Admin fee percentage must be between 0 and 100'
+					: `Admin fee must be a dollar amount between 0 and ${ADMIN_FEE_MAX_FIXED}`;
+			setFlash({ type: 'error', message }, event);
+			return fail(400, { error: message });
+		}
+
+		try {
+			const [before] = await db
+				.select({
+					status: timeSheetTable.status,
+					adminFeeOverride: timeSheetTable.adminFeeOverride,
+					adminFeeTypeOverride: timeSheetTable.adminFeeTypeOverride
+				})
+				.from(timeSheetTable)
+				.where(eq(timeSheetTable.id, id))
+				.limit(1);
+
+			if (!before) {
+				return fail(404, { error: 'Timesheet not found' });
+			}
+
+			// The override only has meaning before approval — approval freezes what
+			// was actually billed. Writing one afterwards would leave the row
+			// contradicting its own snapshot, so refuse it server-side rather than
+			// relying on the UI gate (which is what `setAdjustedHourlyRate` does).
+			if (before.status === 'APPROVED' || before.status === 'VOID') {
+				setFlash(
+					{
+						type: 'error',
+						message: `Cannot change the admin fee on a ${before.status.toLowerCase()} timesheet — it has already been billed.`
+					},
+					event
+				);
+				return fail(409, { error: 'Timesheet is already billed' });
+			}
+
+			const adminFeeOverride = amount === null ? null : amount.toFixed(2);
+			const adminFeeTypeOverride = amount === null ? null : feeType;
+
+			await db
+				.update(timeSheetTable)
+				.set({ adminFeeOverride, adminFeeTypeOverride, updatedAt: new Date() })
+				.where(eq(timeSheetTable.id, id));
+
+			await recordAction({
+				entityType: 'TIMESHEETS',
+				entityId: id,
+				action: 'UPDATE',
+				before: {
+					adminFeeOverride: before.adminFeeOverride ?? null,
+					adminFeeTypeOverride: before.adminFeeTypeOverride ?? null
+				},
+				after: { adminFeeOverride, adminFeeTypeOverride },
+				metadata: { field: 'adminFeeOverride' }
+			});
+
+			setFlash(
+				{
+					type: 'success',
+					message: amount === null ? 'Admin fee override removed' : 'Admin fee updated'
+				},
+				event
+			);
+			return { success: true };
+		} catch (err) {
+			console.error('Error updating admin fee override:', err);
+			setFlash({ type: 'error', message: 'Failed to update admin fee' }, event);
+			return fail(500, { error: 'Failed to update admin fee' });
 		}
 	},
 	adminSubmitTimesheet: async (event: RequestEvent) => {
@@ -880,6 +1012,12 @@ export const actions = {
 		}
 		const { user } = event.locals;
 		const { id } = event.params;
+		// Set once the status flip has been written, so the catch knows whether a
+		// rollback is needed and what status to restore. Every gate above the flip
+		// reads only, so a pre-flip throw must NOT revert anything — otherwise a
+		// DRAFT sheet would be silently relabelled PENDING.
+		let flipped = false;
+		let preFlipStatus: 'DRAFT' | 'PENDING' | 'DISCREPANCY' | 'REJECTED' = 'PENDING';
 		try {
 			const timesheet = await getTimesheetById(id);
 
@@ -915,9 +1053,14 @@ export const actions = {
 				return fail(400, { error: 'All shifts on this timesheet must end before approval' });
 			}
 
-			const overridden = await adminOverrideTimesheet(id, user.id, timesheet);
-			const requisition = overridden.requisitionId
-				? await getRequisitionById(overridden.requisitionId)
+			// ---- Pre-flight: everything here READS ONLY. Nothing is written until
+			// every gate has passed, so a refused override leaves the sheet exactly
+			// as it was. (These gates used to run AFTER the status flip below, which
+			// meant a pending expense or a missing Stripe customer stranded the sheet
+			// APPROVED with no invoice — and the "cannot override an approved
+			// timesheet" guard above then blocked any retry.)
+			const requisition = timesheet.requisitionId
+				? await getRequisitionById(timesheet.requisitionId)
 				: null;
 
 			if (!requisition) {
@@ -941,16 +1084,16 @@ export const actions = {
 			const approvedExpenses = existingExpenses.filter((e) => e.status === 'APPROVED');
 			const expensesTotalCents = approvedExpenses.reduce((sum, e) => sum + e.amountCents, 0);
 
-			const effectiveRate = overridden.adjustedHourlyRate ?? requisition.hourlyRate;
+			const effectiveRate = timesheet.adjustedHourlyRate ?? requisition.hourlyRate;
 
 			// Continue weekly overtime across any APPROVED sibling timesheets for
 			// this candidate+requisition+week (split-week handling).
-			const priorWeekHours = overridden.requisitionId
+			const priorWeekHours = timesheet.requisitionId
 				? await getApprovedBilledHoursForWeek({
-						candidateId: overridden.associatedCandidateId,
-						requisitionId: overridden.requisitionId,
-						weekBeginDate: overridden.weekBeginDate,
-						excludeTimesheetId: overridden.id
+						candidateId: timesheet.associatedCandidateId,
+						requisitionId: timesheet.requisitionId,
+						weekBeginDate: timesheet.weekBeginDate,
+						excludeTimesheetId: timesheet.id
 					})
 				: 0;
 
@@ -961,12 +1104,17 @@ export const actions = {
 			);
 			const amountInCents = breakdown.billableCents;
 
-			// Admin fee applies to regular hours only — overtime is exempt.
-			const adminFeeCents = calculateAdminFeeCents(
-				breakdown.regularCents,
-				adminConfig.adminPaymentFee,
-				adminConfig.adminPaymentFeeType
-			);
+			// Admin fee applies to regular hours only — overtime is exempt. A
+			// per-timesheet override set before approval wins over the platform
+			// setting; the snapshot freezes whichever won onto the row.
+			const adminFee = computeAdminFee({
+				regularCents: breakdown.regularCents,
+				overrideAmount: timesheet.adminFeeOverride,
+				overrideType: timesheet.adminFeeTypeOverride,
+				platformAmount: adminConfig.adminPaymentFee,
+				platformType: adminConfig.adminPaymentFeeType
+			});
+			const adminFeeCents = adminFee.adminFeeCents;
 
 			const finalAmt = Math.round(amountInCents + expensesTotalCents + adminFeeCents);
 			if (finalAmt <= 0) {
@@ -978,9 +1126,41 @@ export const actions = {
 					},
 					event
 				);
-				await revertTimesheetToPending(id, user.id);
+				// No revert needed — the status flip has not happened yet.
 				return fail(400, { error: 'Invoice amount must be greater than $0.00' });
 			}
+
+			const clientProfile = await getClientProfileById(timesheet.associatedClientId);
+			const isPaperBilling = clientProfile?.profile.clientInvoiceMethod === 'PAPER';
+
+			// A STRIPE-billed client must already have a customer. Checked BEFORE the
+			// flip for the same reason as the gates above: this is the failure admins
+			// hit most often, and after the flip it stranded the sheet APPROVED with
+			// no invoice and no way to retry.
+			const stripeCustomerId = isPaperBilling
+				? null
+				: await getClientSubscription(timesheet.associatedClientId);
+			if (!isPaperBilling && !stripeCustomerId) {
+				setFlash(
+					{
+						type: 'error',
+						message:
+							'Cannot approve: this client is billed via Stripe but has no Stripe customer yet. Open the client\'s page and use "Setup Customer", or switch the client to paper invoicing, then approve again.'
+					},
+					event
+				);
+				return fail(404, { error: 'No Stripe customer found for this client' });
+			}
+
+			// ---- The flip. Carries the fee snapshot in the same UPDATE.
+			// Remember the pre-flip status so a later failure restores it instead of
+			// relabelling a DISCREPANCY (or DRAFT) sheet as PENDING.
+			preFlipStatus = timesheet.status;
+			const overridden = await adminOverrideTimesheet(id, user.id, {
+				...timesheet,
+				...adminFee.snapshot
+			});
+			flipped = true;
 
 			// Only ever put the candidate/professional's name on the invoice.
 			const { candidate } = await getCandidateProfileById(overridden.associatedCandidateId);
@@ -988,9 +1168,6 @@ export const actions = {
 
 			// Requisition rows carry only `disciplineId`; the memo shows the pair.
 			const discipline = await getDisciplineById(requisition.disciplineId);
-
-			const clientProfile = await getClientProfileById(overridden.associatedClientId);
-			const isPaperBilling = clientProfile?.profile.clientInvoiceMethod === 'PAPER';
 
 			// Billing contact — stamps `customerEmail` on the row (previously NULL on
 			// this path, which made the overdue-reminder cron skip it) and addresses
@@ -1044,10 +1221,12 @@ export const actions = {
 					});
 				}
 			} else {
-				const stripeCustomerId = await getClientSubscription(overridden.associatedClientId);
-
+				// Resolved in pre-flight above, which already returned if it was absent;
+				// this only narrows the type. Throw rather than `return fail` so that
+				// if it ever DID fire after the flip, the catch below rolls the status
+				// back instead of stranding the sheet APPROVED with no invoice.
 				if (!stripeCustomerId) {
-					return fail(404, { error: 'No Stripe customer found for this client' });
+					throw new Error('Stripe customer disappeared between pre-flight and invoicing');
 				}
 
 				const baseLineItems = buildStripeLineItems({
@@ -1106,11 +1285,18 @@ export const actions = {
 			setFlash({ type: 'success', message: 'Timesheet approved' }, event);
 			return { success: true, message: 'Timesheet approved', overridden };
 		} catch (err) {
-			// adminOverrideTimesheet already flipped the sheet to APPROVED; if invoice
-			// generation then threw, revert it so it isn't stranded APPROVED-without-
-			// invoice (which the "cannot override an approved timesheet" guard would
-			// otherwise block from retry). Mirrors the main approval path.
-			await revertTimesheetToPending(id, user.id);
+			// If the flip happened and invoice generation then threw, revert so the
+			// sheet isn't stranded APPROVED-without-invoice (which the "cannot
+			// override an approved timesheet" guard would otherwise block from
+			// retry). A pre-flight throw wrote nothing, so there is nothing to undo.
+			// Mirrors approveAndInvoiceTimesheet.
+			if (flipped) {
+				await revertTimesheetToPending(
+					id,
+					user.id,
+					preFlipStatus === 'DISCREPANCY' ? 'DISCREPANCY' : 'PENDING'
+				);
+			}
 			logger.error('timesheet adminOverride failed', {
 				error: err,
 				timesheetId: id,

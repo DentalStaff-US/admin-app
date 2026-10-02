@@ -26,6 +26,7 @@ import { resolveBillingRecipient } from '$lib/server/billing/recipients';
 import { notifyInvoiceCreated } from '$lib/server/notifications/transactional';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
 import { logger } from '$lib/server/logger';
+import { computeAdminFee } from './adminFee';
 
 const ADMIN_FEE_LINE_DESCRIPTION = 'Administration Fees';
 const OVERTIME_LINE_DESCRIPTION = 'Overtime hours (1.5×)';
@@ -105,19 +106,10 @@ function overtimeLineDescription(priorWeekHours: number): string {
 		: OVERTIME_LINE_DESCRIPTION;
 }
 
-// Admin fee is charged on REGULAR hours only — overtime is exempt. Callers pass
-// `regularCents` (not the full billable amount) here.
-export function calculateAdminFeeCents(
-	regularCents: number,
-	adminFee: number,
-	adminFeeType: 'PERCENTAGE' | 'FIXED'
-): number {
-	if (!adminFee || adminFee <= 0) return 0;
-	if (adminFeeType === 'PERCENTAGE') {
-		return Math.round((regularCents * adminFee) / 100);
-	}
-	return Math.round(adminFee * 100);
-}
+// Admin fee is charged on REGULAR hours only — overtime is exempt. The maths now
+// lives in the pure, unit-tested adminFee module alongside override resolution;
+// re-exported here so existing importers of this path keep working.
+export { calculateAdminFeeCents } from './adminFee';
 
 export type StripeLineItem = {
 	amountInCents: number;
@@ -392,12 +384,17 @@ export async function approveAndInvoiceTimesheet(
 		);
 		const amountInCents = breakdown.billableCents;
 
-		// Admin fee applies to regular hours only — overtime is exempt.
-		const adminFeeCents = calculateAdminFeeCents(
-			breakdown.regularCents,
-			adminConfig.adminPaymentFee,
-			adminConfig.adminPaymentFeeType
-		);
+		// Admin fee applies to regular hours only — overtime is exempt. A
+		// per-timesheet override set before approval wins over the platform
+		// setting; `snapshot` freezes whichever won onto the row below.
+		const adminFee = computeAdminFee({
+			regularCents: breakdown.regularCents,
+			overrideAmount: preApproval.adminFeeOverride,
+			overrideType: preApproval.adminFeeTypeOverride,
+			platformAmount: adminConfig.adminPaymentFee,
+			platformType: adminConfig.adminPaymentFeeType
+		});
+		const adminFeeCents = adminFee.adminFeeCents;
 
 		const finalAmt = Math.round(amountInCents + expensesTotalCents + adminFeeCents);
 		if (finalAmt <= 0) {
@@ -432,7 +429,7 @@ export async function approveAndInvoiceTimesheet(
 
 		// ---- Commit: flip the status. Anything that throws from here on is rolled
 		// back to the pre-flip status in the catch below.
-		const timesheet = await approveTimesheetStatus(timesheetId, actorUserId);
+		const timesheet = await approveTimesheetStatus(timesheetId, actorUserId, adminFee.snapshot);
 		flipped = true;
 
 		if (isPaperBilling) {
@@ -559,7 +556,13 @@ export async function approveAndInvoiceTimesheet(
 						'Client did not approve within the 24-hour window — auto-approved (silence = consent).',
 					approvalWindowHours: 24,
 					submittedAt: opts.autoApproved.submittedAt,
-					autoApprovedAt: new Date()
+					autoApprovedAt: new Date(),
+					// An auto-approval bills at whatever was in force when the window
+					// closed; record which it was so a later rate change can't be
+					// mistaken for what this client was charged.
+					adminFeeAmount: adminFee.resolved.amount,
+					adminFeeType: adminFee.resolved.type,
+					adminFeeSource: adminFee.resolved.source
 				}
 			});
 		}

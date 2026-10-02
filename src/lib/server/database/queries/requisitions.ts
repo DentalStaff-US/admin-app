@@ -21,6 +21,7 @@ import {
 	isNull
 } from 'drizzle-orm';
 import db from '../drizzle';
+import { CLEARED_ADMIN_FEE_SNAPSHOT, type AdminFeeSnapshot } from '$lib/server/timesheets/adminFee';
 import {
 	recurrenceDayTable,
 	requisitionTable,
@@ -1738,6 +1739,11 @@ export async function getTimesheetDetailsAdmin(timesheetId: string) {
 			discrepancyNote: timeSheetTable.discrepancyNote,
 			adjustedHourlyRate: timeSheetTable.adjustedHourlyRate,
 			wagesStatus: timeSheetTable.wagesStatus,
+			adminFeeOverride: timeSheetTable.adminFeeOverride,
+			adminFeeTypeOverride: timeSheetTable.adminFeeTypeOverride,
+			adminFeeApplied: timeSheetTable.adminFeeApplied,
+			adminFeeTypeApplied: timeSheetTable.adminFeeTypeApplied,
+			adminFeeSource: timeSheetTable.adminFeeSource,
 			candidate: {
 				...candidateTimesheetColumns,
 				firstName: userTable.firstName,
@@ -1825,6 +1831,11 @@ export async function getTimesheetDetails(timesheetId: string, clientId: string 
 			status: timeSheetTable.status,
 			discrepancyNote: timeSheetTable.discrepancyNote,
 			adjustedHourlyRate: timeSheetTable.adjustedHourlyRate,
+			adminFeeOverride: timeSheetTable.adminFeeOverride,
+			adminFeeTypeOverride: timeSheetTable.adminFeeTypeOverride,
+			adminFeeApplied: timeSheetTable.adminFeeApplied,
+			adminFeeTypeApplied: timeSheetTable.adminFeeTypeApplied,
+			adminFeeSource: timeSheetTable.adminFeeSource,
 			candidate: {
 				...candidateTimesheetColumns,
 				firstName: userTable.firstName,
@@ -3236,6 +3247,12 @@ export async function revertTimesheetToPending(
 				totalHoursBilled: null,
 				approvedAt: null,
 				approvedByUserId: null,
+				// The admin-fee snapshot is approval-derived too: it records what the
+				// invoice was actually built from, so a sheet that is no longer approved
+				// must make no claim about having been billed. The OVERRIDE columns are
+				// deliberately NOT cleared — the override is an admin input, and wiping
+				// it would delete a negotiated discount every time Stripe flaked.
+				...CLEARED_ADMIN_FEE_SNAPSHOT,
 				updatedAt: new Date()
 			})
 			.where(eq(timeSheetTable.id, timesheetId))
@@ -3427,7 +3444,14 @@ export async function rejectTimesheet(
 	}
 }
 
-export async function approveTimesheet(timesheetId: string, userId: string | null) {
+export async function approveTimesheet(
+	timesheetId: string,
+	userId: string | null,
+	// What the invoice was actually built from. Written in the SAME update as the
+	// status flip so there is never a window in which an APPROVED sheet carries no
+	// record of its fee, or a snapshot exists without an approval.
+	feeSnapshot?: AdminFeeSnapshot
+) {
 	try {
 		const [original] = await db
 			.select()
@@ -3448,6 +3472,7 @@ export async function approveTimesheet(timesheetId: string, userId: string | nul
 				wagesStatus: 'WAGES_DUE',
 				approvedAt: new Date(),
 				approvedByUserId: userId,
+				...(feeSnapshot ?? {}),
 				updatedAt: new Date()
 			})
 			.where(eq(timeSheetTable.id, timesheetId))
@@ -3460,7 +3485,11 @@ export async function approveTimesheet(timesheetId: string, userId: string | nul
 			entityId: timesheetId,
 			beforeState: original,
 			afterState: result,
-			metadata: { status: 'APPROVED', totalHoursBilled: original.totalHoursWorked }
+			metadata: {
+				status: 'APPROVED',
+				totalHoursBilled: original.totalHoursWorked,
+				...(feeSnapshot ?? {})
+			}
 		});
 
 		return result;
