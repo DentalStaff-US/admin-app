@@ -10,6 +10,8 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { logger } from '$lib/server/logger';
 import { syncCandidateOnboardingCompletion } from '$lib/server/onboarding/syncCandidateOnboarding';
+import { replaceCandidateDisciplines } from '$lib/server/database/queries/candidateDisciplines';
+import { uniqueDisciplineIds } from '$lib/config/zod-schemas';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -45,18 +47,24 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		const parsedExperience = z
 			.object({
-				disciplines: z.array(
-					z
-						.object({
-							disciplineId: z.string(),
-							experienceLevelId: z.string(),
-							preferredHourlyMin: z.number().int().min(0),
-							preferredHourlyMax: z.number().int().min(0)
-						})
-						.refine((data) => data.preferredHourlyMax >= data.preferredHourlyMin, {
-							message: 'Maximum rate must be greater than or equal to minimum rate'
-						})
-				)
+				disciplines: z
+					.array(
+						z
+							.object({
+								disciplineId: z.string(),
+								experienceLevelId: z.string(),
+								preferredHourlyMin: z.number().int().min(0),
+								preferredHourlyMax: z.number().int().min(0)
+							})
+							// See updateCandidateExperience: a future client sending
+							// certification fields must get a 400, not a silent drop.
+							.strict()
+							.refine((data) => data.preferredHourlyMax >= data.preferredHourlyMin, {
+								message: 'Maximum rate must be greater than or equal to minimum rate'
+							})
+					)
+					.min(1, 'Please select at least one discipline')
+					.superRefine(uniqueDisciplineIds)
 			})
 			.safeParse(body);
 
@@ -85,18 +93,17 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		const disciplines = parsedExperience.data.disciplines;
 
-		for (const discipline of disciplines) {
-			await db.insert(candidateDisciplineExperienceTable).values({
-				candidateId: existingProfile.id,
-				disciplineId: discipline.disciplineId,
-				experienceLevelId: discipline.experienceLevelId,
-				preferredHourlyMin: discipline.preferredHourlyMin,
-				preferredHourlyMax: discipline.preferredHourlyMax,
-				createdAt: new Date(),
-				updatedAt: new Date()
-			});
-		}
+		// Was a bare insert loop, so ANY resubmit of the onboarding step raised a
+		// primary-key violation and surfaced as a 500. That is reachable on the normal
+		// path: the candidate app posts disciplines, then posts onboardingStep: 3 — if
+		// the second call fails the user stays on step 2, retries, and is permanently
+		// wedged. The shared writer is idempotent, which fixes it.
+		await db.transaction(async (tx) => {
+			await replaceCandidateDisciplines(existingProfile.id, disciplines, tx);
+		});
 
+		// Deliberately AFTER the commit: this reads back the rows it just wrote and
+		// may notify admins, neither of which should happen inside the transaction.
 		// Disciplines may be the last missing piece — re-evaluate completion.
 		await syncCandidateOnboardingCompletion({
 			candidateId: existingProfile.id,

@@ -15,14 +15,20 @@ import db from '$lib/server/database/drizzle';
 import { userTable } from '$lib/server/database/schemas/auth';
 import {
 	candidateCertRemindersTable,
+	candidateLicenseGraceTable,
 	candidateDisciplineExperienceTable,
 	candidateProfileTable
 } from '$lib/server/database/schemas/candidate';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { CANDIDATE_STATUS, USER_ROLES } from '$lib/config/constants';
 import { logger } from '$lib/server/logger';
-import { effectiveCertExpirySql, nyTodaySql } from './certGateSql';
-import { daysUntilExpiry, todayInET } from './certStatus';
+import { effectiveLicenseExpirySql, nyTodaySql } from './credentialGateSql';
+import {
+	LICENSE_GRACE_DAYS,
+	daysUntilExpiry,
+	todayInET,
+	type CredentialTrack
+} from './credentialStatus';
 import {
 	AUTO_CAMPAIGN_KEYS,
 	enqueueAutoCampaign
@@ -44,6 +50,8 @@ export const SMS_STAGES: ReadonlySet<CertReminderStage> = new Set<CertReminderSt
 ]);
 
 export type CertRow = {
+	/** Which credential this row is about. Both can exist for one discipline. */
+	track: CredentialTrack;
 	candidateId: string;
 	userId: string;
 	firstName: string | null;
@@ -130,49 +138,75 @@ export async function runCertExpiryReminders(): Promise<{
 }> {
 	const today = todayInET();
 
-	const rows = (await db
-		.select({
-			candidateId: candidateProfileTable.id,
-			userId: userTable.id,
-			firstName: userTable.firstName,
-			lastName: userTable.lastName,
-			email: userTable.email,
-			phone: candidateProfileTable.cellPhone,
-			receiveEmail: userTable.receiveEmail,
-			receiveSms: userTable.receiveSms,
-			disciplineId: candidateDisciplineExperienceTable.disciplineId,
-			disciplineName: disciplineTable.name,
-			abbreviation: disciplineTable.abbreviation,
-			effectiveExpiry: effectiveCertExpirySql()
-		})
-		.from(candidateDisciplineExperienceTable)
-		.innerJoin(
-			candidateProfileTable,
-			eq(candidateProfileTable.id, candidateDisciplineExperienceTable.candidateId)
-		)
-		.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
-		.innerJoin(
-			disciplineTable,
-			eq(disciplineTable.id, candidateDisciplineExperienceTable.disciplineId)
-		)
-		.where(
-			and(
-				// Only disciplines that actually require a credential.
-				eq(disciplineTable.requiresCertification, true),
-				// Don't chase people who are denied, inactive or blacklisted.
-				eq(candidateProfileTable.status, CANDIDATE_STATUS.ACTIVE),
-				sql`coalesce(${userTable.blacklisted}, false) = false`,
-				or(eq(userTable.receiveEmail, true), eq(userTable.receiveSms, true)),
-				// A credential must be on file — a NULL expiry is the MISSING case, which
-				// has no date to count down from and is handled by the nudge below.
-				isNotNull(effectiveCertExpirySql()),
-				// Window: 45 days lapsed through 60 days out. The floor stops the EXPIRED
-				// band re-scanning ancient rows forever; the ledger would suppress them
-				// anyway, but the scan should stay small.
-				gte(effectiveCertExpirySql(), sql`${nyTodaySql} - interval '45 days'`),
-				lte(effectiveCertExpirySql(), sql`${nyTodaySql} + interval '60 days'`)
+	// Two selects rather than one with an OR: the predicates differ in kind (a
+	// document subquery for the license, two row columns for the certification), so
+	// a single query would need a CASE around the window clauses anyway.
+	const baseJoins = (q: ReturnType<typeof db.select>) =>
+		q
+			.from(candidateDisciplineExperienceTable)
+			.innerJoin(
+				candidateProfileTable,
+				eq(candidateProfileTable.id, candidateDisciplineExperienceTable.candidateId)
 			)
-		)) as CertRow[];
+			.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+			.innerJoin(
+				disciplineTable,
+				eq(disciplineTable.id, candidateDisciplineExperienceTable.disciplineId)
+			);
+
+	// Shared audience rules. Opt-out is filtered HERE, at audience-build time: this
+	// codebase never filters it when the queue drains.
+	const audience = [
+		eq(candidateProfileTable.status, CANDIDATE_STATUS.ACTIVE),
+		sql`coalesce(${userTable.blacklisted}, false) = false`,
+		or(eq(userTable.receiveEmail, true), eq(userTable.receiveSms, true))
+	];
+
+	const selectFor = (expiry: ReturnType<typeof effectiveLicenseExpirySql>) => ({
+		candidateId: candidateProfileTable.id,
+		userId: userTable.id,
+		firstName: userTable.firstName,
+		lastName: userTable.lastName,
+		email: userTable.email,
+		phone: candidateProfileTable.cellPhone,
+		receiveEmail: userTable.receiveEmail,
+		receiveSms: userTable.receiveSms,
+		disciplineId: candidateDisciplineExperienceTable.disciplineId,
+		disciplineName: disciplineTable.name,
+		abbreviation: disciplineTable.abbreviation,
+		effectiveExpiry: expiry
+	});
+
+	// Window: 45 days lapsed through 60 days out. The floor stops the EXPIRED band
+	// re-scanning ancient rows forever; the ledger would suppress them anyway.
+	const inWindow = (expr: ReturnType<typeof effectiveLicenseExpirySql>) => [
+		isNotNull(expr),
+		gte(expr, sql`${nyTodaySql} - interval '45 days'`),
+		lte(expr, sql`${nyTodaySql} + interval '60 days'`)
+	];
+
+	const licenseRows = (await baseJoins(
+		db.select(selectFor(effectiveLicenseExpirySql()))
+	).where(
+		and(eq(disciplineTable.requiresLicense, true), ...audience, ...inWindow(effectiveLicenseExpirySql()))
+	)) as Omit<CertRow, 'track'>[];
+
+	const certExpiry = sql<
+		string | null
+	>`to_char(${candidateDisciplineExperienceTable.certExpiresOn}, 'YYYY-MM-DD')`;
+
+	const certRows = (await baseJoins(db.select(selectFor(certExpiry))).where(
+		and(
+			eq(candidateDisciplineExperienceTable.requiresCert, true),
+			...audience,
+			...inWindow(certExpiry)
+		)
+	)) as Omit<CertRow, 'track'>[];
+
+	const rows: CertRow[] = [
+		...licenseRows.map((r) => ({ ...r, track: 'LICENSE' as const })),
+		...certRows.map((r) => ({ ...r, track: 'CERTIFICATION' as const }))
+	];
 
 	const plans = selectCertRemindersToSend(rows, today);
 
@@ -193,6 +227,10 @@ export async function runCertExpiryReminders(): Promise<{
 				.values({
 					candidateId: plan.row.candidateId,
 					disciplineId: plan.row.disciplineId,
+					// Part of the unique key: a license and a certification can expire on
+					// the same date for the same discipline, and without this the second
+					// one's whole series would look already-sent.
+					track: plan.row.track,
 					expiresOn: plan.row.effectiveExpiry,
 					stage: plan.stage,
 					channels: plan.channels.join('+')
@@ -214,6 +252,7 @@ export async function runCertExpiryReminders(): Promise<{
 				expiresOn: plan.row.effectiveExpiry,
 				daysUntil: plan.daysUntil,
 				stage: plan.stage,
+				track: plan.row.track,
 				channels: plan.channels
 			});
 			sent++;
@@ -241,18 +280,67 @@ export async function runCertExpiryReminders(): Promise<{
  * fortnightly suppression reflects that this is a backlog being worked through by
  * staff, not an emergency.
  */
+/**
+ * Weekly: the missing-LICENSE audience, and the owner of the 30-day grace clock.
+ *
+ * Three responsibilities, in this order because each depends on the previous:
+ *
+ *   1. Clear stale clocks for anyone who now has a license on file. Without this,
+ *      someone who complies and much later loses their document is blocked instantly
+ *      by a years-old row instead of getting a fresh 30 days.
+ *   2. Start clocks and nudge. The insert and the send are ONE decision: a grace row
+ *      written without a send would start a countdown nobody was told about, and
+ *      "we never told them" is the whole justification for a hard block.
+ *   3. Fire the block notice once, for rows past the deadline.
+ *
+ * The CERTIFICATION track has no equivalent. A declared certification with no date
+ * can only come from an admin slip, so it is a digest line rather than a nudge, and
+ * it never blocks.
+ */
 export async function runMissingCredentialNudge(): Promise<{
 	queued: number;
 	suppressed: number;
 	matched: number;
+	cleared: number;
+	blocked: number;
 }> {
-	const rows = await db
-		.selectDistinct({
+	// --- 1. Clear clocks for anyone who has since supplied a license ----------
+	const cleared = await db.execute(sql`
+		DELETE FROM candidate_license_grace g
+		WHERE EXISTS (
+			SELECT 1 FROM candidate_document_uploads cdu
+			WHERE cdu.candidate_id = g.candidate_id
+				AND cdu.discipline_id = g.discipline_id
+				AND cdu.type = 'LICENSE'
+				AND cdu.expiry_date IS NOT NULL
+		)
+	`);
+
+	// --- 2. Who requires a license and has none on file? ----------------------
+	const missing = await db
+		.select({
 			userId: userTable.id,
-			profileId: candidateProfileTable.id,
+			candidateId: candidateProfileTable.id,
+			disciplineId: candidateDisciplineExperienceTable.disciplineId,
+			disciplineName: disciplineTable.name,
+			abbreviation: disciplineTable.abbreviation,
 			email: userTable.email,
+			phone: candidateProfileTable.cellPhone,
 			firstName: userTable.firstName,
-			lastName: userTable.lastName
+			lastName: userTable.lastName,
+			receiveSms: userTable.receiveSms,
+			notifiedAt: sql<string | null>`to_char(
+				(SELECT (g.notified_at AT TIME ZONE 'UTC')::date
+				 FROM candidate_license_grace g
+				 WHERE g.candidate_id = ${candidateProfileTable.id}
+					 AND g.discipline_id = ${candidateDisciplineExperienceTable.disciplineId}),
+				'YYYY-MM-DD')`,
+			blockedNotified: sql<boolean>`EXISTS (
+				SELECT 1 FROM candidate_license_grace g
+				WHERE g.candidate_id = ${candidateProfileTable.id}
+					AND g.discipline_id = ${candidateDisciplineExperienceTable.disciplineId}
+					AND g.blocked_notified_at IS NOT NULL
+			)`
 		})
 		.from(candidateDisciplineExperienceTable)
 		.innerJoin(
@@ -266,48 +354,108 @@ export async function runMissingCredentialNudge(): Promise<{
 		)
 		.where(
 			and(
-				eq(disciplineTable.requiresCertification, true),
+				eq(disciplineTable.requiresLicense, true),
 				eq(candidateProfileTable.status, CANDIDATE_STATUS.ACTIVE),
-				eq(userTable.receiveEmail, true),
 				sql`coalesce(${userTable.blacklisted}, false) = false`,
-				// Nothing on file for this discipline.
-				sql`${effectiveCertExpirySql()} IS NULL`
+				sql`${effectiveLicenseExpirySql()} IS NULL`
 			)
 		);
 
+	const today = todayInET();
+
+	// Start a clock for anyone not yet on one. ON CONFLICT DO NOTHING so a re-run is
+	// a no-op and the deadline never silently moves.
+	const newlyNotified: typeof missing = [];
+	for (const row of missing) {
+		if (row.notifiedAt) continue;
+		const [claim] = await db
+			.insert(candidateLicenseGraceTable)
+			.values({ candidateId: row.candidateId, disciplineId: row.disciplineId })
+			.onConflictDoNothing()
+			.returning({ candidateId: candidateLicenseGraceTable.candidateId });
+		if (claim) newlyNotified.push(row);
+	}
+
+	// --- 3. Anyone whose grace has run out, who has not yet been told ---------
+	const { notifyLicenseGraceExpired } = await import('$lib/server/notifications/transactional');
+	let blocked = 0;
+	for (const row of missing) {
+		if (!row.notifiedAt || row.blockedNotified) continue;
+		if (daysUntilExpiry(row.notifiedAt, today) + LICENSE_GRACE_DAYS > 0) continue;
+
+		// Stamp first, then send — a crash after stamping loses one message; the
+		// reverse duplicates an SMS announcing that someone's work has stopped.
+		await db
+			.update(candidateLicenseGraceTable)
+			.set({ blockedNotifiedAt: new Date() })
+			.where(
+				and(
+					eq(candidateLicenseGraceTable.candidateId, row.candidateId),
+					eq(candidateLicenseGraceTable.disciplineId, row.disciplineId)
+				)
+			);
+
+		await notifyLicenseGraceExpired({
+			email: row.email,
+			phone: row.phone,
+			firstName: row.firstName,
+			disciplineName: row.disciplineName,
+			abbreviation: row.abbreviation,
+			receiveSms: row.receiveSms
+		});
+		blocked++;
+	}
+
+	// The fortnightly nudge itself, unchanged in cadence. Audience is everyone still
+	// missing a license, including those just put on the clock.
+	const recipients = missing.filter((r) => !r.blockedNotified);
 	const result = await enqueueAutoCampaign({
 		key: AUTO_CAMPAIGN_KEYS.missingCredential,
-		name: 'Automated — certificate needed',
-		subject: 'Add your certification to keep getting matched',
+		name: 'Automated — license needed',
+		subject: 'Upload your license to keep getting matched',
 		body: [
 			'Hi {{firstName}},',
 			'',
-			'One or more of the disciplines on your profile requires a current',
-			'certification or registration, and we do not have one on file for you yet.',
+			'One or more of the disciplines on your profile legally requires a current',
+			'license, and we do not have one on file for you yet.',
 			'',
-			'Adding it helps practices book you with confidence, and means you will not',
-			'lose visibility of those shifts later on. You can upload it any time from',
-			'Settings → Documents, and tick "this is a credential for one of my',
-			'disciplines" so we know which one it belongs to.',
+			`You have ${LICENSE_GRACE_DAYS} days from our first notice to upload it. After that`,
+			'those shifts will be hidden from your account until we have it — your other',
+			'disciplines are not affected.',
+			'',
+			'You can upload it any time from Settings → Documents. Tick "this is a',
+			'credential for one of my disciplines" so we know which one it belongs to.',
 			'',
 			'If you have already sent it to us, no action is needed.',
 			'',
 			'— Dental Temps Staffing Solutions'
 		].join('\n'),
 		audience: 'CANDIDATE',
-		recipients: rows.map((r) => ({
+		recipients: recipients.map((r) => ({
 			userId: r.userId,
-			profileId: r.profileId,
+			profileId: r.candidateId,
 			email: r.email,
 			firstName: r.firstName,
 			lastName: r.lastName
 		})),
-		// Weekly cron, fortnightly cadence per person.
 		suppressWithinDays: 13
 	});
 
-	logger.info?.('runMissingCredentialNudge', { matched: rows.length, ...result });
-	return { queued: result.queued, suppressed: result.suppressed, matched: rows.length };
+	logger.info?.('runMissingCredentialNudge', {
+		matched: missing.length,
+		newlyNotified: newlyNotified.length,
+		cleared: (cleared as { rowCount?: number })?.rowCount ?? 0,
+		blocked,
+		...result
+	});
+
+	return {
+		queued: result.queued,
+		suppressed: result.suppressed,
+		matched: missing.length,
+		cleared: (cleared as { rowCount?: number })?.rowCount ?? 0,
+		blocked
+	};
 }
 
 /**
@@ -338,7 +486,7 @@ export async function runCertExpiryAdminDigest(): Promise<{
 			disciplineId: candidateDisciplineExperienceTable.disciplineId,
 			disciplineName: disciplineTable.name,
 			abbreviation: disciplineTable.abbreviation,
-			effectiveExpiry: effectiveCertExpirySql()
+			effectiveExpiry: effectiveLicenseExpirySql()
 		})
 		.from(candidateDisciplineExperienceTable)
 		.innerJoin(
@@ -352,7 +500,7 @@ export async function runCertExpiryAdminDigest(): Promise<{
 		)
 		.where(
 			and(
-				eq(disciplineTable.requiresCertification, true),
+				eq(disciplineTable.requiresLicense, true),
 				eq(candidateProfileTable.status, CANDIDATE_STATUS.ACTIVE)
 			)
 		);

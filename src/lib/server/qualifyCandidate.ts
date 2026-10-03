@@ -10,8 +10,8 @@
  *   - lib/server/database/queries/candidates.ts → getQualifiedProfessionalsForRequisition
  *   - api/external/getTempRequisitionsForCandidate (in-memory filter near
  *     line 232)
- *   - lib/server/certifications/certGateSql.ts → certNotExpiredSql (the SQL twin of
- *     the certification gate below; the two must change together)
+ *   - lib/server/certifications/credentialGateSql.ts → credentialNotExpiredSql (the
+ *     SQL twin of the credential gate below; the two must change together)
  *
  * Inputs are intentionally pre-joined: callers fetch candidate disciplines
  * with their experience-level order and preferred rate range, plus the
@@ -20,7 +20,12 @@
  * needing to await each row.
  */
 
-import { CERT_BLOCKED_MESSAGE, isCertBlocked, todayInET } from './certifications/certStatus';
+import {
+	credentialBlockedMessage,
+	credentialGate,
+	todayInET,
+	type DisciplineCredentials
+} from './certifications/credentialStatus';
 
 export type CandidateDisciplineWithLevel = {
 	disciplineId: string;
@@ -29,17 +34,12 @@ export type CandidateDisciplineWithLevel = {
 	preferredHourlyMin: number;
 	preferredHourlyMax: number;
 	/**
-	 * These two satisfy `CertInput` structurally, so a discipline row can be handed
-	 * straight to `isCertBlocked`/`certState`.
-	 *
-	 * `requiresCertification` is disciplines.requires_certification (the admin-set
-	 * requirement). `effectiveExpiry` is MAX(expiry_date) over this discipline's
-	 * linked LICENSE/CERTIFICATE documents as 'YYYY-MM-DD', null when none is on
-	 * file — callers fetch it with `effectiveCertExpirySql()` so this helper can
-	 * stay pure and synchronous.
+	 * Both credential tracks for this discipline, as `credentialSelectFields()`
+	 * projects them — so a selected row satisfies `DisciplineCredentials`
+	 * structurally and can be handed straight to `credentialGate`.
 	 */
-	requiresCertification: boolean;
-	effectiveExpiry: string | null;
+	license: DisciplineCredentials['license'];
+	certification: DisciplineCredentials['certification'];
 };
 
 export type RequisitionForQualification = {
@@ -56,7 +56,7 @@ export type QualificationCheck =
 	| { qualified: true }
 	| {
 			qualified: false;
-			reason: 'discipline' | 'certification' | 'experience' | 'rate';
+			reason: 'discipline' | 'license' | 'certification' | 'experience' | 'rate';
 			message: string;
 	  };
 
@@ -88,17 +88,22 @@ export function checkCandidateQualified(
 		};
 	}
 
-	// 2. Certification / registration must not have lapsed for this discipline.
+	// 2. Neither credential track may have lapsed for this discipline.
 	//    Ordered ahead of experience and rate on purpose: when a professional fails
 	//    several checks, the one we want them to read is the one they can act on.
-	//    Only an EXPIRED credential blocks — a discipline needing none, or needing
-	//    one with nothing yet on file (MISSING), passes here and is chased through
-	//    badges, the admin digest and the nudge series instead. See certStatus.ts.
-	if (isCertBlocked(matching, opts.today ?? todayInET())) {
+	//    Only an EXPIRED track blocks — a discipline needing nothing, or needing a
+	//    certification with no date yet, passes here and is chased through badges,
+	//    the digest and the nudge series. A MISSING license passes until its 30-day
+	//    grace runs out. See credentialStatus.ts.
+	const gate = credentialGate(matching, opts.today ?? todayInET());
+	if (gate.blocked) {
 		return {
 			qualified: false,
-			reason: 'certification',
-			message: CERT_BLOCKED_MESSAGE
+			// LICENSE first: the reason code's only job is telling support which of two
+			// different remediations applies — upload a license document, or update a
+			// date on an Experience & Rates entry.
+			reason: gate.blockedBy[0].track === 'LICENSE' ? 'license' : 'certification',
+			message: credentialBlockedMessage(gate.blockedBy)
 		};
 	}
 

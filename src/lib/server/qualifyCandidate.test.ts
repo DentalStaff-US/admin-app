@@ -17,8 +17,8 @@ function discipline(
 		experienceLevelOrder: 3,
 		preferredHourlyMin: 40,
 		preferredHourlyMax: 60,
-		requiresCertification: false,
-		effectiveExpiry: null,
+		license: { required: false, expiresOn: null, graceStartedOn: null },
+		certification: { required: false, expiresOn: null },
 		...over
 	};
 }
@@ -47,26 +47,26 @@ describe('certification gate', () => {
 		// Enforcement follows the requirement: an optional credential someone
 		// volunteered must not cost them work when it lapses. This is also the
 		// per-discipline kill switch.
-		const d = discipline({ requiresCertification: false, effectiveExpiry: '2020-01-01' });
+		const d = discipline({ license: { required: false, expiresOn: '2020-01-01', graceStartedOn: null } });
 		expect(checkCandidateQualified([d], requisition(), opts)).toEqual({ qualified: true });
 	});
 
 	it('does NOT block when required but nothing is on file (MISSING)', () => {
 		// Deploy-safety property — see certStatus.ts. If this ever starts failing,
 		// flagging a discipline would hide shifts from every professional holding it.
-		const d = discipline({ requiresCertification: true, effectiveExpiry: null });
+		const d = discipline({ license: { required: true, expiresOn: null, graceStartedOn: null } });
 		expect(checkCandidateQualified([d], requisition(), opts)).toEqual({ qualified: true });
 	});
 
 	it('does not block on the expiry date itself', () => {
-		const d = discipline({ requiresCertification: true, effectiveExpiry: TODAY });
+		const d = discipline({ license: { required: true, expiresOn: TODAY, graceStartedOn: null } });
 		expect(checkCandidateQualified([d], requisition(), opts)).toEqual({ qualified: true });
 	});
 
 	it('blocks the day after expiry with reason "certification"', () => {
-		const d = discipline({ requiresCertification: true, effectiveExpiry: '2026-04-29' });
+		const d = discipline({ license: { required: true, expiresOn: '2026-04-29', graceStartedOn: null } });
 		const r = checkCandidateQualified([d], requisition(), opts);
-		expect(r).toMatchObject({ qualified: false, reason: 'certification' });
+		expect(r).toMatchObject({ qualified: false, reason: 'license' });
 		expect(r).toHaveProperty('message', expect.stringContaining('expired'));
 	});
 
@@ -74,29 +74,30 @@ describe('certification gate', () => {
 		// Ordering assertion. A professional failing several checks should be told
 		// the one they can actually act on.
 		const d = discipline({
-			requiresCertification: true,
-			effectiveExpiry: '2026-04-29',
+			license: { required: true, expiresOn: '2026-04-29', graceStartedOn: null },
 			experienceLevelOrder: 1,
 			preferredHourlyMin: 80,
 			preferredHourlyMax: 90
 		});
 		const r = checkCandidateQualified([d], requisition({ experienceLevelOrder: 5, hourlyRate: 50 }), opts);
-		expect(r).toMatchObject({ qualified: false, reason: 'certification' });
+		expect(r).toMatchObject({ qualified: false, reason: 'license' });
 	});
 
 	it('only gates the discipline whose credential lapsed', () => {
 		const rdh = discipline({
 			disciplineId: RDH,
-			requiresCertification: true,
-			effectiveExpiry: '2026-04-29'
+			license: { required: true, expiresOn: '2026-04-29', graceStartedOn: null }
 		});
-		const da = discipline({ disciplineId: DA, requiresCertification: true, effectiveExpiry: '2027-01-01' });
+		const da = discipline({
+			disciplineId: DA,
+			license: { required: true, expiresOn: '2027-01-01', graceStartedOn: null }
+		});
 		expect(checkCandidateQualified([rdh, da], requisition({ disciplineId: DA }), opts)).toEqual({
 			qualified: true
 		});
 		expect(
 			checkCandidateQualified([rdh, da], requisition({ disciplineId: RDH }), opts)
-		).toMatchObject({ qualified: false, reason: 'certification' });
+		).toMatchObject({ qualified: false, reason: 'license' });
 	});
 });
 
@@ -155,9 +156,9 @@ describe('enforceRate', () => {
 	});
 
 	it('still applies the certification gate when rate is skipped', () => {
-		const d = discipline({ requiresCertification: true, effectiveExpiry: '2026-04-29' });
+		const d = discipline({ license: { required: true, expiresOn: '2026-04-29', graceStartedOn: null } });
 		expect(
 			checkCandidateQualified([d], requisition({ hourlyRate: null }), { ...opts, enforceRate: false })
-		).toMatchObject({ qualified: false, reason: 'certification' });
+		).toMatchObject({ qualified: false, reason: 'license' });
 	});
 });

@@ -158,9 +158,34 @@ export const candidateDisciplineExperienceTable = pgTable(
 			.notNull()
 			.references(() => disciplineTable.id, { onDelete: 'cascade' }),
 		preferredHourlyMin: smallint('preferred_hourly_min').notNull().default(0),
-		preferredHourlyMax: smallint('preferred_hourly_max').notNull().default(0)
+		preferredHourlyMax: smallint('preferred_hourly_max').notNull().default(0),
+		/**
+		 * Does THIS professional's jurisdiction require a certification for this
+		 * discipline? Self-declared — they know their state, and it varies.
+		 *
+		 * Once true, only an admin may set it false: otherwise a professional whose
+		 * certification has lapsed clears their own gate in two clicks. Enforced in
+		 * setDisciplineCertification, not by a constraint, because it is a permission
+		 * rule and the database has no notion of the actor.
+		 */
+		requiresCert: boolean('requires_cert').notNull().default(false),
+		/**
+		 * Authoritative expiry for that certification. CERTIFICATE documents linked to
+		 * the same discipline are supporting evidence; THIS is what the gate reads.
+		 *
+		 * Null while requiresCert is true = declared but not yet dated. That warns and
+		 * is surfaced in the admin digest; it never blocks. No CHECK constraint pairing
+		 * the two, because that state is reachable by import and support edits and
+		 * should surface as a chaseable row rather than a 500.
+		 *
+		 * NOT writable by the bulk discipline writer — see replaceCandidateDisciplines.
+		 */
+		certExpiresOn: date('cert_expires_on')
 	},
-	(t) => ({ pk: primaryKey({ columns: [t.candidateId, t.disciplineId] }) })
+	(t) => ({
+		pk: primaryKey({ columns: [t.candidateId, t.disciplineId] }),
+		certExpiryIdx: index('cde_cert_expiry_idx').on(t.requiresCert, t.certExpiresOn)
+	})
 );
 
 export const candidateDocumentTypeEnum = pgEnum('candidate_document_type', [
@@ -263,6 +288,14 @@ export const candidateCertRemindersTable = pgTable(
 			.notNull()
 			.references(() => disciplineTable.id, { onDelete: 'cascade' }),
 		expiresOn: date('expires_on').notNull(),
+		/**
+		 * 'LICENSE' | 'CERTIFICATION' — which credential this series is about.
+		 *
+		 * Part of the unique key: a professional can hold both on one discipline,
+		 * expiring on the same date, and without this the second one's entire series
+		 * would look already-sent. DO NOT drop it, for the same reason as expiresOn.
+		 */
+		track: text('track').notNull(),
 		/** 'D60' | 'D30' | 'D14' | 'D7' | 'D0' | 'EXPIRED' — see certReminders.ts. */
 		stage: text('stage').notNull(),
 		/**
@@ -274,9 +307,12 @@ export const candidateCertRemindersTable = pgTable(
 		sentAt: timestamp('sent_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow()
 	},
 	(t) => ({
+		// `track` before `expiresOn` so (candidate, discipline, track) is a usable
+		// prefix for "have we ever chased this person about their certification".
 		uniqueStage: uniqueIndex('candidate_cert_reminders_unique_stage_idx').on(
 			t.candidateId,
 			t.disciplineId,
+			t.track,
 			t.expiresOn,
 			t.stage
 		)
@@ -301,6 +337,46 @@ export type CandidateDisciplineExperienceSelect =
 export type UpdateCandidateDisciplineExperience = Partial<
 	typeof candidateDisciplineExperienceTable.$inferInsert
 >;
+/**
+ * The 30-day grace clock for a MISSING license. One row per (professional,
+ * discipline) episode of being out of compliance.
+ *
+ * Its existence IS the record that we told them, which is what makes a hard block
+ * defensible: no notification, no row, no countdown. Written only by the nudge job,
+ * never by an admin flagging a discipline — flagging must not start a silent clock
+ * against someone who has not been told.
+ *
+ * The nudge job deletes the row once a license is on file, so a professional who
+ * complies and much later loses their document gets a fresh 30 days rather than an
+ * instant block from a stale clock.
+ *
+ * Only applies to LICENSE. An expired license blocks immediately with no grace, and
+ * a missing CERTIFICATION never blocks at all.
+ */
+export const candidateLicenseGraceTable = pgTable(
+	'candidate_license_grace',
+	{
+		candidateId: text('candidate_id')
+			.notNull()
+			.references(() => candidateProfileTable.id, { onDelete: 'cascade' }),
+		disciplineId: text('discipline_id')
+			.notNull()
+			.references(() => disciplineTable.id, { onDelete: 'cascade' }),
+		/** When the FIRST nudge of this episode was sent. Deadline = this + 30 days. */
+		notifiedAt: timestamp('notified_at', { withTimezone: true, mode: 'date' })
+			.notNull()
+			.defaultNow(),
+		/** Stamped when the "you are now blocked" message goes out, so it sends once. */
+		blockedNotifiedAt: timestamp('blocked_notified_at', { withTimezone: true, mode: 'date' })
+	},
+	(t) => ({
+		pk: primaryKey({ columns: [t.candidateId, t.disciplineId] })
+	})
+);
+
+export type CandidateLicenseGrace = typeof candidateLicenseGraceTable.$inferInsert;
+export type CandidateLicenseGraceSelect = typeof candidateLicenseGraceTable.$inferSelect;
+
 export type CandidateCertReminder = typeof candidateCertRemindersTable.$inferInsert;
 export type CandidateCertReminderSelect = typeof candidateCertRemindersTable.$inferSelect;
 

@@ -49,7 +49,7 @@
 				dialogOpen = false;
 				// Reset the flag too, or the next discipline added in the same session
 				// inherits the previous one's checkbox state.
-				$disciplineForm = { name: '', abbreviation: '', requiresCertification: false };
+				$disciplineForm = { name: '', abbreviation: '', requiresLicense: false };
 			}
 		}
 	});
@@ -84,7 +84,7 @@
 		id: string;
 		name: string;
 		abbreviation: string;
-		requiresCertification: boolean;
+		requiresLicense: boolean;
 		createdAt: Date;
 		updatedAt: Date;
 	};
@@ -109,7 +109,7 @@
 			// MUST be seeded from the row. Omitting it would send the schema default
 			// (false) on every save, so editing a discipline's name would silently turn
 			// off certification enforcement for everyone holding it.
-			requiresCertification: discipline.requiresCertification
+			requiresLicense: discipline.requiresLicense
 		};
 		editDialogOpen = true;
 	}
@@ -142,14 +142,14 @@
 				)
 		},
 		{
-			header: 'Requires Cert',
-			id: 'requiresCertification',
-			accessorKey: 'requiresCertification',
+			header: 'Requires License',
+			id: 'requiresLicense',
+			accessorKey: 'requiresLicense',
 			enableSorting: true,
 			// Sorts flagged disciplines together — with ~20 rows this is how staff see
 			// at a glance which ones are configured.
 			sortingFn: (rowA, rowB) =>
-				Number(rowA.original.requiresCertification) - Number(rowB.original.requiresCertification),
+				Number(rowA.original.requiresLicense) - Number(rowB.original.requiresLicense),
 			// A plain string, matching every other cell in this file: no renderComponent
 			// is imported anywhere under (protected)/admin, and pulling in the Svelte
 			// table adapter for one badge is not worth it.
@@ -388,16 +388,22 @@
 					<label class="flex items-start gap-2 text-sm font-medium">
 						<input
 							type="checkbox"
-							name="requiresCertification"
+							name="requiresLicense"
 							class="mt-0.5 h-4 w-4 rounded border-gray-300"
 						/>
-						<span>Requires a certification or registration that expires</span>
+						<span>Requires a license to practise</span>
 					</label>
 					<p class="text-xs text-gray-600">
-						Professionals holding this discipline will be asked for a certificate and its
-						expiration date. When a certificate expires, this discipline's jobs are hidden from
-						them until they upload a current one. Professionals who have not uploaded one yet are
-						chased, not blocked.
+						A legal requirement for everyone holding this discipline — dentists, hygienists
+						and similar. Professionals will be asked to upload their license and its
+						expiration date.
+						<strong
+							>Flagging this starts a 30-day countdown: anyone without a license on file is
+							nudged, and after 30 days from that first notice their jobs for this discipline
+							are hidden until they supply one.</strong
+						>
+						An expired license hides jobs immediately, with no grace period. Certifications
+						are separate and are declared by each professional on their own profile.
 					</p>
 				</div>
 			</div>
@@ -449,15 +455,15 @@
 						<input
 							id="edit-requires-cert"
 							type="checkbox"
-							name="requiresCertification"
-							bind:checked={$editDisciplineForm.requiresCertification}
+							name="requiresLicense"
+							bind:checked={$editDisciplineForm.requiresLicense}
 							class="mt-0.5 h-4 w-4 rounded border-gray-300"
 						/>
-						<span>Requires a certification or registration that expires</span>
+						<span>Requires a license to practise</span>
 					</label>
 					<p class="text-xs text-gray-600">
-						Turning this off stops certification enforcement for this discipline immediately,
-						even for professionals whose certificate has already expired.
+						Turning this off stops license enforcement for this discipline immediately — including
+						for anyone currently blocked or mid-countdown.
 					</p>
 				</div>
 

@@ -1117,17 +1117,29 @@ ${daysText}
 	 * No practice is named anywhere here, so the candidate-facing privacy rule further
 	 * down this file (city/state only, never name or street) is not engaged.
 	 */
-	certExpiryReminderEmail: (details: {
+	credentialExpiryReminderEmail: (details: {
 		firstName: string;
 		disciplineName: string;
 		abbreviation: string;
 		expiresOn: string;
 		daysUntil: number;
 		stage: 'D60' | 'D30' | 'D14' | 'D7' | 'D0' | 'EXPIRED';
+		/** Which credential. The copy must never name the wrong one — they would
+		 *  renew the thing that was not expiring. */
+		track: 'LICENSE' | 'CERTIFICATION';
 		uploadUrl: string;
 	}) => {
-		const { firstName, disciplineName, abbreviation, expiresOn, daysUntil, stage, uploadUrl } =
+		const { firstName, disciplineName, abbreviation, expiresOn, daysUntil, stage, track, uploadUrl } =
 			details;
+
+		const isLicense = track === 'LICENSE';
+		const noun = isLicense ? 'license' : 'certification';
+		// A license is fixed by uploading a document; a certification by updating a
+		// date on the Experience & Rates entry.
+		const remedy = isLicense
+			? 'Upload a current license'
+			: 'Update its expiration date on your profile';
+		const cta = isLicense ? 'Upload your license' : 'Update your certification';
 
 		const expired = stage === 'EXPIRED';
 		const when =
@@ -1136,18 +1148,18 @@ ${daysText}
 		const subject = expired
 			? `Action needed: your ${abbreviation} shifts are hidden | ${APP_NAME}`
 			: stage === 'D0'
-				? `Your ${disciplineName} certification expires today | ${APP_NAME}`
+				? `Your ${disciplineName} ${noun} expires today | ${APP_NAME}`
 				: stage === 'D7'
-					? `7 days left: renew your ${disciplineName} certification | ${APP_NAME}`
-					: `Your ${disciplineName} certification expires ${expiresOn} | ${APP_NAME}`;
+					? `7 days left: renew your ${disciplineName} ${noun} | ${APP_NAME}`
+					: `Your ${disciplineName} ${noun} expires ${expiresOn} | ${APP_NAME}`;
 
 		const lede = expired
-			? `Your ${disciplineName} (${abbreviation}) certification expired on ${expiresOn}, so ${abbreviation} shifts are no longer showing in your account.`
-			: `Your ${disciplineName} (${abbreviation}) certification expires ${when}, on ${expiresOn}.`;
+			? `Your ${disciplineName} (${abbreviation}) ${noun} expired on ${expiresOn}, so ${abbreviation} shifts are no longer showing in your account.`
+			: `Your ${disciplineName} (${abbreviation}) ${noun} expires ${when}, on ${expiresOn}.`;
 
 		const consequence = expired
-			? 'Upload a current certificate to get those shifts back. Your other disciplines are not affected, and nothing else about your profile has changed.'
-			: `If it lapses without a newer certificate on file, ${abbreviation} shifts will be hidden from your account until you renew. Your other disciplines are not affected.`;
+			? `${remedy} to get those shifts back. Your other disciplines are not affected, and nothing else about your profile has changed.`
+			: `If it lapses, ${abbreviation} shifts will be hidden from your account until you renew. Your other disciplines are not affected.`;
 
 		const textEmail = `
 Hi ${firstName},
@@ -1156,7 +1168,7 @@ ${lede}
 
 ${consequence}
 
-Upload your certificate: ${uploadUrl}
+${cta}: ${uploadUrl}
 
 — Dental Temps Staffing Solutions
         `.trim();
@@ -1168,7 +1180,7 @@ Upload your certificate: ${uploadUrl}
             <p style="margin:24px 0;">
               <a href="${uploadUrl}"
                  style="background-color:#2a93d1;color:#ffffff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600;">
-                Upload your certificate
+                ${cta}
               </a>
             </p>
             <p style="color:#6b7280;font-size:13px;">— Dental Temps Staffing Solutions</p>
@@ -1183,6 +1195,54 @@ Upload your certificate: ${uploadUrl}
 	 * case the lockout does NOT protect against — hiding future listings does nothing
 	 * about a shift already on the calendar.
 	 */
+	/**
+	 * The 30-day grace on a MISSING license has run out. A different event from an
+	 * expiry: nothing lapsed, we simply never received one, and the consequence has
+	 * just landed. Sent once.
+	 */
+	licenseGraceExpiredEmail: (details: {
+		firstName: string;
+		disciplineName: string;
+		abbreviation: string;
+		uploadUrl: string;
+	}) => {
+		const { firstName, disciplineName, abbreviation, uploadUrl } = details;
+
+		const textEmail = `
+Hi ${firstName},
+
+We still do not have a current ${disciplineName} (${abbreviation}) license on file for you, so ${abbreviation} shifts are no longer showing in your account.
+
+This is not permanent — upload your license and those shifts come straight back. Your other disciplines are not affected.
+
+Upload your license: ${uploadUrl}
+
+If you believe this is a mistake, reply to this email and we will sort it out.
+
+— Dental Temps Staffing Solutions
+        `.trim();
+
+		const htmlEmail = `
+            <p>Hi ${firstName},</p>
+            <p>We still do not have a current <strong>${disciplineName} (${abbreviation})</strong> license on file for you, so ${abbreviation} shifts are no longer showing in your account.</p>
+            <p>This is not permanent — upload your license and those shifts come straight back. Your other disciplines are not affected.</p>
+            <p style="margin:24px 0;">
+              <a href="${uploadUrl}"
+                 style="background-color:#2a93d1;color:#ffffff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600;">
+                Upload your license
+              </a>
+            </p>
+            <p>If you believe this is a mistake, reply to this email and we will sort it out.</p>
+            <p style="color:#6b7280;font-size:13px;">— Dental Temps Staffing Solutions</p>
+        `.trim();
+
+		return {
+			textEmail,
+			htmlEmail,
+			subject: `Action needed: your ${abbreviation} shifts are hidden | ${APP_NAME}`
+		};
+	},
+
 	certExpiryDigestAdminEmail: (details: {
 		bookedWithExpired: Array<{ name: string; discipline: string; expiresOn: string; shiftDates: string; candidateId: string }>;
 		expired: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string }>;

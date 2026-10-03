@@ -56,7 +56,7 @@ export const actions = {
 				updatedAt: new Date(),
 				name: form.data.name,
 				abbreviation: form.data.abbreviation,
-				requiresCertification: form.data.requiresCertification
+				requiresLicense: form.data.requiresLicense
 			});
 
 			if (newDiscipline) {
@@ -91,7 +91,7 @@ export const actions = {
 					// (see openEditDialog); if either side is missed, saving an unrelated
 					// field would silently reset the flag to false and un-gate every
 					// professional holding this discipline.
-					requiresCertification: form.data.requiresCertification,
+					requiresLicense: form.data.requiresLicense,
 					updatedAt: new Date()
 				})
 				.where(eq(disciplineTable.id, form.data.id));

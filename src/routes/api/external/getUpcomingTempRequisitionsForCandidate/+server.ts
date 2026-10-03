@@ -19,8 +19,8 @@ import { eq, and, asc, inArray, notInArray, or, isNull, isNotNull, sql, gte } fr
 import { METERS_PER_MILE } from '$lib/config/constants';
 import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
-import { certSelectFields } from '$lib/server/certifications/certGateSql';
-import { splitByCertEligibility } from '$lib/server/certifications/certStatus';
+import { credentialSelectFields } from '$lib/server/certifications/credentialGateSql';
+import { splitByCredentialEligibility } from '$lib/server/certifications/credentialStatus';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
 import { clientIsActiveCondition } from '$lib/server/clientStatusGuards';
 import { logger } from '$lib/server/logger';
@@ -67,7 +67,7 @@ export const GET: RequestHandler = async ({ request }) => {
 				preferredHourlyMax: candidateDisciplineExperienceTable.preferredHourlyMax,
 				disciplineName: disciplineTable.name,
 				abbreviation: disciplineTable.abbreviation,
-				...certSelectFields()
+				...credentialSelectFields()
 			})
 			.from(candidateDisciplineExperienceTable)
 			.innerJoin(
@@ -103,7 +103,7 @@ export const GET: RequestHandler = async ({ request }) => {
 		// `certLocked` is returned to the client so the job list can explain the
 		// absence; without it the shifts would simply vanish.
 		const { eligible: eligibleDisciplines, certLocked } =
-			splitByCertEligibility(candidateDisciplines);
+			splitByCredentialEligibility(candidateDisciplines);
 
 		const disciplineIds = eligibleDisciplines.map((d) => d.disciplineId);
 

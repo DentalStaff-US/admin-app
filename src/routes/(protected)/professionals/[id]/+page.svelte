@@ -60,7 +60,7 @@
 	import * as Alert from '$lib/components/ui/alert';
 	import { Separator } from '$lib/components/ui/separator';
 	import { tick } from 'svelte';
-	import { certBadge, certState, toISODate } from '$lib/certStatusDisplay';
+	import { credentialBadge, toISODate } from '$lib/credentialStatusDisplay';
 
 	import { CANDIDATE_DOCUMENT_TYPES } from '$lib/config/zod-schemas';
 
@@ -87,27 +87,32 @@
 	 */
 	function docCertBadge(doc: any) {
 		if (!doc?.expiryDate) return null;
-		const linked = disciplines.find(
-			(d: any) => d.discipline.id === doc.disciplineId
-		);
-		return certBadge(
-			certState({
-				requiresCertification: Boolean(linked?.discipline?.requiresCertification),
-				effectiveExpiry: toISODate(doc.expiryDate)
-			}),
-			toISODate(doc.expiryDate)
-		);
+		const linked = disciplines.find((d: any) => d.discipline.id === doc.disciplineId);
+		// A document badge is judged against the LICENSE track: certification dates
+		// live on the Experience & Rates row, not on a file.
+		return credentialBadge('LICENSE', {
+			required: Boolean(linked?.discipline?.requiresLicense),
+			expiresOn: toISODate(doc.expiryDate)
+		});
 	}
 
-	/** Credential badge for one Experience & Rates entry. Null = render nothing. */
-	function disciplineCertBadge(d: any) {
-		return certBadge(
-			certState({
-				requiresCertification: Boolean(d?.discipline?.requiresCertification),
-				effectiveExpiry: toISODate(d?.effectiveCertExpiry)
+	/**
+	 * Credential badges for one Experience & Rates entry — up to two, one per track.
+	 * The expiry for a license lives on its linked document; the one for a
+	 * certification lives on this row and is self-declared.
+	 */
+	function disciplineCertBadges(d: any) {
+		return [
+			credentialBadge('LICENSE', {
+				required: Boolean(d?.discipline?.requiresLicense),
+				expiresOn: toISODate(d?.effectiveLicenseExpiry),
+				graceStartedOn: toISODate(d?.licenseGraceStartedOn)
 			}),
-			toISODate(d?.effectiveCertExpiry)
-		);
+			credentialBadge('CERTIFICATION', {
+				required: Boolean(d?.experience?.requiresCert),
+				expiresOn: toISODate(d?.experience?.certExpiresOn)
+			})
+		].filter(Boolean);
 	}
 
 	interface FileUploadResult {
@@ -1083,14 +1088,15 @@
 																<!-- Credential status. The expiry lives on the linked
 																     document, not on this row, so it is shown here but
 																     edited in the Documents tab. -->
-																{#if disciplineCertBadge(discipline)}
-																	{@const b = disciplineCertBadge(discipline)}
-																	<span
-																		class="mt-2 inline-flex rounded-full px-2 py-0.5 text-xs font-medium {b?.class}"
-																	>
-																		{b?.label}
-																	</span>
-																{/if}
+																<div class="mt-2 flex flex-wrap gap-1">
+																	{#each disciplineCertBadges(discipline) as b}
+																		<span
+																			class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium {b?.class}"
+																		>
+																			{b?.label}
+																		</span>
+																	{/each}
+																</div>
 															</div>
 															<div class="text-right flex-shrink-0">
 																<div

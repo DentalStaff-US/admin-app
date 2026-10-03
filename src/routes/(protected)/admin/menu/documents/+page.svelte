@@ -33,7 +33,7 @@
 	import { goto } from '$app/navigation';
 	import { cn } from '$lib/utils';
 	import { enhance as enhanceAction } from '$app/forms';
-	import { certBadge, certState, formatCertDate, toISODate } from '$lib/certStatusDisplay';
+	import { credentialBadge, credentialState, formatCertDate, toISODate } from '$lib/credentialStatusDisplay';
 
 	export let data: PageData;
 
@@ -54,7 +54,7 @@
 		disciplineId: string | null;
 		disciplineName: string | null;
 		disciplineAbbreviation: string | null;
-		requiresCertification: boolean | null;
+		requiresLicense: boolean | null;
 	};
 
 	let tableData: DocumentData[] = [];
@@ -107,13 +107,13 @@
 	 */
 	function docBadge(doc: DocumentData) {
 		if (!doc.expiryDate || !doc.disciplineId) return null;
-		return certBadge(
-			certState({
-				requiresCertification: Boolean(doc.requiresCertification),
-				effectiveExpiry: toISODate(doc.expiryDate)
-			}),
-			toISODate(doc.expiryDate)
-		);
+		// Judged against the LICENSE track: a certification's date lives on the
+		// Experience & Rates row, not on a document, so a CERTIFICATE row's expiry is
+		// evidence rather than the thing the gate reads.
+		return credentialBadge('LICENSE', {
+			required: Boolean(doc.requiresLicense),
+			expiresOn: toISODate(doc.expiryDate)
+		});
 	}
 
 	/** True when this row's credential has lapsed and actually gates work. */
@@ -121,11 +121,8 @@
 		return (
 			!!doc.expiryDate &&
 			!!doc.disciplineId &&
-			!!doc.requiresCertification &&
-			certState({
-				requiresCertification: true,
-				effectiveExpiry: toISODate(doc.expiryDate)
-			}) === 'EXPIRED'
+			!!doc.requiresLicense &&
+			credentialState({ required: true, expiresOn: toISODate(doc.expiryDate) }) === 'EXPIRED'
 		);
 	}
 
@@ -133,11 +130,8 @@
 		return (
 			!!doc.expiryDate &&
 			!!doc.disciplineId &&
-			!!doc.requiresCertification &&
-			certState({
-				requiresCertification: true,
-				effectiveExpiry: toISODate(doc.expiryDate)
-			}) === 'EXPIRING'
+			!!doc.requiresLicense &&
+			credentialState({ required: true, expiresOn: toISODate(doc.expiryDate) }) === 'EXPIRING'
 		);
 	}
 
@@ -198,7 +192,7 @@
 			enableSorting: true,
 			cell: ({ row }) =>
 				row.original.disciplineAbbreviation
-					? `${row.original.disciplineAbbreviation}${row.original.requiresCertification ? '' : ' (not required)'}`
+					? `${row.original.disciplineAbbreviation}${row.original.requiresLicense ? '' : ' (not required)'}`
 					: '—'
 		},
 		{

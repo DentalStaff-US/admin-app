@@ -1614,6 +1614,8 @@ export async function notifyCertExpiring(args: {
 	expiresOn: string;
 	daysUntil: number;
 	stage: 'D60' | 'D30' | 'D14' | 'D7' | 'D0' | 'EXPIRED';
+	/** Which credential — an email naming the wrong one makes them renew the wrong thing. */
+	track: 'LICENSE' | 'CERTIFICATION';
 	channels: ('EMAIL' | 'SMS')[];
 }): Promise<void> {
 	const label = 'certExpiring';
@@ -1622,20 +1624,27 @@ export async function notifyCertExpiring(args: {
 		// Uploading a current certificate is the fix for everyone, approved or not —
 		// an approved professional cannot edit their Experience & Rates, so pointing
 		// there would be a dead end for exactly the people this matters most to.
-		const uploadUrl = `${CANDIDATE_APP_DOMAIN}/settings/documents`;
+		// A license is fixed by uploading a document; a certification by updating the
+		// date on the Experience & Rates entry. Sending someone to the wrong page at
+		// the moment their work disappears is the worst possible dead end.
+		const uploadUrl =
+			args.track === 'LICENSE'
+				? `${CANDIDATE_APP_DOMAIN}/settings/documents`
+				: `${CANDIDATE_APP_DOMAIN}/settings/experience`;
 
 		const sends: Promise<boolean>[] = [];
 
 		if (args.channels.includes('EMAIL')) {
 			sends.push(
 				safeEmail(label, args.email, () => {
-					const t = EMAIL_TEMPLATES.certExpiryReminderEmail({
+					const t = EMAIL_TEMPLATES.credentialExpiryReminderEmail({
 						firstName,
 						disciplineName: args.disciplineName,
 						abbreviation: args.abbreviation,
 						expiresOn: fmtDate(args.expiresOn),
 						daysUntil: args.daysUntil,
 						stage: args.stage,
+						track: args.track,
 						uploadUrl
 					});
 					return emailService.sendEmail({
@@ -1652,13 +1661,15 @@ export async function notifyCertExpiring(args: {
 			sends.push(
 				safeSms(label, args.phone, (phone) =>
 					args.stage === 'EXPIRED'
-						? sms.sendTemplated(phone, 'certExpiredNotification', {
-								firstName,
-								disciplineName: args.disciplineName
-							})
-						: sms.sendTemplated(phone, 'certExpiringNotification', {
+						? sms.sendTemplated(phone, 'credentialExpiredNotification', {
 								firstName,
 								disciplineName: args.disciplineName,
+								credential: args.track === 'LICENSE' ? 'license' : 'certification'
+							})
+						: sms.sendTemplated(phone, 'credentialExpiringNotification', {
+								firstName,
+								disciplineName: args.disciplineName,
+								credential: args.track === 'LICENSE' ? 'license' : 'certification',
 								expiresOn: fmtDate(args.expiresOn),
 								daysUntil: args.daysUntil
 							})
@@ -1714,6 +1725,61 @@ export async function notifyAdminsOfCertExpiryDigest(sections: {
 				)
 			)
 		);
+	} catch (error) {
+		console.error(`[transactional:${label}] top-level error:`, error);
+	}
+}
+
+/**
+ * The 30-day grace on a MISSING license has run out and that discipline's jobs are
+ * now hidden.
+ *
+ * Email AND SMS, matching the EXPIRED stage of the expiry series and for the same
+ * reason: this reports a consequence already in effect, not one approaching. It is
+ * the one message in the whole feature that must land.
+ */
+export async function notifyLicenseGraceExpired(args: {
+	email: string;
+	phone: string | null;
+	firstName: string | null;
+	disciplineName: string;
+	abbreviation: string;
+	receiveSms: boolean;
+}): Promise<void> {
+	const label = 'licenseGraceExpired';
+	try {
+		const firstName = args.firstName ?? 'there';
+		const uploadUrl = `${CANDIDATE_APP_DOMAIN}/settings/documents`;
+
+		const sends: Promise<boolean>[] = [
+			safeEmail(label, args.email, () => {
+				const t = EMAIL_TEMPLATES.licenseGraceExpiredEmail({
+					firstName,
+					disciplineName: args.disciplineName,
+					abbreviation: args.abbreviation,
+					uploadUrl
+				});
+				return emailService.sendEmail({
+					to: [{ email: args.email }],
+					subject: t.subject,
+					html: t.htmlEmail,
+					text: t.textEmail
+				});
+			})
+		];
+
+		if (args.receiveSms && args.phone) {
+			sends.push(
+				safeSms(label, args.phone, (phone) =>
+					sms.sendTemplated(phone, 'licenseGraceExpiredNotification', {
+						firstName,
+						disciplineName: args.disciplineName
+					})
+				)
+			);
+		}
+
+		await dispatch(label, sends);
 	} catch (error) {
 		console.error(`[transactional:${label}] top-level error:`, error);
 	}

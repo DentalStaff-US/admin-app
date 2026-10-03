@@ -43,7 +43,7 @@ export const load: PageServerLoad = async (event) => {
 				disciplineAbbreviation: disciplineTable.abbreviation,
 				// The admin-set requirement, so an expiry on a discipline that needs no
 				// credential is not shown as though it gates anything.
-				requiresCertification: disciplineTable.requiresCertification
+				requiresLicense: disciplineTable.requiresLicense
 			})
 			.from(candidateDocumentUploadsTable)
 			.leftJoin(

@@ -10,16 +10,24 @@
  * discipline, one workday. Never their whole credential wallet, never anyone else.
  */
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import {
+	candidateDisciplineExperienceTable,
 	candidateDocumentUploadsTable,
+	candidateLicenseGraceTable,
 	candidateProfileTable
 } from '$lib/server/database/schemas/candidate';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { userTable } from '$lib/server/database/schemas/auth';
 import { recurrenceDayTable, requisitionTable, workdayTable } from '$lib/server/database/schemas/requisition';
-import { CERT_CREDENTIAL_TYPES, certState, todayInET, type CertState } from './certStatus';
+import {
+	LICENSE_DOC_TYPES,
+	credentialState,
+	graceDaysRemaining,
+	todayInET,
+	type CertState
+} from './credentialStatus';
 import { credentialExpiryToISODate } from './credentialLink';
 
 export type WorkdayCredential = {
@@ -28,11 +36,20 @@ export type WorkdayCredential = {
 	disciplineId: string;
 	disciplineName: string;
 	abbreviation: string;
-	requiresCertification: boolean;
-	state: CertState;
-	expiresOn: string | null;
-	/** The newest credential document backing it, if any. */
-	document: { id: string; filename: string | null; uploadedAt: Date } | null;
+	/** Platform-required, document-backed, and genuinely inspectable. */
+	license: {
+		state: CertState;
+		expiresOn: string | null;
+		/** Days before a missing license starts hiding jobs; null when no clock runs. */
+		graceDaysRemaining: number | null;
+		document: { id: string; filename: string | null; uploadedAt: Date } | null;
+	};
+	/** The professional's own declaration. NOT verified by DTSS — label it as such. */
+	certification: {
+		state: CertState;
+		expiresOn: string | null;
+		selfDeclared: true;
+	};
 };
 
 /**
@@ -51,22 +68,41 @@ export async function getWorkdayCredential(
 			disciplineId: requisitionTable.disciplineId,
 			disciplineName: disciplineTable.name,
 			abbreviation: disciplineTable.abbreviation,
-			requiresCertification: disciplineTable.requiresCertification
+			requiresLicense: disciplineTable.requiresLicense,
+			requiresCert: candidateDisciplineExperienceTable.requiresCert,
+			certExpiresOn: candidateDisciplineExperienceTable.certExpiresOn
 		})
 		.from(workdayTable)
 		.innerJoin(requisitionTable, eq(requisitionTable.id, workdayTable.requisitionId))
 		.innerJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
 		.innerJoin(candidateProfileTable, eq(candidateProfileTable.id, workdayTable.candidateId))
 		.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+		// LEFT, not INNER: the professional may have been assigned to a workday for a
+		// discipline no longer on their profile. The panel should still render the
+		// license half rather than vanishing.
+		.leftJoin(
+			candidateDisciplineExperienceTable,
+			and(
+				eq(candidateDisciplineExperienceTable.candidateId, workdayTable.candidateId),
+				eq(candidateDisciplineExperienceTable.disciplineId, requisitionTable.disciplineId)
+			)
+		)
 		.where(eq(workdayTable.recurrenceDayId, recurrenceDayId))
 		.limit(1);
 
 	if (!assigned || !assigned.disciplineId) return null;
-	if (!assigned.requiresCertification) return null;
+	// Nothing to show when neither track applies to this discipline.
+	if (!assigned.requiresLicense && !assigned.requiresCert) return null;
 
-	// Newest credential for that discipline. Ordered by expiry, matching the gate's
-	// MAX(expiry_date): the furthest-future certificate is the one in force, even if
-	// an older one was uploaded more recently.
+	// The LICENSE in force for that discipline, matching the gate's MAX(expiry_date):
+	// the furthest-future document wins, even if an older one was uploaded more
+	// recently.
+	//
+	// Two filters here are load-bearing and were both missing. Without the type
+	// filter a CERTIFICATE could be presented to a practice as the license. Without
+	// `expiry_date IS NOT NULL` the ordering lies: Postgres `DESC` is NULLS FIRST, so
+	// a single linked document with no expiry outranked a perfectly valid license and
+	// this panel reported MISSING for a professional who was fully current.
 	const [doc] = await db
 		.select({
 			id: candidateDocumentUploadsTable.id,
@@ -78,14 +114,42 @@ export async function getWorkdayCredential(
 		.where(
 			and(
 				eq(candidateDocumentUploadsTable.candidateId, assigned.candidateId),
-				eq(candidateDocumentUploadsTable.disciplineId, assigned.disciplineId)
+				eq(candidateDocumentUploadsTable.disciplineId, assigned.disciplineId),
+				inArray(candidateDocumentUploadsTable.type, [...LICENSE_DOC_TYPES]),
+				isNotNull(candidateDocumentUploadsTable.expiryDate)
 			)
 		)
 		.orderBy(desc(candidateDocumentUploadsTable.expiryDate))
 		.limit(1);
 
-	const isCredential = doc != null;
-	const expiresOn = isCredential ? credentialExpiryToISODate(doc.expiryDate) : null;
+	// The grace clock, so a practice sees "no license yet, 12 days to supply one"
+	// rather than a bare warning with no sense of the deadline.
+	const [grace] = await db
+		.select({ notifiedAt: candidateLicenseGraceTable.notifiedAt })
+		.from(candidateLicenseGraceTable)
+		.where(
+			and(
+				eq(candidateLicenseGraceTable.candidateId, assigned.candidateId),
+				eq(candidateLicenseGraceTable.disciplineId, assigned.disciplineId)
+			)
+		)
+		.limit(1);
+
+	const expiresOn = doc ? credentialExpiryToISODate(doc.expiryDate) : null;
+	const license = {
+		required: true,
+		expiresOn,
+		graceStartedOn: grace ? credentialExpiryToISODate(grace.notifiedAt) : null
+	};
+	const today = todayInET();
+
+	// The professional's own declared certification, shown alongside but clearly
+	// SELF-DECLARED: presenting a date someone typed about themselves to a practice
+	// as though DTSS had verified it is a liability this panel must not create.
+	const certification = {
+		required: Boolean(assigned.requiresCert),
+		expiresOn: assigned.certExpiresOn ?? null
+	};
 
 	return {
 		candidateId: assigned.candidateId,
@@ -93,15 +157,17 @@ export async function getWorkdayCredential(
 		disciplineId: assigned.disciplineId,
 		disciplineName: assigned.disciplineName,
 		abbreviation: assigned.abbreviation,
-		requiresCertification: true,
-		state: certState(
-			{ requiresCertification: true, effectiveExpiry: expiresOn },
-			todayInET()
-		),
-		expiresOn,
-		document: doc ? { id: doc.id, filename: doc.filename, uploadedAt: doc.uploadedAt } : null
+		license: {
+			state: credentialState(license, today),
+			expiresOn,
+			graceDaysRemaining: graceDaysRemaining(license, today),
+			document: doc ? { id: doc.id, filename: doc.filename, uploadedAt: doc.uploadedAt } : null
+		},
+		certification: {
+			state: credentialState(certification, today),
+			expiresOn: certification.expiresOn,
+			/** Always true. The practice must be told this is not DTSS-verified. */
+			selfDeclared: true
+		}
 	};
 }
-
-/** Document types that may be surfaced here. Mirrors the gate. */
-export const VIEWABLE_CREDENTIAL_TYPES = CERT_CREDENTIAL_TYPES;

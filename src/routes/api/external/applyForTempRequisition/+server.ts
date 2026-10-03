@@ -12,7 +12,7 @@ import {
 	recurrenceDayTable
 } from '$lib/server/database/schemas/requisition';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
-import { certSelectFields } from '$lib/server/certifications/certGateSql';
+import { credentialSelectFields } from '$lib/server/certifications/credentialGateSql';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { recordAction } from '$lib/server/audit/audit';
 import { and, eq } from 'drizzle-orm';
@@ -208,7 +208,7 @@ export const POST: RequestHandler = async ({ request }) => {
 						experienceLevelOrder: experienceLevelTable.order,
 						preferredHourlyMin: candidateDisciplineExperienceTable.preferredHourlyMin,
 						preferredHourlyMax: candidateDisciplineExperienceTable.preferredHourlyMax,
-						...certSelectFields()
+						...credentialSelectFields()
 					})
 					.from(candidateDisciplineExperienceTable)
 					.leftJoin(

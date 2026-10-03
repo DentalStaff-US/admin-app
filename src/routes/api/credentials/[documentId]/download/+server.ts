@@ -14,7 +14,7 @@ import { getClientCompanyByClientId } from '$lib/server/database/queries/clients
 import { assertCanAccessLocation } from '$lib/server/scoping';
 import { getSignedDownloadUrl } from '$lib/server/uploads';
 import { uploadUrlToKey } from '$lib/server/certifications/credentialLink';
-import { CERT_CREDENTIAL_TYPES } from '$lib/server/certifications/certStatus';
+import { LINKABLE_CREDENTIAL_TYPES } from '$lib/server/certifications/credentialStatus';
 import { logger } from '$lib/server/logger';
 
 /**
@@ -62,7 +62,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 	if (
 		!doc ||
 		!doc.disciplineId ||
-		!(CERT_CREDENTIAL_TYPES as readonly string[]).includes(doc.type)
+		!(LINKABLE_CREDENTIAL_TYPES as readonly string[]).includes(doc.type)
 	) {
 		throw error(404, 'Not found');
 	}

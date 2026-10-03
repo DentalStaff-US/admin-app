@@ -15,7 +15,7 @@
 import { and, eq } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import { candidateDisciplineExperienceTable } from '$lib/server/database/schemas/candidate';
-import { CERT_CREDENTIAL_TYPES } from './certStatus';
+import { LINKABLE_CREDENTIAL_TYPES } from './credentialStatus';
 
 export type CredentialLinkDecision =
 	| { ok: true }
@@ -23,7 +23,7 @@ export type CredentialLinkDecision =
 
 /** Narrowing guard for the document types that may carry a discipline link. */
 export function isCredentialType(type: string | null | undefined): boolean {
-	return !!type && (CERT_CREDENTIAL_TYPES as readonly string[]).includes(type);
+	return !!type && (LINKABLE_CREDENTIAL_TYPES as readonly string[]).includes(type);
 }
 
 /**

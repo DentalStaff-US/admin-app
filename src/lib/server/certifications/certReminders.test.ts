@@ -18,6 +18,7 @@ function dateIn(days: number): string {
 
 function row(over: Partial<CertRow> = {}): CertRow {
 	return {
+		track: 'LICENSE',
 		candidateId: 'cand-1',
 		userId: 'user-1',
 		firstName: 'Jane',
@@ -144,5 +145,20 @@ describe('selectCertRemindersToSend', () => {
 			TODAY
 		);
 		expect(plans.map((p) => p.stage)).toEqual(['D7', 'EXPIRED']);
+	});
+
+	it('plans both tracks separately for one discipline', () => {
+		// A professional can hold a license AND a certification on the same
+		// discipline, expiring the same day. Both must be reminded about — which is
+		// what `track` in the ledger's unique key makes possible.
+		const plans = selectCertRemindersToSend(
+			[
+				row({ track: 'LICENSE', effectiveExpiry: dateIn(7) }),
+				row({ track: 'CERTIFICATION', effectiveExpiry: dateIn(7) })
+			],
+			TODAY
+		);
+		expect(plans).toHaveLength(2);
+		expect(plans.map((p) => p.row.track)).toEqual(['LICENSE', 'CERTIFICATION']);
 	});
 });

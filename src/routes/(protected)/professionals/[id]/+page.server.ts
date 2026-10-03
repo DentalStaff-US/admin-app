@@ -21,6 +21,11 @@ import {
 	validateCredentialLink
 } from '$lib/server/certifications/credentialLink';
 import {
+	getCandidateDisciplineSnapshot,
+	replaceCandidateDisciplines
+} from '$lib/server/database/queries/candidateDisciplines';
+import { recordAction } from '$lib/server/audit/audit';
+import {
 	CandidateStatusSchema,
 	updateCandidateProfileSchema,
 	updateCandidateDisciplinesSchema,
@@ -208,25 +213,27 @@ export const actions = {
 		try {
 			const { disciplines } = form.data;
 
-			// Delete existing disciplines for this candidate
-			await db
-				.delete(candidateDisciplineExperienceTable)
-				.where(eq(candidateDisciplineExperienceTable.candidateId, id));
+			// Was a delete-all followed by an untransacted insert loop: a failure part
+			// way through left the professional with a partial or empty discipline set,
+			// which removes them from the matching engine and every job list.
+			await db.transaction(async (tx) => {
+				const before = await getCandidateDisciplineSnapshot(id, tx);
 
-			// Insert new/updated disciplines
-			if (disciplines.length > 0) {
-				for (const discipline of disciplines) {
-					await db.insert(candidateDisciplineExperienceTable).values({
-						candidateId: id,
-						disciplineId: discipline.disciplineId,
-						experienceLevelId: discipline.experienceLevelId,
-						preferredHourlyMin: discipline.preferredHourlyMin,
-						preferredHourlyMax: discipline.preferredHourlyMax,
-						createdAt: new Date(),
-						updatedAt: new Date()
-					});
-				}
-			}
+				await replaceCandidateDisciplines(id, disciplines, tx);
+
+				// This file had no audit trail at all. Disciplines drive job matching and
+				// pay, so a change here is worth the same record as a status change.
+				await recordAction({
+					entityType: 'CANDIDATES',
+					entityId: id,
+					action: 'UPDATE',
+					actor: user,
+					before: { disciplines: before },
+					after: { disciplines },
+					metadata: { field: 'disciplines' },
+					tx
+				});
+			});
 
 			setFlash(
 				{

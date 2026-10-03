@@ -140,15 +140,15 @@ export const newClientCompanyLocationSchema = z.object({
 export type NewClientCompanyLocationSchema = typeof newClientCompanyLocationSchema;
 export type CompanyLocationSchema = typeof clientCompanyLocationSchema;
 
-// Does this discipline require a certification/registration that expires? Admin-set,
-// once per discipline.
+// Does this discipline legally require a LICENSE? Admin-set, once per discipline.
+// Certifications are declared per professional and never configured here.
 //
 // Accepts both a real boolean (the superforms "add" dialog) and the raw checkbox
 // strings the plain-FormData "edit" dialog posts. NOT z.coerce.boolean(), which maps
 // the string 'false' to TRUE — here that would silently flag a discipline and hide
 // jobs from everyone holding it. An unchecked checkbox submits nothing at all, which
 // arrives as undefined and takes the `false` default.
-const requiresCertification = z
+const requiresLicense = z
 	.preprocess(
 		(v) => (typeof v === 'string' ? v === 'true' || v === 'on' : Boolean(v)),
 		z.boolean()
@@ -158,14 +158,14 @@ const requiresCertification = z
 export const newDisciplineSchema = z.object({
 	name: z.string().min(1),
 	abbreviation: z.string().min(1),
-	requiresCertification
+	requiresLicense
 });
 
 export const editDisciplineSchema = z.object({
 	id: z.string().min(1),
 	name: z.string().min(1),
 	abbreviation: z.string().min(1),
-	requiresCertification
+	requiresLicense
 });
 
 export const deleteDisciplineSchema = z.object({
@@ -608,7 +608,36 @@ export const ClientLocationDetailsSchema = NewAddressSchema.merge(ContactSchema)
 );
 export const CandidateStatusSchema = z.object({ status: z.string().min(1), id: z.string().min(1) });
 
+/**
+ * A discipline cannot appear twice in one payload.
+ *
+ * `replaceCandidateDisciplines` writes the whole set in a single
+ * INSERT … ON CONFLICT DO UPDATE, and Postgres raises SQLSTATE 21000 ("command
+ * cannot affect row a second time") on a duplicate key within one statement. Both
+ * UIs prevent duplicates client-side; nothing prevented them server-side, so this
+ * is the guard, not a nicety.
+ */
+export function uniqueDisciplineIds<T extends { disciplineId: string }>(
+	rows: T[],
+	ctx: z.RefinementCtx
+) {
+	const seen = new Set<string>();
+	rows.forEach((row, i) => {
+		if (seen.has(row.disciplineId)) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: [i, 'disciplineId'],
+				message: 'This discipline is listed twice.'
+			});
+		}
+		seen.add(row.disciplineId);
+	});
+}
+
 export const updateCandidateDisciplinesSchema = z.object({
+	// NOTE: deliberately carries no certification fields. They live on the same
+	// table but are written only by setDisciplineCertification — see the comment on
+	// replaceCandidateDisciplines for why a preserve-on-omit rule cannot work here.
 	disciplines: z
 		.array(
 			z
@@ -624,6 +653,7 @@ export const updateCandidateDisciplinesSchema = z.object({
 				})
 		)
 		.min(1, 'Please select at least one discipline')
+		.superRefine(uniqueDisciplineIds)
 });
 
 export const adminNewUserSchema = z.object({

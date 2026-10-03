@@ -6,6 +6,24 @@ import {
 } from '$lib/server/database/schemas/candidate';
 import { CANDIDATE_STATUS } from '$lib/config/constants';
 
+/**
+ * "This professional's record is frozen because they are live on the platform."
+ *
+ * Approval is the point at which practices and compliance start relying on what is
+ * on file, so the editable set narrows. Hoisted out of the two inline copies that
+ * used to express this, because §-level rules (documents, and now Experience &
+ * Rates) must agree on what "approved" means.
+ *
+ * `approved` and `status` are kept in sync by the admin updateStatus action, so
+ * either alone would do; checking both costs nothing and survives a drift.
+ */
+export function isCandidateFrozen(profile: {
+	approved?: boolean | null;
+	status?: string | null;
+}): boolean {
+	return profile.approved === true || profile.status === CANDIDATE_STATUS.ACTIVE;
+}
+
 export type DocumentEditDecision =
 	| { allowed: true }
 	| { allowed: false; reason: 'NOT_FOUND' | 'NOT_OWNER' | 'APPROVED' | 'LOCKED'; message: string };
@@ -106,7 +124,7 @@ export async function assertCandidateDocumentEditable(opts: {
 		};
 	}
 
-	const approved = row.approved === true || row.status === CANDIDATE_STATUS.ACTIVE;
+	const approved = isCandidateFrozen(row);
 
 	if (approved) {
 		const touched = opts.fields ?? [];
@@ -162,7 +180,7 @@ export async function getCandidateDocumentEditability(candidateId: string): Prom
 
 	if (!profile) return { editable: false, reason: null, canEditCredentialMetadata: false };
 
-	const frozen = profile.approved === true || profile.status === CANDIDATE_STATUS.ACTIVE;
+	const frozen = isCandidateFrozen(profile);
 	return {
 		editable: !frozen,
 		reason: frozen ? 'APPROVED' : null,

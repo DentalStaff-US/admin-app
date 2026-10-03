@@ -15,7 +15,11 @@ import {
 	type SQLWrapper
 } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
-import { certNotExpiredSql, effectiveCertExpirySql } from '$lib/server/certifications/certGateSql';
+import {
+	credentialNotExpiredSql,
+	effectiveLicenseExpirySql,
+	licenseGraceStartedOnSql
+} from '$lib/server/certifications/credentialGateSql';
 import { toCredentialExpiryDate } from '$lib/server/certifications/credentialLink';
 import db from '$lib/server/database/drizzle';
 import { userTable, type User } from '../schemas/auth';
@@ -442,10 +446,11 @@ export async function getCandidateProfileById(candidateId: string) {
 				max: candidateDisciplineExperienceTable.preferredHourlyMax
 			},
 			// MAX(expiry_date) across the credentials linked to this entry, 'YYYY-MM-DD'
-			// or null. `discipline.requiresCertification` rides along in the spread
+			// or null. `discipline.requiresLicense` rides along in the spread
 			// above, so the two together give the profile page its cert badge without a
 			// second query.
-			effectiveCertExpiry: effectiveCertExpirySql()
+			effectiveLicenseExpiry: effectiveLicenseExpirySql(),
+			licenseGraceStartedOn: licenseGraceStartedOnSql()
 		})
 		.from(candidateDisciplineExperienceTable)
 		.innerJoin(
@@ -770,7 +775,7 @@ export async function getQualifiedProfessionalsForRequisition(
 					// so an expired professional stops being texted about shifts they can no
 					// longer take. That silently shrinks the matched pool, which is why the
 					// admin digest reports expiring/expired credentials.
-					certNotExpiredSql(),
+					credentialNotExpiredSql(),
 					// Reductive experience-level filter: candidate level order must be >=
 					// required level order. Skipped when requisition has no level (null).
 					requiredOrder !== null
@@ -896,17 +901,14 @@ export async function searchProfessionalsForRequisition(
 							-- place a specific named person the filters hide — hiding Jane when the
 							-- admin typed "Jane" reads as a broken search, and she may have renewed
 							-- this morning). Surfacing it lets the assign UI warn instead.
-							'certBlocked', (
-								${disciplineTable.requiresCertification}
-								AND COALESCE((
-									SELECT MAX((cdu.expiry_date AT TIME ZONE 'UTC')::date)
-									FROM candidate_document_uploads cdu
-									WHERE cdu.candidate_id = ${candidateProfileTable.id}
-										AND cdu.discipline_id = ${disciplineTable.id}
-										AND cdu.type IN ('LICENSE','CERTIFICATE')
-										AND cdu.expiry_date IS NOT NULL
-								) < (now() AT TIME ZONE 'America/New_York')::date, false)
-							)
+							-- Was a hand-rolled fourth copy of the gate, still carrying the
+							-- pre-0060 UTC cast against what is now a date column, which is
+							-- correct only while the session timezone happens to be UTC. The
+							-- shared helper is the single definition.
+							'certBlocked', NOT (${credentialNotExpiredSql(
+								candidateDisciplineExperienceTable,
+								disciplineTable
+							)})
 						)) filter (where ${disciplineTable.id} is not null),
 						'[]'::jsonb
 					)`.as('disciplines'),

@@ -19,8 +19,12 @@ const DAYS: Record<(typeof STAGES)[number], number> = {
 	EXPIRED: -1
 };
 
-const render = (stage: (typeof STAGES)[number]) =>
-	EMAIL_TEMPLATES.certExpiryReminderEmail({
+const render = (
+	stage: (typeof STAGES)[number],
+	track: 'LICENSE' | 'CERTIFICATION' = 'CERTIFICATION'
+) =>
+	EMAIL_TEMPLATES.credentialExpiryReminderEmail({
+		track,
 		firstName: 'Jane',
 		disciplineName: 'Dental Hygienist',
 		abbreviation: 'RDH',
@@ -30,7 +34,7 @@ const render = (stage: (typeof STAGES)[number]) =>
 		uploadUrl: 'https://candidate.example.com/settings/documents'
 	});
 
-describe('certExpiryReminderEmail', () => {
+describe('credentialExpiryReminderEmail', () => {
 	it('renders every stage without throwing, with all three parts populated', () => {
 		for (const stage of STAGES) {
 			const t = render(stage);
@@ -56,6 +60,20 @@ describe('certExpiryReminderEmail', () => {
 			expect(t.textEmail, stage).toContain('Dental Hygienist');
 			expect(t.textEmail, stage).toContain('Apr 30, 2026');
 			expect(t.textEmail, stage).toContain('https://candidate.example.com/settings/documents');
+		}
+	});
+
+	it('names the right credential, and never the wrong one', () => {
+		// The whole point of the split: an email naming the wrong credential makes
+		// them renew the thing that was not expiring.
+		for (const stage of STAGES) {
+			const lic = render(stage, 'LICENSE');
+			expect(lic.textEmail, stage).toMatch(/license/i);
+			expect(lic.textEmail, stage).not.toMatch(/certification/i);
+
+			const cert = render(stage, 'CERTIFICATION');
+			expect(cert.textEmail, stage).toMatch(/certification/i);
+			expect(cert.textEmail, stage).not.toMatch(/\blicense\b/i);
 		}
 	});
 
@@ -137,21 +155,24 @@ describe('certExpiryDigestAdminEmail', () => {
 describe('certification SMS', () => {
 	it('fits comfortably in a single segment and names the discipline', () => {
 		const msgs = [
-			SMS_TEMPLATES.certExpiringNotification({
+			SMS_TEMPLATES.credentialExpiringNotification({
 				firstName: 'Jane',
 				disciplineName: 'Dental Hygienist',
+				credential: 'license',
 				expiresOn: 'Apr 30, 2026',
 				daysUntil: 7
 			}).textMessage,
-			SMS_TEMPLATES.certExpiringNotification({
+			SMS_TEMPLATES.credentialExpiringNotification({
 				firstName: 'Jane',
 				disciplineName: 'Dental Hygienist',
+				credential: 'certification',
 				expiresOn: 'Apr 30, 2026',
 				daysUntil: 0
 			}).textMessage,
-			SMS_TEMPLATES.certExpiredNotification({
+			SMS_TEMPLATES.credentialExpiredNotification({
 				firstName: 'Jane',
-				disciplineName: 'Dental Hygienist'
+				disciplineName: 'Dental Hygienist',
+				credential: 'license'
 			}).textMessage
 		];
 
@@ -165,9 +186,10 @@ describe('certification SMS', () => {
 	});
 
 	it('says "today" rather than "in 0 days"', () => {
-		const m = SMS_TEMPLATES.certExpiringNotification({
+		const m = SMS_TEMPLATES.credentialExpiringNotification({
 			firstName: 'Jane',
 			disciplineName: 'Dental Hygienist',
+			credential: 'license',
 			expiresOn: 'Apr 30, 2026',
 			daysUntil: 0
 		}).textMessage;

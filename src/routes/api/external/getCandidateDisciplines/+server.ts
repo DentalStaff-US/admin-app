@@ -11,7 +11,10 @@ import { authenticateUser } from '$lib/server/serverUtils';
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { eq, ne, and, asc, desc } from 'drizzle-orm';
 import { logger } from '$lib/server/logger';
-import { effectiveCertExpirySql } from '$lib/server/certifications/certGateSql';
+import {
+	effectiveLicenseExpirySql,
+	licenseGraceStartedOnSql
+} from '$lib/server/certifications/credentialGateSql';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -57,13 +60,19 @@ export const GET: RequestHandler = async ({ request }) => {
 				// second lookup.
 				name: disciplineTable.name,
 				abbreviation: disciplineTable.abbreviation,
-				// Credential state for this entry. `requiresCertification` is the admin-set
+				// Credential state for this entry. `requiresLicense` is the admin-set
 				// requirement; `effectiveExpiry` is MAX(expiry_date) across the credentials
 				// linked to it ('YYYY-MM-DD', or null when none is on file). Together these
 				// drive the badges and the upload picker — and they are what the Experience
 				// & Rates editors must round-trip, since this endpoint prefills them.
-				requiresCertification: disciplineTable.requiresCertification,
-				effectiveExpiry: effectiveCertExpirySql()
+				requiresLicense: disciplineTable.requiresLicense,
+				// Both tracks. The editors and both credential slots prefill from this —
+				// if any field is missing the UI shows a blank and the next save writes
+				// the blank back.
+				effectiveLicenseExpiry: effectiveLicenseExpirySql(),
+				licenseGraceStartedOn: licenseGraceStartedOnSql(),
+				requiresCert: candidateDisciplineExperienceTable.requiresCert,
+				certExpiresOn: candidateDisciplineExperienceTable.certExpiresOn
 			})
 			.from(candidateDisciplineExperienceTable)
 			.innerJoin(candidateProfileTable, eq(candidateProfileTable.userId, user.id))
