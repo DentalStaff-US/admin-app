@@ -59,6 +59,7 @@ export const load: PageServerLoad = async (event) => {
 
 	contactForm.data = {
 		companyPhone: location.companyPhone || '',
+		cellPhone: location.cellPhone || '',
 		email: location.email || '',
 		website: location.website || ''
 	};
@@ -165,9 +166,12 @@ export const actions = {
 			return fail(400, { form });
 		}
 		const { locationId } = event.params;
-		const { companyPhone, email, website } = form.data;
+		const { companyPhone, cellPhone, email, website } = form.data;
 		const contactData = {
 			companyPhone: companyPhone || '',
+			// Was omitted, so this form silently dropped the cell number on every save —
+			// and it is the only number many businesses gave us (see ContactSchema).
+			cellPhone: cellPhone || '',
 			email: email || '',
 			website: website || ''
 		};

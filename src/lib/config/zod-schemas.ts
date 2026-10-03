@@ -552,6 +552,15 @@ export const NewAddressSchema = z.object({
 
 export const ContactSchema = z.object({
 	companyPhone: usPhoneField().nullable().optional(),
+	/**
+	 * The location's mobile/cell number. Client onboarding asks for ONE number plus a
+	 * type, and writes it to `cell_phone` OR `company_phone` accordingly
+	 * (onboarding/client/location/+page.server.ts). Any business that answered "cell"
+	 * therefore has company_phone NULL — so a contact form that only knows about
+	 * companyPhone shows them a blank, and saving it would wipe nothing but also never
+	 * surface the number they actually gave us.
+	 */
+	cellPhone: usPhoneField().nullable().optional(),
 	email: z.string().email('Invalid email address').optional(),
 	website: z.string().optional()
 });

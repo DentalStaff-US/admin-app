@@ -404,6 +404,20 @@
                                             />
                                         </div>
 
+                                        <!-- Onboarding asks for ONE number plus a type and stores it in
+                                             either cell_phone or company_phone, so a business that
+                                             answered "cell" had no editable field here at all and their
+                                             number never appeared on this card. -->
+                                        <div class="space-y-2">
+                                            <Label for="cellPhone">Office Cell Phone</Label>
+                                            <PhoneInput
+                                                    id="cellPhone"
+                                                    name="cellPhone"
+                                                    bind:value={$locationForm.cellPhone}
+                                                    placeholder="Enter office cell number"
+                                            />
+                                        </div>
+
                                         <div class="space-y-2">
                                             <Label for="email">Email Address</Label>
                                             <Input
@@ -477,6 +491,19 @@
                                                     </div>
                                                 {/if}
 
+                                                {#if location?.cellPhone}
+                                                    <div class="flex items-center gap-2">
+                                                        <Phone class="h-4 w-4 text-gray-500"/>
+                                                        <a
+                                                                href={`tel:${location.cellPhone}`}
+                                                                class="text-blue-600 hover:underline"
+                                                        >
+                                                            {location.cellPhone}
+                                                        </a>
+                                                        <span class="text-xs text-muted-foreground">cell</span>
+                                                    </div>
+                                                {/if}
+
                                                 {#if location?.email}
                                                     <div class="flex items-center gap-2">
                                                         <Mail class="h-4 w-4 text-gray-500"/>
@@ -503,7 +530,7 @@
                                                     </div>
                                                 {/if}
 
-                                                {#if !location?.companyPhone && !location?.email && !location?.website}
+                                                {#if !location?.companyPhone && !location?.cellPhone && !location?.email && !location?.website}
                                                     <p class="text-sm text-muted-foreground">
                                                         No contact information available
                                                     </p>

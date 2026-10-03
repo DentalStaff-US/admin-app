@@ -85,6 +85,7 @@ export const load: PageServerLoad = async (event) => {
 			state: location.state || '',
 			zipcode: location.zipcode || '',
 			companyPhone: location.companyPhone || '',
+			cellPhone: location.cellPhone || '',
 			email: location.email || '',
 			website: location.website || '',
 			completeAddress: location.completeAddress || '',
@@ -134,6 +135,7 @@ export const load: PageServerLoad = async (event) => {
 			state: location.state || '',
 			zipcode: location.zipcode || '',
 			companyPhone: location.companyPhone || '',
+			cellPhone: location.cellPhone || '',
 			email: location.email || '',
 			website: location.website || '',
 			completeAddress: location.completeAddress || '',
@@ -384,7 +386,8 @@ export const actions = {
 		}
 		const { id } = event.params;
 
-		const { completeAddress, lat, lon, name, email, companyPhone, website, timezone } = form.data;
+		const { completeAddress, lat, lon, name, email, companyPhone, cellPhone, website, timezone } =
+			form.data;
 
 		// The schema already carries streetOne/city/state/zipcode; they used to be
 		// dropped here, so editing an address left the old city/state/zipcode
@@ -401,6 +404,7 @@ export const actions = {
 			lon: lon?.toString(),
 			timezone,
 			companyPhone,
+			cellPhone,
 			email,
 			website,
 			name
