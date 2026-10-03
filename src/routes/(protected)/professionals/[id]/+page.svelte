@@ -60,6 +60,55 @@
 	import * as Alert from '$lib/components/ui/alert';
 	import { Separator } from '$lib/components/ui/separator';
 	import { tick } from 'svelte';
+	import { certBadge, certState, toISODate } from '$lib/certStatusDisplay';
+
+	import { CANDIDATE_DOCUMENT_TYPES } from '$lib/config/zod-schemas';
+
+	/** Credential types; only these can be linked to a discipline and gate placement. */
+	const CREDENTIAL_TYPES = ['LICENSE', 'CERTIFICATE'];
+
+	/** Upload-form state for filing a document as a discipline's credential. */
+	let uploadDocType = 'OTHER';
+	let uploadDisciplineId = '';
+	let uploadExpiry = '';
+	$: uploadIsCredential = CREDENTIAL_TYPES.includes(uploadDocType);
+	$: if (!uploadIsCredential) {
+		uploadDisciplineId = '';
+		uploadExpiry = '';
+	}
+
+	/** 'YYYY-MM-DD' for a date input, from however the row carried the expiry. */
+	const expiryInput = (v: unknown) => (v ? String(toISODate(v as string)) : '');
+
+	/**
+	 * Badge for one document row, judged against the discipline it is linked to — an
+	 * expiry on an unlinked file, or on a discipline needing no credential, gates
+	 * nothing and must not look alarming.
+	 */
+	function docCertBadge(doc: any) {
+		if (!doc?.expiryDate) return null;
+		const linked = disciplines.find(
+			(d: any) => d.discipline.id === doc.disciplineId
+		);
+		return certBadge(
+			certState({
+				requiresCertification: Boolean(linked?.discipline?.requiresCertification),
+				effectiveExpiry: toISODate(doc.expiryDate)
+			}),
+			toISODate(doc.expiryDate)
+		);
+	}
+
+	/** Credential badge for one Experience & Rates entry. Null = render nothing. */
+	function disciplineCertBadge(d: any) {
+		return certBadge(
+			certState({
+				requiresCertification: Boolean(d?.discipline?.requiresCertification),
+				effectiveExpiry: toISODate(d?.effectiveCertExpiry)
+			}),
+			toISODate(d?.effectiveCertExpiry)
+		);
+	}
 
 	interface FileUploadResult {
 		filename: string;
@@ -1031,6 +1080,17 @@
 																<p class="text-xs text-gray-600 mt-1">
 																	{discipline.experience.experienceLevel}
 																</p>
+																<!-- Credential status. The expiry lives on the linked
+																     document, not on this row, so it is shown here but
+																     edited in the Documents tab. -->
+																{#if disciplineCertBadge(discipline)}
+																	{@const b = disciplineCertBadge(discipline)}
+																	<span
+																		class="mt-2 inline-flex rounded-full px-2 py-0.5 text-xs font-medium {b?.class}"
+																	>
+																		{b?.label}
+																	</span>
+																{/if}
 															</div>
 															<div class="text-right flex-shrink-0">
 																<div
@@ -1115,6 +1175,66 @@
 											<div class="space-y-2">
 												<input type="hidden" name="urls" bind:value={urlStrings} />
 												<input type="hidden" name="filesData" bind:value={fileStrings} />
+
+												<div class="space-y-1">
+													<label class="text-sm font-medium" for="admin-doc-type">
+														Document type
+													</label>
+													<select
+														id="admin-doc-type"
+														name="documentType"
+														bind:value={uploadDocType}
+														class="w-full border rounded-md px-3 py-2 text-sm bg-white"
+													>
+														{#each CANDIDATE_DOCUMENT_TYPES as t}
+															<option value={t}>{t}</option>
+														{/each}
+													</select>
+												</div>
+
+												<!-- Filing a licence/certificate as the credential for one of this
+												     professional's disciplines. The server rejects a link to a
+												     discipline they do not hold, or one without an expiry. -->
+												{#if uploadIsCredential && disciplines.length > 0}
+													<div class="space-y-2 rounded-md border bg-gray-50 p-3">
+														<div class="space-y-1">
+															<label class="text-xs font-medium" for="admin-doc-discipline">
+																Credential for discipline (optional)
+															</label>
+															<select
+																id="admin-doc-discipline"
+																name="documentDisciplineId"
+																bind:value={uploadDisciplineId}
+																class="w-full border rounded-md px-2 py-1 text-sm bg-white"
+															>
+																<option value="">Not a credential</option>
+																{#each disciplines as d}
+																	<option value={d.discipline.id}>
+																		{d.discipline.name} ({d.discipline.abbreviation})
+																	</option>
+																{/each}
+															</select>
+														</div>
+														{#if uploadDisciplineId}
+															<div class="space-y-1">
+																<label class="text-xs font-medium" for="admin-doc-expiry">
+																	Expires on
+																</label>
+																<!-- No min: staff must be able to record a credential that
+																     has already lapsed. -->
+																<input
+																	id="admin-doc-expiry"
+																	name="documentExpiryDate"
+																	type="date"
+																	bind:value={uploadExpiry}
+																	class="w-full border rounded-md px-2 py-1 text-sm bg-white"
+																	required
+																/>
+															</div>
+														{/if}
+													</div>
+												{/if}
+
 												<FileDropzone
 													onFileDrop={handleDocumentsUpload}
 													accept={['image/*', '.jpg', '.png', '.pdf', '.doc', '.docx', '.txt']}
@@ -1147,6 +1267,22 @@
 						</CardHeader>
 						<CardContent class="pt-0">
 							{#if documents.length > 0}
+								<!-- These rows were previously emitted with no <table> around them, so
+								     the browser dropped the cell structure and the columns never
+								     rendered. Wrapped here so Type / Applies to / Expires are visible. -->
+								<div class="overflow-x-auto">
+								<table class="w-full border-collapse">
+									<thead>
+										<tr class="border-b bg-gray-50 text-left text-sm">
+											<th class="py-2 px-4 font-medium">Document</th>
+											<th class="py-2 px-4 font-medium">Type</th>
+											<th class="py-2 px-4 font-medium">Applies to</th>
+											<th class="py-2 px-4 font-medium">Expires</th>
+											<th class="py-2 px-4 font-medium">Uploaded</th>
+											<th class="py-2 px-4 font-medium text-right">Actions</th>
+										</tr>
+									</thead>
+									<tbody>
 								{#each documents as doc}
 									<tr class="border-b hover:bg-gray-50">
 										<td class="py-3 px-4">
@@ -1192,6 +1328,73 @@
 												<span class="font-medium">{doc?.filename}</span>
 											</div>
 										</td>
+										<!-- Type -->
+										<td class="py-3 px-4 text-sm">
+											<form action="?/updateDocumentCredential" method="POST" use:enhance>
+												<input type="hidden" name="documentId" value={doc.id} />
+												<select
+													name="type"
+													class="border rounded-md px-2 py-1 text-sm bg-white"
+													value={doc.type}
+													on:change={(e) => e.currentTarget.form?.requestSubmit()}
+												>
+													{#each CANDIDATE_DOCUMENT_TYPES as t}
+														<option value={t}>{t}</option>
+													{/each}
+												</select>
+											</form>
+										</td>
+
+										<!-- Applies to: which Experience & Rates entry this credential proves -->
+										<td class="py-3 px-4 text-sm">
+											{#if !CREDENTIAL_TYPES.includes(doc.type)}
+												<span class="text-muted-foreground">—</span>
+											{:else}
+												<form action="?/updateDocumentCredential" method="POST" use:enhance>
+													<input type="hidden" name="documentId" value={doc.id} />
+													<select
+														name="disciplineId"
+														class="border rounded-md px-2 py-1 text-sm bg-white"
+														value={doc.disciplineId ?? ''}
+														on:change={(e) => e.currentTarget.form?.requestSubmit()}
+													>
+														<option value="">—</option>
+														{#each disciplines as d}
+															<option value={d.discipline.id}>
+																{d.discipline.abbreviation}
+															</option>
+														{/each}
+													</select>
+												</form>
+											{/if}
+										</td>
+
+										<!-- Expires: the date the gate reads -->
+										<td class="py-3 px-4 text-sm">
+											{#if !CREDENTIAL_TYPES.includes(doc.type)}
+												<span class="text-muted-foreground">—</span>
+											{:else}
+												<form action="?/updateDocumentCredential" method="POST" use:enhance>
+													<input type="hidden" name="documentId" value={doc.id} />
+													<input
+														name="expiryDate"
+														type="date"
+														class="border rounded-md px-2 py-1 text-sm bg-white"
+														value={expiryInput(doc.expiryDate)}
+														on:change={(e) => e.currentTarget.form?.requestSubmit()}
+													/>
+												</form>
+												{#if docCertBadge(doc)}
+													{@const b = docCertBadge(doc)}
+													<span
+														class="mt-1 inline-flex rounded-full px-2 py-0.5 text-xs font-medium {b?.class}"
+													>
+														{b?.label}
+													</span>
+												{/if}
+											{/if}
+										</td>
+
 										<td class="py-3 px-4 text-sm">{format(doc.createdAt, 'PP')}</td>
 										<td class="py-3 px-4 text-right">
 											<DropdownMenu>
@@ -1249,6 +1452,9 @@
 										</td>
 									</tr>
 								{/each}
+									</tbody>
+								</table>
+								</div>
 							{:else}
 								<div class="text-center py-8">
 									<FileText class="h-12 w-12 mx-auto text-gray-300" />

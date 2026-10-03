@@ -47,7 +47,9 @@
 		onResult: ({ result }) => {
 			if (result.type === 'success') {
 				dialogOpen = false;
-				$disciplineForm = { name: '', abbreviation: '' };
+				// Reset the flag too, or the next discipline added in the same session
+				// inherits the previous one's checkbox state.
+				$disciplineForm = { name: '', abbreviation: '', requiresCertification: false };
 			}
 		}
 	});
@@ -82,6 +84,7 @@
 		id: string;
 		name: string;
 		abbreviation: string;
+		requiresCertification: boolean;
 		createdAt: Date;
 		updatedAt: Date;
 	};
@@ -102,7 +105,11 @@
 		$editDisciplineForm = {
 			id: discipline.id,
 			name: discipline.name,
-			abbreviation: discipline.abbreviation
+			abbreviation: discipline.abbreviation,
+			// MUST be seeded from the row. Omitting it would send the schema default
+			// (false) on every save, so editing a discipline's name would silently turn
+			// off certification enforcement for everyone holding it.
+			requiresCertification: discipline.requiresCertification
 		};
 		editDialogOpen = true;
 	}
@@ -133,6 +140,20 @@
 				(rowA.original.abbreviation?.toLowerCase() || '').localeCompare(
 					rowB.original.abbreviation?.toLowerCase() || ''
 				)
+		},
+		{
+			header: 'Requires Cert',
+			id: 'requiresCertification',
+			accessorKey: 'requiresCertification',
+			enableSorting: true,
+			// Sorts flagged disciplines together — with ~20 rows this is how staff see
+			// at a glance which ones are configured.
+			sortingFn: (rowA, rowB) =>
+				Number(rowA.original.requiresCertification) - Number(rowB.original.requiresCertification),
+			// A plain string, matching every other cell in this file: no renderComponent
+			// is imported anywhere under (protected)/admin, and pulling in the Svelte
+			// table adapter for one badge is not worth it.
+			cell: ({ getValue }) => (getValue() ? 'Yes' : '—')
 		},
 		{
 			header: 'Created',
@@ -362,6 +383,23 @@
 						<Form.Validation />
 					</Form.Item>
 				</Form.Field>
+
+				<div class="space-y-2 rounded-md border p-3">
+					<label class="flex items-start gap-2 text-sm font-medium">
+						<input
+							type="checkbox"
+							name="requiresCertification"
+							class="mt-0.5 h-4 w-4 rounded border-gray-300"
+						/>
+						<span>Requires a certification or registration that expires</span>
+					</label>
+					<p class="text-xs text-gray-600">
+						Professionals holding this discipline will be asked for a certificate and its
+						expiration date. When a certificate expires, this discipline's jobs are hidden from
+						them until they upload a current one. Professionals who have not uploaded one yet are
+						chased, not blocked.
+					</p>
+				</div>
 			</div>
 			<Dialog.Footer>
 				<Button variant="destructiveOutline" type="button" on:click={() => (dialogOpen = false)}>Cancel</Button
@@ -404,6 +442,23 @@
 						bind:value={$editDisciplineForm.abbreviation}
 						placeholder="e.g., DH, DDS, RDA..."
 					/>
+				</div>
+
+				<div class="space-y-2 rounded-md border p-3">
+					<label class="flex items-start gap-2 text-sm font-medium" for="edit-requires-cert">
+						<input
+							id="edit-requires-cert"
+							type="checkbox"
+							name="requiresCertification"
+							bind:checked={$editDisciplineForm.requiresCertification}
+							class="mt-0.5 h-4 w-4 rounded border-gray-300"
+						/>
+						<span>Requires a certification or registration that expires</span>
+					</label>
+					<p class="text-xs text-gray-600">
+						Turning this off stops certification enforcement for this discipline immediately,
+						even for professionals whose certificate has already expired.
+					</p>
 				</div>
 
 			</div>

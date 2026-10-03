@@ -1104,5 +1104,170 @@ ${daysText}
             `.trim(),
 			subject: `New Support Ticket Submitted | ${APP_NAME}`
 		};
+	},
+
+	/**
+	 * Certification expiry series: 60/30/14/7 days, day-of, and the day after.
+	 *
+	 * One template, branching on `stage`, because the shape is identical and the only
+	 * real differences are urgency and tense. The day-after ("EXPIRED") variant exists
+	 * because "expires today" reads as *still fine* while the lockout actually starts
+	 * the next morning — that is the message that reports a consequence in effect.
+	 *
+	 * No practice is named anywhere here, so the candidate-facing privacy rule further
+	 * down this file (city/state only, never name or street) is not engaged.
+	 */
+	certExpiryReminderEmail: (details: {
+		firstName: string;
+		disciplineName: string;
+		abbreviation: string;
+		expiresOn: string;
+		daysUntil: number;
+		stage: 'D60' | 'D30' | 'D14' | 'D7' | 'D0' | 'EXPIRED';
+		uploadUrl: string;
+	}) => {
+		const { firstName, disciplineName, abbreviation, expiresOn, daysUntil, stage, uploadUrl } =
+			details;
+
+		const expired = stage === 'EXPIRED';
+		const when =
+			daysUntil > 1 ? `in ${daysUntil} days` : daysUntil === 1 ? 'tomorrow' : 'today';
+
+		const subject = expired
+			? `Action needed: your ${abbreviation} shifts are hidden | ${APP_NAME}`
+			: stage === 'D0'
+				? `Your ${disciplineName} certification expires today | ${APP_NAME}`
+				: stage === 'D7'
+					? `7 days left: renew your ${disciplineName} certification | ${APP_NAME}`
+					: `Your ${disciplineName} certification expires ${expiresOn} | ${APP_NAME}`;
+
+		const lede = expired
+			? `Your ${disciplineName} (${abbreviation}) certification expired on ${expiresOn}, so ${abbreviation} shifts are no longer showing in your account.`
+			: `Your ${disciplineName} (${abbreviation}) certification expires ${when}, on ${expiresOn}.`;
+
+		const consequence = expired
+			? 'Upload a current certificate to get those shifts back. Your other disciplines are not affected, and nothing else about your profile has changed.'
+			: `If it lapses without a newer certificate on file, ${abbreviation} shifts will be hidden from your account until you renew. Your other disciplines are not affected.`;
+
+		const textEmail = `
+Hi ${firstName},
+
+${lede}
+
+${consequence}
+
+Upload your certificate: ${uploadUrl}
+
+— Dental Temps Staffing Solutions
+        `.trim();
+
+		const htmlEmail = `
+            <p>Hi ${firstName},</p>
+            <p>${lede}</p>
+            <p>${consequence}</p>
+            <p style="margin:24px 0;">
+              <a href="${uploadUrl}"
+                 style="background-color:#2a93d1;color:#ffffff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600;">
+                Upload your certificate
+              </a>
+            </p>
+            <p style="color:#6b7280;font-size:13px;">— Dental Temps Staffing Solutions</p>
+        `.trim();
+
+		return { textEmail, htmlEmail, subject };
+	},
+
+	/**
+	 * Weekly internal digest of credential state. Ordered by urgency: a professional
+	 * booked onto a shift with a lapsed credential comes first, because that is the one
+	 * case the lockout does NOT protect against — hiding future listings does nothing
+	 * about a shift already on the calendar.
+	 */
+	certExpiryDigestAdminEmail: (details: {
+		bookedWithExpired: Array<{ name: string; discipline: string; expiresOn: string; shiftDates: string; candidateId: string }>;
+		expired: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string }>;
+		expiring: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string }>;
+		missing: Array<{ discipline: string; count: number }>;
+		recent: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string }>;
+	}) => {
+		const { bookedWithExpired, expired, expiring, missing, recent } = details;
+		const link = (id: string) => `${BASE_URL}/professionals/${id}`;
+
+		const rows = (
+			items: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string; shiftDates?: string }>
+		) =>
+			items
+				.map(
+					(i) => `
+              <tr>
+                <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${i.name}</td>
+                <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${i.discipline}</td>
+                <td style="padding:8px;border-bottom:1px solid #e5e7eb;">${i.expiresOn}</td>
+                ${i.shiftDates ? `<td style="padding:8px;border-bottom:1px solid #e5e7eb;">${i.shiftDates}</td>` : ''}
+                <td style="padding:8px;border-bottom:1px solid #e5e7eb;"><a href="${link(i.candidateId)}">View</a></td>
+              </tr>`
+				)
+				.join('');
+
+		const section = (
+			title: string,
+			items: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string; shiftDates?: string }>,
+			extraHeader?: string,
+			accent?: string
+		) =>
+			items.length === 0
+				? ''
+				: `
+            <h3 style="margin:24px 0 8px;${accent ? `color:${accent};` : ''}">${title} (${items.length})</h3>
+            <table style="width:100%;border-collapse:collapse;font-size:14px;">
+              <tr style="text-align:left;background:#f9fafb;">
+                <th style="padding:8px;">Professional</th>
+                <th style="padding:8px;">Discipline</th>
+                <th style="padding:8px;">Expires</th>
+                ${extraHeader ? `<th style="padding:8px;">${extraHeader}</th>` : ''}
+                <th style="padding:8px;"></th>
+              </tr>
+              ${rows(items)}
+            </table>`;
+
+		const missingBlock =
+			missing.length === 0
+				? ''
+				: `
+            <h3 style="margin:24px 0 8px;">No certificate on file (${missing.reduce((n, m) => n + m.count, 0)})</h3>
+            <p style="font-size:13px;color:#6b7280;margin:0 0 8px;">
+              These professionals are still visible and bookable — this is a backlog to collect, not a lockout.
+            </p>
+            <table style="width:100%;border-collapse:collapse;font-size:14px;">
+              <tr style="text-align:left;background:#f9fafb;">
+                <th style="padding:8px;">Discipline</th><th style="padding:8px;">Professionals</th>
+              </tr>
+              ${missing.map((m) => `<tr><td style="padding:8px;border-bottom:1px solid #e5e7eb;">${m.discipline}</td><td style="padding:8px;border-bottom:1px solid #e5e7eb;">${m.count}</td></tr>`).join('')}
+            </table>`;
+
+		const htmlEmail = `
+            <h2 style="margin:0 0 4px;">Certification digest</h2>
+            <p style="color:#6b7280;font-size:13px;margin:0;">Weekly summary of credential status across active professionals.</p>
+            ${section('⚠ Expired credential with upcoming booked shifts', bookedWithExpired, 'Shifts', '#b91c1c')}
+            ${section('Expired — shifts hidden now', expired, undefined, '#b91c1c')}
+            ${section('Expiring within 30 days', expiring)}
+            ${missingBlock}
+            ${section('Certificates added in the last 7 days', recent)}
+        `.trim();
+
+		const textEmail = [
+			'Certification digest',
+			'',
+			`Expired with upcoming booked shifts: ${bookedWithExpired.length}`,
+			`Expired (shifts hidden): ${expired.length}`,
+			`Expiring within 30 days: ${expiring.length}`,
+			`No certificate on file: ${missing.reduce((n, m) => n + m.count, 0)}`,
+			`Added in the last 7 days: ${recent.length}`,
+			'',
+			`${BASE_URL}/professionals`
+		].join('\n');
+
+		return { textEmail, htmlEmail, subject: `Certification digest | ${APP_NAME}` };
 	}
+
 };

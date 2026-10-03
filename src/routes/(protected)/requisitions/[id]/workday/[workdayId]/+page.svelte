@@ -60,6 +60,7 @@
 	import { isAssignmentActive, isAssignmentHistory } from '$lib/_helpers/assignment';
 	import ProfessionalSearch from '$lib/components/professionals/ProfessionalSearch.svelte';
 	import { superForm } from 'sveltekit-superforms/client';
+	import WorkdayCredentialPanel from '$lib/components/certifications/WorkdayCredentialPanel.svelte';
 
 	export let data: PageData;
 
@@ -116,6 +117,24 @@
 	let extendedLoaded = false;
 	let extendedError: string | null = null;
 	$: allProfessionals = [...qualifiedProfessionals, ...extendedProfessionals];
+
+	/**
+	 * Name-search results deliberately bypass the certification gate (see
+	 * searchProfessionalsForRequisition) so an admin can still place a specific person
+	 * — they may have renewed this morning. Flag it instead of hiding them, and make
+	 * the assign button ask for confirmation.
+	 */
+	function certBlockedFor(professional: unknown): boolean {
+		// Only the name-search (extended) rows carry `disciplines` with certBlocked;
+		// the gated list cannot contain a lapsed credential by construction, so an
+		// absent field correctly means "no warning".
+		const list = (professional as { disciplines?: unknown })?.disciplines;
+		if (!Array.isArray(list)) return false;
+		const requiredDisciplineId = data.requisition?.requisition?.disciplineId;
+		return (list as Array<{ id?: string; certBlocked?: boolean }>).some(
+			(d) => d?.certBlocked && (!requiredDisciplineId || d.id === requiredDisciplineId)
+		);
+	}
 
 	async function loadAllExperienceCandidates() {
 		if (loadingExtended || extendedLoaded) return;
@@ -317,6 +336,18 @@
 							<span>{candidate.phoneNumber}</span>
 						</div>
 					</div>
+
+					<!-- Trust but verify. Renders nothing when this requisition's discipline
+					     needs no credential. Loudest when one has lapsed, because that is the
+					     case the job-visibility gate cannot protect against: hiding future
+					     listings does nothing about a shift already assigned. -->
+					{#if data.workdayCredential}
+						<Separator class="my-4" />
+						<WorkdayCredentialPanel
+							credential={data.workdayCredential}
+							workdayId={recurrenceDay?.recurrenceDay?.id}
+						/>
+					{/if}
 				</CardContent>
 			</Card>
 		{:else}
@@ -748,15 +779,33 @@
 										{professional.distance} mi away
 									</span>
 								</div>
-								<div class="flex gap-2 mt-2">
+								<div class="flex gap-2 mt-2 items-center">
 									<Badge variant="outline" value={professional.disciplineAbbr} />
+									{#if certBlockedFor(professional)}
+										<span
+											class="inline-flex rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 ring-1 ring-red-200"
+										>
+											Cert expired
+										</span>
+									{/if}
 								</div>
 							</div>
 						</div>
 						<form
 							method="POST"
 							action="?/assignCandidate"
-							use:enhance={() => {
+							use:enhance={({ cancel }) => {
+								// An admin may knowingly place someone whose credential has lapsed
+								// (they may have renewed and not uploaded yet), but never unknowingly.
+								if (
+									certBlockedFor(professional) &&
+									!confirm(
+										`${professional.firstName} ${professional.lastName}'s certification for this discipline has expired. Assign them anyway?`
+									)
+								) {
+									cancel();
+									return;
+								}
 								assigningCandidateId = professional.candidateId;
 								return async ({ result, update }) => {
 									assigningCandidateId = null;

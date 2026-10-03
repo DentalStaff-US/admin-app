@@ -17,6 +17,10 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import type { RequestEvent } from './$types';
 import { setFlash } from 'sveltekit-flash-message/server';
 import {
+	toCredentialExpiryDate,
+	validateCredentialLink
+} from '$lib/server/certifications/credentialLink';
+import {
 	CandidateStatusSchema,
 	updateCandidateProfileSchema,
 	updateCandidateDisciplinesSchema,
@@ -321,10 +325,28 @@ export const actions = {
 
 		const fileData = form.data.filesData;
 
-		console.log({ fileData });
-
 		try {
-			await uploadCandidateDocuments(fileData, candidateId);
+			// Admins may file a document as the credential for a discipline. Validate the
+			// link against the professional's Experience & Rates entries first — the same
+			// rule the external endpoints enforce, so a stray link cannot be created here.
+			const disciplineId = form.data.documentDisciplineId || null;
+			const expiryDate = toCredentialExpiryDate(form.data.documentExpiryDate || null);
+			const type = form.data.documentType ?? form.data.type ?? 'OTHER';
+
+			if (disciplineId) {
+				const decision = await validateCredentialLink({
+					candidateId,
+					disciplineId,
+					type,
+					expiryDate
+				});
+				if (!decision.ok) {
+					setFlash({ type: 'error', message: decision.message }, event);
+					return setError(form, decision.message);
+				}
+			}
+
+			await uploadCandidateDocuments(fileData, candidateId, { type, disciplineId, expiryDate });
 
 			setFlash({ type: 'success', message: 'Documents uploaded successfully' }, event);
 			return message(
@@ -344,6 +366,71 @@ export const actions = {
 			return setError(form, 'Failed to upload documents');
 		}
 	},
+	/**
+	 * Set (or clear) the credential link and expiry on an existing document.
+	 *
+	 * Admins are not subject to the approval freeze that governs candidate-initiated
+	 * edits, so this writes directly rather than going through
+	 * `assertCandidateDocumentEditable` — matching how every other admin action on this
+	 * page behaves. The credential-link rules are still enforced.
+	 */
+	updateDocumentCredential: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+
+		const candidateId = event.params.id as string;
+		const fd = await event.request.formData();
+		const documentId = String(fd.get('documentId') ?? '');
+		const rawDiscipline = fd.get('disciplineId');
+		const rawExpiry = fd.get('expiryDate');
+		const rawType = fd.get('type');
+
+		if (!documentId) return fail(400, { message: 'Missing document.' });
+
+		const [existing] = await db
+			.select({
+				type: candidateDocumentUploadsTable.type,
+				expiryDate: candidateDocumentUploadsTable.expiryDate,
+				disciplineId: candidateDocumentUploadsTable.disciplineId
+			})
+			.from(candidateDocumentUploadsTable)
+			.where(eq(candidateDocumentUploadsTable.id, documentId));
+
+		if (!existing) return fail(404, { message: 'Document not found.' });
+
+		const patch: Record<string, unknown> = { updatedAt: new Date() };
+		if (rawType !== null) patch.type = String(rawType);
+		if (rawDiscipline !== null) patch.disciplineId = rawDiscipline === '' ? null : String(rawDiscipline);
+		if (rawExpiry !== null) {
+			patch.expiryDate = rawExpiry === '' ? null : toCredentialExpiryDate(String(rawExpiry));
+		}
+
+		const nextType = (patch.type ?? existing.type) as string;
+		const nextDisciplineId = (
+			'disciplineId' in patch ? patch.disciplineId : existing.disciplineId
+		) as string | null;
+		const nextExpiry = ('expiryDate' in patch ? patch.expiryDate : existing.expiryDate) as Date | null;
+
+		const decision = await validateCredentialLink({
+			candidateId,
+			disciplineId: nextDisciplineId,
+			type: nextType,
+			expiryDate: nextExpiry
+		});
+		if (!decision.ok) {
+			setFlash({ type: 'error', message: decision.message }, event);
+			return fail(400, { message: decision.message });
+		}
+
+		await db
+			.update(candidateDocumentUploadsTable)
+			.set(patch)
+			.where(eq(candidateDocumentUploadsTable.id, documentId));
+
+		setFlash({ type: 'success', message: 'Document updated.' }, event);
+		return { success: true };
+	},
+
 	deleteDocument: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);

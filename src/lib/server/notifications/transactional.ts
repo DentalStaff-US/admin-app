@@ -1593,3 +1593,128 @@ async function getInvoiceCoreFields(invoiceId: string) {
 		.limit(1);
 	return row ?? null;
 }
+
+/**
+ * One stage of the certification expiry series: email always (when opted in), plus SMS
+ * on the final stages. `channels` is decided by the caller at audience-build time —
+ * opt-out is enforced there, never here, matching every other audience query in this
+ * codebase.
+ *
+ * Returns nothing: `dispatch` swallows per-channel outcomes by design, so the ledger
+ * records the channels ATTEMPTED. That is honest about what we know, and the failures
+ * are logged by safeEmail/safeSms regardless.
+ */
+export async function notifyCertExpiring(args: {
+	email: string;
+	phone: string | null;
+	firstName: string | null;
+	disciplineName: string;
+	abbreviation: string;
+	/** 'YYYY-MM-DD' */
+	expiresOn: string;
+	daysUntil: number;
+	stage: 'D60' | 'D30' | 'D14' | 'D7' | 'D0' | 'EXPIRED';
+	channels: ('EMAIL' | 'SMS')[];
+}): Promise<void> {
+	const label = 'certExpiring';
+	try {
+		const firstName = args.firstName ?? 'there';
+		// Uploading a current certificate is the fix for everyone, approved or not —
+		// an approved professional cannot edit their Experience & Rates, so pointing
+		// there would be a dead end for exactly the people this matters most to.
+		const uploadUrl = `${CANDIDATE_APP_DOMAIN}/settings/documents`;
+
+		const sends: Promise<boolean>[] = [];
+
+		if (args.channels.includes('EMAIL')) {
+			sends.push(
+				safeEmail(label, args.email, () => {
+					const t = EMAIL_TEMPLATES.certExpiryReminderEmail({
+						firstName,
+						disciplineName: args.disciplineName,
+						abbreviation: args.abbreviation,
+						expiresOn: fmtDate(args.expiresOn),
+						daysUntil: args.daysUntil,
+						stage: args.stage,
+						uploadUrl
+					});
+					return emailService.sendEmail({
+						to: [{ email: args.email }],
+						subject: t.subject,
+						html: t.htmlEmail,
+						text: t.textEmail
+					});
+				})
+			);
+		}
+
+		if (args.channels.includes('SMS') && args.phone) {
+			sends.push(
+				safeSms(label, args.phone, (phone) =>
+					args.stage === 'EXPIRED'
+						? sms.sendTemplated(phone, 'certExpiredNotification', {
+								firstName,
+								disciplineName: args.disciplineName
+							})
+						: sms.sendTemplated(phone, 'certExpiringNotification', {
+								firstName,
+								disciplineName: args.disciplineName,
+								expiresOn: fmtDate(args.expiresOn),
+								daysUntil: args.daysUntil
+							})
+				)
+			);
+		}
+
+		await dispatch(label, sends);
+	} catch (error) {
+		console.error(`[transactional:${label}] top-level error:`, error);
+	}
+}
+
+/**
+ * Weekly credential digest to every SUPERADMIN who accepts email.
+ *
+ * This is not a nicety: gating `getQualifiedProfessionalsForRequisition` on
+ * certification also gates the new-workday notification blast, so an expired
+ * credential silently shrinks the matched pool. This digest is how that becomes
+ * visible to staff.
+ */
+export async function notifyAdminsOfCertExpiryDigest(sections: {
+	bookedWithExpired: Array<{ name: string; discipline: string; expiresOn: string; shiftDates: string; candidateId: string }>;
+	expired: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string }>;
+	expiring: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string }>;
+	missing: Array<{ discipline: string; count: number }>;
+	recent: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string }>;
+}): Promise<void> {
+	const label = 'certExpiryDigest';
+	try {
+		const admins = await db
+			.select({ email: userTable.email })
+			.from(userTable)
+			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+
+		if (admins.length === 0) {
+			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
+			return;
+		}
+
+		const t = EMAIL_TEMPLATES.certExpiryDigestAdminEmail(sections);
+
+		await dispatch(
+			label,
+			admins.map((a) =>
+				safeEmail(label, a.email, () =>
+					emailService.sendEmail({
+						to: [{ email: a.email }],
+						subject: t.subject,
+						html: t.htmlEmail,
+						text: t.textEmail
+					})
+				)
+			)
+		);
+	} catch (error) {
+		console.error(`[transactional:${label}] top-level error:`, error);
+	}
+}

@@ -140,15 +140,32 @@ export const newClientCompanyLocationSchema = z.object({
 export type NewClientCompanyLocationSchema = typeof newClientCompanyLocationSchema;
 export type CompanyLocationSchema = typeof clientCompanyLocationSchema;
 
+// Does this discipline require a certification/registration that expires? Admin-set,
+// once per discipline.
+//
+// Accepts both a real boolean (the superforms "add" dialog) and the raw checkbox
+// strings the plain-FormData "edit" dialog posts. NOT z.coerce.boolean(), which maps
+// the string 'false' to TRUE — here that would silently flag a discipline and hide
+// jobs from everyone holding it. An unchecked checkbox submits nothing at all, which
+// arrives as undefined and takes the `false` default.
+const requiresCertification = z
+	.preprocess(
+		(v) => (typeof v === 'string' ? v === 'true' || v === 'on' : Boolean(v)),
+		z.boolean()
+	)
+	.default(false);
+
 export const newDisciplineSchema = z.object({
 	name: z.string().min(1),
-	abbreviation: z.string().min(1)
+	abbreviation: z.string().min(1),
+	requiresCertification
 });
 
 export const editDisciplineSchema = z.object({
 	id: z.string().min(1),
 	name: z.string().min(1),
-	abbreviation: z.string().min(1)
+	abbreviation: z.string().min(1),
+	requiresCertification
 });
 
 export const deleteDisciplineSchema = z.object({
@@ -460,13 +477,37 @@ export const CANDIDATE_DOCUMENT_TYPES = [
 	'OTHER'
 ] as const;
 
+/**
+ * A credential expiry. Accepts the bare 'YYYY-MM-DD' that `<input type="date">`
+ * submits as well as a full ISO datetime — the previous `.datetime()`-only rule is
+ * why the expiry_date column was unreachable from any UI. Normalised to midnight UTC
+ * on write by `toCredentialExpiryDate`.
+ */
+const credentialExpiry = z
+	.string()
+	.regex(
+		/^\d{4}-\d{2}-\d{2}(T.*)?$/,
+		'Expiration date must be a calendar date (YYYY-MM-DD).'
+	)
+	.nullable()
+	.optional();
+
+/**
+ * The Experience & Rates entry a credential evidences. Nullable: most documents are
+ * not credentials. Server-side, `validateCredentialLink` additionally requires the
+ * professional to hold the discipline, the type to be LICENSE/CERTIFICATE, and an
+ * expiry to be present — rules zod cannot express without the DB.
+ */
+const credentialDisciplineId = z.string().min(1).nullable().optional();
+
 export const candidateDocumentUploadSchema = z.object({
 	type: z.enum(CANDIDATE_DOCUMENT_TYPES).optional(),
 	filename: z.string().optional(),
 	url: z.string().optional(),
 	urls: z.array(z.string()).optional(),
 	createdAt: z.date().optional(),
-	expiryDate: z.string().datetime().nullable().optional(),
+	expiryDate: credentialExpiry,
+	disciplineId: credentialDisciplineId,
 	filesData: z
 		.array(
 			z.object({
@@ -475,7 +516,8 @@ export const candidateDocumentUploadSchema = z.object({
 				// Per-file type so a multi-file upload can mix a license and a
 				// certificate instead of everything landing as OTHER.
 				type: z.enum(CANDIDATE_DOCUMENT_TYPES).optional(),
-				expiryDate: z.string().datetime().nullable().optional()
+				expiryDate: credentialExpiry,
+				disciplineId: credentialDisciplineId
 			})
 		)
 		.optional()
@@ -586,18 +628,34 @@ export const adminNewUserSchema = z.object({
 export type AdminNewUserSchema = typeof adminNewUserSchema;
 
 export const documentUrlSchema = z.object({
-	type: z.enum(['RESUME', 'LICENSE', 'CERTIFICATE', 'OTHER']).optional(),
+	// Was missing AGREEMENT, which is a real value of the candidate_document_type enum
+	// and of CANDIDATE_DOCUMENT_TYPES — an admin could not file one.
+	type: z.enum(CANDIDATE_DOCUMENT_TYPES).optional(),
+	/** Type chosen in the upload form; applied to every file in this submission. */
+	documentType: z.enum(CANDIDATE_DOCUMENT_TYPES).optional(),
 	filename: z.string().optional(),
 	url: z.string().optional(),
 	urls: z.array(z.string()).optional(),
 	createdAt: z.date().optional(),
-	filesData: zJsonString.optional()
+	filesData: zJsonString.optional(),
+	/** Set when an admin files a document as the credential for a discipline. */
+	documentDisciplineId: z.string().optional().or(z.literal('')),
+	documentExpiryDate: z
+		.string()
+		.regex(/^\d{4}-\d{2}-\d{2}$/)
+		.optional()
+		.or(z.literal(''))
 });
 
 export const documentResultSchema = z.array(
 	z.object({
 		filename: z.string(),
-		url: z.string()
+		url: z.string(),
+		// Carried per file so a multi-file admin upload can mix types and credentials
+		// instead of everything landing as OTHER.
+		type: z.enum(CANDIDATE_DOCUMENT_TYPES).optional(),
+		expiryDate: z.string().nullable().optional(),
+		disciplineId: z.string().nullable().optional()
 	})
 );
 

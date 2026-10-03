@@ -20,6 +20,8 @@ import { METERS_PER_MILE } from '$lib/config/constants';
 import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
 import { clientIsActiveCondition } from '$lib/server/clientStatusGuards';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
+import { certSelectFields } from '$lib/server/certifications/certGateSql';
+import { splitByCertEligibility } from '$lib/server/certifications/certStatus';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
 import { logger } from '$lib/server/logger';
 import { maskShiftRowForCandidate } from '$lib/server/privacy/clientIdentity';
@@ -62,12 +64,19 @@ export const GET: RequestHandler = async ({ request }) => {
 				experienceLevelId: candidateDisciplineExperienceTable.experienceLevelId,
 				experienceLevelOrder: experienceLevelTable.order,
 				preferredHourlyMin: candidateDisciplineExperienceTable.preferredHourlyMin,
-				preferredHourlyMax: candidateDisciplineExperienceTable.preferredHourlyMax
+				preferredHourlyMax: candidateDisciplineExperienceTable.preferredHourlyMax,
+				disciplineName: disciplineTable.name,
+				abbreviation: disciplineTable.abbreviation,
+				...certSelectFields()
 			})
 			.from(candidateDisciplineExperienceTable)
 			.innerJoin(
 				experienceLevelTable,
 				eq(candidateDisciplineExperienceTable.experienceLevelId, experienceLevelTable.id)
+			)
+			.innerJoin(
+				disciplineTable,
+				eq(disciplineTable.id, candidateDisciplineExperienceTable.disciplineId)
 			)
 			.where(eq(candidateDisciplineExperienceTable.candidateId, candidateProfile.id));
 
@@ -88,7 +97,34 @@ export const GET: RequestHandler = async ({ request }) => {
 		// Extract discipline IDs (experience level filtering happens in-memory below
 		// since it's reductive: candidate level order must be >= required level order,
 		// or required level may be NULL which means "no preference" — match anyone).
-		const disciplineIds = candidateDisciplines.map((d) => d.disciplineId);
+		// Drop disciplines whose certification/registration has lapsed. Only EXPIRED
+		// is removed — a discipline needing no credential, or needing one with none
+		// yet on file (MISSING), stays visible and is chased through nudges instead.
+		// `certLocked` is returned to the client so the job list can explain the
+		// absence; without it the shifts would simply vanish.
+		const { eligible: eligibleDisciplines, certLocked } =
+			splitByCertEligibility(candidateDisciplines);
+
+		const disciplineIds = eligibleDisciplines.map((d) => d.disciplineId);
+
+		// Every discipline this professional holds is cert-locked. Return an empty
+		// list WITH `certLocked` rather than falling through: an empty `inArray`
+		// would run a pointless query, and the generic "add your disciplines"
+		// message below would be actively misleading — they have disciplines, the
+		// credentials lapsed.
+		if (disciplineIds.length === 0) {
+			return json({
+				candidateLocation: {
+					lat: candidateProfile.lat,
+					lon: candidateProfile.lon,
+					address: candidateProfile.completeAddress
+				},
+				recurrenceDays: [],
+				searchRadius: radiusMiles,
+				totalFound: 0,
+				certLocked
+			});
+		}
 
 		// Fetch office locations within the radius using PostGIS
 		const nearbyOfficeLocations = await db
@@ -123,7 +159,8 @@ export const GET: RequestHandler = async ({ request }) => {
 				recurrenceDays: [],
 				searchRadius: radiusMiles,
 				totalFound: 0,
-				message: 'No office locations found within 30 miles of your location.'
+				message: 'No office locations found within 30 miles of your location.',
+				certLocked
 			});
 		}
 
@@ -274,7 +311,7 @@ export const GET: RequestHandler = async ({ request }) => {
 		// helper without coercion and reject null rates outright.
 		const filteredRecurrenceDays = recurrenceDays.filter(
 			(shift) =>
-				checkCandidateQualified(candidateDisciplines, {
+				checkCandidateQualified(eligibleDisciplines, {
 					disciplineId: shift.requisition.disciplineId,
 					experienceLevelOrder: shift.requisition.experienceLevelOrder,
 					hourlyRate: shift.requisition.hourlyRate ?? 0
@@ -296,7 +333,10 @@ export const GET: RequestHandler = async ({ request }) => {
 			recurrenceDays: visibleRecurrenceDays,
 			searchRadius: radiusMiles,
 			totalFound: visibleRecurrenceDays.length,
-			nearbyOfficeCount: officeLocationIds.length
+			nearbyOfficeCount: officeLocationIds.length,
+			// Non-empty even when shifts were found: a two-discipline professional who
+			// lost one still needs telling.
+			certLocked
 		});
 	} catch (err) {
 		logger.error('getTempRequisitionsForCandidate failed', { error: err, distinctId: user?.id });

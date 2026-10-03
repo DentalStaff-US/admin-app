@@ -24,7 +24,11 @@ export type AutoCampaignRecipient = {
 export const AUTO_CAMPAIGN_KEYS = {
 	documentsMissing: 'auto:documents-missing',
 	onboardingStalled: 'auto:onboarding-stalled',
-	pendingApprovalTouchpoint: 'auto:pending-approval-touchpoint'
+	pendingApprovalTouchpoint: 'auto:pending-approval-touchpoint',
+	// Holds a discipline that requires a certification, with none on file. Distinct
+	// from documentsMissing (which is about having no optional documents at all):
+	// this one is about a specific compliance gap and is chased on its own cadence.
+	missingCredential: 'auto:missing-credential'
 } as const;
 
 export type AutoCampaignKey = (typeof AUTO_CAMPAIGN_KEYS)[keyof typeof AUTO_CAMPAIGN_KEYS];

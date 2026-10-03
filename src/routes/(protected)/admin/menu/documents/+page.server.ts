@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, RequestEvent } from './$types';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { USER_ROLES } from '$lib/config/constants';
+import { disciplineTable } from '$lib/server/database/schemas/skill';
 import db from '$lib/server/database/drizzle';
 import { candidateDocumentUploadsTable } from '$lib/server/database/schemas/candidate';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
@@ -35,9 +36,20 @@ export const load: PageServerLoad = async (event) => {
 				filename: candidateDocumentUploadsTable.filename,
 				candidateId: candidateDocumentUploadsTable.candidateId,
 				candidateFirstName: userTable.firstName,
-				candidateLastName: userTable.lastName
+				candidateLastName: userTable.lastName,
+				// Which Experience & Rates entry this credential evidences, if any.
+				disciplineId: candidateDocumentUploadsTable.disciplineId,
+				disciplineName: disciplineTable.name,
+				disciplineAbbreviation: disciplineTable.abbreviation,
+				// The admin-set requirement, so an expiry on a discipline that needs no
+				// credential is not shown as though it gates anything.
+				requiresCertification: disciplineTable.requiresCertification
 			})
 			.from(candidateDocumentUploadsTable)
+			.leftJoin(
+				disciplineTable,
+				eq(disciplineTable.id, candidateDocumentUploadsTable.disciplineId)
+			)
 			.leftJoin(
 				candidateProfileTable,
 				eq(candidateDocumentUploadsTable.candidateId, candidateProfileTable.id)

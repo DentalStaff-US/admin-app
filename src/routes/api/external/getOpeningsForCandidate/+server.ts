@@ -20,6 +20,9 @@ import { METERS_PER_MILE } from '$lib/config/constants';
 import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
 import { clientIsActiveCondition } from '$lib/server/clientStatusGuards';
 import { logger } from '$lib/server/logger';
+import { certSelectFields } from '$lib/server/certifications/certGateSql';
+import { splitByCertEligibility } from '$lib/server/certifications/certStatus';
+import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
 import {
 	isApplicationUnlocked,
 	maskLocation,
@@ -67,17 +70,54 @@ export const GET: RequestHandler = async ({ request }) => {
 		const candidateDisciplines = await db
 			.select({
 				disciplineId: candidateDisciplineExperienceTable.disciplineId,
-				experienceLevelOrder: experienceLevelTable.order
+				experienceLevelOrder: experienceLevelTable.order,
+				// Rate is not enforced for permanent (see above), but the shared
+				// qualification helper needs the fields present; `enforceRate: false`
+				// below means they are never read.
+				preferredHourlyMin: candidateDisciplineExperienceTable.preferredHourlyMin,
+				preferredHourlyMax: candidateDisciplineExperienceTable.preferredHourlyMax,
+				disciplineName: disciplineTable.name,
+				abbreviation: disciplineTable.abbreviation,
+				...certSelectFields()
 			})
 			.from(candidateDisciplineExperienceTable)
 			.innerJoin(
 				experienceLevelTable,
 				eq(candidateDisciplineExperienceTable.experienceLevelId, experienceLevelTable.id)
 			)
+			.innerJoin(
+				disciplineTable,
+				eq(disciplineTable.id, candidateDisciplineExperienceTable.disciplineId)
+			)
 			.where(eq(candidateDisciplineExperienceTable.candidateId, candidate.id));
 
 		if (candidateDisciplines.length === 0) {
 			throw error(400, 'No discipline experience found. Please update your profile.');
+		}
+
+		// Drop disciplines whose certification/registration has lapsed. Only EXPIRED
+		// is removed; MISSING and NOT_REQUIRED stay visible (see certStatus.ts).
+		// The 400 above is deliberately left for the genuinely-no-disciplines case —
+		// telling someone to "update your profile" when their licence expired would
+		// point them at the wrong thing.
+		const { eligible: eligibleDisciplines, certLocked } =
+			splitByCertEligibility(candidateDisciplines);
+
+		if (eligibleDisciplines.length === 0) {
+			// Empty list WITH `certLocked`, not a 400: the candidate app renders a
+			// banner naming the lapsed discipline, whereas an error would surface as a
+			// generic load failure that explains nothing.
+			return json({
+				candidateLocation: {
+					lat: candidate.lat,
+					lon: candidate.lon,
+					address: candidate.completeAddress
+				},
+				requisitions: [],
+				searchRadius: radiusMiles,
+				totalFound: 0,
+				certLocked
+			});
 		}
 
 		// Fetch office locations within the radius using PostGIS
@@ -188,7 +228,7 @@ export const GET: RequestHandler = async ({ request }) => {
 					// Ensure the requisition's discipline matches one of the candidate's disciplines
 					inArray(
 						requisitionTable.disciplineId,
-						candidateDisciplines.map((d) => d.disciplineId)
+						eligibleDisciplines.map((d) => d.disciplineId)
 					)
 				)
 			).orderBy(sql`ST_Distance(
@@ -196,16 +236,24 @@ export const GET: RequestHandler = async ({ request }) => {
         ST_SetSRID(ST_MakePoint(${candidate.lon}::float, ${candidate.lat}::float), 4326)::geography
       )`);
 
-		// Reductive experience-level filter (perm): keep a requisition only when
-		// the candidate's level for that discipline is >= the required level, or
-		// the requisition has no required level ("No Preference"). Rate is not
-		// enforced for perm. Mirrors the temp endpoint's in-memory filter.
-		const qualified = requisitions.filter((req) => {
-			if (req.experienceLevelOrder === null) return true; // No Preference
-			const match = candidateDisciplines.find((d) => d.disciplineId === req.disciplineId);
-			const candidateOrder = match?.experienceLevelOrder ?? 0;
-			return candidateOrder >= req.experienceLevelOrder;
-		});
+		// Reductive experience-level filter (perm), now via the shared predicate
+		// instead of a third hand-rolled copy of it. `enforceRate: false` reproduces
+		// this endpoint's prior behaviour exactly: perm rate semantics differ from
+		// temp hourly and were never gated here. The certification check inside the
+		// helper is belt-and-braces — the `inArray` above already excluded lapsed
+		// disciplines — but it keeps one definition of "qualified" for all callers.
+		const qualified = requisitions.filter(
+			(req) =>
+				checkCandidateQualified(
+					eligibleDisciplines,
+					{
+						disciplineId: req.disciplineId,
+						experienceLevelOrder: req.experienceLevelOrder,
+						hourlyRate: null
+					},
+					{ enforceRate: false }
+				).qualified
+		);
 
 		// Mask the practice on every posting the candidate hasn't been approved for.
 		const visibleRequisitions = qualified.map((req) => {
@@ -235,7 +283,10 @@ export const GET: RequestHandler = async ({ request }) => {
 			requisitions: visibleRequisitions,
 			searchRadius: radiusMiles,
 			totalFound: visibleRequisitions.length,
-			nearbyOfficeCount: nearbyOfficeLocationIds.length
+			nearbyOfficeCount: nearbyOfficeLocationIds.length,
+			// Reported even when openings were found: a two-discipline professional
+			// who lost one still needs telling.
+			certLocked
 		});
 	} catch (err) {
 		logger.error('getOpeningsForCandidate failed', { error: err, distinctId: user?.id });

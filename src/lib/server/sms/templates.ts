@@ -60,6 +60,19 @@ export const SMS_TEMPLATES = {
 	}),
 	applicationDeniedNotification: (vars: { discipline: string; company: string }) => ({
 		textMessage: `Thank you for applying for ${vars.discipline} at ${vars.company}. This business has moved forward with another application. We hope to have more positions available soon.`
+	}),
+	certExpiringNotification: (vars: {
+		firstName: string;
+		disciplineName: string;
+		expiresOn: string;
+		daysUntil: number;
+	}) => ({
+		textMessage: `${vars.firstName}, your DTSS ${vars.disciplineName} certification expires ${
+			vars.daysUntil === 0 ? 'today' : `in ${vars.daysUntil} day${vars.daysUntil === 1 ? '' : 's'}`
+		} (${vars.expiresOn}). Upload a current certificate in your profile to keep seeing these shifts.`
+	}),
+	certExpiredNotification: (vars: { firstName: string; disciplineName: string }) => ({
+		textMessage: `${vars.firstName}, your DTSS ${vars.disciplineName} certification has expired, so those shifts are no longer visible to you. Upload a current certificate in your profile to restore access.`
 	})
 } as const;
 

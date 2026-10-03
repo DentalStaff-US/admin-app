@@ -40,6 +40,7 @@ import { superValidate, message, setError } from 'sveltekit-superforms/server';
 import { convertRecurrenceDayToUTC } from '$lib/_helpers/UTCTimezoneUtils';
 import { formatInTimeZone } from 'date-fns-tz';
 import { z } from 'zod';
+import { getWorkdayCredential } from '$lib/server/certifications/workdayCredential';
 import {
 	notifyWorkdayClaimed,
 	notifyWorkdayReposted,
@@ -135,6 +136,11 @@ export async function load(event: RequestEvent) {
 
 		return {
 			user,
+			// Trust-but-verify: the assigned professional's credential for THIS
+			// requisition's discipline. Null when nobody is assigned, or the discipline
+			// needs no credential — the panel then renders nothing rather than a
+			// reassuring-looking blank.
+			workdayCredential: await getWorkdayCredential(recurrenceDayId),
 			activity,
 			recurrenceDay,
 			workday,
@@ -187,6 +193,11 @@ export async function load(event: RequestEvent) {
 
 		return {
 			user,
+			// Trust-but-verify: the assigned professional's credential for THIS
+			// requisition's discipline. Null when nobody is assigned, or the discipline
+			// needs no credential — the panel then renders nothing rather than a
+			// reassuring-looking blank.
+			workdayCredential: await getWorkdayCredential(recurrenceDayId),
 			activity: [],
 			recurrenceDay,
 			workday,
@@ -239,6 +250,11 @@ export async function load(event: RequestEvent) {
 
 		return {
 			user,
+			// Trust-but-verify: the assigned professional's credential for THIS
+			// requisition's discipline. Null when nobody is assigned, or the discipline
+			// needs no credential — the panel then renders nothing rather than a
+			// reassuring-looking blank.
+			workdayCredential: await getWorkdayCredential(recurrenceDayId),
 			activity: [],
 			recurrenceDay,
 			workday,

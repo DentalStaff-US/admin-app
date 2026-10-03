@@ -108,6 +108,31 @@ export const jobs: JobDefinition[] = [
 		schedule: 'daily at 3:00 AM ET',
 		rule: () => ny({ hour: 3, minute: 0, second: 0 })
 	},
+	// --- Certification / registration expiry -------------------------------
+	// 11:00 ET = 8:00 PT, the earliest slot that is inside TCPA quiet hours
+	// (8am-9pm LOCAL) in every US timezone. The D7/D0/EXPIRED stages send SMS, so
+	// the usual 7-9am ET window would text Pacific professionals at 4-6am.
+	{
+		name: 'processCertExpiryReminders',
+		endpoint: '/jobs/certifications/processCertExpiryReminders',
+		schedule: 'daily at 11:00 AM ET',
+		rule: () => ny({ hour: 11, minute: 0, second: 0 })
+	},
+	// Email-only, so it can run earlier. Tuesday 10:30 keeps it off the same tick as
+	// processDocumentsMissingNudge at 10:00.
+	{
+		name: 'processMissingCredentialNudge',
+		endpoint: '/jobs/certifications/processMissingCredentialNudge',
+		schedule: 'weekly, Tuesday 10:30 AM ET',
+		rule: () => ny({ dayOfWeek: 2, hour: 10, minute: 30, second: 0 })
+	},
+	// Internal digest. Monday morning so staff start the week with the list.
+	{
+		name: 'processCertExpiryAdminDigest',
+		endpoint: '/jobs/certifications/processCertExpiryAdminDigest',
+		schedule: 'weekly, Monday 7:30 AM ET',
+		rule: () => ny({ dayOfWeek: 1, hour: 7, minute: 30, second: 0 })
+	},
 	{
 		name: 'processPendingApprovalTouchpoint',
 		endpoint: '/jobs/onboarding/processPendingApprovalTouchpoint',

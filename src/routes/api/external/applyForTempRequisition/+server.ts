@@ -11,7 +11,8 @@ import {
 	workdayTable,
 	recurrenceDayTable
 } from '$lib/server/database/schemas/requisition';
-import { experienceLevelTable } from '$lib/server/database/schemas/skill';
+import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
+import { certSelectFields } from '$lib/server/certifications/certGateSql';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { recordAction } from '$lib/server/audit/audit';
 import { and, eq } from 'drizzle-orm';
@@ -198,19 +199,25 @@ export const POST: RequestHandler = async ({ request }) => {
 					};
 				}
 
-				// Defense-in-depth qualification gate: discipline + experience +
-				// rate, mirroring the listing post-filter and the matching engine.
+				// Defense-in-depth qualification gate: discipline + certification +
+				// experience + rate, mirroring the listing post-filter and the
+				// matching engine.
 				const disciplines = await tx
 					.select({
 						disciplineId: candidateDisciplineExperienceTable.disciplineId,
 						experienceLevelOrder: experienceLevelTable.order,
 						preferredHourlyMin: candidateDisciplineExperienceTable.preferredHourlyMin,
-						preferredHourlyMax: candidateDisciplineExperienceTable.preferredHourlyMax
+						preferredHourlyMax: candidateDisciplineExperienceTable.preferredHourlyMax,
+						...certSelectFields()
 					})
 					.from(candidateDisciplineExperienceTable)
 					.leftJoin(
 						experienceLevelTable,
 						eq(experienceLevelTable.id, candidateDisciplineExperienceTable.experienceLevelId)
+					)
+					.innerJoin(
+						disciplineTable,
+						eq(disciplineTable.id, candidateDisciplineExperienceTable.disciplineId)
 					)
 					.where(eq(candidateDisciplineExperienceTable.candidateId, candidateProfile.id));
 

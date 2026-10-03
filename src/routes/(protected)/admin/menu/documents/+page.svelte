@@ -33,6 +33,7 @@
 	import { goto } from '$app/navigation';
 	import { cn } from '$lib/utils';
 	import { enhance as enhanceAction } from '$app/forms';
+	import { certBadge, certState, formatCertDate, toISODate } from '$lib/certStatusDisplay';
 
 	export let data: PageData;
 
@@ -42,24 +43,42 @@
 		updatedAt: Date;
 		uploadUrl: string;
 		expiryDate: Date | null;
-		type: 'RESUME' | 'LICENSE' | 'CERTIFICATE' | 'OTHER';
+		// AGREEMENT is a real value of the candidate_document_type enum; omitting it
+		// here (and from the filter below) hid those documents from the type filter.
+		type: 'RESUME' | 'LICENSE' | 'CERTIFICATE' | 'AGREEMENT' | 'OTHER';
 		filename: string | null;
 		candidateId: string;
 		candidateFirstName: string | null;
 		candidateLastName: string | null;
+		disciplineId: string | null;
+		disciplineName: string | null;
+		disciplineAbbreviation: string | null;
+		requiresCertification: boolean | null;
 	};
 
 	let tableData: DocumentData[] = [];
 	let searchTerm = '';
-	let selectedDocumentType: 'ALL' | 'RESUME' | 'LICENSE' | 'CERTIFICATE' | 'OTHER' = 'ALL';
+	let selectedDocumentType:
+		| 'ALL'
+		| 'RESUME'
+		| 'LICENSE'
+		| 'CERTIFICATE'
+		| 'AGREEMENT'
+		| 'OTHER' = 'ALL';
+	/** Credential-state filter — the admin's working queue for chasing certificates. */
+	let selectedCertFilter: 'ALL' | 'EXPIRED' | 'EXPIRING' = 'ALL';
 
 	$: documents = (data.documents as DocumentData[]) || [];
 
-	// Filter documents by type
-	$: filteredDocuments =
-		selectedDocumentType === 'ALL'
-			? documents
-			: documents.filter((doc) => doc.type === selectedDocumentType);
+	// Filter by document type, then by credential state. The credential filter is the
+	// chasing queue: "who is actually blocked" and "who is about to be".
+	$: filteredDocuments = documents
+		.filter((doc) => selectedDocumentType === 'ALL' || doc.type === selectedDocumentType)
+		.filter((doc) => {
+			if (selectedCertFilter === 'ALL') return true;
+			if (selectedCertFilter === 'EXPIRED') return isGatingExpired(doc);
+			return isExpiringSoon(doc);
+		});
 
 	// Helper function to get document type badge color
 	function getDocumentTypeBadgeClass(type: string) {
@@ -77,10 +96,48 @@
 		}
 	}
 
-	// Helper function to check if document is expired
-	function isExpired(expiryDate: Date | null): boolean {
-		if (!expiryDate) return false;
-		return new Date(expiryDate) < new Date();
+	/**
+	 * Credential badge for one document row.
+	 *
+	 * Judged against the discipline it is linked to: an expiry on an unlinked file, or
+	 * on a discipline that requires no credential, gates nothing and must not be shown
+	 * as though it does. (This replaces a local isExpired() helper that was defined
+	 * here but never called — the column it was written for was never built.)
+	 */
+	function docBadge(doc: DocumentData) {
+		if (!doc.expiryDate || !doc.disciplineId) return null;
+		return certBadge(
+			certState({
+				requiresCertification: Boolean(doc.requiresCertification),
+				effectiveExpiry: toISODate(doc.expiryDate)
+			}),
+			toISODate(doc.expiryDate)
+		);
+	}
+
+	/** True when this row's credential has lapsed and actually gates work. */
+	function isGatingExpired(doc: DocumentData): boolean {
+		return (
+			!!doc.expiryDate &&
+			!!doc.disciplineId &&
+			!!doc.requiresCertification &&
+			certState({
+				requiresCertification: true,
+				effectiveExpiry: toISODate(doc.expiryDate)
+			}) === 'EXPIRED'
+		);
+	}
+
+	function isExpiringSoon(doc: DocumentData): boolean {
+		return (
+			!!doc.expiryDate &&
+			!!doc.disciplineId &&
+			!!doc.requiresCertification &&
+			certState({
+				requiresCertification: true,
+				effectiveExpiry: toISODate(doc.expiryDate)
+			}) === 'EXPIRING'
+		);
 	}
 
 	// Column definitions
@@ -131,6 +188,35 @@
 					value: type,
 					class: getDocumentTypeBadgeClass(type)
 				});
+			}
+		},
+		{
+			header: 'Applies to',
+			id: 'disciplineAbbreviation',
+			accessorKey: 'disciplineAbbreviation',
+			enableSorting: true,
+			cell: ({ row }) =>
+				row.original.disciplineAbbreviation
+					? `${row.original.disciplineAbbreviation}${row.original.requiresCertification ? '' : ' (not required)'}`
+					: '—'
+		},
+		{
+			header: 'Expires',
+			id: 'expiryDate',
+			accessorKey: 'expiryDate',
+			enableSorting: true,
+			// Nulls last: rows with a date are the ones that need attention.
+			sortingFn: (rowA, rowB) => {
+				const a = rowA.original.expiryDate ? new Date(rowA.original.expiryDate).getTime() : Infinity;
+				const b = rowB.original.expiryDate ? new Date(rowB.original.expiryDate).getTime() : Infinity;
+				return a - b;
+			},
+			cell: ({ row }) => {
+				if (!row.original.expiryDate) return '—';
+				const badge = docBadge(row.original);
+				return badge
+					? `${formatCertDate(row.original.expiryDate)} · ${badge.label}`
+					: formatCertDate(row.original.expiryDate);
 			}
 		},
 		{
@@ -262,12 +348,48 @@
 				Certificate
 			</Button>
 			<Button
+				variant={selectedDocumentType === 'AGREEMENT' ? 'default' : 'outline'}
+				size="sm"
+				on:click={() => (selectedDocumentType = 'AGREEMENT')}
+				class={cn(selectedDocumentType === 'AGREEMENT' && 'bg-amber-500 hover:bg-amber-600')}
+			>
+				Agreement
+			</Button>
+			<Button
 				variant={selectedDocumentType === 'OTHER' ? 'default' : 'outline'}
 				size="sm"
 				on:click={() => (selectedDocumentType = 'OTHER')}
 				class={cn(selectedDocumentType === 'OTHER' && 'bg-gray-500 hover:bg-gray-600')}
 			>
 				Other
+			</Button>
+		</div>
+
+		<!-- Credential state. Only counts documents actually linked to a discipline that
+		     requires one, so this is the real "who is blocked" queue. -->
+		<div class="flex flex-wrap gap-2 mt-2">
+			<Button
+				variant={selectedCertFilter === 'ALL' ? 'default' : 'outline'}
+				size="sm"
+				on:click={() => (selectedCertFilter = 'ALL')}
+			>
+				All credentials
+			</Button>
+			<Button
+				variant={selectedCertFilter === 'EXPIRED' ? 'default' : 'outline'}
+				size="sm"
+				on:click={() => (selectedCertFilter = 'EXPIRED')}
+				class={cn(selectedCertFilter === 'EXPIRED' && 'bg-red-600 hover:bg-red-700')}
+			>
+				Expired ({documents.filter(isGatingExpired).length})
+			</Button>
+			<Button
+				variant={selectedCertFilter === 'EXPIRING' ? 'default' : 'outline'}
+				size="sm"
+				on:click={() => (selectedCertFilter = 'EXPIRING')}
+				class={cn(selectedCertFilter === 'EXPIRING' && 'bg-amber-500 hover:bg-amber-600')}
+			>
+				Expiring soon ({documents.filter(isExpiringSoon).length})
 			</Button>
 		</div>
 	</div>
