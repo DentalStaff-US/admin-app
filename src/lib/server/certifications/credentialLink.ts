@@ -100,22 +100,24 @@ export async function validateCredentialLink(
 }
 
 /**
- * Normalise a credential expiry to the instant the gate expects.
+ * Normalise a credential expiry to the 'YYYY-MM-DD' the column stores.
  *
- * `candidate_document_uploads.expiry_date` is `timestamptz` (it predates this
- * feature) but an expiration is a calendar date, so every write stores **midnight
- * UTC** and every read casts with `AT TIME ZONE 'UTC'` (see certGateSql.ts). Storing
- * a local-midnight instant instead would read back a day early for US timezones.
+ * `candidate_document_uploads.expiry_date` is a `date` (migration 0060). Accepts the
+ * bare date an `<input type="date">` submits, and a full ISO datetime for callers
+ * that still send one — a Date is read in UTC, matching how the pre-0060 values were
+ * written, so nothing shifts a day.
  *
- * Accepts the bare 'YYYY-MM-DD' an `<input type="date">` submits as well as a full
- * ISO datetime.
+ * Returns null for empty or unparseable input rather than an Invalid Date, so a bad
+ * value cannot reach the database as a silent null-equivalent.
  */
-export function toCredentialExpiryDate(value: string | Date | null | undefined): Date | null {
+export function toCredentialExpiryDate(value: string | Date | null | undefined): string | null {
 	if (!value) return null;
-	if (value instanceof Date) return value;
-	const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
-	const parsed = new Date(dateOnly ? `${value}T00:00:00.000Z` : value);
-	return Number.isNaN(parsed.getTime()) ? null : parsed;
+	if (value instanceof Date) {
+		return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+	}
+	if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+	const parsed = new Date(value);
+	return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
 }
 
 /** 'YYYY-MM-DD' from a stored expiry, for display and for CertInput.effectiveExpiry. */

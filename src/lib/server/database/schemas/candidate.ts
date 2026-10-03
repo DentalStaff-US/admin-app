@@ -191,10 +191,15 @@ export const candidateDocumentUploadsTable = pgTable(
 			.references(() => candidateProfileTable.id, { onDelete: 'cascade' })
 			.notNull(),
 		uploadUrl: text('upload_url').notNull(),
-		expiryDate: timestamp('expiry_date', {
-			withTimezone: true,
-			mode: 'date'
-		}),
+		/**
+		 * Credential expiration as a CALENDAR date ('YYYY-MM-DD'), not an instant.
+		 *
+		 * Was `timestamptz` before certification tracking existed, when nothing ever
+		 * wrote to it. An expiry is a date — storing an instant meant every read had to
+		 * pin the timezone (`AT TIME ZONE 'UTC'`) or the same row would resolve a day
+		 * earlier for anyone west of UTC, and every gate decision with it.
+		 */
+		expiryDate: date('expiry_date'),
 		type: candidateDocumentTypeEnum('type').notNull(),
 		filename: text('filename'),
 		adminOnly: boolean('admin_only').default(false),

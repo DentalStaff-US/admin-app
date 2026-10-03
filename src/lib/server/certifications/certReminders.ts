@@ -425,7 +425,7 @@ export async function runCertExpiryAdminDigest(): Promise<{
 			lastName: userTable.lastName,
 			disciplineName: disciplineTable.name,
 			abbreviation: disciplineTable.abbreviation,
-			expiryDate: sql<string>`to_char((cdu.expiry_date AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD')`
+			expiryDate: sql<string>`to_char(cdu.expiry_date, 'YYYY-MM-DD')`
 		})
 		.from(sql`candidate_document_uploads cdu`)
 		.innerJoin(candidateProfileTable, sql`${candidateProfileTable.id} = cdu.candidate_id`)

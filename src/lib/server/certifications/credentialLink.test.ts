@@ -17,10 +17,9 @@ describe('isCredentialType', () => {
 });
 
 describe('toCredentialExpiryDate', () => {
-	it('stores a bare date input as midnight UTC', () => {
-		// What <input type="date"> submits. Storing local midnight instead would read
-		// back a day early once cast with AT TIME ZONE 'UTC'.
-		expect(toCredentialExpiryDate('2027-04-30')?.toISOString()).toBe('2027-04-30T00:00:00.000Z');
+	it('passes a bare date input straight through', () => {
+		// What <input type="date"> submits, and exactly what the `date` column stores.
+		expect(toCredentialExpiryDate('2027-04-30')).toBe('2027-04-30');
 	});
 
 	it('round-trips through the read helper unchanged', () => {
@@ -28,10 +27,11 @@ describe('toCredentialExpiryDate', () => {
 		expect(credentialExpiryToISODate(stored)).toBe('2027-04-30');
 	});
 
-	it('accepts a full ISO datetime', () => {
-		expect(toCredentialExpiryDate('2027-04-30T00:00:00.000Z')?.toISOString()).toBe(
-			'2027-04-30T00:00:00.000Z'
-		);
+	it('reduces a full ISO datetime to its UTC calendar date', () => {
+		// Read in UTC, matching how pre-0060 values were written, so converting the
+		// column could not shift anyone's expiry by a day.
+		expect(toCredentialExpiryDate('2027-04-30T00:00:00.000Z')).toBe('2027-04-30');
+		expect(toCredentialExpiryDate(new Date('2027-04-30T00:00:00.000Z'))).toBe('2027-04-30');
 	});
 
 	it('returns null for empty and invalid input rather than an Invalid Date', () => {

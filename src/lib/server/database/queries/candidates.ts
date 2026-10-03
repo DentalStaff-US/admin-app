@@ -605,7 +605,8 @@ export async function uploadCandidateDocuments(
 	defaults: {
 		type?: 'RESUME' | 'LICENSE' | 'CERTIFICATE' | 'AGREEMENT' | 'OTHER';
 		disciplineId?: string | null;
-		expiryDate?: Date | null;
+		/** 'YYYY-MM-DD' — see toCredentialExpiryDate. */
+		expiryDate?: string | null;
 	} = {}
 ) {
 	try {

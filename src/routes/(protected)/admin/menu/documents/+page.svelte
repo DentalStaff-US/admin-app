@@ -42,7 +42,8 @@
 		createdAt: Date;
 		updatedAt: Date;
 		uploadUrl: string;
-		expiryDate: Date | null;
+		// 'YYYY-MM-DD' since migration 0060 made this a true date column.
+		expiryDate: string | null;
 		// AGREEMENT is a real value of the candidate_document_type enum; omitting it
 		// here (and from the filter below) hid those documents from the type filter.
 		type: 'RESUME' | 'LICENSE' | 'CERTIFICATE' | 'AGREEMENT' | 'OTHER';
@@ -206,10 +207,12 @@
 			accessorKey: 'expiryDate',
 			enableSorting: true,
 			// Nulls last: rows with a date are the ones that need attention.
+			// Nulls last: rows with a date are the ones that need attention. ISO date
+			// strings sort lexicographically, so no parsing is needed.
 			sortingFn: (rowA, rowB) => {
-				const a = rowA.original.expiryDate ? new Date(rowA.original.expiryDate).getTime() : Infinity;
-				const b = rowB.original.expiryDate ? new Date(rowB.original.expiryDate).getTime() : Infinity;
-				return a - b;
+				const a = rowA.original.expiryDate ?? '9999-12-31';
+				const b = rowB.original.expiryDate ?? '9999-12-31';
+				return a.localeCompare(b);
 			},
 			cell: ({ row }) => {
 				if (!row.original.expiryDate) return '—';

@@ -22,19 +22,11 @@ import { CERT_TIMEZONE } from './certStatus';
 export const nyTodaySql = sql.raw(`(now() AT TIME ZONE '${CERT_TIMEZONE}')::date`);
 
 /**
- * `candidate_document_uploads.expiry_date` read as a calendar date.
- *
- * The column is `timestamptz` (it predates this feature). A bare
- * `expiry_date::date` would convert using the SESSION timezone, so the same row
- * would read as Apr 30 or Apr 29 depending on connection settings — the exact
- * off-by-one this feature cannot afford. `AT TIME ZONE 'UTC'` pins it, matching the
- * write side, which always stores midnight UTC (see `toCredentialExpiryDate`).
- *
- * If the column is ever converted to a true `date` (recommended once it is
- * confirmed to be all-NULL), this becomes just `cdu.expiry_date` and this is the
- * only line that changes.
+ * `candidate_document_uploads.expiry_date` is a true `date` column, so it needs no
+ * cast and no timezone pinning — comparisons against `nyTodaySql` are plain date
+ * arithmetic. (It was `timestamptz` until migration 0060; see the schema comment.)
  */
-const EXPIRY_AS_DATE = `(cdu.expiry_date AT TIME ZONE 'UTC')::date`;
+const EXPIRY_AS_DATE = `cdu.expiry_date`;
 
 /** The document types that can gate placement. Mirrors CERT_CREDENTIAL_TYPES. */
 const CREDENTIAL_TYPES_SQL = `('LICENSE','CERTIFICATE')`;
