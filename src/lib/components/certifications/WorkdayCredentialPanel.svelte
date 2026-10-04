@@ -32,7 +32,14 @@
 			graceDaysRemaining: number | null;
 			document: { id: string; filename: string | null } | null;
 		};
-		certification: { state: CertState; expiresOn: string | null; selfDeclared: true };
+		certification: {
+			state: CertState;
+			expiresOn: string | null;
+			selfDeclared: true;
+			document: { id: string; filename: string | null } | null;
+			/** Set only when the attached certificate contradicts the declared date. */
+			documentExpiresOn: string | null;
+		};
 	} | null = null;
 
 	/** Recurrence day id — scopes the download authorisation to this workday. */
@@ -116,35 +123,71 @@
 		{/if}
 
 		{#if showCert}
-			<div class="mt-3 border-t pt-3">
-				<div class="flex items-center gap-2">
-					{#if bad(credential.certification.state)}
-						<AlertCircle class="h-4 w-4 flex-shrink-0 text-red-600" />
-					{:else}
-						<CheckCircle2 class="h-4 w-4 flex-shrink-0 text-green-600" />
+			<div class="mt-3 flex items-start justify-between gap-4 border-t pt-3">
+				<div class="min-w-0 flex-1">
+					<div class="flex items-center gap-2">
+						{#if bad(credential.certification.state)}
+							<AlertCircle class="h-4 w-4 flex-shrink-0 text-red-600" />
+						{:else}
+							<CheckCircle2 class="h-4 w-4 flex-shrink-0 text-green-600" />
+						{/if}
+						<span class="text-sm font-medium">Certification</span>
+						<span
+							class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600"
+						>
+							<Info class="h-3 w-3" /> self-declared
+						</span>
+					</div>
+
+					<p class="mt-1 text-sm text-gray-700">
+						{#if credential.certification.state === 'MISSING'}
+							Declared as required, but no expiration date on file.
+						{:else if credential.certification.state === 'EXPIRED'}
+							Expired {formatCertDate(credential.certification.expiresOn)}.
+						{:else}
+							Valid through {formatCertDate(credential.certification.expiresOn)}.
+						{/if}
+					</p>
+
+					{#if credential.certification.state === 'EXPIRED'}
+						<p class="mt-2 text-sm font-medium text-red-700">
+							This professional is booked on a lapsed certification. Contact DTSS.
+						</p>
 					{/if}
-					<span class="text-sm font-medium">Certification</span>
-					<span
-						class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600"
-					>
-						<Info class="h-3 w-3" /> self-declared
-					</span>
+
+					{#if credential.certification.documentExpiresOn}
+						<!-- The attached certificate disagrees with the date they typed. This
+						     is precisely what verification is for, so it is shown rather than
+						     one value being quietly preferred. -->
+						<p class="mt-2 text-sm font-medium text-amber-800">
+							The attached certificate shows {formatCertDate(
+								credential.certification.documentExpiresOn
+							)}, which does not match the date entered. Worth checking.
+						</p>
+					{/if}
+
+					{#if credential.certification.document?.filename}
+						<p class="mt-2 flex items-center gap-1 text-xs text-gray-500">
+							<FileText class="h-3 w-3" />
+							{credential.certification.document.filename}
+						</p>
+					{:else if !bad(credential.certification.state)}
+						<p class="mt-2 text-xs text-gray-500">No certificate attached to verify against.</p>
+					{/if}
 				</div>
 
-				<p class="mt-1 text-sm text-gray-700">
-					{#if credential.certification.state === 'MISSING'}
-						Declared as required, but no expiration date on file.
-					{:else if credential.certification.state === 'EXPIRED'}
-						Expired {formatCertDate(credential.certification.expiresOn)}.
-					{:else}
-						Valid through {formatCertDate(credential.certification.expiresOn)}.
-					{/if}
-				</p>
-
-				{#if credential.certification.state === 'EXPIRED'}
-					<p class="mt-2 text-sm font-medium text-red-700">
-						This professional is booked on a lapsed certification. Contact DTSS.
-					</p>
+				{#if credential.certification.document}
+					<Button
+						href={`/api/credentials/${credential.certification.document.id}/download?workdayId=${workdayId}`}
+						target="_blank"
+						rel="noopener noreferrer"
+						variant="outline"
+						size="sm"
+						class="flex-shrink-0"
+					>
+						<Download class="mr-2 h-4 w-4" />
+						View
+					</Button>
 				{/if}
 			</div>
 		{/if}

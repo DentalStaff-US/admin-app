@@ -22,6 +22,7 @@ import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { userTable } from '$lib/server/database/schemas/auth';
 import { recurrenceDayTable, requisitionTable, workdayTable } from '$lib/server/database/schemas/requisition';
 import {
+	CERT_EVIDENCE_DOC_TYPES,
 	LICENSE_DOC_TYPES,
 	credentialState,
 	graceDaysRemaining,
@@ -49,6 +50,9 @@ export type WorkdayCredential = {
 		state: CertState;
 		expiresOn: string | null;
 		selfDeclared: true;
+		document: { id: string; filename: string | null; uploadedAt: Date } | null;
+		/** Set only when the attached certificate's own expiry contradicts the above. */
+		documentExpiresOn: string | null;
 	};
 };
 
@@ -103,24 +107,37 @@ export async function getWorkdayCredential(
 	// `expiry_date IS NOT NULL` the ordering lies: Postgres `DESC` is NULLS FIRST, so
 	// a single linked document with no expiry outranked a perfectly valid license and
 	// this panel reported MISSING for a professional who was fully current.
-	const [doc] = await db
-		.select({
-			id: candidateDocumentUploadsTable.id,
-			filename: candidateDocumentUploadsTable.filename,
-			expiryDate: candidateDocumentUploadsTable.expiryDate,
-			uploadedAt: candidateDocumentUploadsTable.createdAt
-		})
-		.from(candidateDocumentUploadsTable)
-		.where(
-			and(
-				eq(candidateDocumentUploadsTable.candidateId, assigned.candidateId),
-				eq(candidateDocumentUploadsTable.disciplineId, assigned.disciplineId),
-				inArray(candidateDocumentUploadsTable.type, [...LICENSE_DOC_TYPES]),
-				isNotNull(candidateDocumentUploadsTable.expiryDate)
+	type CredentialDocType =
+		| (typeof LICENSE_DOC_TYPES)[number]
+		| (typeof CERT_EVIDENCE_DOC_TYPES)[number];
+
+	const newestDocument = async (types: readonly CredentialDocType[]) => {
+		const [row] = await db
+			.select({
+				id: candidateDocumentUploadsTable.id,
+				filename: candidateDocumentUploadsTable.filename,
+				expiryDate: candidateDocumentUploadsTable.expiryDate,
+				uploadedAt: candidateDocumentUploadsTable.createdAt
+			})
+			.from(candidateDocumentUploadsTable)
+			.where(
+				and(
+					eq(candidateDocumentUploadsTable.candidateId, assigned.candidateId),
+					eq(candidateDocumentUploadsTable.disciplineId, assigned.disciplineId),
+					inArray(candidateDocumentUploadsTable.type, [...types]),
+					isNotNull(candidateDocumentUploadsTable.expiryDate)
+				)
 			)
-		)
-		.orderBy(desc(candidateDocumentUploadsTable.expiryDate))
-		.limit(1);
+			.orderBy(desc(candidateDocumentUploadsTable.expiryDate))
+			.limit(1);
+		return row ?? null;
+	};
+
+	const doc = await newestDocument(LICENSE_DOC_TYPES);
+	// Evidence behind the self-declared certification date. Not what the gate reads,
+	// but it is the whole point of verification: a practice can compare the date the
+	// professional typed against the certificate they attached.
+	const certDoc = await newestDocument(CERT_EVIDENCE_DOC_TYPES);
 
 	// The grace clock, so a practice sees "no license yet, 12 days to supply one"
 	// rather than a bare warning with no sense of the deadline.
@@ -150,6 +167,7 @@ export async function getWorkdayCredential(
 		required: Boolean(assigned.requiresCert),
 		expiresOn: assigned.certExpiresOn ?? null
 	};
+	const certDocExpiry = certDoc ? credentialExpiryToISODate(certDoc.expiryDate) : null;
 
 	return {
 		candidateId: assigned.candidateId,
@@ -167,7 +185,19 @@ export async function getWorkdayCredential(
 			state: credentialState(certification, today),
 			expiresOn: certification.expiresOn,
 			/** Always true. The practice must be told this is not DTSS-verified. */
-			selfDeclared: true
+			selfDeclared: true,
+			/** The attached certificate, when there is one, so it can be checked. */
+			document: certDoc
+				? { id: certDoc.id, filename: certDoc.filename, uploadedAt: certDoc.uploadedAt }
+				: null,
+			/**
+			 * The expiry printed on that certificate, when it DISAGREES with the date
+			 * the professional declared. Null when they match or there is no document.
+			 * A mismatch is exactly what verification is for, so it is surfaced rather
+			 * than quietly preferring one over the other.
+			 */
+			documentExpiresOn:
+				certDocExpiry && certDocExpiry !== certification.expiresOn ? certDocExpiry : null
 		}
 	};
 }
