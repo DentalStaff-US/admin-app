@@ -297,15 +297,32 @@ export async function runCertExpiryReminders(): Promise<{
  * can only come from an admin slip, so it is a digest line rather than a nudge, and
  * it never blocks.
  */
-export async function runMissingCredentialNudge(): Promise<{
+export async function runMissingCredentialNudge(opts?: { dryRun?: boolean }): Promise<{
 	queued: number;
 	suppressed: number;
 	matched: number;
 	cleared: number;
 	blocked: number;
+	/** dryRun only: exactly who the audience query matched, and their clock state. */
+	audience?: Array<{
+		name: string;
+		email: string;
+		discipline: string;
+		notifiedAt: string | null;
+		graceDaysRemaining: number | null;
+		blockedNotified: boolean;
+	}>;
 }> {
+	// A dry run answers "would this reach anyone, and who" without writing a grace
+	// row, sending a message, or queueing a campaign. Verifying the audience by
+	// re-implementing this predicate elsewhere is how a diagnostic ends up
+	// disagreeing with the job it is meant to be checking, so it runs the real one.
+	const dryRun = opts?.dryRun === true;
+
 	// --- 1. Clear clocks for anyone who has since supplied a license ----------
-	const cleared = await db.execute(sql`
+	const cleared = dryRun
+		? { rowCount: 0 }
+		: await db.execute(sql`
 		DELETE FROM candidate_license_grace g
 		WHERE EXISTS (
 			SELECT 1 FROM candidate_document_uploads cdu
@@ -363,6 +380,28 @@ export async function runMissingCredentialNudge(): Promise<{
 
 	const today = todayInET();
 
+	if (dryRun) {
+		return {
+			queued: 0,
+			suppressed: 0,
+			matched: missing.length,
+			cleared: 0,
+			blocked: 0,
+			audience: missing.map((r) => ({
+				name: `${r.firstName ?? ''} ${r.lastName ?? ''}`.trim(),
+				email: r.email,
+				discipline: r.abbreviation ?? r.disciplineName,
+				notifiedAt: r.notifiedAt,
+				// Negative means the deadline has already passed and the gate is
+				// already hiding those jobs.
+				graceDaysRemaining: r.notifiedAt
+					? daysUntilExpiry(r.notifiedAt, today) + LICENSE_GRACE_DAYS
+					: null,
+				blockedNotified: r.blockedNotified
+			}))
+		};
+	}
+
 	// Start a clock for anyone not yet on one. ON CONFLICT DO NOTHING so a re-run is
 	// a no-op and the deadline never silently moves.
 	const newlyNotified: typeof missing = [];
@@ -411,13 +450,13 @@ export async function runMissingCredentialNudge(): Promise<{
 	const recipients = missing.filter((r) => !r.blockedNotified);
 	const result = await enqueueAutoCampaign({
 		key: AUTO_CAMPAIGN_KEYS.missingCredential,
-		name: 'Automated — license needed',
-		subject: 'Upload your license to keep getting matched',
+		name: 'Automated — license/registration needed',
+		subject: 'Upload your license or registration to keep getting matched',
 		body: [
 			'Hi {{firstName}},',
 			'',
 			'One or more of the disciplines on your profile legally requires a current',
-			'license, and we do not have one on file for you yet.',
+			'license or registration, and we do not have one on file for you yet.',
 			'',
 			`You have ${LICENSE_GRACE_DAYS} days from our first notice to upload it. After that`,
 			'those shifts will be hidden from your account until we have it — your other',

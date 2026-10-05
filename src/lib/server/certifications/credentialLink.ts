@@ -19,7 +19,7 @@ import { LINKABLE_CREDENTIAL_TYPES } from './credentialStatus';
 
 export type CredentialLinkDecision =
 	| { ok: true }
-	| { ok: false; reason: 'NOT_HELD' | 'NOT_A_CREDENTIAL' | 'EXPIRY_REQUIRED'; message: string };
+	| { ok: false; reason: 'NOT_HELD' | 'NOT_A_CREDENTIAL'; message: string };
 
 /** Narrowing guard for the document types that may carry a discipline link. */
 export function isCredentialType(type: string | null | undefined): boolean {
@@ -51,13 +51,19 @@ export async function assertDisciplineHeldByCandidate(
 }
 
 /**
- * Full validation for a link write. Enforces the three rules that keep the derived
- * model coherent:
+ * Full validation for a link write. Two rules:
  *   1. only LICENSE/CERTIFICATE may be linked (an AGREEMENT with an expiry must
  *      never gate placement);
- *   2. the professional must hold the discipline;
- *   3. a linked credential must carry an expiry — a link with no date tracks
- *      nothing and is the one genuinely confusing half-state.
+ *   2. the professional must hold the discipline.
+ *
+ * An expiry is NOT required. It used to be, on the reasoning that a link without a
+ * date tracks nothing — but that was wrong for both kinds of credential. A dental
+ * LICENSE does not expire at all; it is held until revoked, so demanding a date made
+ * it impossible to file one. And a CERTIFICATE here is only supporting evidence: the
+ * date the gate reads lives on the Experience & Rates entry, not on the document.
+ *
+ * So a dateless link is a perfectly ordinary record of "this document belongs to
+ * that discipline", and refusing it blocked real uploads.
  */
 export async function validateCredentialLink(
 	opts: {
@@ -76,15 +82,7 @@ export async function validateCredentialLink(
 		return {
 			ok: false,
 			reason: 'NOT_A_CREDENTIAL',
-			message: 'Only a License or Certification can be linked to a discipline.'
-		};
-	}
-
-	if (!opts.expiryDate) {
-		return {
-			ok: false,
-			reason: 'EXPIRY_REQUIRED',
-			message: 'An expiration date is required when linking a credential to a discipline.'
+			message: 'Only a License/Registration or Certification can be linked to a discipline.'
 		};
 	}
 

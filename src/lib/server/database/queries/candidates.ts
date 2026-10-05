@@ -17,6 +17,7 @@ import {
 import { alias } from 'drizzle-orm/pg-core';
 import {
 	credentialNotExpiredSql,
+	effectiveCertExpirySql,
 	effectiveLicenseExpirySql,
 	licenseGraceStartedOnSql
 } from '$lib/server/certifications/credentialGateSql';
@@ -450,7 +451,13 @@ export async function getCandidateProfileById(candidateId: string) {
 			// above, so the two together give the profile page its cert badge without a
 			// second query.
 			effectiveLicenseExpiry: effectiveLicenseExpirySql(),
-			licenseGraceStartedOn: licenseGraceStartedOnSql()
+			licenseGraceStartedOn: licenseGraceStartedOnSql(),
+			// Derived from the newest linked CERTIFICATE, which is what the gate reads.
+			// The `experience` spread above still carries the legacy `certExpiresOn`
+			// column; it is NOT the date to display. Showing the column while the gate
+			// consults documents is how a profile ends up badged "valid through 2028"
+			// for a professional the gate considers uncertified.
+			effectiveCertExpiry: effectiveCertExpirySql()
 		})
 		.from(candidateDisciplineExperienceTable)
 		.innerJoin(

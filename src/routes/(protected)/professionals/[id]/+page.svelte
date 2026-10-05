@@ -110,7 +110,10 @@
 			}),
 			credentialBadge('CERTIFICATION', {
 				required: Boolean(d?.experience?.requiresCert),
-				expiresOn: toISODate(d?.experience?.certExpiresOn)
+				// The newest linked CERTIFICATE's expiry — the same value the gate reads.
+				// Deliberately NOT `experience.certExpiresOn`: that column is legacy and
+				// a badge sourced from it can claim a credential the gate does not see.
+				expiresOn: toISODate(d?.effectiveCertExpiry)
 			})
 		].filter(Boolean);
 	}
@@ -135,6 +138,32 @@
 	$: workHistory = data.workHistory || [];
 	$: documents = data.documents || [];
 	$: disciplines = data.allDisciplines || [];
+
+	/**
+	 * Admin certification editor state, keyed by disciplineId.
+	 *
+	 * Seeded from `data`, but ONLY when `data` actually changes — hence the
+	 * signature guard. A bare `$:` re-seed re-runs on the same update cycle that the
+	 * checkbox binding triggers, overwriting the click with the stored value, which
+	 * presents as a toggle that will not move.
+	 */
+	let certEdits: Record<string, { requiresCert: boolean }> = {};
+	let certEditsSeededFrom = '';
+	$: {
+		const signature = JSON.stringify(
+			disciplines.map((d: any) => [d.discipline.id, Boolean(d.experience?.requiresCert)])
+		);
+		if (signature !== certEditsSeededFrom) {
+			certEditsSeededFrom = signature;
+			certEdits = Object.fromEntries(
+				disciplines.map((d: any) => [
+					d.discipline.id,
+					{ requiresCert: Boolean(d.experience?.requiresCert) }
+				])
+			);
+		}
+	}
+	let openCertEditor: string | null = null;
 
 	$: console.log(disciplines);
 
@@ -1097,6 +1126,103 @@
 																		</span>
 																	{/each}
 																</div>
+
+																{#if isAdmin}
+																	{@const did = discipline.discipline.id}
+																	{#if openCertEditor === did && certEdits[did]}
+																		<form
+																			method="POST"
+																			action="?/updateDisciplineCertification"
+																			use:enhance={() => {
+																				return async ({ update }) => {
+																					await update();
+																					openCertEditor = null;
+																				};
+																			}}
+																			class="mt-3 rounded-md border bg-white p-3"
+																		>
+																			<input
+																				type="hidden"
+																				name="disciplineId"
+																				value={discipline.discipline.id}
+																			/>
+																			<!-- Hidden field rather than a bare checkbox: an
+																			     unchecked checkbox sends nothing, which the
+																			     action cannot tell from "leave it alone". -->
+																			<input
+																				type="hidden"
+																				name="requiresCert"
+																				value={certEdits[did].requiresCert ? 'true' : 'false'}
+																			/>
+
+																			<label class="flex items-center gap-2 text-xs font-medium">
+																				<input
+																					type="checkbox"
+																					bind:checked={certEdits[did].requiresCert}
+																					class="h-4 w-4 rounded border-gray-300"
+																				/>
+																				This professional's state requires a certification for
+																				{discipline.discipline.name}
+																			</label>
+
+																			<!-- No date field. The certification's expiry is the newest linked
+																			     CERTIFICATE document's, which is what the gate reads and what the badge
+																			     above shows; a second date stored on this row is the duplication that
+																			     produced stale badges. Every save here clears the legacy column so the
+																			     two can never disagree again. -->
+																			<input type="hidden" name="certExpiresOn" value="" />
+
+																			{#if certEdits[did].requiresCert}
+																				<p class="mt-2 text-xs text-gray-500">
+																					Expiration comes from this professional's certification document for
+																					{discipline.discipline.name}. Set or correct the date in the Documents tab.
+																					{#if !discipline.effectiveCertExpiry}
+																						<span class="text-amber-700">
+																							No certification document is linked yet, so nothing is being tracked.
+																						</span>
+																					{/if}
+																				</p>
+																			{:else}
+																				<p class="mt-2 text-xs text-gray-500">
+																					Saving will remove the certification requirement from this entry.
+																					Professionals cannot undo this themselves.
+																				</p>
+																			{/if}
+
+																			<div class="mt-3 flex gap-2">
+																				<Button type="submit" size="sm" class="h-8">Save</Button>
+																				<Button
+																					type="button"
+																					variant="ghost"
+																					size="sm"
+																					class="h-8"
+																					on:click={() => (openCertEditor = null)}
+																				>
+																					Cancel
+																				</Button>
+																			</div>
+																		</form>
+																	{:else if !discipline.discipline?.requiresLicense || discipline.experience?.requiresCert}
+																		<!--
+																			On a discipline that already requires a license or
+																			registration, the certification track adds nothing — the
+																			license is the gate — so the "Add" affordance is hidden.
+																			The EDIT path deliberately survives that check: a
+																			declaration already on the row must stay removable, and
+																			only staff can remove one. Hiding this outright would
+																			strand a mistaken declaration with no way to undo it.
+																		-->
+																		<button
+																			type="button"
+																			class="mt-2 text-xs font-medium text-blue-600 hover:underline"
+																			on:click={() => (openCertEditor = discipline.discipline.id)}
+																		>
+																			{discipline.experience?.requiresCert
+																				? 'Edit certification'
+																				: 'Add certification'}
+																		</button>
+																	{/if}
+																{/if}
 															</div>
 															<div class="text-right flex-shrink-0">
 																<div

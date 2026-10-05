@@ -12,6 +12,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { eq, ne, and, asc, desc } from 'drizzle-orm';
 import { logger } from '$lib/server/logger';
 import {
+	effectiveCertExpirySql,
 	effectiveLicenseExpirySql,
 	licenseGraceStartedOnSql
 } from '$lib/server/certifications/credentialGateSql';
@@ -72,7 +73,12 @@ export const GET: RequestHandler = async ({ request }) => {
 				effectiveLicenseExpiry: effectiveLicenseExpirySql(),
 				licenseGraceStartedOn: licenseGraceStartedOnSql(),
 				requiresCert: candidateDisciplineExperienceTable.requiresCert,
-				certExpiresOn: candidateDisciplineExperienceTable.certExpiresOn
+				// Derived from the newest linked CERTIFICATE, exactly like the license
+				// side, and exactly what the gate reads. The legacy cert_expires_on
+				// column is NOT returned: the slot prefilled from it would show a date
+				// the gate does not honour, and the next save wrote that stale value
+				// straight back.
+				effectiveCertExpiry: effectiveCertExpirySql()
 			})
 			.from(candidateDisciplineExperienceTable)
 			.innerJoin(candidateProfileTable, eq(candidateProfileTable.userId, user.id))

@@ -24,6 +24,7 @@ import {
 	getCandidateDisciplineSnapshot,
 	replaceCandidateDisciplines
 } from '$lib/server/database/queries/candidateDisciplines';
+import { setDisciplineCertification } from '$lib/server/certifications/setDisciplineCertification';
 import { recordAction } from '$lib/server/audit/audit';
 import {
 	CandidateStatusSchema,
@@ -255,6 +256,77 @@ export const actions = {
 			);
 			return setError(form, 'Failed to update disciplines');
 		}
+	},
+
+	/**
+	 * Admin edit of ONE Experience & Rates row's certification.
+	 *
+	 * Deliberately NOT part of updateDisciplines. That action is a delete-and-upsert
+	 * over the whole set whose `set` clause omits the cert columns on purpose, so a
+	 * rate edit can never clear a certification — which also means it can never be
+	 * the thing that clears one intentionally. Worse, re-adding a discipline in the
+	 * same save keeps it in the keep-list, skips the delete, and the upsert leaves a
+	 * stale declaration in place: the "I deleted the row and the 2028 date came back"
+	 * report. This single-row door is the only way to change it, in either direction.
+	 *
+	 * Admins get both switches a professional does not: they may turn tracking OFF
+	 * and may record a date already in the past, because a lapsed certification is a
+	 * fact worth recording honestly.
+	 */
+	updateDisciplineCertification: async (event: RequestEvent) => {
+		const { id } = event.params;
+		const user = event.locals.user;
+
+		if (!user) return fail(403);
+		if (user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { message: 'You do not have permission to update certifications' });
+		}
+
+		const data = await event.request.formData();
+		const parsed = z
+			.object({
+				disciplineId: z.string().min(1),
+				requiresCert: z.coerce.boolean(),
+				// '' means "no date" — distinct from the field being absent, which this
+				// form never does. Normalised to null below.
+				certExpiresOn: z
+					.string()
+					.regex(/^(\d{4}-\d{2}-\d{2})?$/, 'Enter a valid date.')
+					.optional()
+			})
+			.safeParse({
+				disciplineId: data.get('disciplineId'),
+				requiresCert: data.get('requiresCert') === 'true',
+				certExpiresOn: data.get('certExpiresOn') ?? ''
+			});
+
+		if (!parsed.success) {
+			setFlash({ type: 'error', message: 'Enter a valid expiration date.' }, event);
+			return fail(400, { message: 'Invalid certification payload' });
+		}
+
+		const result = await setDisciplineCertification({
+			candidateId: id,
+			disciplineId: parsed.data.disciplineId,
+			requiresCert: parsed.data.requiresCert,
+			certExpiresOn: parsed.data.certExpiresOn ? parsed.data.certExpiresOn : null,
+			allowDisable: true,
+			allowPastDate: true,
+			actor: user
+		});
+
+		if (!result.ok) {
+			// NO_CHANGE is not an error worth alarming anyone about — the admin saved a
+			// form they did not actually change.
+			setFlash(
+				{ type: result.reason === 'NO_CHANGE' ? 'success' : 'error', message: result.message },
+				event
+			);
+			return result.reason === 'NO_CHANGE' ? { success: true } : fail(400, { message: result.message });
+		}
+
+		setFlash({ type: 'success', message: 'Certification updated' }, event);
+		return { success: true };
 	},
 
 	updateStatus: async (event: RequestEvent) => {

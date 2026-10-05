@@ -678,12 +678,13 @@ export const documentUrlSchema = z.object({
 	createdAt: z.date().optional(),
 	filesData: zJsonString.optional(),
 	/** Set when an admin files a document as the credential for a discipline. */
-	documentDisciplineId: z.string().optional().or(z.literal('')),
+	// Plain optional strings, NOT `.or(z.literal(''))`: superforms cannot resolve a
+	// union when coercing form-encoded data, so the value silently never arrives.
+	documentDisciplineId: z.string().optional(),
 	documentExpiryDate: z
 		.string()
-		.regex(/^\d{4}-\d{2}-\d{2}$/)
 		.optional()
-		.or(z.literal(''))
+		.refine((v) => !v || /^\d{4}-\d{2}-\d{2}$/.test(v), 'Enter a valid date.')
 });
 
 export const documentResultSchema = z.array(

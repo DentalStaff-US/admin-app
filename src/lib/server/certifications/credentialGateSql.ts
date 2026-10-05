@@ -20,6 +20,8 @@ export const nyTodaySql = sql.raw(`(now() AT TIME ZONE '${CERT_TIMEZONE}')::date
 
 /** Only a LICENSE document carries a license date. */
 const LICENSE_TYPES_SQL = `('LICENSE')`;
+/** Only a CERTIFICATE document carries a certification date. */
+const CERT_TYPES_SQL = `('CERTIFICATE')`;
 
 /**
  * Latest license expiry for a (candidate, discipline), as a DATE. NULL when none is
@@ -28,16 +30,33 @@ const LICENSE_TYPES_SQL = `('LICENSE')`;
  * MAX rather than "newest by created_at" so re-uploading an older document can never
  * un-renew someone, and a back-dated upload still resolves correctly.
  */
-function maxLicenseExpiryDateSql(t: typeof cde) {
+function maxExpiryDateSql(t: typeof cde, typesSql: string) {
 	return sql`(
 		SELECT MAX(cdu.expiry_date)
 		FROM candidate_document_uploads cdu
 		WHERE cdu.candidate_id = ${t.candidateId}
 			AND cdu.discipline_id = ${t.disciplineId}
-			AND cdu.type IN ${sql.raw(LICENSE_TYPES_SQL)}
+			AND cdu.type IN ${sql.raw(typesSql)}
 			AND cdu.expiry_date IS NOT NULL
 	)`;
 }
+
+const maxLicenseExpiryDateSql = (t: typeof cde) => maxExpiryDateSql(t, LICENSE_TYPES_SQL);
+
+/**
+ * The certification date. Comes from the newest linked CERTIFICATE document, NOT
+ * from candidate_discipline_experience.cert_expires_on.
+ *
+ * That column exists and is deliberately no longer read. Having a date on the
+ * Experience & Rates row AND on the document meant two values that could disagree —
+ * and they did, visibly, in testing. A date is now written in exactly one place, at
+ * upload, beside the file it came from, for both tracks.
+ *
+ * The Experience row still carries `requires_cert`: whether this professional's
+ * state requires one at all is a declaration with no document behind it, and that
+ * part genuinely belongs to them.
+ */
+const maxCertExpiryDateSql = (t: typeof cde) => maxExpiryDateSql(t, CERT_TYPES_SQL);
 
 /** When the grace clock for a missing license started, or NULL if never notified. */
 function graceStartedOnSql(t: typeof cde) {
@@ -57,6 +76,11 @@ function graceStartedOnSql(t: typeof cde) {
  */
 export function effectiveLicenseExpirySql(t: typeof cde = cde) {
 	return sql<string | null>`to_char(${maxLicenseExpiryDateSql(t)}, 'YYYY-MM-DD')`;
+}
+
+/** Projection: the newest linked CERTIFICATE's expiry as 'YYYY-MM-DD'. */
+export function effectiveCertExpirySql(t: typeof cde = cde) {
+	return sql<string | null>`to_char(${maxCertExpiryDateSql(t)}, 'YYYY-MM-DD')`;
 }
 
 /** Projection: when the missing-license clock started, 'YYYY-MM-DD' or null. */
@@ -88,7 +112,10 @@ export function licenseOkSql(t: typeof cde = cde, d: typeof disciplineTable = di
  * the join. A null date passes: that is the warn-don't-block rule.
  */
 export function certificationOkSql(t: typeof cde = cde) {
-	return sql`(${t.requiresCert} = false OR COALESCE(${t.certExpiresOn} >= ${nyTodaySql}, true))`;
+	return sql`(
+		${t.requiresCert} = false
+		OR COALESCE(${maxCertExpiryDateSql(t)} >= ${nyTodaySql}, true)
+	)`;
 }
 
 /** THE gate. One function, both tracks, so no caller can adopt half of it. */
@@ -117,8 +144,8 @@ export function credentialSelectFields(
 		},
 		certification: {
 			required: t.requiresCert,
-			// to_char for the same reason as the license side — see above.
-			expiresOn: sql<string | null>`to_char(${t.certExpiresOn}, 'YYYY-MM-DD')`
+			// From the document, like the license side. One date, one place.
+			expiresOn: effectiveCertExpirySql(t)
 		}
 	};
 }

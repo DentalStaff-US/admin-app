@@ -1133,13 +1133,17 @@ ${daysText}
 			details;
 
 		const isLicense = track === 'LICENSE';
-		const noun = isLicense ? 'license' : 'certification';
-		// A license is fixed by uploading a document; a certification by updating a
-		// date on the Experience & Rates entry.
+		// "license or registration": several disciplines register rather than license,
+		// and the platform gates both the same way. Naming only one sends half the
+		// audience hunting for a document they do not have.
+		const noun = isLicense ? 'license or registration' : 'certification';
+		// Both tracks are now fixed the same way — by uploading a current document.
+		// The certification's date used to live on the Experience & Rates entry, and
+		// this copy still sent people there after that stopped being true.
 		const remedy = isLicense
-			? 'Upload a current license'
-			: 'Update its expiration date on your profile';
-		const cta = isLicense ? 'Upload your license' : 'Update your certification';
+			? 'Upload a current license or registration'
+			: 'Upload a current certificate';
+		const cta = isLicense ? 'Upload your license/registration' : 'Upload your certificate';
 
 		const expired = stage === 'EXPIRED';
 		const when =

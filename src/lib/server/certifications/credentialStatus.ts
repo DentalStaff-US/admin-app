@@ -174,10 +174,10 @@ export function credentialBlockedMessage(blockedBy: CredentialGate['blockedBy'])
 	const expiredCert = blockedBy.some((b) => b.track === 'CERTIFICATION');
 
 	if (expiredLicense && expiredCert) {
-		return 'Your license and your certification for this discipline have both expired. Upload a current license and update your certification date to see and apply for these positions again.';
+		return 'Your license/registration and your certification for this discipline have both expired. Upload a current license or registration and a current certificate to see and apply for these positions again.';
 	}
 	if (expiredLicense) {
-		return 'Your license for this discipline has expired, or we do not have a current one on file. Upload a current license to see and apply for these positions again.';
+		return 'Your license or registration for this discipline has expired, or we do not have a current one on file. Upload a current one to see and apply for these positions again.';
 	}
 	return 'Your certification for this discipline has expired. Update its expiration date on your profile to see and apply for these positions again.';
 }

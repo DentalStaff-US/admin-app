@@ -142,7 +142,7 @@
 				)
 		},
 		{
-			header: 'Requires License',
+			header: 'Requires License/Registration',
 			id: 'requiresLicense',
 			accessorKey: 'requiresLicense',
 			enableSorting: true,
@@ -391,14 +391,15 @@
 							name="requiresLicense"
 							class="mt-0.5 h-4 w-4 rounded border-gray-300"
 						/>
-						<span>Requires a license to practise</span>
+						<span>Requires a license or registration to practise</span>
 					</label>
 					<p class="text-xs text-gray-600">
 						A legal requirement for everyone holding this discipline — dentists, hygienists
-						and similar. Professionals will be asked to upload their license and its
-						expiration date.
+						and similar. Covers registrations too: disciplines that register rather than
+						license are treated identically. Professionals will be asked to upload their
+						license or registration and its expiration date.
 						<strong
-							>Flagging this starts a 30-day countdown: anyone without a license on file is
+							>Flagging this starts a 30-day countdown: anyone without one on file is
 							nudged, and after 30 days from that first notice their jobs for this discipline
 							are hidden until they supply one.</strong
 						>

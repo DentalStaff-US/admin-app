@@ -18,7 +18,14 @@
 	 * `uploadUrl`: that is a permanent public CDN address.
 	 */
 	import { Button } from '$lib/components/ui/button';
-	import { FileText, AlertCircle, CheckCircle2, Download, Info } from 'lucide-svelte';
+	import {
+		FileText,
+		AlertCircle,
+		CheckCircle2,
+		Download,
+		Info,
+		ChevronDown
+	} from 'lucide-svelte';
 	import { credentialBadge, formatCertDate } from '$lib/credentialStatusDisplay';
 	import type { CertState } from '$lib/credentialStatusDisplay';
 
@@ -37,8 +44,6 @@
 			expiresOn: string | null;
 			selfDeclared: true;
 			document: { id: string; filename: string | null } | null;
-			/** Set only when the attached certificate contradicts the declared date. */
-			documentExpiresOn: string | null;
 		};
 	} | null = null;
 
@@ -58,13 +63,56 @@
 	$: showCert = credential && credential.certification.state !== 'NOT_REQUIRED';
 	$: alarming =
 		credential && (bad(credential.license.state) || bad(credential.certification.state));
+
+	/** Open by default; collapsible to reclaim the space once it has been read. */
+	let expanded = true;
+
+	/** One-line summary for the collapsed state, so closing it still says something. */
+	$: summary = credential
+		? [
+				showLicense ? `License/Registration: ${stateWord(credential.license.state)}` : null,
+				showCert ? `Certification: ${stateWord(credential.certification.state)}` : null
+			]
+				.filter(Boolean)
+				.join(' · ')
+		: '';
+
+	function stateWord(s: CertState): string {
+		if (s === 'EXPIRED') return 'expired';
+		if (s === 'MISSING' || s === 'MISSING_GRACE') return 'not on file';
+		if (s === 'EXPIRING') return 'expiring soon';
+		return 'current';
+	}
 </script>
 
 {#if credential && (showLicense || showCert)}
 	<div class="rounded-lg border p-4 {alarming ? 'border-red-200 bg-red-50' : 'bg-white'}">
-		<h4 class="text-sm font-medium">
-			{credential.disciplineName} ({credential.abbreviation}) credentials — {credential.candidateName}
-		</h4>
+		<button
+			type="button"
+			class="flex w-full items-start justify-between gap-3 text-left"
+			aria-expanded={expanded}
+			on:click={() => (expanded = !expanded)}
+		>
+			<span class="min-w-0">
+				<span class="block text-sm font-medium">
+					{credential.disciplineName} ({credential.abbreviation}) credentials — {credential.candidateName}
+				</span>
+				{#if !expanded}
+					<span
+						class="mt-0.5 block text-xs {alarming ? 'font-medium text-red-700' : 'text-gray-600'}"
+					>
+						{summary}
+					</span>
+				{/if}
+			</span>
+			<ChevronDown
+				class="h-4 w-4 flex-shrink-0 text-gray-500 transition-transform {expanded
+					? 'rotate-180'
+					: ''}"
+			/>
+		</button>
+
+		{#if expanded}
 
 		{#if showLicense}
 			<div class="mt-3 flex items-start justify-between gap-4">
@@ -75,12 +123,12 @@
 						{:else}
 							<CheckCircle2 class="h-4 w-4 flex-shrink-0 text-green-600" />
 						{/if}
-						<span class="text-sm font-medium">License</span>
+						<span class="text-sm font-medium">License/Registration</span>
 					</div>
 
 					<p class="mt-1 text-sm text-gray-700">
 						{#if credential.license.state === 'MISSING' || credential.license.state === 'MISSING_GRACE'}
-							No license on file{#if credential.license.graceDaysRemaining !== null}
+							None on file{#if credential.license.graceDaysRemaining !== null}
 								— {credential.license.graceDaysRemaining} day{credential.license
 									.graceDaysRemaining === 1
 									? ''
@@ -94,7 +142,7 @@
 
 					{#if credential.license.state === 'EXPIRED'}
 						<p class="mt-2 text-sm font-medium text-red-700">
-							This professional is booked on a lapsed license. Contact DTSS.
+							This professional is booked on a lapsed license/registration. Contact DTSS.
 						</p>
 					{/if}
 
@@ -132,16 +180,11 @@
 							<CheckCircle2 class="h-4 w-4 flex-shrink-0 text-green-600" />
 						{/if}
 						<span class="text-sm font-medium">Certification</span>
-						<span
-							class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600"
-						>
-							<Info class="h-3 w-3" /> self-declared
-						</span>
 					</div>
 
 					<p class="mt-1 text-sm text-gray-700">
 						{#if credential.certification.state === 'MISSING'}
-							Declared as required, but no expiration date on file.
+							Declared as required, but no certificate on file.
 						{:else if credential.certification.state === 'EXPIRED'}
 							Expired {formatCertDate(credential.certification.expiresOn)}.
 						{:else}
@@ -155,24 +198,22 @@
 						</p>
 					{/if}
 
-					{#if credential.certification.documentExpiresOn}
-						<!-- The attached certificate disagrees with the date they typed. This
-						     is precisely what verification is for, so it is shown rather than
-						     one value being quietly preferred. -->
-						<p class="mt-2 text-sm font-medium text-amber-800">
-							The attached certificate shows {formatCertDate(
-								credential.certification.documentExpiresOn
-							)}, which does not match the date entered. Worth checking.
-						</p>
-					{/if}
+					<!-- Full width, below the status: this is a sentence about where the
+					     information came from, and squeezing it into a tag beside the
+					     label wrapped it over three lines. -->
+					<p class="mt-1.5 flex items-start gap-1.5 text-xs text-gray-500">
+						<Info class="mt-0.5 h-3 w-3 flex-shrink-0" />
+						<span>
+							The professional reports that their state requires this certification. The
+							date is taken from the certificate they uploaded.
+						</span>
+					</p>
 
 					{#if credential.certification.document?.filename}
 						<p class="mt-2 flex items-center gap-1 text-xs text-gray-500">
 							<FileText class="h-3 w-3" />
 							{credential.certification.document.filename}
 						</p>
-					{:else if !bad(credential.certification.state)}
-						<p class="mt-2 text-xs text-gray-500">No certificate attached to verify against.</p>
 					{/if}
 				</div>
 
@@ -190,6 +231,7 @@
 					</Button>
 				{/if}
 			</div>
+		{/if}
 		{/if}
 	</div>
 {/if}

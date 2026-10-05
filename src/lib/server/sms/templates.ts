@@ -82,7 +82,7 @@ export const SMS_TEMPLATES = {
 	}),
 	/** The 30-day grace on a missing license has run out. */
 	licenseGraceExpiredNotification: (vars: { firstName: string; disciplineName: string }) => ({
-		textMessage: `${vars.firstName}, we still do not have your ${vars.disciplineName} license on file, so those shifts are now hidden. Upload it in your profile to restore access.`
+		textMessage: `${vars.firstName}, we still do not have your ${vars.disciplineName} license or registration on file, so those shifts are now hidden. Upload it in your profile to restore access.`
 	})
 } as const;
 

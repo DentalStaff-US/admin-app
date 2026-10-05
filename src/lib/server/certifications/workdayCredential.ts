@@ -45,14 +45,18 @@ export type WorkdayCredential = {
 		graceDaysRemaining: number | null;
 		document: { id: string; filename: string | null; uploadedAt: Date } | null;
 	};
-	/** The professional's own declaration. NOT verified by DTSS — label it as such. */
+	/**
+	 * Whether a certification applies here is the professional's own claim about
+	 * their state — DTSS does not assert it the way it asserts a license. The DATE,
+	 * though, comes off the attached certificate exactly like the license's does, so
+	 * it is no less trustworthy than anything else on this panel.
+	 */
 	certification: {
 		state: CertState;
 		expiresOn: string | null;
+		/** The REQUIREMENT is self-declared. The date below is not — it is the document's. */
 		selfDeclared: true;
 		document: { id: string; filename: string | null; uploadedAt: Date } | null;
-		/** Set only when the attached certificate's own expiry contradicts the above. */
-		documentExpiresOn: string | null;
 	};
 };
 
@@ -73,8 +77,7 @@ export async function getWorkdayCredential(
 			disciplineName: disciplineTable.name,
 			abbreviation: disciplineTable.abbreviation,
 			requiresLicense: disciplineTable.requiresLicense,
-			requiresCert: candidateDisciplineExperienceTable.requiresCert,
-			certExpiresOn: candidateDisciplineExperienceTable.certExpiresOn
+			requiresCert: candidateDisciplineExperienceTable.requiresCert
 		})
 		.from(workdayTable)
 		.innerJoin(requisitionTable, eq(requisitionTable.id, workdayTable.requisitionId))
@@ -134,9 +137,9 @@ export async function getWorkdayCredential(
 	};
 
 	const doc = await newestDocument(LICENSE_DOC_TYPES);
-	// Evidence behind the self-declared certification date. Not what the gate reads,
-	// but it is the whole point of verification: a practice can compare the date the
-	// professional typed against the certificate they attached.
+	// The certificate in force, found the same way as the license. This IS the
+	// certification date — the gate reads it too — not evidence sitting beside a
+	// separately typed one.
 	const certDoc = await newestDocument(CERT_EVIDENCE_DOC_TYPES);
 
 	// The grace clock, so a practice sees "no license yet, 12 days to supply one"
@@ -154,20 +157,26 @@ export async function getWorkdayCredential(
 
 	const expiresOn = doc ? credentialExpiryToISODate(doc.expiryDate) : null;
 	const license = {
-		required: true,
+		// Was hardcoded `true`. The panel renders whenever EITHER track applies, so on
+		// a discipline needing no license but carrying a certification this fabricated
+		// a MISSING license, showed "No license on file", and turned the whole card red
+		// for a professional who was fully compliant.
+		required: Boolean(assigned.requiresLicense),
 		expiresOn,
 		graceStartedOn: grace ? credentialExpiryToISODate(grace.notifiedAt) : null
 	};
 	const today = todayInET();
 
-	// The professional's own declared certification, shown alongside but clearly
-	// SELF-DECLARED: presenting a date someone typed about themselves to a practice
-	// as though DTSS had verified it is a liability this panel must not create.
+	// The date is the certificate's, not one the professional typed. There used to be
+	// a second date on the Experience & Rates row and this panel compared the two,
+	// warning on a mismatch. With one date that comparison has nothing to compare:
+	// it fired whenever a certificate existed and the dead column was empty, telling
+	// practices a date "did not match" one that was never entered.
+	const certDocExpiry = certDoc ? credentialExpiryToISODate(certDoc.expiryDate) : null;
 	const certification = {
 		required: Boolean(assigned.requiresCert),
-		expiresOn: assigned.certExpiresOn ?? null
+		expiresOn: certDocExpiry
 	};
-	const certDocExpiry = certDoc ? credentialExpiryToISODate(certDoc.expiryDate) : null;
 
 	return {
 		candidateId: assigned.candidateId,
@@ -186,18 +195,10 @@ export async function getWorkdayCredential(
 			expiresOn: certification.expiresOn,
 			/** Always true. The practice must be told this is not DTSS-verified. */
 			selfDeclared: true,
-			/** The attached certificate, when there is one, so it can be checked. */
+			/** The certificate the date above came from, so a practice can open it. */
 			document: certDoc
 				? { id: certDoc.id, filename: certDoc.filename, uploadedAt: certDoc.uploadedAt }
-				: null,
-			/**
-			 * The expiry printed on that certificate, when it DISAGREES with the date
-			 * the professional declared. Null when they match or there is no document.
-			 * A mismatch is exactly what verification is for, so it is surfaced rather
-			 * than quietly preferring one over the other.
-			 */
-			documentExpiresOn:
-				certDocExpiry && certDocExpiry !== certification.expiresOn ? certDocExpiry : null
+				: null
 		}
 	};
 }
