@@ -17,6 +17,16 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import type { RequestEvent } from './$types';
 import { setFlash } from 'sveltekit-flash-message/server';
 import {
+	toCredentialExpiryDate,
+	validateCredentialLink
+} from '$lib/server/certifications/credentialLink';
+import {
+	getCandidateDisciplineSnapshot,
+	replaceCandidateDisciplines
+} from '$lib/server/database/queries/candidateDisciplines';
+import { setDisciplineCertification } from '$lib/server/certifications/setDisciplineCertification';
+import { recordAction } from '$lib/server/audit/audit';
+import {
 	CandidateStatusSchema,
 	updateCandidateProfileSchema,
 	updateCandidateDisciplinesSchema,
@@ -204,25 +214,27 @@ export const actions = {
 		try {
 			const { disciplines } = form.data;
 
-			// Delete existing disciplines for this candidate
-			await db
-				.delete(candidateDisciplineExperienceTable)
-				.where(eq(candidateDisciplineExperienceTable.candidateId, id));
+			// Was a delete-all followed by an untransacted insert loop: a failure part
+			// way through left the professional with a partial or empty discipline set,
+			// which removes them from the matching engine and every job list.
+			await db.transaction(async (tx) => {
+				const before = await getCandidateDisciplineSnapshot(id, tx);
 
-			// Insert new/updated disciplines
-			if (disciplines.length > 0) {
-				for (const discipline of disciplines) {
-					await db.insert(candidateDisciplineExperienceTable).values({
-						candidateId: id,
-						disciplineId: discipline.disciplineId,
-						experienceLevelId: discipline.experienceLevelId,
-						preferredHourlyMin: discipline.preferredHourlyMin,
-						preferredHourlyMax: discipline.preferredHourlyMax,
-						createdAt: new Date(),
-						updatedAt: new Date()
-					});
-				}
-			}
+				await replaceCandidateDisciplines(id, disciplines, tx);
+
+				// This file had no audit trail at all. Disciplines drive job matching and
+				// pay, so a change here is worth the same record as a status change.
+				await recordAction({
+					entityType: 'CANDIDATES',
+					entityId: id,
+					action: 'UPDATE',
+					actor: user,
+					before: { disciplines: before },
+					after: { disciplines },
+					metadata: { field: 'disciplines' },
+					tx
+				});
+			});
 
 			setFlash(
 				{
@@ -244,6 +256,77 @@ export const actions = {
 			);
 			return setError(form, 'Failed to update disciplines');
 		}
+	},
+
+	/**
+	 * Admin edit of ONE Experience & Rates row's certification.
+	 *
+	 * Deliberately NOT part of updateDisciplines. That action is a delete-and-upsert
+	 * over the whole set whose `set` clause omits the cert columns on purpose, so a
+	 * rate edit can never clear a certification — which also means it can never be
+	 * the thing that clears one intentionally. Worse, re-adding a discipline in the
+	 * same save keeps it in the keep-list, skips the delete, and the upsert leaves a
+	 * stale declaration in place: the "I deleted the row and the 2028 date came back"
+	 * report. This single-row door is the only way to change it, in either direction.
+	 *
+	 * Admins get both switches a professional does not: they may turn tracking OFF
+	 * and may record a date already in the past, because a lapsed certification is a
+	 * fact worth recording honestly.
+	 */
+	updateDisciplineCertification: async (event: RequestEvent) => {
+		const { id } = event.params;
+		const user = event.locals.user;
+
+		if (!user) return fail(403);
+		if (user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { message: 'You do not have permission to update certifications' });
+		}
+
+		const data = await event.request.formData();
+		const parsed = z
+			.object({
+				disciplineId: z.string().min(1),
+				requiresCert: z.coerce.boolean(),
+				// '' means "no date" — distinct from the field being absent, which this
+				// form never does. Normalised to null below.
+				certExpiresOn: z
+					.string()
+					.regex(/^(\d{4}-\d{2}-\d{2})?$/, 'Enter a valid date.')
+					.optional()
+			})
+			.safeParse({
+				disciplineId: data.get('disciplineId'),
+				requiresCert: data.get('requiresCert') === 'true',
+				certExpiresOn: data.get('certExpiresOn') ?? ''
+			});
+
+		if (!parsed.success) {
+			setFlash({ type: 'error', message: 'Enter a valid expiration date.' }, event);
+			return fail(400, { message: 'Invalid certification payload' });
+		}
+
+		const result = await setDisciplineCertification({
+			candidateId: id,
+			disciplineId: parsed.data.disciplineId,
+			requiresCert: parsed.data.requiresCert,
+			certExpiresOn: parsed.data.certExpiresOn ? parsed.data.certExpiresOn : null,
+			allowDisable: true,
+			allowPastDate: true,
+			actor: user
+		});
+
+		if (!result.ok) {
+			// NO_CHANGE is not an error worth alarming anyone about — the admin saved a
+			// form they did not actually change.
+			setFlash(
+				{ type: result.reason === 'NO_CHANGE' ? 'success' : 'error', message: result.message },
+				event
+			);
+			return result.reason === 'NO_CHANGE' ? { success: true } : fail(400, { message: result.message });
+		}
+
+		setFlash({ type: 'success', message: 'Certification updated' }, event);
+		return { success: true };
 	},
 
 	updateStatus: async (event: RequestEvent) => {
@@ -321,10 +404,28 @@ export const actions = {
 
 		const fileData = form.data.filesData;
 
-		console.log({ fileData });
-
 		try {
-			await uploadCandidateDocuments(fileData, candidateId);
+			// Admins may file a document as the credential for a discipline. Validate the
+			// link against the professional's Experience & Rates entries first — the same
+			// rule the external endpoints enforce, so a stray link cannot be created here.
+			const disciplineId = form.data.documentDisciplineId || null;
+			const expiryDate = toCredentialExpiryDate(form.data.documentExpiryDate || null);
+			const type = form.data.documentType ?? form.data.type ?? 'OTHER';
+
+			if (disciplineId) {
+				const decision = await validateCredentialLink({
+					candidateId,
+					disciplineId,
+					type,
+					expiryDate
+				});
+				if (!decision.ok) {
+					setFlash({ type: 'error', message: decision.message }, event);
+					return setError(form, decision.message);
+				}
+			}
+
+			await uploadCandidateDocuments(fileData, candidateId, { type, disciplineId, expiryDate });
 
 			setFlash({ type: 'success', message: 'Documents uploaded successfully' }, event);
 			return message(
@@ -344,6 +445,71 @@ export const actions = {
 			return setError(form, 'Failed to upload documents');
 		}
 	},
+	/**
+	 * Set (or clear) the credential link and expiry on an existing document.
+	 *
+	 * Admins are not subject to the approval freeze that governs candidate-initiated
+	 * edits, so this writes directly rather than going through
+	 * `assertCandidateDocumentEditable` — matching how every other admin action on this
+	 * page behaves. The credential-link rules are still enforced.
+	 */
+	updateDocumentCredential: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+
+		const candidateId = event.params.id as string;
+		const fd = await event.request.formData();
+		const documentId = String(fd.get('documentId') ?? '');
+		const rawDiscipline = fd.get('disciplineId');
+		const rawExpiry = fd.get('expiryDate');
+		const rawType = fd.get('type');
+
+		if (!documentId) return fail(400, { message: 'Missing document.' });
+
+		const [existing] = await db
+			.select({
+				type: candidateDocumentUploadsTable.type,
+				expiryDate: candidateDocumentUploadsTable.expiryDate,
+				disciplineId: candidateDocumentUploadsTable.disciplineId
+			})
+			.from(candidateDocumentUploadsTable)
+			.where(eq(candidateDocumentUploadsTable.id, documentId));
+
+		if (!existing) return fail(404, { message: 'Document not found.' });
+
+		const patch: Record<string, unknown> = { updatedAt: new Date() };
+		if (rawType !== null) patch.type = String(rawType);
+		if (rawDiscipline !== null) patch.disciplineId = rawDiscipline === '' ? null : String(rawDiscipline);
+		if (rawExpiry !== null) {
+			patch.expiryDate = rawExpiry === '' ? null : toCredentialExpiryDate(String(rawExpiry));
+		}
+
+		const nextType = (patch.type ?? existing.type) as string;
+		const nextDisciplineId = (
+			'disciplineId' in patch ? patch.disciplineId : existing.disciplineId
+		) as string | null;
+		const nextExpiry = ('expiryDate' in patch ? patch.expiryDate : existing.expiryDate) as Date | null;
+
+		const decision = await validateCredentialLink({
+			candidateId,
+			disciplineId: nextDisciplineId,
+			type: nextType,
+			expiryDate: nextExpiry
+		});
+		if (!decision.ok) {
+			setFlash({ type: 'error', message: decision.message }, event);
+			return fail(400, { message: decision.message });
+		}
+
+		await db
+			.update(candidateDocumentUploadsTable)
+			.set(patch)
+			.where(eq(candidateDocumentUploadsTable.id, documentId));
+
+		setFlash({ type: 'success', message: 'Document updated.' }, event);
+		return { success: true };
+	},
+
 	deleteDocument: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);

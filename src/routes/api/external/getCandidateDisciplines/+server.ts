@@ -11,6 +11,11 @@ import { authenticateUser } from '$lib/server/serverUtils';
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { eq, ne, and, asc, desc } from 'drizzle-orm';
 import { logger } from '$lib/server/logger';
+import {
+	effectiveCertExpirySql,
+	effectiveLicenseExpirySql,
+	licenseGraceStartedOnSql
+} from '$lib/server/certifications/credentialGateSql';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -51,7 +56,29 @@ export const GET: RequestHandler = async ({ request }) => {
 				disciplineId: disciplineTable.id,
 				experienceLevelId: experienceLevelTable.id,
 				preferredHourlyMin: candidateDisciplineExperienceTable.preferredHourlyMin,
-				preferredHourlyMax: candidateDisciplineExperienceTable.preferredHourlyMax
+				preferredHourlyMax: candidateDisciplineExperienceTable.preferredHourlyMax,
+				// Labels so the candidate app can render "Dental Hygienist (RDH)" without a
+				// second lookup.
+				name: disciplineTable.name,
+				abbreviation: disciplineTable.abbreviation,
+				// Credential state for this entry. `requiresLicense` is the admin-set
+				// requirement; `effectiveExpiry` is MAX(expiry_date) across the credentials
+				// linked to it ('YYYY-MM-DD', or null when none is on file). Together these
+				// drive the badges and the upload picker — and they are what the Experience
+				// & Rates editors must round-trip, since this endpoint prefills them.
+				requiresLicense: disciplineTable.requiresLicense,
+				// Both tracks. The editors and both credential slots prefill from this —
+				// if any field is missing the UI shows a blank and the next save writes
+				// the blank back.
+				effectiveLicenseExpiry: effectiveLicenseExpirySql(),
+				licenseGraceStartedOn: licenseGraceStartedOnSql(),
+				requiresCert: candidateDisciplineExperienceTable.requiresCert,
+				// Derived from the newest linked CERTIFICATE, exactly like the license
+				// side, and exactly what the gate reads. The legacy cert_expires_on
+				// column is NOT returned: the slot prefilled from it would show a date
+				// the gate does not honour, and the next save wrote that stale value
+				// straight back.
+				effectiveCertExpiry: effectiveCertExpirySql()
 			})
 			.from(candidateDisciplineExperienceTable)
 			.innerJoin(candidateProfileTable, eq(candidateProfileTable.userId, user.id))

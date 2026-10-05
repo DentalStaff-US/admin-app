@@ -108,6 +108,44 @@ export const jobs: JobDefinition[] = [
 		schedule: 'daily at 3:00 AM ET',
 		rule: () => ny({ hour: 3, minute: 0, second: 0 })
 	},
+	// --- Certification / registration expiry -------------------------------
+	// 11:00 ET = 8:00 PT, the earliest slot that is inside TCPA quiet hours
+	// (8am-9pm LOCAL) in every US timezone. The D7/D0/EXPIRED stages send SMS, so
+	// the usual 7-9am ET window would text Pacific professionals at 4-6am.
+	{
+		name: 'processCertExpiryReminders',
+		endpoint: '/jobs/certifications/processCertExpiryReminders',
+		schedule: 'daily at 11:00 AM ET',
+		rule: () => ny({ hour: 11, minute: 0, second: 0 })
+	},
+	// DAILY, and at 11:15 rather than the old Tuesday 10:30, for two reasons.
+	//
+	// Daily: the gate blocks the moment a 30-day grace clock runs out, evaluated on
+	// every job query — but the "your shifts are now hidden" notice only goes out
+	// when this job runs. Weekly meant someone could lose their work on a Wednesday
+	// and not be told why until the following Tuesday. Nothing here re-sends on a
+	// re-run (the grace insert is ON CONFLICT DO NOTHING, the block notice is
+	// stamped before sending, and the recurring nudge carries its own 13-day
+	// suppression), so running daily costs no extra mail and closes that window to
+	// under a day.
+	//
+	// 11:15: this job stopped being email-only when the grace clock landed — the
+	// block notice sends SMS. 10:30 ET is 7:30 PT, inside TCPA quiet hours on the
+	// west coast. 11:00 ET is the earliest slot that is past 8am LOCAL everywhere in
+	// the US, and 11:15 keeps it off the same tick as processCertExpiryReminders.
+	{
+		name: 'processMissingCredentialNudge',
+		endpoint: '/jobs/certifications/processMissingCredentialNudge',
+		schedule: 'daily at 11:15 AM ET',
+		rule: () => ny({ hour: 11, minute: 15, second: 0 })
+	},
+	// Internal digest. Monday morning so staff start the week with the list.
+	{
+		name: 'processCertExpiryAdminDigest',
+		endpoint: '/jobs/certifications/processCertExpiryAdminDigest',
+		schedule: 'weekly, Monday 7:30 AM ET',
+		rule: () => ny({ dayOfWeek: 1, hour: 7, minute: 30, second: 0 })
+	},
 	{
 		name: 'processPendingApprovalTouchpoint',
 		endpoint: '/jobs/onboarding/processPendingApprovalTouchpoint',

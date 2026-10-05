@@ -407,6 +407,34 @@
       "when": 1789680928013,
       "tag": "0057_smart_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1790899789152,
+      "tag": "0058_flaky_phalanx",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1791004529136,
+      "tag": "0059_mysterious_matthew_murdock",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1791007798832,
+      "tag": "0060_fancy_shadowcat",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1791064561386,
+      "tag": "0061_fast_captain_universe",
+      "breakpoints": true
     }
   ]
 }

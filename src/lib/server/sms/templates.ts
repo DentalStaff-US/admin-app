@@ -60,6 +60,29 @@ export const SMS_TEMPLATES = {
 	}),
 	applicationDeniedNotification: (vars: { discipline: string; company: string }) => ({
 		textMessage: `Thank you for applying for ${vars.discipline} at ${vars.company}. This business has moved forward with another application. We hope to have more positions available soon.`
+	}),
+	credentialExpiringNotification: (vars: {
+		firstName: string;
+		disciplineName: string;
+		/** 'license' or 'certification' — never say the wrong one. */
+		credential: string;
+		expiresOn: string;
+		daysUntil: number;
+	}) => ({
+		textMessage: `${vars.firstName}, your DTSS ${vars.disciplineName} ${vars.credential} expires ${
+			vars.daysUntil === 0 ? 'today' : `in ${vars.daysUntil} day${vars.daysUntil === 1 ? '' : 's'}`
+		} (${vars.expiresOn}). Update it in your profile to keep seeing these shifts.`
+	}),
+	credentialExpiredNotification: (vars: {
+		firstName: string;
+		disciplineName: string;
+		credential: string;
+	}) => ({
+		textMessage: `${vars.firstName}, your DTSS ${vars.disciplineName} ${vars.credential} has expired, so those shifts are no longer visible to you. Update it in your profile to restore access.`
+	}),
+	/** The 30-day grace on a missing license has run out. */
+	licenseGraceExpiredNotification: (vars: { firstName: string; disciplineName: string }) => ({
+		textMessage: `${vars.firstName}, we still do not have your ${vars.disciplineName} license or registration on file, so those shifts are now hidden. Upload it in your profile to restore access.`
 	})
 } as const;
 

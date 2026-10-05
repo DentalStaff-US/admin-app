@@ -9,7 +9,9 @@ import {
 	requisitionTable,
 	requisitionApplicationTable
 } from '$lib/server/database/schemas/requisition';
-import { experienceLevelTable } from '$lib/server/database/schemas/skill';
+import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
+import { credentialSelectFields } from '$lib/server/certifications/credentialGateSql';
+import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { recordAction } from '$lib/server/audit/audit';
 import { and, eq } from 'drizzle-orm';
@@ -107,19 +109,28 @@ export const POST: RequestHandler = async ({ request }) => {
 				);
 			}
 
-			// Discipline + experience gate. (Rate is NOT enforced for permanent —
-			// perm rate semantics differ from temp hourly.) This mirrors the
-			// visibility gate in getOpeningsForCandidate so a candidate can't apply
-			// via a stale link to a perm role above their experience level.
-			const candidateHasDiscipline = await tx
+			// Discipline + certification + experience gate, via the shared predicate
+			// rather than a hand-rolled copy. (Rate is NOT enforced for permanent —
+			// perm rate semantics differ from temp hourly — hence
+			// `enforceRate: false`.) Mirrors the visibility gate in
+			// getOpeningsForCandidate so a candidate can't apply via a stale link to a
+			// perm role above their level, or one whose credential has lapsed.
+			const candidateDisciplines = await tx
 				.select({
 					disciplineId: candidateDisciplineExperienceTable.disciplineId,
-					experienceLevelOrder: experienceLevelTable.order
+					experienceLevelOrder: experienceLevelTable.order,
+					preferredHourlyMin: candidateDisciplineExperienceTable.preferredHourlyMin,
+					preferredHourlyMax: candidateDisciplineExperienceTable.preferredHourlyMax,
+					...credentialSelectFields()
 				})
 				.from(candidateDisciplineExperienceTable)
 				.innerJoin(
 					experienceLevelTable,
 					eq(experienceLevelTable.id, candidateDisciplineExperienceTable.experienceLevelId)
+				)
+				.innerJoin(
+					disciplineTable,
+					eq(disciplineTable.id, candidateDisciplineExperienceTable.disciplineId)
 				)
 				.where(
 					and(
@@ -127,42 +138,38 @@ export const POST: RequestHandler = async ({ request }) => {
 						eq(candidateDisciplineExperienceTable.disciplineId, requisition.disciplineId)
 					)
 				)
-				.limit(1)
-				.then((rows) => rows[0]);
+				.limit(1);
 
-			if (!candidateHasDiscipline) {
-				return json(
-					{
-						success: false,
-						message: 'You do not have the required discipline for this position.',
-						reason: 'discipline'
-					},
-					{ status: 403, headers: corsHeaders }
-				);
-			}
-
-			// Reductive experience gate: candidate's level order must be >= the
-			// requisition's required order. Skipped when the requisition has no
-			// required level ("No Preference" → experienceLevelId is null).
+			// The requisition's required experience order ("No Preference" when its
+			// experienceLevelId is null → the helper treats null as "anyone matches").
+			let requiredExperienceOrder: number | null = null;
 			if (requisition.experienceLevelId) {
 				const [requiredLevel] = await tx
 					.select({ order: experienceLevelTable.order })
 					.from(experienceLevelTable)
 					.where(eq(experienceLevelTable.id, requisition.experienceLevelId))
 					.limit(1);
-				if (
-					requiredLevel &&
-					(candidateHasDiscipline.experienceLevelOrder ?? 0) < requiredLevel.order
-				) {
-					return json(
-						{
-							success: false,
-							message: 'You do not meet the required experience level for this position.',
-							reason: 'experience'
-						},
-						{ status: 403, headers: corsHeaders }
-					);
-				}
+				requiredExperienceOrder = requiredLevel?.order ?? null;
+			}
+
+			const qualification = checkCandidateQualified(
+				candidateDisciplines,
+				{
+					disciplineId: requisition.disciplineId,
+					experienceLevelOrder: requiredExperienceOrder,
+					hourlyRate: null
+				},
+				{ enforceRate: false }
+			);
+			if (!qualification.qualified) {
+				return json(
+					{
+						success: false,
+						message: qualification.message,
+						reason: qualification.reason
+					},
+					{ status: 403, headers: corsHeaders }
+				);
 			}
 
 			// Block applications to requisitions whose owning business isn't ACTIVE.

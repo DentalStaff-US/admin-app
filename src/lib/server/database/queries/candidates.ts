@@ -15,6 +15,13 @@ import {
 	type SQLWrapper
 } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
+import {
+	credentialNotExpiredSql,
+	effectiveCertExpirySql,
+	effectiveLicenseExpirySql,
+	licenseGraceStartedOnSql
+} from '$lib/server/certifications/credentialGateSql';
+import { toCredentialExpiryDate } from '$lib/server/certifications/credentialLink';
 import db from '$lib/server/database/drizzle';
 import { userTable, type User } from '../schemas/auth';
 import {
@@ -438,7 +445,19 @@ export async function getCandidateProfileById(candidateId: string) {
 			salaryRange: {
 				min: candidateDisciplineExperienceTable.preferredHourlyMin,
 				max: candidateDisciplineExperienceTable.preferredHourlyMax
-			}
+			},
+			// MAX(expiry_date) across the credentials linked to this entry, 'YYYY-MM-DD'
+			// or null. `discipline.requiresLicense` rides along in the spread
+			// above, so the two together give the profile page its cert badge without a
+			// second query.
+			effectiveLicenseExpiry: effectiveLicenseExpirySql(),
+			licenseGraceStartedOn: licenseGraceStartedOnSql(),
+			// Derived from the newest linked CERTIFICATE, which is what the gate reads.
+			// The `experience` spread above still carries the legacy `certExpiresOn`
+			// column; it is NOT the date to display. Showing the column while the gate
+			// consults documents is how a profile ends up badged "valid through 2028"
+			// for a professional the gate considers uncertified.
+			effectiveCertExpiry: effectiveCertExpirySql()
 		})
 		.from(candidateDisciplineExperienceTable)
 		.innerJoin(
@@ -584,7 +603,24 @@ export async function getCandidateDocuments(candidateId: string) {
 	return documents || [];
 }
 
-export async function uploadCandidateDocuments(data: unknown, candidateId: string | SQLWrapper) {
+/**
+ * Admin-side bulk document insert.
+ *
+ * `defaults` carry the type / credential link / expiry chosen on the upload form;
+ * a per-file value in `data` wins. Previously every admin upload was hardcoded to
+ * type OTHER, so staff could not file a certificate as one — which is also why so
+ * many legacy documents are typed OTHER today.
+ */
+export async function uploadCandidateDocuments(
+	data: unknown,
+	candidateId: string | SQLWrapper,
+	defaults: {
+		type?: 'RESUME' | 'LICENSE' | 'CERTIFICATE' | 'AGREEMENT' | 'OTHER';
+		disciplineId?: string | null;
+		/** 'YYYY-MM-DD' — see toCredentialExpiryDate. */
+		expiryDate?: string | null;
+	} = {}
+) {
 	try {
 		const [candidateProfile] = await db
 			.select()
@@ -603,14 +639,18 @@ export async function uploadCandidateDocuments(data: unknown, candidateId: strin
 		const fileData = parsedData.data;
 
 		if (fileData) {
-			const candidateDocuments = fileData.map((file: { url: string; filename: string }) => ({
+			const candidateDocuments = fileData.map((file) => ({
 				candidateId: candidateProfile.id,
-				type: 'OTHER' as const,
+				type: file.type ?? defaults.type ?? ('OTHER' as const),
 				uploadUrl: file.url,
 				createdAt: new Date(),
 				updatedAt: new Date(),
 				id: crypto.randomUUID(),
-				filename: file.filename
+				filename: file.filename,
+				disciplineId: file.disciplineId ?? defaults.disciplineId ?? null,
+				expiryDate: file.expiryDate
+					? toCredentialExpiryDate(file.expiryDate)
+					: (defaults.expiryDate ?? null)
 			}));
 			return await db.insert(candidateDocumentUploadsTable).values(candidateDocuments);
 		}
@@ -732,6 +772,17 @@ export async function getQualifiedProfessionalsForRequisition(
 				and(
 					// Must have the required discipline
 					eq(candidateDisciplineExperienceTable.disciplineId, requiredDisciplineId),
+					// Certification/registration for that discipline must not have lapsed.
+					// Deliberately NOT behind `includeAllExperience`/`includeOutsidePayRange`:
+					// those relax *preferences* for an extended search, whereas a lapsed
+					// credential is a compliance fact and must survive "Show more".
+					//
+					// This predicate also governs the new-workday notification blast
+					// (notifications/transactional.ts → notifyQualifiedCandidatesOfNewWorkdays),
+					// so an expired professional stops being texted about shifts they can no
+					// longer take. That silently shrinks the matched pool, which is why the
+					// admin digest reports expiring/expired credentials.
+					credentialNotExpiredSql(),
 					// Reductive experience-level filter: candidate level order must be >=
 					// required level order. Skipped when requisition has no level (null).
 					requiredOrder !== null
@@ -851,7 +902,20 @@ export async function searchProfessionalsForRequisition(
 						jsonb_agg(distinct jsonb_build_object(
 							'id', ${disciplineTable.id},
 							'name', ${disciplineTable.name},
-							'abbreviation', ${disciplineTable.abbreviation}
+							'abbreviation', ${disciplineTable.abbreviation},
+							-- Credential state per discipline. This search DELIBERATELY does not
+							-- filter on it (see the docstring: it is the override an admin uses to
+							-- place a specific named person the filters hide — hiding Jane when the
+							-- admin typed "Jane" reads as a broken search, and she may have renewed
+							-- this morning). Surfacing it lets the assign UI warn instead.
+							-- Was a hand-rolled fourth copy of the gate, still carrying the
+							-- pre-0060 UTC cast against what is now a date column, which is
+							-- correct only while the session timezone happens to be UTC. The
+							-- shared helper is the single definition.
+							'certBlocked', NOT (${credentialNotExpiredSql(
+								candidateDisciplineExperienceTable,
+								disciplineTable
+							)})
 						)) filter (where ${disciplineTable.id} is not null),
 						'[]'::jsonb
 					)`.as('disciplines'),

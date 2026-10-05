@@ -9,6 +9,10 @@ import {
 	candidateProfileTable
 } from '$lib/server/database/schemas/candidate';
 import { assertCandidateDocumentEditable } from '$lib/server/documents/candidateDocumentGuards';
+import {
+	toCredentialExpiryDate,
+	validateCredentialLink
+} from '$lib/server/certifications/credentialLink';
 import { syncCandidateOnboardingCompletion } from '$lib/server/onboarding/syncCandidateOnboarding';
 import { logger } from '$lib/server/logger';
 
@@ -25,8 +29,22 @@ const payloadSchema = z.object({
 	documentId: z.string().uuid(),
 	type: z.enum(['RESUME', 'LICENSE', 'CERTIFICATE', 'AGREEMENT', 'OTHER']).optional(),
 	filename: z.string().max(255).optional(),
-	// ISO date, or null to clear. Only meaningful for licenses/certificates.
-	expiryDate: z.string().datetime().nullable().optional()
+	// Calendar date ('YYYY-MM-DD', or a full ISO datetime), or null to clear. Only
+	// meaningful for licenses/certificates.
+	expiryDate: z
+		.string()
+		.regex(/^\d{4}-\d{2}-\d{2}(T.*)?$/)
+		.nullable()
+		.optional(),
+	// The Experience & Rates entry this credential evidences, or null to unlink.
+	disciplineId: z.string().min(1).nullable().optional(),
+	/**
+	 * Designating an already-uploaded file as the credential for a discipline. Lets an
+	 * approved professional set `type` (to LICENSE/CERTIFICATE only) together with the
+	 * link and expiry — the path for legacy documents that were all forced to OTHER.
+	 * See assertCandidateDocumentEditable.
+	 */
+	intent: z.literal('DESIGNATE_CREDENTIAL').optional()
 });
 
 /**
@@ -67,9 +85,17 @@ export const POST: RequestHandler = async ({ request }) => {
 			);
 		}
 
+		// Which fields this request actually writes — drives the approval carve-outs.
+		const touchedFields = (['type', 'filename', 'expiryDate', 'disciplineId'] as const).filter(
+			(f) => parsed.data[f] !== undefined
+		);
+
 		const decision = await assertCandidateDocumentEditable({
 			documentId: parsed.data.documentId,
-			candidateId: candidateProfile.id
+			candidateId: candidateProfile.id,
+			fields: touchedFields,
+			intent: parsed.data.intent,
+			nextType: parsed.data.type ?? null
 		});
 
 		if (!decision.allowed) {
@@ -80,11 +106,46 @@ export const POST: RequestHandler = async ({ request }) => {
 			);
 		}
 
+		// The document's post-patch type and expiry, which is what the credential-link
+		// rules must be checked against — not the values being sent, which may omit
+		// either field.
+		const [existing] = await db
+			.select({
+				type: candidateDocumentUploadsTable.type,
+				expiryDate: candidateDocumentUploadsTable.expiryDate,
+				disciplineId: candidateDocumentUploadsTable.disciplineId
+			})
+			.from(candidateDocumentUploadsTable)
+			.where(eq(candidateDocumentUploadsTable.id, parsed.data.documentId))
+			.limit(1);
+
 		const patch: Record<string, unknown> = { updatedAt: new Date() };
 		if (parsed.data.type !== undefined) patch.type = parsed.data.type;
 		if (parsed.data.filename !== undefined) patch.filename = parsed.data.filename;
 		if (parsed.data.expiryDate !== undefined) {
-			patch.expiryDate = parsed.data.expiryDate ? new Date(parsed.data.expiryDate) : null;
+			patch.expiryDate = toCredentialExpiryDate(parsed.data.expiryDate);
+		}
+		if (parsed.data.disciplineId !== undefined) patch.disciplineId = parsed.data.disciplineId;
+
+		const nextType = (patch.type ?? existing?.type) as string | null;
+		const nextDisciplineId = (
+			parsed.data.disciplineId !== undefined ? parsed.data.disciplineId : existing?.disciplineId
+		) as string | null;
+		const nextExpiry = (
+			parsed.data.expiryDate !== undefined ? patch.expiryDate : existing?.expiryDate
+		) as Date | null;
+
+		const linkDecision = await validateCredentialLink({
+			candidateId: candidateProfile.id,
+			disciplineId: nextDisciplineId,
+			type: nextType,
+			expiryDate: nextExpiry
+		});
+		if (!linkDecision.ok) {
+			return json(
+				{ success: false, message: linkDecision.message, reason: linkDecision.reason },
+				{ status: 400, headers: corsHeaders }
+			);
 		}
 
 		const [updated] = await db

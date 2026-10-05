@@ -37,6 +37,14 @@ export const load: PageServerLoad = async (event) => {
 
 export const actions = {
 	addDiscipline: async (event: RequestEvent) => {
+		// Matches editDiscipline/deleteDiscipline, which have always checked. The page
+		// `load` redirects non-admins, but the action itself was reachable by a direct
+		// POST — and this table now carries `requires_certification`, which gates job
+		// visibility, so an unauthenticated write here has real consequences.
+		const user = event.locals.user;
+		if (!user) redirect(302, '/auth/sign-in');
+		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { message: 'Unauthorized.' });
+
 		const form = await superValidate(event, newDisciplineSchema);
 
 		if (!form.valid) return fail(400, { form });
@@ -47,7 +55,8 @@ export const actions = {
 				createdAt: new Date(),
 				updatedAt: new Date(),
 				name: form.data.name,
-				abbreviation: form.data.abbreviation
+				abbreviation: form.data.abbreviation,
+				requiresLicense: form.data.requiresLicense
 			});
 
 			if (newDiscipline) {
@@ -78,6 +87,11 @@ export const actions = {
 				.set({
 					name: form.data.name,
 					abbreviation: form.data.abbreviation,
+					// Must be written explicitly. The edit dialog seeds this from the row
+					// (see openEditDialog); if either side is missed, saving an unrelated
+					// field would silently reset the flag to false and un-gate every
+					// professional holding this discipline.
+					requiresLicense: form.data.requiresLicense,
 					updatedAt: new Date()
 				})
 				.where(eq(disciplineTable.id, form.data.id));

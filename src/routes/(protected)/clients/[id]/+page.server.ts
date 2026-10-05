@@ -16,6 +16,10 @@ import {
 	revokeInvite,
 	setStaffLocations
 } from '$lib/server/database/queries/clients';
+import {
+	billingMethodMismatchMessage,
+	getClientBillingReadiness
+} from '$lib/server/billing/readiness';
 import { buildLocationAddressPatch } from '$lib/server/address';
 import { fail, redirect } from '@sveltejs/kit';
 import { CLIENT_STATUS, USER_ROLES, type ClientStatus } from '$lib/config/constants';
@@ -35,6 +39,7 @@ import {
 	createInvoiceRecord,
 	createPaperInvoiceRecord,
 	getClientInvoices,
+	getPermanentRequisitionsForCompany,
 	getRequisitionsForClient
 } from '$lib/server/database/queries/requisitions';
 import { createStripeInvoice, withCardProcessingFee } from '$lib/server/stripe';
@@ -114,6 +119,17 @@ const NewInvoiceSchema = z.object({
 	dueDate: z.string().optional(),
 	description: z.string().optional(),
 	invoiceMethod: z.enum(['STRIPE', 'PAPER']).default('STRIPE'),
+	// Optional permanent-requisition target. Without it a one-off invoice raised
+	// here is orphaned from the placement it pays for, so the requisition reads as
+	// never billed — which is how the same placement gets invoiced twice.
+	//
+	// Preprocessed rather than `z.coerce.number()`: the picker posts an empty string
+	// when nothing is selected, and coerce would turn that into 0 and then fail
+	// `.positive()`, blocking every untargeted invoice.
+	requisitionId: z.preprocess(
+		(v) => (v === '' || v === null || v === undefined ? undefined : Number(v)),
+		z.number().int().positive().optional()
+	),
 	items: z.string().transform((val) => {
 		try {
 			return JSON.parse(val);
@@ -203,6 +219,24 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
 	const comments = await getCommentsForClient(id);
 
+	// PAPER invoicing with an unused Stripe customer. This page is where the
+	// invoice method is both displayed and edited, and where one-off invoices are
+	// raised, so it's the primary place to flag the contradiction.
+	// Permanent requisitions this one-off invoice can be attached to, so a
+	// placement fee raised here stays linked to the placement.
+	const permanentRequisitions = result?.company
+		? await getPermanentRequisitionsForCompany(result.company.id)
+		: [];
+
+	const billing = await getClientBillingReadiness(id);
+	const billingMismatchMessage =
+		billing.ready && billing.mismatch
+			? billingMethodMismatchMessage({
+					audience: 'ADMIN',
+					companyName: result?.company?.companyName ?? null
+				})
+			: null;
+
 	const blacklistedCandidates = result.company
 		? await getBlacklistedCandidatesForCompany(result.company.id)
 		: [];
@@ -230,7 +264,9 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				statusForm,
 				comments,
 				documents,
-				blacklistedCandidates
+				blacklistedCandidates,
+				billingMismatchMessage,
+				permanentRequisitions
 			}
 		: {
 				user,
@@ -247,7 +283,9 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				locationForm,
 				statusForm,
 				comments: [],
-				documents: []
+				documents: [],
+				billingMismatchMessage,
+				permanentRequisitions
 			};
 };
 
@@ -365,6 +403,14 @@ export const actions = {
 			const lineItems = await LineItemSchema.parseAsync(form.data.items);
 			const dateString = form.data.dueDate;
 			const invoiceMethod = form.data.invoiceMethod; // 'STRIPE' | 'PAPER'
+			// Optional placement this invoice pays for. When set, the invoice is stamped
+			// with the requisition (and `sourceType: 'other'`, matching the requisition
+			// page's own invoice action) so it shows up on that requisition instead of
+			// leaving the placement looking unbilled.
+			const requisitionId = form.data.requisitionId;
+			// Left undefined when no requisition is targeted: both factories fall back to
+			// 'manual' on their own (`sourceType = 'manual'` / `sourceType ?? 'manual'`).
+			const sourceType = requisitionId ? ('other' as const) : undefined;
 
 			// Get client info for customer name/email. The invoice goes to the
 			// billing contact, which is separate from the account owner's login
@@ -382,6 +428,8 @@ export const actions = {
 						amountInDollars: form.data.amount.toFixed(2),
 						dueDate: dateString,
 						description: form.data.description,
+						requisitionId,
+						sourceType,
 						lineItems: lineItems.map((item) => ({
 							id: crypto.randomUUID(),
 							description: item.description ?? null,
@@ -437,7 +485,9 @@ export const actions = {
 						{
 							clientId,
 							stripeInvoice: invoice,
-							amountInDollars: (invoice.amount_due / 100).toFixed(2)
+							amountInDollars: (invoice.amount_due / 100).toFixed(2),
+							requisitionId,
+							sourceType
 						},
 						user.id
 					);

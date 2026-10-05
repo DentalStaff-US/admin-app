@@ -10,6 +10,10 @@ import {
 import { candidateDocumentUploadSchema } from '$lib/config/zod-schemas';
 import { logger } from '$lib/server/logger';
 import { syncCandidateOnboardingCompletion } from '$lib/server/onboarding/syncCandidateOnboarding';
+import {
+	toCredentialExpiryDate,
+	validateCredentialLink
+} from '$lib/server/certifications/credentialLink';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -62,36 +66,59 @@ export const POST: RequestHandler = async ({ request }) => {
 				{ status: 400, headers: corsHeaders }
 			);
 		}
-		const { type, url, filename, filesData } = parsedData.data;
+		const { type, url, filename, filesData, disciplineId } = parsedData.data;
 
-		if (filesData) {
-			// Per-file type when the caller supplies one, falling back to the
-			// request-level type and finally OTHER. Previously every multi-file
-			// upload was forced to OTHER regardless of what the user chose.
-			const candidateDocuments = filesData.map((file) => ({
+		// Normalise every row first so each credential link can be validated before
+		// anything is written — a partially-inserted multi-file upload with one bad
+		// link would leave the professional with a document that silently proves
+		// nothing.
+		const rows = (
+			filesData
+				? filesData.map((file) => ({
+						// Per-file type when the caller supplies one, falling back to the
+						// request-level type and finally OTHER. Previously every multi-file
+						// upload was forced to OTHER regardless of what the user chose.
+						type: file.type ?? type ?? ('OTHER' as const),
+						uploadUrl: file.url,
+						filename: file.filename,
+						expiryDate: toCredentialExpiryDate(file.expiryDate),
+						// Per-file link, falling back to the request-level one so a
+						// single-file upload can pass it at either level.
+						disciplineId: file.disciplineId ?? disciplineId ?? null
+					}))
+				: [
+						{
+							type: type || 'OTHER',
+							uploadUrl: url as string,
+							filename,
+							expiryDate: toCredentialExpiryDate(parsedData.data.expiryDate),
+							disciplineId: disciplineId ?? null
+						}
+					]
+		).map((r) => ({
+			...r,
+			candidateId: candidateProfile.id,
+			id: crypto.randomUUID(),
+			createdAt: new Date(),
+			updatedAt: new Date()
+		}));
+
+		for (const row of rows) {
+			const decision = await validateCredentialLink({
 				candidateId: candidateProfile.id,
-				type: file.type ?? type ?? ('OTHER' as const),
-				uploadUrl: file.url,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-				id: crypto.randomUUID(),
-				filename: file.filename,
-				expiryDate: file.expiryDate ? new Date(file.expiryDate) : null
-			}));
-			await db.insert(candidateDocumentUploadsTable).values(candidateDocuments);
-		} else {
-			const candidateDocument = {
-				candidateId: candidateProfile.id,
-				type: type || 'OTHER',
-				uploadUrl: url as string,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-				id: crypto.randomUUID(),
-				filename,
-				expiryDate: parsedData.data.expiryDate ? new Date(parsedData.data.expiryDate) : null
-			};
-			await db.insert(candidateDocumentUploadsTable).values(candidateDocument);
+				disciplineId: row.disciplineId,
+				type: row.type,
+				expiryDate: row.expiryDate
+			});
+			if (!decision.ok) {
+				return json(
+					{ success: false, message: decision.message, reason: decision.reason },
+					{ status: 400, headers: corsHeaders }
+				);
+			}
 		}
+
+		await db.insert(candidateDocumentUploadsTable).values(rows);
 
 		// A RESUME upload is normally the last required piece, so re-evaluate
 		// completion here. Safe for the optional LICENSE/CERTIFICATE/OTHER uploads

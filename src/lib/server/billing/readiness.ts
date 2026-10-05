@@ -23,7 +23,20 @@ import { requisitionTable } from '$lib/server/database/schemas/requisition';
  * because timesheet invoices are `send_invoice` and Stripe emails a pay link.
  */
 export type BillingReadiness =
-	| { ready: true; method: 'PAPER' | 'STRIPE'; stripeCustomerId: string | null }
+	| {
+			ready: true;
+			method: 'PAPER' | 'STRIPE';
+			stripeCustomerId: string | null;
+			/**
+			 * The client is on PAPER invoicing *and* has a Stripe customer sitting
+			 * unused. Billing still works — PAPER is authoritative — but it is almost
+			 * always unintended: every timesheet invoice and one-off invoice bills as
+			 * paper while a perfectly good Stripe customer exists. Surfaced in the UI
+			 * so an admin sees the contradiction before they bill, rather than after a
+			 * client asks why they got a paper invoice.
+			 */
+			mismatch: boolean;
+	  }
 	| { ready: false; method: 'STRIPE'; reason: 'NO_STRIPE_CUSTOMER' | 'NO_CLIENT' };
 
 export async function getClientBillingReadiness(
@@ -43,11 +56,26 @@ export async function getClientBillingReadiness(
 
 	if (!row) return { ready: false, method: 'STRIPE', reason: 'NO_CLIENT' };
 
+	return decideBillingReadiness(row);
+}
+
+/**
+ * The readiness decision itself, split out from the query so it can be tested
+ * directly. PAPER wins over an existing Stripe customer deliberately — the
+ * client's stored invoice method is authoritative — but that combination sets
+ * `mismatch` so the UI can say so.
+ */
+export function decideBillingReadiness(row: {
+	invoiceMethod: 'PAPER' | 'STRIPE' | null;
+	stripeCustomerId: string | null;
+}): BillingReadiness {
+	const stripeCustomerId = row.stripeCustomerId ?? null;
+
 	if (row.invoiceMethod === 'PAPER') {
-		return { ready: true, method: 'PAPER', stripeCustomerId: row.stripeCustomerId ?? null };
+		return { ready: true, method: 'PAPER', stripeCustomerId, mismatch: stripeCustomerId !== null };
 	}
-	if (row.stripeCustomerId) {
-		return { ready: true, method: 'STRIPE', stripeCustomerId: row.stripeCustomerId };
+	if (stripeCustomerId) {
+		return { ready: true, method: 'STRIPE', stripeCustomerId, mismatch: false };
 	}
 	return { ready: false, method: 'STRIPE', reason: 'NO_STRIPE_CUSTOMER' };
 }
@@ -100,5 +128,29 @@ export function billingNotReadyMessage(opts: {
 	return (
 		`You can't ${opts.what} until billing is set up for your account. ` +
 		`Add a payment method under Settings → Billing, or contact us if you've arranged paper invoicing.`
+	);
+}
+
+/**
+ * Explains a PAPER-vs-Stripe-customer mismatch (see `BillingReadiness.mismatch`).
+ * Nothing is blocked — this is a "you probably didn't mean this" warning, so it
+ * never says "cannot". Admins get the fix; clients get the reassurance that
+ * their invoices still arrive, just on paper.
+ */
+export function billingMethodMismatchMessage(opts: {
+	audience: 'ADMIN' | 'CLIENT';
+	companyName?: string | null;
+}): string {
+	const who = opts.companyName ? `${opts.companyName}` : 'This client';
+	if (opts.audience === 'ADMIN') {
+		return (
+			`${who} is set to paper invoicing but already has a Stripe customer. ` +
+			`Every invoice — approved timesheets included — will be created as a paper invoice ` +
+			`until the invoice method is changed on the client's page.`
+		);
+	}
+	return (
+		`Your account is set to paper invoicing, so invoices are sent as paper invoices ` +
+		`even though a card is on file. Contact us if you'd rather be billed electronically.`
 	);
 }

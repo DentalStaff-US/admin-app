@@ -6,8 +6,9 @@ import {
 } from '$lib/server/database/schemas/candidate';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { eq, desc } from 'drizzle-orm';
+import { desc, eq, getTableColumns } from 'drizzle-orm';
 import { getCandidateDocumentEditability } from '$lib/server/documents/candidateDocumentGuards';
+import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
@@ -47,9 +48,18 @@ export const GET: RequestHandler = async ({ request }) => {
 		// Returns every document, resume included. It previously filtered RESUME
 		// out, which meant the settings page could neither show nor manage it —
 		// the professional had no way to replace a stale resume.
+		// `getTableColumns` keeps this a full row (the UI relies on every column,
+		// `disciplineId` and `expiryDate` included) while still allowing the joined
+		// discipline label, which saves the client a second lookup to render
+		// "Applies to: Dental Hygienist (RDH)".
 		const documents = await db
-			.select()
+			.select({
+				...getTableColumns(candidateDocumentUploadsTable),
+				disciplineName: disciplineTable.name,
+				disciplineAbbreviation: disciplineTable.abbreviation
+			})
 			.from(candidateDocumentUploadsTable)
+			.leftJoin(disciplineTable, eq(disciplineTable.id, candidateDocumentUploadsTable.disciplineId))
 			.where(eq(candidateDocumentUploadsTable.candidateId, candidateProfile.id))
 			.orderBy(desc(candidateDocumentUploadsTable.createdAt));
 
@@ -58,7 +68,16 @@ export const GET: RequestHandler = async ({ request }) => {
 		const editability = await getCandidateDocumentEditability(candidateProfile.id);
 
 		return json(
-			{ success: true, documents, editable: editability.editable, lockReason: editability.reason },
+			{
+				success: true,
+				documents,
+				editable: editability.editable,
+				lockReason: editability.reason,
+				// Credential expiry / discipline link stay correctable after approval, so
+				// the settings page can render those cells editable while the type cell
+				// and Delete remain locked.
+				canEditCredentialMetadata: editability.canEditCredentialMetadata
+			},
 			{ status: 200, headers: corsHeaders }
 		);
 	} catch (err) {

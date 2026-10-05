@@ -622,6 +622,35 @@ export async function getInvoicesDueTotal(): Promise<number> {
 	return Number(result?.total ?? 0);
 }
 
+// Permanent placements that have been filled but never billed: the requisition
+// sits at PAYMENT_REQUIRED (set when an application is approved) with no live
+// invoice pointing at it. Perm fees are raised by hand, so nothing else catches
+// a placement someone forgot to invoice — there is no cron and no reminder.
+//
+// `status <> 'void'` is the point: a voided invoice is not payment, so a
+// requisition whose only invoice was voided is still unbilled. Invoices raised
+// from the client page without a requisition target are invisible here, which is
+// why that form now offers a requisition to bill against.
+export async function getUnbilledPermanentPlacementsCount(): Promise<number> {
+	const [result] = await db
+		.select({ count: count() })
+		.from(requisitionTable)
+		.where(
+			and(
+				eq(requisitionTable.permanentPosition, true),
+				eq(requisitionTable.status, 'PAYMENT_REQUIRED'),
+				sql`not exists (
+					select 1
+					from ${invoiceTable}
+					where ${invoiceTable.requisitionId} = ${requisitionTable.id}
+						and ${invoiceTable.status} <> 'void'
+				)`
+			)
+		);
+
+	return result?.count ?? 0;
+}
+
 // Overtime-accurate wage total (dollars) for the given wages_status, using the
 // same source of truth as getWagesDueCount. Replicates computeHoursBreakdown in
 // SQL: hours up to 40 bill at the effective rate, hours beyond 40 at 1.5×. The
@@ -757,7 +786,8 @@ export async function getAdminDashboardData() {
 		invoicesDueTotal,
 		wagesDueTotal,
 		wagesPaidCount,
-		wagesPaidTotal
+		wagesPaidTotal,
+		unbilledPermanentPlacementsCount
 	] = await Promise.all([
 		getTimesheetsDueCount().catch((e) => {
 			console.error('❌ getTimesheetsDueCount failed:', e.message);
@@ -814,6 +844,10 @@ export async function getAdminDashboardData() {
 		getWagesPaidTotal().catch((e) => {
 			console.error('❌ getWagesPaidTotal failed:', e.message);
 			return 0;
+		}),
+		getUnbilledPermanentPlacementsCount().catch((e) => {
+			console.error('❌ getUnbilledPermanentPlacementsCount failed:', e.message);
+			return 0;
 		})
 	]);
 
@@ -831,7 +865,8 @@ export async function getAdminDashboardData() {
 		invoicesDueTotal,
 		wagesDueTotal,
 		wagesPaidCount,
-		wagesPaidTotal
+		wagesPaidTotal,
+		unbilledPermanentPlacementsCount
 	};
 }
 

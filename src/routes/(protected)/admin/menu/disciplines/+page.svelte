@@ -47,7 +47,9 @@
 		onResult: ({ result }) => {
 			if (result.type === 'success') {
 				dialogOpen = false;
-				$disciplineForm = { name: '', abbreviation: '' };
+				// Reset the flag too, or the next discipline added in the same session
+				// inherits the previous one's checkbox state.
+				$disciplineForm = { name: '', abbreviation: '', requiresLicense: false };
 			}
 		}
 	});
@@ -82,6 +84,7 @@
 		id: string;
 		name: string;
 		abbreviation: string;
+		requiresLicense: boolean;
 		createdAt: Date;
 		updatedAt: Date;
 	};
@@ -102,7 +105,11 @@
 		$editDisciplineForm = {
 			id: discipline.id,
 			name: discipline.name,
-			abbreviation: discipline.abbreviation
+			abbreviation: discipline.abbreviation,
+			// MUST be seeded from the row. Omitting it would send the schema default
+			// (false) on every save, so editing a discipline's name would silently turn
+			// off certification enforcement for everyone holding it.
+			requiresLicense: discipline.requiresLicense
 		};
 		editDialogOpen = true;
 	}
@@ -133,6 +140,20 @@
 				(rowA.original.abbreviation?.toLowerCase() || '').localeCompare(
 					rowB.original.abbreviation?.toLowerCase() || ''
 				)
+		},
+		{
+			header: 'Requires License/Registration',
+			id: 'requiresLicense',
+			accessorKey: 'requiresLicense',
+			enableSorting: true,
+			// Sorts flagged disciplines together — with ~20 rows this is how staff see
+			// at a glance which ones are configured.
+			sortingFn: (rowA, rowB) =>
+				Number(rowA.original.requiresLicense) - Number(rowB.original.requiresLicense),
+			// A plain string, matching every other cell in this file: no renderComponent
+			// is imported anywhere under (protected)/admin, and pulling in the Svelte
+			// table adapter for one badge is not worth it.
+			cell: ({ getValue }) => (getValue() ? 'Yes' : '—')
 		},
 		{
 			header: 'Created',
@@ -362,6 +383,30 @@
 						<Form.Validation />
 					</Form.Item>
 				</Form.Field>
+
+				<div class="space-y-2 rounded-md border p-3">
+					<label class="flex items-start gap-2 text-sm font-medium">
+						<input
+							type="checkbox"
+							name="requiresLicense"
+							class="mt-0.5 h-4 w-4 rounded border-gray-300"
+						/>
+						<span>Requires a license or registration to practise</span>
+					</label>
+					<p class="text-xs text-gray-600">
+						A legal requirement for everyone holding this discipline — dentists, hygienists
+						and similar. Covers registrations too: disciplines that register rather than
+						license are treated identically. Professionals will be asked to upload their
+						license or registration and its expiration date.
+						<strong
+							>Flagging this starts a 30-day countdown: anyone without one on file is
+							nudged, and after 30 days from that first notice their jobs for this discipline
+							are hidden until they supply one.</strong
+						>
+						An expired license hides jobs immediately, with no grace period. Certifications
+						are separate and are declared by each professional on their own profile.
+					</p>
+				</div>
 			</div>
 			<Dialog.Footer>
 				<Button variant="destructiveOutline" type="button" on:click={() => (dialogOpen = false)}>Cancel</Button
@@ -404,6 +449,23 @@
 						bind:value={$editDisciplineForm.abbreviation}
 						placeholder="e.g., DH, DDS, RDA..."
 					/>
+				</div>
+
+				<div class="space-y-2 rounded-md border p-3">
+					<label class="flex items-start gap-2 text-sm font-medium" for="edit-requires-cert">
+						<input
+							id="edit-requires-cert"
+							type="checkbox"
+							name="requiresLicense"
+							bind:checked={$editDisciplineForm.requiresLicense}
+							class="mt-0.5 h-4 w-4 rounded border-gray-300"
+						/>
+						<span>Requires a license to practise</span>
+					</label>
+					<p class="text-xs text-gray-600">
+						Turning this off stops license enforcement for this discipline immediately — including
+						for anyone currently blocked or mid-countdown.
+					</p>
 				</div>
 
 			</div>

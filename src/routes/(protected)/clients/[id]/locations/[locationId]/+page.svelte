@@ -466,6 +466,17 @@
 											placeholder="Enter office phone number"
 										/>
 									</div>
+									<!-- This page already DISPLAYED the cell number but had no field for
+									     it, so the contact form dropped it on every save. -->
+									<div class="space-y-2">
+										<Label for="cellPhone">Office Cell Phone</Label>
+										<PhoneInput
+											id="cellPhone"
+											name="cellPhone"
+											bind:value={$contactForm.cellPhone}
+											placeholder="Enter office cell number"
+										/>
+									</div>
 									<div class="space-y-2">
 										<Label for="email">Office Email Address</Label>
 										<Input

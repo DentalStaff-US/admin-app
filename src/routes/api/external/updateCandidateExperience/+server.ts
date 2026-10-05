@@ -9,6 +9,13 @@ import {
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { logger } from '$lib/server/logger';
+import {
+	getCandidateDisciplineSnapshot,
+	replaceCandidateDisciplines
+} from '$lib/server/database/queries/candidateDisciplines';
+import { isCandidateFrozen } from '$lib/server/documents/candidateDocumentGuards';
+import { recordAction } from '$lib/server/audit/audit';
+import { uniqueDisciplineIds } from '$lib/config/zod-schemas';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -43,14 +50,30 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		const parsedExperience = z
 			.object({
-				disciplines: z.array(
-					z.object({
-						disciplineId: z.string(),
-						experienceLevelId: z.string(),
-						preferredHourlyMin: z.number().int().min(0),
-						preferredHourlyMax: z.number().int().min(0)
-					})
-				)
+				disciplines: z
+					.array(
+						z
+							.object({
+								disciplineId: z.string(),
+								experienceLevelId: z.string(),
+								preferredHourlyMin: z.number().int().min(0),
+								preferredHourlyMax: z.number().int().min(0)
+							})
+							// .strict() so a future client that starts sending certification
+							// fields gets a 400 rather than having them silently dropped.
+							// A silent drop reads as "I set it and it didn't save", which is
+							// indistinguishable from "it saved then got cleared".
+							.strict()
+							// The sibling schemas have this; this one did not.
+							.refine((d) => d.preferredHourlyMax >= d.preferredHourlyMin, {
+								message: 'Maximum rate must be greater than or equal to minimum rate',
+								path: ['preferredHourlyMax']
+							})
+					)
+					// Without this an empty array reaches replaceCandidateDisciplines,
+					// where notInArray(x, []) renders as `true` and deletes every row.
+					.min(1, 'Please select at least one discipline')
+					.superRefine(uniqueDisciplineIds)
 			})
 			.safeParse(body);
 
@@ -77,29 +100,42 @@ export const POST: RequestHandler = async ({ request }) => {
 			);
 		}
 
+		// Until now the ONLY thing stopping an approved professional rewriting their
+		// disciplines, levels and rates was a UI fork in the candidate app
+		// (settings/experience/+page.svelte). This endpoint is reachable directly with
+		// a valid JWT, so the rule was advisory. It matters more now that a
+		// certification lives on these rows.
+		//
+		// Renewing a credential after approval goes through
+		// updateCandidateDisciplineCertification instead, which can write two columns
+		// on one row and nothing else.
+		if (isCandidateFrozen(existingProfile)) {
+			return json(
+				{
+					success: false,
+					reason: 'APPROVED',
+					message:
+						'Your profile has been approved, so your disciplines, experience levels and rates are locked. You can still keep your credentials current, or contact support if something else needs to change.'
+				},
+				{ status: 403, headers: corsHeaders }
+			);
+		}
+
 		const disciplines = parsedExperience.data.disciplines;
 
-		// Use a transaction to ensure atomicity
 		await db.transaction(async (tx) => {
-			// Delete all existing disciplines for this candidate
-			await tx
-				.delete(candidateDisciplineExperienceTable)
-				.where(eq(candidateDisciplineExperienceTable.candidateId, existingProfile.id));
-
-			// Insert new disciplines (if any)
-			if (disciplines.length > 0) {
-				await tx.insert(candidateDisciplineExperienceTable).values(
-					disciplines.map((discipline) => ({
-						candidateId: existingProfile.id,
-						disciplineId: discipline.disciplineId,
-						experienceLevelId: discipline.experienceLevelId,
-						preferredHourlyMin: discipline.preferredHourlyMin,
-						preferredHourlyMax: discipline.preferredHourlyMax,
-						createdAt: new Date(),
-						updatedAt: new Date()
-					}))
-				);
-			}
+			const before = await getCandidateDisciplineSnapshot(existingProfile.id, tx);
+			await replaceCandidateDisciplines(existingProfile.id, disciplines, tx);
+			await recordAction({
+				entityType: 'CANDIDATES',
+				entityId: existingProfile.id,
+				action: 'UPDATE',
+				actor: user,
+				before: { disciplines: before },
+				after: { disciplines },
+				metadata: { field: 'disciplines' },
+				tx
+			});
 		});
 
 		return json(

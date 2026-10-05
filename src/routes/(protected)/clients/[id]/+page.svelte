@@ -190,6 +190,33 @@
 
 	$: $invoiceForm.invoiceMethod = selectedInvoiceMethod;
 
+	// Optional "bill this against a permanent requisition" target. Held as a string
+	// because that's what Select and the hidden input deal in; '' means "not tied to
+	// a requisition" and the server preprocesses it back to undefined.
+	$: permanentRequisitions = data.permanentRequisitions ?? [];
+	let selectedInvoiceRequisitionId = '';
+	function permanentRequisitionLabel(req: {
+		id: number;
+		title: string | null;
+		status: string;
+	}): string {
+		const name = req.title?.trim() ? req.title : 'Permanent position';
+		// PAYMENT_REQUIRED is the state an admin is normally here to clear, so call it out.
+		return `Req #${req.id} — ${name}${req.status === 'PAYMENT_REQUIRED' ? ' · awaiting payment' : ''}`;
+	}
+	$: selectedInvoiceRequisitionLabel = (() => {
+		const match = permanentRequisitions.find(
+			(r) => String(r.id) === selectedInvoiceRequisitionId
+		);
+		return match ? permanentRequisitionLabel(match) : 'Not tied to a requisition';
+	})();
+	$: $invoiceForm.requisitionId = selectedInvoiceRequisitionId
+		? Number(selectedInvoiceRequisitionId)
+		: undefined;
+	// The dialog resets its items on success; reset the target too so the next
+	// invoice doesn't silently inherit the last one's requisition.
+	$: if (!showInvoiceDialog) selectedInvoiceRequisitionId = '';
+
 	const {
 		form: updateForm,
 		enhance: updateEnhance,
@@ -906,8 +933,53 @@
 										A paper invoice will be created and tracked manually. No Stripe charge will be
 										initiated.
 									</p>
+									{#if data.billingMismatchMessage}
+										<!-- The select defaults from the client's stored invoice method, so a
+										     mis-set client silently pre-selects PAPER here too. -->
+										<p
+											class="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded px-2 py-1.5"
+										>
+											This client has a Stripe customer on file. Switch to Electronic (Stripe)
+											above if this should be billed electronically.
+										</p>
+									{/if}
 								{/if}
 							</div>
+							{#if permanentRequisitions.length > 0}
+								<div class="space-y-2">
+									<Label>Bill against a permanent requisition (optional)</Label>
+									<Select.Root
+										selected={{
+											value: selectedInvoiceRequisitionId,
+											label: selectedInvoiceRequisitionLabel
+										}}
+										onSelectedChange={(v) => {
+											selectedInvoiceRequisitionId = String(v?.value ?? '');
+										}}
+									>
+										<Select.Trigger>
+											<Select.Value placeholder="Not tied to a requisition" />
+										</Select.Trigger>
+										<Select.Content>
+											<Select.Item value="">Not tied to a requisition</Select.Item>
+											{#each permanentRequisitions as req}
+												<Select.Item value={String(req.id)}>
+													{permanentRequisitionLabel(req)}
+												</Select.Item>
+											{/each}
+										</Select.Content>
+									</Select.Root>
+									<input
+										type="hidden"
+										name="requisitionId"
+										bind:value={$invoiceForm.requisitionId}
+									/>
+									<p class="text-xs text-muted-foreground">
+										Links the invoice to the placement it pays for, so the requisition doesn't
+										still read as unbilled.
+									</p>
+								</div>
+							{/if}
 							<div class="space-y-2">
 								<div class="flex items-center justify-between">
 									<Label>Invoice Items</Label>
@@ -1395,6 +1467,17 @@
 									<div>
 										<h3 class="text-sm font-medium">Invoice Method:</h3>
 										<p>{client.profile.clientInvoiceMethod}</p>
+										{#if data.billingMismatchMessage}
+											<!-- PAPER with an unused Stripe customer. Nothing is broken, but every
+											     invoice — approved timesheets included — bills as paper until this
+											     is changed, so it belongs next to the value itself. -->
+											<p
+												class="mt-1 flex items-start gap-1.5 text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded px-2 py-1.5"
+											>
+												<AlertCircle class="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+												<span>{data.billingMismatchMessage}</span>
+											</p>
+										{/if}
 									</div>
 								{/if}
 							</CardContent>

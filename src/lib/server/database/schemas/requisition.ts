@@ -470,7 +470,33 @@ export const timeSheetTable = pgTable(
 		approvedByUserId: text('approved_by_user_id'),
 		discrepancyNote: text('discrepancy_note'),
 		adjustedHourlyRate: smallint('adjusted_hourly_rate'),
-		wagesStatus: wagesStatusEnum('wages_status')
+		wagesStatus: wagesStatusEnum('wages_status'),
+
+		// --- Administration Fee ------------------------------------------------
+		// An optional admin-negotiated fee for THIS timesheet, mirroring the shape
+		// of the platform setting on `admin_config` (an amount plus a type) so an
+		// admin can agree either "35% here" or "$250 flat here" whatever the
+		// platform is configured as. Resolution and bounds live in
+		// src/lib/server/timesheets/adminFee.ts.
+		//
+		// NULL amount = no override. An explicit 0 is a real negotiated value
+		// meaning the fee is WAIVED and must never fall back to the platform rate.
+		// numeric(10,2) rather than (5,2) because a FIXED override holds dollars,
+		// which (5,2) would cap at $999.99.
+		adminFeeOverride: decimal('admin_fee_override', { precision: 10, scale: 2 }),
+		adminFeeTypeOverride: text('admin_fee_type_override').$type<'PERCENTAGE' | 'FIXED'>(),
+
+		// What the invoice was ACTUALLY built from, frozen at approval. Not
+		// derivable from the override: a sheet with no override was billed at
+		// whatever the platform rate was that day (it can change later), and a
+		// client may approve BEFORE an admin enters the agreed rate — in which
+		// case the override column is set but was not what was charged.
+		// `adminFeeSource` IS NULL means "never frozen" (a legacy row, or a sheet
+		// that is not approved). Cleared by revertTimesheetToPending; the OVERRIDE
+		// columns above are deliberately left alone there.
+		adminFeeApplied: decimal('admin_fee_applied', { precision: 10, scale: 2 }),
+		adminFeeTypeApplied: text('admin_fee_type_applied').$type<'PERCENTAGE' | 'FIXED'>(),
+		adminFeeSource: text('admin_fee_source').$type<'OVERRIDE' | 'PLATFORM'>()
 	},
 	(table) => [
 		index('timesheet_candidate_idx').on(table.associatedCandidateId),

@@ -21,6 +21,7 @@ import {
 	isNull
 } from 'drizzle-orm';
 import db from '../drizzle';
+import { CLEARED_ADMIN_FEE_SNAPSHOT, type AdminFeeSnapshot } from '$lib/server/timesheets/adminFee';
 import {
 	recurrenceDayTable,
 	requisitionTable,
@@ -1738,6 +1739,11 @@ export async function getTimesheetDetailsAdmin(timesheetId: string) {
 			discrepancyNote: timeSheetTable.discrepancyNote,
 			adjustedHourlyRate: timeSheetTable.adjustedHourlyRate,
 			wagesStatus: timeSheetTable.wagesStatus,
+			adminFeeOverride: timeSheetTable.adminFeeOverride,
+			adminFeeTypeOverride: timeSheetTable.adminFeeTypeOverride,
+			adminFeeApplied: timeSheetTable.adminFeeApplied,
+			adminFeeTypeApplied: timeSheetTable.adminFeeTypeApplied,
+			adminFeeSource: timeSheetTable.adminFeeSource,
 			candidate: {
 				...candidateTimesheetColumns,
 				firstName: userTable.firstName,
@@ -1825,6 +1831,11 @@ export async function getTimesheetDetails(timesheetId: string, clientId: string 
 			status: timeSheetTable.status,
 			discrepancyNote: timeSheetTable.discrepancyNote,
 			adjustedHourlyRate: timeSheetTable.adjustedHourlyRate,
+			adminFeeOverride: timeSheetTable.adminFeeOverride,
+			adminFeeTypeOverride: timeSheetTable.adminFeeTypeOverride,
+			adminFeeApplied: timeSheetTable.adminFeeApplied,
+			adminFeeTypeApplied: timeSheetTable.adminFeeTypeApplied,
+			adminFeeSource: timeSheetTable.adminFeeSource,
 			candidate: {
 				...candidateTimesheetColumns,
 				firstName: userTable.firstName,
@@ -2583,6 +2594,123 @@ export async function getAllInvoicesAdmin(searchTerm?: string): Promise<InvoiceW
 	}
 }
 
+/**
+ * Every invoice raised against a requisition, newest first — including voided
+ * ones, deliberately: the void is part of the billing history, and hiding it is
+ * how the same placement gets invoiced twice.
+ *
+ * Why this exists rather than reusing `getTimesheetInvoices`: that one hard-filters
+ * `sourceType = 'timesheet'` + `timesheetId IS NOT NULL` and innerJoins the
+ * timesheet, so it excludes exactly the perm-requisition invoices (`sourceType:
+ * 'other'`, no timesheet) this is for.
+ *
+ * Also note `client_companies` is a LEFT join here. The other invoice-list
+ * helpers innerJoin it, which silently drops every invoice belonging to a client
+ * with no company row — the opposite of what a "has this been billed?" list
+ * needs. `client_profiles` stays an inner join: `invoices.client_id` is NOT NULL
+ * with an FK, so it always matches.
+ */
+/**
+ * Permanent requisitions for a company, for the "bill this against a requisition"
+ * picker on the client page. Perm placements are billed by hand (approving an
+ * application moves the req to PAYMENT_REQUIRED and an admin raises the invoice),
+ * so the ones still awaiting payment sort first — they are what the admin is
+ * almost always there to bill.
+ *
+ * Archived reqs are excluded; a fee can still be owed on a closed placement, so
+ * status is not filtered beyond that.
+ */
+export async function getPermanentRequisitionsForCompany(companyId: string | undefined) {
+	if (!companyId) return [];
+	try {
+		return await db
+			.select({
+				id: requisitionTable.id,
+				title: requisitionTable.title,
+				status: requisitionTable.status,
+				createdAt: requisitionTable.createdAt
+			})
+			.from(requisitionTable)
+			.where(
+				and(
+					eq(requisitionTable.companyId, companyId),
+					eq(requisitionTable.permanentPosition, true),
+					// `eq(..., false)` matches every other archived filter in this file.
+					eq(requisitionTable.archived, false)
+				)
+			)
+			.orderBy(
+				sql`case when ${requisitionTable.status} = 'PAYMENT_REQUIRED' then 0 else 1 end`,
+				desc(requisitionTable.createdAt)
+			);
+	} catch (err) {
+		console.error('Error fetching permanent requisitions for company:', err);
+		return [];
+	}
+}
+
+export async function getInvoicesByRequisitionId(
+	requisitionId: number
+): Promise<InvoiceWithRelations[]> {
+	try {
+		const result = await db
+			.select({
+				invoice: invoiceTable,
+				candidateProfile: candidateProfileTable,
+				candidateUser: {
+					id: sql<string>`candidate_user.id`,
+					firstName: sql<string>`candidate_user.first_name`,
+					lastName: sql<string>`candidate_user.last_name`,
+					avatarUrl: sql<string>`candidate_user.avatar_url`
+				},
+				timesheet: timeSheetTable,
+				requisition: requisitionTable,
+				client: clientProfileTable,
+				clientCompany: clientCompanyTable,
+				clientUser: {
+					id: sql<string>`client_user.id`,
+					firstName: sql<string>`client_user.first_name`,
+					lastName: sql<string>`client_user.last_name`,
+					avatarUrl: sql<string>`client_user.avatar_url`
+				}
+			})
+			.from(invoiceTable)
+			.where(eq(invoiceTable.requisitionId, requisitionId))
+			.leftJoin(candidateProfileTable, eq(invoiceTable.candidateId, candidateProfileTable.id))
+			.leftJoin(
+				sql`${userTable} as candidate_user`,
+				sql`${candidateProfileTable.userId} = candidate_user.id`
+			)
+			.leftJoin(timeSheetTable, eq(invoiceTable.timesheetId, timeSheetTable.id))
+			.leftJoin(requisitionTable, eq(invoiceTable.requisitionId, requisitionTable.id))
+			.innerJoin(clientProfileTable, eq(invoiceTable.clientId, clientProfileTable.id))
+			.leftJoin(clientCompanyTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
+			.leftJoin(
+				sql`${userTable} as client_user`,
+				sql`${clientProfileTable.userId} = client_user.id`
+			)
+			.orderBy(desc(invoiceTable.createdAt))
+			.limit(DEFAULT_MAX_RECORD_LIMIT);
+
+		return result.map((row) => ({
+			invoice: row.invoice,
+			candidate:
+				row.candidateProfile && row.candidateUser
+					? { profile: row.candidateProfile, user: row.candidateUser }
+					: null,
+			timesheet: row.timesheet,
+			requisition: row.requisition,
+			lineItems: (row.invoice.lineItems as InvoiceLineItem[]) || [],
+			client: row.client,
+			clientUser: row.clientUser,
+			company: row.clientCompany
+		}));
+	} catch (err) {
+		console.error('Error fetching invoices by requisition id:', err);
+		throw error(500, `Error fetching invoices by requisition id: ${err}`);
+	}
+}
+
 export async function getTimesheetInvoices(
 	clientId: string,
 	options?: { candidateId?: string; requisitionId?: number; status?: InvoiceStatus }
@@ -3119,6 +3247,12 @@ export async function revertTimesheetToPending(
 				totalHoursBilled: null,
 				approvedAt: null,
 				approvedByUserId: null,
+				// The admin-fee snapshot is approval-derived too: it records what the
+				// invoice was actually built from, so a sheet that is no longer approved
+				// must make no claim about having been billed. The OVERRIDE columns are
+				// deliberately NOT cleared — the override is an admin input, and wiping
+				// it would delete a negotiated discount every time Stripe flaked.
+				...CLEARED_ADMIN_FEE_SNAPSHOT,
 				updatedAt: new Date()
 			})
 			.where(eq(timeSheetTable.id, timesheetId))
@@ -3310,7 +3444,14 @@ export async function rejectTimesheet(
 	}
 }
 
-export async function approveTimesheet(timesheetId: string, userId: string | null) {
+export async function approveTimesheet(
+	timesheetId: string,
+	userId: string | null,
+	// What the invoice was actually built from. Written in the SAME update as the
+	// status flip so there is never a window in which an APPROVED sheet carries no
+	// record of its fee, or a snapshot exists without an approval.
+	feeSnapshot?: AdminFeeSnapshot
+) {
 	try {
 		const [original] = await db
 			.select()
@@ -3331,6 +3472,7 @@ export async function approveTimesheet(timesheetId: string, userId: string | nul
 				wagesStatus: 'WAGES_DUE',
 				approvedAt: new Date(),
 				approvedByUserId: userId,
+				...(feeSnapshot ?? {}),
 				updatedAt: new Date()
 			})
 			.where(eq(timeSheetTable.id, timesheetId))
@@ -3343,7 +3485,11 @@ export async function approveTimesheet(timesheetId: string, userId: string | nul
 			entityId: timesheetId,
 			beforeState: original,
 			afterState: result,
-			metadata: { status: 'APPROVED', totalHoursBilled: original.totalHoursWorked }
+			metadata: {
+				status: 'APPROVED',
+				totalHoursBilled: original.totalHoursWorked,
+				...(feeSnapshot ?? {})
+			}
 		});
 
 		return result;

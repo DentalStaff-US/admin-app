@@ -108,6 +108,9 @@
 	$: recurrenceDays = data.recurrenceDays;
 	$: location = data.location;
 	$: applications = data.applications;
+	// Invoices raised against this requisition (admin-only tab). Voided ones are
+	// kept and marked — the void is part of the billing history.
+	$: requisitionInvoices = data.requisitionInvoices ?? [];
 	$: status = requisition?.status;
 	$: hasRequisitionRights = data.hasRequisitionRights;
 	$: disciplines = data.disciplines || [];
@@ -549,6 +552,27 @@
 				{/if}
 			</div>
 
+			{#if data.billingMismatchMessage}
+				<!-- Paper invoicing with an unused Stripe customer. Nothing is blocked,
+				     so this is blue-not-amber: it's a "you probably didn't mean this"
+				     notice, and it matters most right before someone bills. -->
+				<div
+					class="mt-4 flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900"
+				>
+					<AlertCircle class="h-4 w-4 mt-0.5 flex-shrink-0" />
+					<div>
+						<strong>Billing as paper.</strong>
+						{data.billingMismatchMessage}
+						{#if isAdmin}
+							<a
+								href={`/clients/${requisition.company.clientId}`}
+								class="underline font-medium ml-1">Open client page</a
+							>
+						{/if}
+					</div>
+				</div>
+			{/if}
+
 			{#if data.billingBlockedMessage}
 				<!-- The owning client can't be invoiced yet (Stripe billing, no Stripe
 				     customer). Shifts can't be added until that's fixed; anyone looking
@@ -659,10 +683,10 @@
 			<TabsList
 				class="grid lg:w-fit bg-muted h-fit {requisition.permanentPosition
 					? isAdmin
-						? 'grid-cols-3'
+						? 'grid-cols-4'
 						: 'grid-cols-2'
 					: isAdmin
-						? 'grid-cols-4'
+						? 'grid-cols-5'
 						: 'grid-cols-3'}"
 			>
 				{#if requisition.permanentPosition}
@@ -679,6 +703,9 @@
 				{/if}
 				<TabsTrigger value="details" class="data-[state=active]:bg-background">Details</TabsTrigger>
 				{#if isAdmin}
+					<TabsTrigger value="invoices" class="data-[state=active]:bg-background"
+						>Invoices{requisitionInvoices.length ? ` (${requisitionInvoices.length})` : ''}</TabsTrigger
+					>
 					<TabsTrigger value="activity" class="data-[state=active]:bg-background"
 						>Activity</TabsTrigger
 					>
@@ -686,6 +713,77 @@
 			</TabsList>
 
 			{#if isAdmin}
+				<TabsContent value="invoices" class="mt-4">
+					<Card class="max-w-none">
+						<CardHeader>
+							<CardTitle>Invoices</CardTitle>
+							<CardDescription>
+								Every invoice raised against this requisition. Voided invoices stay listed —
+								check here before creating another so a placement isn't billed twice.
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							{#if requisitionInvoices.length === 0}
+								<div class="text-center py-10">
+									<CreditCard class="h-12 w-12 mx-auto text-gray-300" />
+									<h3 class="mt-4 text-lg font-medium">No invoices yet</h3>
+									<p class="mt-2 text-sm text-gray-500">
+										{#if requisition.permanentPosition}
+											Nothing has been billed against this requisition.
+										{:else}
+											Invoices appear here once timesheets are approved.
+										{/if}
+									</p>
+								</div>
+							{:else}
+								<div class="rounded-md border overflow-x-auto">
+									<Table.Root>
+										<TableHeader>
+											<TableRow>
+												<TableHead>Invoice #</TableHead>
+												<TableHead>Status</TableHead>
+												<TableHead>Method</TableHead>
+												<TableHead>Amount</TableHead>
+												<TableHead>Due</TableHead>
+												<TableHead>Created</TableHead>
+												<TableHead class="w-12"></TableHead>
+											</TableRow>
+										</TableHeader>
+										<TableBody>
+											{#each requisitionInvoices as row (row.invoice.id)}
+												<TableRow class={row.invoice.status === 'void' ? 'opacity-60' : ''}>
+													<TableCell class="font-medium">{row.invoice.invoiceNumber}</TableCell>
+													<TableCell><StatusBadge status={row.invoice.status} /></TableCell>
+													<TableCell class="text-sm text-gray-600"
+														>{row.invoice.invoiceType === 'PAPER' ? 'Paper' : 'Stripe'}</TableCell
+													>
+													<TableCell>${Number(row.invoice.total || 0).toFixed(2)}</TableCell>
+													<TableCell class="text-sm text-gray-600">
+														{row.invoice.dueDate
+															? format(new Date(row.invoice.dueDate), 'MMM d, yyyy')
+															: '—'}
+													</TableCell>
+													<TableCell class="text-sm text-gray-600">
+														{format(new Date(row.invoice.createdAt), 'MMM d, yyyy')}
+													</TableCell>
+													<TableCell>
+														<Button
+															variant="link"
+															size="sm"
+															class="p-0 h-auto"
+															href={`/invoices/${row.invoice.id}`}>View</Button
+														>
+													</TableCell>
+												</TableRow>
+											{/each}
+										</TableBody>
+									</Table.Root>
+								</div>
+							{/if}
+						</CardContent>
+					</Card>
+				</TabsContent>
+
 				<TabsContent value="activity" class="mt-4">
 					<Card class="max-w-none">
 						<CardHeader>
@@ -1282,6 +1380,16 @@
 								name="invoiceMethod"
 								bind:value={$invoiceFormStore.invoiceMethod}
 							/>
+							{#if data.billingMismatchMessage && selectedInvoiceMethod === 'PAPER'}
+								<!-- The select defaults from the client's stored invoice method, so a
+								     mis-set client silently pre-selects PAPER. Say so at the moment of
+								     choosing; the banner up the page is easy to scroll past. -->
+								<p class="text-xs text-blue-900 bg-blue-50 border border-blue-200 rounded px-2 py-1.5">
+									This client is set to <strong>paper</strong> invoicing but has a Stripe customer
+									on file. Switch to Electronic (Stripe) above if this should be billed
+									electronically.
+								</p>
+							{/if}
 						</div>
 					</div>
 

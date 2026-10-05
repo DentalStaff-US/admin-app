@@ -100,13 +100,31 @@
 	let rateInputValue: number | null = null;
 	let rateSaving = false;
 
+	let editingAdminFee = false;
+	let adminFeeInputValue: number | null = null;
+	let adminFeeTypeInputValue: 'PERCENTAGE' | 'FIXED' = 'PERCENTAGE';
+	let adminFeeSaving = false;
+
 	// Derive workday and effective rate reactively
 	$: primaryWorkday = data.workdays?.[0] ?? null;
 	$: adjustedHourlyRate = data?.timesheet?.adjustedHourlyRate ?? null;
 	$: effectiveHourlyRate = adjustedHourlyRate ?? data?.timesheet?.hourlyRate ?? 0;
 	$: invoice = data.invoice;
 	$: wagesStatus = data.timesheet?.wagesStatus ?? null;
-	$: adminFeeSettings = data?.adminFeeSettings ?? { amount: 0, type: 'PERCENTAGE' as const };
+	// Resolved server-side (override vs platform, frozen vs live) — the component
+	// deliberately does not re-derive which rate wins.
+	$: adminFeeSettings = data?.adminFeeSettings ?? {
+		amount: 0,
+		type: 'PERCENTAGE' as const,
+		source: 'PLATFORM' as const,
+		label: 'Admin Fee',
+		overrideAmount: null,
+		overrideType: null,
+		platformAmount: 0,
+		platformType: 'PERCENTAGE' as const,
+		frozen: false
+	};
+	$: hasAdminFeeOverride = adminFeeSettings.source === 'OVERRIDE';
 	$: expenses = (data?.expenses ?? []) as Array<{
 		id: string;
 		description: string;
@@ -137,12 +155,7 @@
 				: adminFeeSettings.amount
 			: 0;
 	$: invoiceTotal = billableSubtotal + approvedExpensesTotal + adminFeeAmount;
-	$: adminFeeLabel =
-		adminFeeSettings.amount > 0
-			? adminFeeSettings.type === 'PERCENTAGE'
-				? `Admin Fee (${adminFeeSettings.amount}%)`
-				: `Admin Fee ($${adminFeeSettings.amount} flat)`
-			: 'Admin Fee';
+	$: adminFeeLabel = adminFeeSettings.label;
 
 	// Add-expense form — superForm so we get $submitting for free
 	const addExpenseSF = superForm(data.addExpenseForm, {
@@ -166,6 +179,22 @@
 	function cancelEditingRate() {
 		editingRate = false;
 		rateInputValue = null;
+	}
+
+	function startEditingAdminFee() {
+		// Prefill with the override if there is one, else with the platform setting,
+		// so the admin edits from where the fee currently stands.
+		adminFeeInputValue =
+			adminFeeSettings.overrideAmount !== null
+				? Number(adminFeeSettings.overrideAmount)
+				: Number(adminFeeSettings.platformAmount);
+		adminFeeTypeInputValue = adminFeeSettings.overrideType ?? adminFeeSettings.platformType;
+		editingAdminFee = true;
+	}
+
+	function cancelEditingAdminFee() {
+		editingAdminFee = false;
+		adminFeeInputValue = null;
 	}
 
 	$: {
@@ -597,7 +626,7 @@
 					</CardHeader>
 					<CardContent class="space-y-6">
 						<!-- Timesheet Summary -->
-						<div class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center">
+						<div class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
 							<div class="p-3 bg-gray-50 rounded-lg">
 								<p class="text-sm text-gray-600">Total Hours</p>
 								<p class="text-xl font-bold">
@@ -674,6 +703,116 @@
 											</Button>
 										{/if}
 									</div>
+								{/if}
+							</div>
+
+							<!-- Admin Fee tile — editable for admin while unapproved. Mirrors the
+							     platform setting's shape (amount + type) so a negotiated fee can be
+							     either a percentage or a flat amount. -->
+							<div
+								class="p-3 bg-gray-50 rounded-lg flex flex-col items-center justify-center gap-1"
+							>
+								<p class="text-sm text-gray-600">Admin Fee</p>
+								{#if editingAdminFee}
+									<form
+										method="POST"
+										action="?/setAdminFeeOverride"
+										use:enhance={() => {
+											adminFeeSaving = true;
+											return async ({ result, update }) => {
+												adminFeeSaving = false;
+												if (result.type === 'success') {
+													editingAdminFee = false;
+												}
+												await update();
+											};
+										}}
+										class="flex flex-col items-center gap-1"
+									>
+										<div class="flex items-center gap-1">
+											<input
+												type="number"
+												name="adminFeeOverride"
+												min="0"
+												step="0.01"
+												class="w-20 h-7 text-sm border rounded px-1 text-center"
+												bind:value={adminFeeInputValue}
+												placeholder={String(adminFeeSettings.platformAmount)}
+											/>
+											<select
+												name="adminFeeTypeOverride"
+												class="h-7 text-sm border rounded px-1"
+												bind:value={adminFeeTypeInputValue}
+											>
+												<option value="PERCENTAGE">%</option>
+												<option value="FIXED">$ flat</option>
+											</select>
+										</div>
+										{#if adminFeeInputValue !== null && adminFeeTypeInputValue === 'PERCENTAGE' && adminFeeInputValue > Number(adminFeeSettings.platformAmount)}
+											<p class="text-xs text-amber-600">
+												Higher than the platform rate ({adminFeeSettings.platformAmount}%)
+											</p>
+										{/if}
+										<div class="flex items-center gap-1">
+											<Button
+												type="submit"
+												size="sm"
+												class="h-7 px-2 bg-primary hover:bg-primary/90"
+												disabled={adminFeeSaving}
+											>
+												{adminFeeSaving ? '...' : 'Save'}
+											</Button>
+											<Button
+												type="button"
+												variant="ghost"
+												size="sm"
+												class="h-7 px-2"
+												on:click={cancelEditingAdminFee}
+											>
+												<X class="h-3 w-3" />
+											</Button>
+										</div>
+										<!-- Clearing the amount removes the override entirely. -->
+										<p class="text-xs text-muted-foreground">Leave blank to use platform rate</p>
+									</form>
+								{:else}
+									<div class="flex items-center gap-1">
+										{#if hasAdminFeeOverride}
+											<p class="text-xl font-bold text-primary">
+												{adminFeeSettings.type === 'PERCENTAGE'
+													? `${adminFeeSettings.amount}%`
+													: `$${adminFeeSettings.amount}`}
+											</p>
+											{#if Number(adminFeeSettings.platformAmount) !== adminFeeSettings.amount || adminFeeSettings.platformType !== adminFeeSettings.type}
+												<p class="text-sm text-muted-foreground line-through">
+													{adminFeeSettings.platformType === 'PERCENTAGE'
+														? `${adminFeeSettings.platformAmount}%`
+														: `$${adminFeeSettings.platformAmount}`}
+												</p>
+											{/if}
+										{:else}
+											<p class="text-xl font-bold">
+												{adminFeeSettings.type === 'PERCENTAGE'
+													? `${adminFeeSettings.amount}%`
+													: `$${adminFeeSettings.amount}`}
+											</p>
+										{/if}
+										{#if !isApproved && !isVoid}
+											<Button
+												variant="ghost"
+												size="icon"
+												class="h-5 w-5 ml-1"
+												on:click={startEditingAdminFee}
+											>
+												<Edit class="h-3 w-3" />
+											</Button>
+										{/if}
+									</div>
+									{#if adminFeeSettings.frozen}
+										<p class="text-xs text-muted-foreground">As billed</p>
+									{:else if hasAdminFeeOverride}
+										<p class="text-xs text-primary">Agreed rate</p>
+									{/if}
 								{/if}
 							</div>
 
