@@ -12,12 +12,26 @@ import {
 	customType,
 	integer,
 	index,
-	uniqueIndex
+	uniqueIndex,
+	check
 } from 'drizzle-orm/pg-core';
 import { userTable } from './auth';
 import { disciplineTable, experienceLevelTable } from './skill';
 import { clientCompanyTable } from './client';
 import { sql } from 'drizzle-orm';
+
+/**
+ * What KIND of work this professional wants to be shown.
+ *
+ * Maps one-to-one onto `requisitions.permanent_position`, which already splits the
+ * platform's two listing paths: the temp shift board (recurrence days) and the
+ * permanent openings board.
+ */
+export const candidateWorkPreferenceEnum = pgEnum('candidate_work_preference', [
+	'TEMP',
+	'PERMANENT',
+	'BOTH'
+]);
 
 export const candidateStatusEnum = pgEnum('candidate_status', [
 	'INACTIVE',
@@ -75,14 +89,80 @@ export const candidateProfileTable = pgTable(
 		workersCompCode: text('workers_comp_code'),
 		// Last time a mass notification reached this candidate. Null = never
 		// contacted. Used by the "stale / not contacted in 30 days" segment filter.
-		lastContactedAt: timestamp('last_contacted_at', { withTimezone: true, mode: 'date' })
+		lastContactedAt: timestamp('last_contacted_at', { withTimezone: true, mode: 'date' }),
+		/**
+		 * Weekly availability pattern: the days this professional IS available, as
+		 * Postgres DOW integers (0 = Sunday … 6 = Saturday) — the same numbering as
+		 * JS `Date.prototype.getDay()`, as `EXTRACT(DOW FROM date)`, and as the keys
+		 * of client.ts's OperatingHours. One weekday vocabulary, platform-wide.
+		 *
+		 * NULL means NEVER SET, and NEVER SET means AVAILABLE ALL SEVEN DAYS. That is
+		 * the whole point of the column being nullable: inaction must never cost
+		 * someone work, and every professional who existed before this column has NULL.
+		 *
+		 * DO NOT give this a default and DO NOT make it NOT NULL. Backfilling
+		 * ARRAY[0,1,2,3,4,5,6] looks equivalent and is not: it destroys the ability to
+		 * tell "never set" from "deliberately set to all seven", which the candidate
+		 * UI needs ("you haven't set this yet") and which any future
+		 * set-your-availability campaign needs to pick its audience.
+		 *
+		 * An EMPTY array is forbidden by the CHECK below, because `inArray(expr, [])`
+		 * renders as FALSE in Drizzle — an empty array here would hide every shift from
+		 * that professional with no visible cause. "Available no days" is not a state
+		 * this product has; someone who wants to stop working goes INACTIVE.
+		 */
+		availableDays: integer('available_days').array().$type<number[]>(),
+		/** When the pattern was last saved. Null while availableDays is NULL. */
+		availableDaysUpdatedAt: timestamp('available_days_updated_at', {
+			withTimezone: true,
+			mode: 'date'
+		}),
+		/**
+		 * Which door wrote the value. action_history has the full history; this is for
+		 * the badge on both UIs ("set by DTSS staff"), which needs the current owner
+		 * without a join. Resolved from the app the write came through, not from the
+		 * actor's role — a superadmin impersonating a professional through the
+		 * candidate app writes CANDIDATE, and the ledger records who really did it.
+		 */
+		availableDaysSource: text('available_days_source').$type<'CANDIDATE' | 'ADMIN'>(),
+		/**
+		 * Temp work, permanent work, or both.
+		 *
+		 * NULL means NEVER SET, and NEVER SET means BOTH — the same rule as
+		 * available_days above, for the same reason: a professional who has not
+		 * answered must keep seeing everything they qualify for. Nullable with NO
+		 * DEFAULT so that "never answered" stays distinguishable from "deliberately
+		 * chose both"; the UI needs that to say "you haven't told us yet", and so
+		 * would any future nudge asking them to.
+		 *
+		 * Read it through workPreference.ts rather than comparing the column
+		 * directly — `pref === 'BOTH'` silently excludes every professional who has
+		 * never set it, which is most of them.
+		 */
+		workPreference: candidateWorkPreferenceEnum('work_preference'),
+		/** When it was last saved. Null while workPreference is NULL. */
+		workPreferenceUpdatedAt: timestamp('work_preference_updated_at', {
+			withTimezone: true,
+			mode: 'date'
+		})
 	},
 	(table) => ({
 		// Back the city/state/zip filters on the professionals index. City is
 		// indexed lower-case to match the case-insensitive facet lookups.
 		cityIdx: index('candidate_profiles_city_idx').on(sql`lower(${table.city})`),
 		stateIdx: index('candidate_profiles_state_idx').on(table.state),
-		zipcodeIdx: index('candidate_profiles_zipcode_idx').on(table.zipcode)
+		zipcodeIdx: index('candidate_profiles_zipcode_idx').on(table.zipcode),
+		// Subqueries are illegal in a CHECK, so duplicate-day rejection lives in
+		// normalizeAvailableDays(). Duplicates are harmless to the predicate anyway
+		// (`3 = ANY(ARRAY[3,3])`); an EMPTY array is not, which is what this guards.
+		availableDaysSane: check(
+			'candidate_profiles_available_days_check',
+			sql`${table.availableDays} IS NULL OR (
+				array_length(${table.availableDays}, 1) BETWEEN 1 AND 7
+				AND ${table.availableDays} <@ ARRAY[0,1,2,3,4,5,6]
+				AND array_position(${table.availableDays}, NULL) IS NULL
+			)`
+		)
 	})
 );
 
@@ -132,6 +212,71 @@ export const candidateBlacklistTable = pgTable(
 		};
 	}
 );
+
+/**
+ * Dates this professional has marked themselves NOT available. The absence of a
+ * row means available — the same default-permissive rule as a NULL
+ * candidate_profiles.available_days.
+ *
+ * One row per blocked date rather than a jsonb array on the profile, because:
+ *   - cardinality is unbounded and grows with every vacation
+ *   - each date carries its own note, source and author
+ *   - the gate wants `NOT EXISTS (... AND date = recurrence_days.date)`, which is
+ *     exactly the shape of the booked-dates rule it sits beside
+ *   - an array would be read-modify-written on every calendar tap, so two tabs
+ *     would lose each other's edits, and there would be nothing to index
+ *
+ * This table records intent ("I said no"); `workdays` records commitment ("I'm
+ * working"). They are deliberately separate — claiming a shift never writes a row
+ * here, and blacking out a date never touches a workday.
+ */
+export const candidateUnavailableDateTable = pgTable(
+	'candidate_unavailable_dates',
+	{
+		candidateId: text('candidate_id')
+			.notNull()
+			.references(() => candidateProfileTable.id, { onDelete: 'cascade' }),
+		/**
+		 * A BARE calendar date, deliberately not a timestamp. It is compared by
+		 * equality against recurrence_days.date, which is also a bare date — so "is
+		 * this pro blocked on this shift's day" contains no timezone anywhere.
+		 * Storing an instant here would reintroduce exactly the drift that bare
+		 * date columns exist to avoid.
+		 */
+		date: date('date').notNull(),
+		/** The professional's own words ("vacation"). Never shown to clients. */
+		note: text('note'),
+		/** Which door wrote the row — see available_days_source above. */
+		source: text('source').$type<'CANDIDATE' | 'ADMIN'>().notNull().default('CANDIDATE'),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+			.notNull()
+			.defaultNow(),
+		/**
+		 * Nullable + SET NULL: a row must survive the deletion of the admin who
+		 * entered it, and imported/system rows have no actor at all — a NOT NULL FK
+		 * would force a fake user into the data.
+		 */
+		createdByUserId: text('created_by_user_id').references(() => userTable.id, {
+			onDelete: 'set null'
+		})
+	},
+	(table) => ({
+		/**
+		 * (candidate, date) is the natural key AND the exact shape of the gate
+		 * lookup, so the PK index IS the gate index. A composite PK rather than a
+		 * surrogate id (mirroring candidate_blacklists): nothing else could point at
+		 * a single blocked date, and a surrogate would mean a second index with no
+		 * reader. It also makes the writer safely idempotent via onConflictDoUpdate,
+		 * which is what keeps two concurrent saves from erroring.
+		 */
+		pk: primaryKey({ columns: [table.candidateId, table.date] }),
+		/** Backs cross-candidate date scans (admin reports, any future prune). */
+		dateIdx: index('candidate_unavailable_dates_date_idx').on(table.date)
+	})
+);
+
+export type CandidateUnavailableDate = typeof candidateUnavailableDateTable.$inferInsert;
+export type CandidateUnavailableDateSelect = typeof candidateUnavailableDateTable.$inferSelect;
 
 export const candidateDisciplineExperienceTable = pgTable(
 	'candidate_discipline_experience',

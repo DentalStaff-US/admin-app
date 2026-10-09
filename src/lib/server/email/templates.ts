@@ -752,6 +752,14 @@ export const EMAIL_TEMPLATES: Record<
 	// street address. Candidate-facing notifications are outside the app's
 	// masking, so a full address here would hand over exactly what
 	// $lib/server/privacy/clientIdentity withholds until a shift is claimed.
+	//
+	// "matches your ... credentials and availability" is a LOAD-BEARING claim.
+	// It became true when notifyQualifiedCandidatesOfNewWorkdays started
+	// hard-filtering recipients on availability, and `workdayDetails.days` is built
+	// PER RECIPIENT there so this list contains only the dates this person can
+	// actually take. A shared day list would mail someone a Saturday they told us
+	// they do not work, directly under a sentence claiming the opposite — so if the
+	// caller is ever refactored, that per-recipient construction must survive.
 	qualifiedCandidateNotificationEmail: (
 		candidateDetails: { firstName: string; lastName: string },
 		workdayDetails: {

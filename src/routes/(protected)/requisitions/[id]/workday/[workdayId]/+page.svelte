@@ -136,6 +136,48 @@
 		);
 	}
 
+	/**
+	 * Why this professional can't work the shift's date, or false.
+	 *
+	 * Warn, never hide: the list still contains them. Two distinct answers because
+	 * the fix differs — a one-off day off is probably still askable, "never works
+	 * Tuesdays" probably isn't.
+	 */
+	/**
+	 * True when this professional has said they don't want this KIND of work.
+	 *
+	 * Warn, never hide — the same rule as the availability badge below. A
+	 * permanent-only professional is still listed and still assignable to a temp
+	 * shift, because staff filling a gap tomorrow must be able to ask. The
+	 * new-job blast is where the preference becomes a hard filter.
+	 *
+	 * Absent (older payloads, or callers that didn't pass `dates`) means no
+	 * warning, which is the safe direction.
+	 */
+	function wrongWorkTypeFor(professional: unknown): boolean {
+		const flag = (professional as { wantsThisWorkType?: boolean })?.wantsThisWorkType;
+		return flag === false;
+	}
+
+	function unavailableFor(professional: unknown): false | 'WEEKDAY' | 'DATE' {
+		const blocked = (professional as { unavailableDates?: Array<{ reason?: string }> })
+			?.unavailableDates;
+		if (!Array.isArray(blocked) || blocked.length === 0) return false;
+		return blocked.some((b) => b?.reason === 'weekday') ? 'WEEKDAY' : 'DATE';
+	}
+
+	/** The single date being staffed, as the search endpoint's `date` params. */
+	$: shiftDates = data.recurrenceDay?.recurrenceDay?.date
+		? [String(data.recurrenceDay.recurrenceDay.date)]
+		: [];
+
+	$: shiftWeekdayName = data.recurrenceDay?.recurrenceDay?.date
+		? new Date(`${data.recurrenceDay.recurrenceDay.date}T12:00:00Z`).toLocaleDateString('en-US', {
+				weekday: 'long',
+				timeZone: 'UTC'
+			})
+		: 'that day';
+
 	async function loadAllExperienceCandidates() {
 		if (loadingExtended || extendedLoaded) return;
 		loadingExtended = true;
@@ -729,12 +771,67 @@
 			bind:this={assignSearch}
 			bind:searching={assignSearching}
 			requisitionId={data.requisition?.requisition?.id}
+			dates={shiftDates}
 			let:professional
 		>
+			<svelte:fragment slot="badges" let:professional>
+				{#if certBlockedFor(professional)}
+					<span
+						class="inline-flex rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 ring-1 ring-red-200"
+					>
+						Cert expired
+					</span>
+				{/if}
+				{#if unavailableFor(professional)}
+					<span
+						class="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200"
+					>
+						{unavailableFor(professional) === 'WEEKDAY'
+							? `Doesn't work ${shiftWeekdayName}s`
+							: 'Unavailable this day'}
+					</span>
+				{/if}
+					{#if wrongWorkTypeFor(professional)}
+						<span
+							class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 ring-1 ring-slate-300"
+						>
+							Wants permanent work only
+						</span>
+					{/if}
+			</svelte:fragment>
 			<form
 				method="POST"
 				action="?/assignCandidate"
-				use:enhance={() => {
+				use:enhance={({ cancel, formData }) => {
+					// Name search deliberately bypasses the discipline/experience/pay/radius
+					// gates, so it is the ONE path where a lapsed credential can reach the
+					// assign button. Warn here or nowhere.
+					if (
+						certBlockedFor(professional) &&
+						!confirm(
+							`${professional.firstName} ${professional.lastName}'s certification for this discipline has expired. Assign them anyway?`
+						)
+					) {
+						cancel();
+						return;
+					}
+					const unavailableReason = unavailableFor(professional);
+					if (unavailableReason) {
+						if (
+							!confirm(
+								`${professional.firstName} ${professional.lastName} ${
+									unavailableReason === 'WEEKDAY'
+										? `doesn't work ${shiftWeekdayName}s.`
+										: 'marked this day as one they cannot work.'
+								} Assign them anyway? They'll be notified and can cancel.`
+							)
+						) {
+							cancel();
+							return;
+						}
+						// The server refuses an unacknowledged override.
+						formData.set('acknowledgeUnavailable', 'true');
+					}
 					assigningCandidateId = professional.candidateId;
 					return async ({ result, update }) => {
 						assigningCandidateId = null;
@@ -788,13 +885,29 @@
 											Cert expired
 										</span>
 									{/if}
+									{#if unavailableFor(professional)}
+										<span
+											class="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200"
+										>
+											{unavailableFor(professional) === 'WEEKDAY'
+												? `Doesn't work ${shiftWeekdayName}s`
+												: 'Unavailable this day'}
+										</span>
+									{/if}
+									{#if wrongWorkTypeFor(professional)}
+										<span
+											class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 ring-1 ring-slate-300"
+										>
+											Wants permanent work only
+										</span>
+									{/if}
 								</div>
 							</div>
 						</div>
 						<form
 							method="POST"
 							action="?/assignCandidate"
-							use:enhance={({ cancel }) => {
+							use:enhance={({ cancel, formData }) => {
 								// An admin may knowingly place someone whose credential has lapsed
 								// (they may have renewed and not uploaded yet), but never unknowingly.
 								if (
@@ -805,6 +918,27 @@
 								) {
 									cancel();
 									return;
+								}
+								// Availability override. Separate confirm from the cert one above so
+								// both can fire — they are different facts and staff should see each.
+								const unavailableReason = unavailableFor(professional);
+								if (unavailableReason) {
+									if (
+										!confirm(
+											`${professional.firstName} ${professional.lastName} ${
+												unavailableReason === 'WEEKDAY'
+													? `doesn't work ${shiftWeekdayName}s.`
+													: 'marked this day as one they cannot work.'
+											} Assign them anyway? They'll be notified and can cancel.`
+										)
+									) {
+										cancel();
+										return;
+									}
+									// The server refuses an unacknowledged override and records the
+									// acknowledgement in action_history, so the confirm alone is not
+									// enough — the intent has to travel with the request.
+									formData.set('acknowledgeUnavailable', 'true');
 								}
 								assigningCandidateId = professional.candidateId;
 								return async ({ result, update }) => {
@@ -874,12 +1008,67 @@
 			bind:searching={reassignSearching}
 			requisitionId={data.requisition?.requisition?.id}
 			excludeCandidateId={candidate?.id ?? null}
+			dates={shiftDates}
 			let:professional
 		>
+			<svelte:fragment slot="badges" let:professional>
+				{#if certBlockedFor(professional)}
+					<span
+						class="inline-flex rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 ring-1 ring-red-200"
+					>
+						Cert expired
+					</span>
+				{/if}
+				{#if unavailableFor(professional)}
+					<span
+						class="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200"
+					>
+						{unavailableFor(professional) === 'WEEKDAY'
+							? `Doesn't work ${shiftWeekdayName}s`
+							: 'Unavailable this day'}
+					</span>
+				{/if}
+					{#if wrongWorkTypeFor(professional)}
+						<span
+							class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 ring-1 ring-slate-300"
+						>
+							Wants permanent work only
+						</span>
+					{/if}
+			</svelte:fragment>
 			<form
 				method="POST"
 				action="?/reassignRecurrenceDay"
-				use:enhance={() => {
+				use:enhance={({ cancel, formData }) => {
+					// Name search deliberately bypasses the discipline/experience/pay/radius
+					// gates, so it is the ONE path where a lapsed credential can reach the
+					// assign button. Warn here or nowhere.
+					if (
+						certBlockedFor(professional) &&
+						!confirm(
+							`${professional.firstName} ${professional.lastName}'s certification for this discipline has expired. Reassign them anyway?`
+						)
+					) {
+						cancel();
+						return;
+					}
+					const unavailableReason = unavailableFor(professional);
+					if (unavailableReason) {
+						if (
+							!confirm(
+								`${professional.firstName} ${professional.lastName} ${
+									unavailableReason === 'WEEKDAY'
+										? `doesn't work ${shiftWeekdayName}s.`
+										: 'marked this day as one they cannot work.'
+								} Reassign them anyway? They'll be notified and can cancel.`
+							)
+						) {
+							cancel();
+							return;
+						}
+						// The server refuses an unacknowledged override.
+						formData.set('acknowledgeUnavailable', 'true');
+					}
 					reassigningCandidateId = professional.candidateId;
 					return async ({ result, update }) => {
 						reassigningCandidateId = null;

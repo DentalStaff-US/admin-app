@@ -2,6 +2,7 @@
 	import type { ClientCompanyLocation } from '$lib/server/database/schemas/client';
 	import { CLIENT_STATUS, STAFF_ROLE_ENUM, USER_ROLES } from '$lib/config/constants';
 	import { StatusBadge } from '$lib/components/ui/status-badge';
+	import ImpersonateButton from '$lib/components/admin/ImpersonateButton.svelte';
 	import type { PageData } from './$types';
 	import convertNameToInitials from '$lib/_helpers/convertNameToInitials';
 	import { Download, Lock, Unlock, MoreHorizontal, Trash } from 'lucide-svelte';
@@ -772,6 +773,17 @@
 
 								<div class="flex gap-2 mt-3 md:mt-0 items-center flex-wrap">
 									{#if isAdmin}
+										<!--
+											CLIENT / CLIENT_STAFF live in THIS app, so this swaps the
+											session cookie on this domain and does a full page load to
+											their dashboard. The amber banner in (protected)/+layout.svelte
+											is the way back.
+										-->
+										<ImpersonateButton
+											userId={client.user.id}
+											userName={`${client.user.firstName ?? ''} ${client.user.lastName ?? ''}`.trim() ||
+												client.user.email}
+										/>
 										<div class="flex items-center gap-2">
 											<StatusBadge
 												status={client.profile.status}

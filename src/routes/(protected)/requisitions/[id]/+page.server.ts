@@ -83,6 +83,7 @@ import {
 } from '$lib/server/requisitions/cancelRecurrenceDay';
 import type { CancellationRole } from '$lib/server/cancellations';
 import { recordAction, recordView } from '$lib/server/audit/audit';
+import { checkCandidateAvailableOnDates } from '$lib/server/availability/queries';
 import { getActivityForEntity } from '$lib/server/audit/queries';
 
 const invoiceLineItemSchema = z.array(
@@ -467,6 +468,52 @@ export const actions = {
 
 		console.log('Fetched requisition details:', requisition);
 
+		// Availability check for the direct-assign branch, BEFORE any day is created.
+		//
+		// Timing is the whole point: processDay creates the days FILLED and the
+		// transaction below inserts their workdays, so a confirm raised afterwards
+		// would be asking about rows that already exist, and the retry would
+		// double-create. The dates are derived exactly the way processDay derives
+		// them — through convertRecurrenceDayToUTC with the requisition's
+		// referenceTimezone — so the check and the insert agree on which calendar day
+		// each entry is.
+		//
+		// Warn-don't-hide: staff may always go ahead, they just have to mean it.
+		const acknowledgeUnavailable = formData.get('acknowledgeUnavailable') === 'true';
+		let overriddenAvailability: Array<{ date: string; reason: string }> = [];
+		if (assigning) {
+			const rawDays = form.data.recurrenceDays;
+			const entries = Array.isArray(rawDays) ? rawDays : [rawDays];
+			const dates = [
+				...new Set(
+					entries
+						.map(
+							(day) =>
+								convertRecurrenceDayToUTC(
+									day as Record<string, any>,
+									requisition.requisition.referenceTimezone
+								).date as string
+						)
+						.filter(Boolean)
+				)
+			];
+
+			const availability = await checkCandidateAvailableOnDates(candidateId!, dates, {
+				considerBooked: true
+			});
+			if (!availability.available && !acknowledgeUnavailable) {
+				return fail(409, {
+					form,
+					requiresAvailabilityConfirmation: true,
+					unavailableDates: availability.blocked
+				});
+			}
+			overriddenAvailability = availability.blocked.map((b) => ({
+				date: b.date,
+				reason: b.reason
+			}));
+		}
+
 		try {
 			const daysToAdd = form.data.recurrenceDays;
 			console.log('Received recurrence days:', daysToAdd);
@@ -518,7 +565,12 @@ export const actions = {
 								requisitionId: idAsNum,
 								candidateId,
 								workdayId,
-								onCreate: true
+								onCreate: true,
+								// Staff knowingly assigned over the professional's stated
+								// availability for one or more of these days.
+								assignedDespiteUnavailable: overriddenAvailability.length
+									? overriddenAvailability
+									: undefined
 							}
 						});
 					}

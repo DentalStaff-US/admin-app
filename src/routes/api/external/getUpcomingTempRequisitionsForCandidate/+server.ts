@@ -25,9 +25,15 @@ import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
 import { clientIsActiveCondition } from '$lib/server/clientStatusGuards';
 import { logger } from '$lib/server/logger';
 import { maskShiftRowForCandidate } from '$lib/server/privacy/clientIdentity';
+import { getCandidateAvailability } from '$lib/server/availability/queries';
+import { wantsTempWork, workPreferenceExclusionReason } from '$lib/server/workPreference';
+import { checkAvailability, hasCustomWeeklyPattern } from '$lib/server/availability/availability';
 
-export const GET: RequestHandler = async ({ request }) => {
+export const GET: RequestHandler = async ({ request, url }) => {
 	const user = await authenticateUser(request);
+	// See the twin endpoint getTempRequisitionsForCandidate: blocked shifts come
+	// back flagged rather than removed so the dashboard can explain the absence.
+	const includeUnavailable = url.searchParams.get('includeUnavailable') === 'true';
 
 	try {
 		const { miles: radiusMiles, meters: radiusMeters } = await getDefaultSearchRadius();
@@ -40,6 +46,32 @@ export const GET: RequestHandler = async ({ request }) => {
 
 		if (!candidateProfile) {
 			throw error(404, 'Candidate profile not found');
+		}
+
+		// Work-type preference gate. This is a WHOLE-BOARD gate, not a row filter:
+		// `requisitions.permanent_position` already splits the platform into the temp
+		// shift board and the permanent openings board, and this endpoint IS the temp
+		// board. A professional who said "permanent only" gets an empty list plus the
+		// reason, exactly like certLocked — so the shifts don't simply vanish.
+		//
+		// wantsTempWork(), never `preference === 'TEMP'`: NULL means never answered,
+		// which means show everything. See $lib/server/workPreference.
+		if (!wantsTempWork(candidateProfile.workPreference)) {
+			return json({
+				candidateLocation: {
+					lat: candidateProfile.lat,
+					lon: candidateProfile.lon,
+					address: candidateProfile.completeAddress
+				},
+				recurrenceDays: [],
+				searchRadius: radiusMiles,
+				totalFound: 0,
+				certLocked: [],
+				workPreference: {
+					preference: candidateProfile.workPreference,
+					excluded: workPreferenceExclusionReason(candidateProfile.workPreference, 'TEMP')
+				}
+			});
 		}
 
 		// Non-active candidates (pending/inactive/denied) can't see shifts.
@@ -348,11 +380,37 @@ export const GET: RequestHandler = async ({ request }) => {
 			return distA - distB;
 		});
 
+		// Availability gate — identical to the twin endpoint
+		// getTempRequisitionsForCandidate; see the long note there for why this is in
+		// memory rather than in the WHERE clause. The already-booked rule stays in SQL.
+		const availability = await getCandidateAvailability(candidateProfile.id, {
+			includeBooked: false
+		});
+
+		const availabilityAnnotated = sortedRecurrenceDays.map((shift) => {
+			// A shift this candidate already holds is NEVER blocked — see the twin.
+			if (shift.workday?.candidateId === candidateProfile.id) {
+				return { shift, blocked: null as null | 'WEEKDAY' | 'DATE' };
+			}
+			const result = checkAvailability(availability.pattern, shift.recurrenceDay.date, {
+				considerBooked: false
+			});
+			if (result.available) return { shift, blocked: null as null | 'WEEKDAY' | 'DATE' };
+			return { shift, blocked: result.reason === 'weekday' ? ('WEEKDAY' as const) : ('DATE' as const) };
+		});
+
+		const hiddenByAvailability = availabilityAnnotated.filter((row) => row.blocked).length;
+		const shown = includeUnavailable
+			? availabilityAnnotated
+			: availabilityAnnotated.filter((row) => !row.blocked);
+
 		// Practice identity is stripped server-side for every shift this candidate
 		// doesn't hold — see $lib/server/privacy/clientIdentity.
-		const visibleRecurrenceDays = sortedRecurrenceDays.map((shift) =>
-			maskShiftRowForCandidate(shift, candidateProfile.id)
-		);
+		const visibleRecurrenceDays = shown.map((row) => ({
+			...maskShiftRowForCandidate(row.shift, candidateProfile.id),
+			blockedByAvailability: row.blocked ? true : undefined,
+			blockedReason: row.blocked ?? undefined
+		}));
 
 		return json({
 			candidateLocation: {
@@ -366,7 +424,21 @@ export const GET: RequestHandler = async ({ request }) => {
 			nearbyOfficeCount: officeLocationIds.length,
 			// Non-empty even when shifts were found: a two-discipline professional who
 			// lost one still needs telling.
-			certLocked
+			certLocked,
+			// Always present, so the board can state the setting rather than only
+			// explain its absence. `excluded` is null whenever the preference is not
+			// the reason for anything being missing.
+			workPreference: {
+				preference: candidateProfile.workPreference,
+				excluded: workPreferenceExclusionReason(candidateProfile.workPreference, 'TEMP')
+			},
+			availability: {
+				availableDays: availability.availableDays,
+				isCustomised:
+					hasCustomWeeklyPattern(availability.availableDays) || availability.blackouts.length > 0,
+				hiddenByAvailability,
+				showingUnavailable: includeUnavailable
+			}
 		});
 	} catch (err) {
 		logger.error('getUpcomingTempRequisitionsForCandidate failed', {

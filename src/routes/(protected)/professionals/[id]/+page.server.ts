@@ -27,6 +27,11 @@ import {
 import { setDisciplineCertification } from '$lib/server/certifications/setDisciplineCertification';
 import { recordAction } from '$lib/server/audit/audit';
 import {
+	getCandidateAvailability,
+	saveCandidateAvailability
+} from '$lib/server/availability/queries';
+import { todayInET } from '$lib/server/certifications/credentialStatus';
+import {
 	CandidateStatusSchema,
 	updateCandidateProfileSchema,
 	updateCandidateDisciplinesSchema,
@@ -69,6 +74,16 @@ export const load: PageServerLoad = async (event) => {
 	);
 	const documentsForm = await superValidate(event, documentUrlSchema);
 
+	// A year ahead on first paint. NOT a cap on how far ahead a day can be blocked —
+	// each save declares its own window — just the initial read.
+	const availabilityFrom = todayInET();
+	const availabilityTo = `${Number(availabilityFrom.slice(0, 4)) + 1}${availabilityFrom.slice(4)}`;
+	const availability = await getCandidateAvailability(id, {
+		from: availabilityFrom,
+		to: availabilityTo,
+		includeBooked: true
+	});
+
 	const supportTickets = await getSupportTicketsForUser(candidateResult.candidate.user.id);
 	const workHistory = await getAllCandidateWorkHistory(id);
 	const documents = await getCandidateDocuments(id);
@@ -96,7 +111,9 @@ export const load: PageServerLoad = async (event) => {
 				statusForm,
 				personalDetailsForm,
 				disciplinesForm,
-				comments
+				comments,
+				availability,
+				availabilityWindow: { from: availabilityFrom, to: availabilityTo }
 			}
 		: {
 				user,
@@ -110,11 +127,81 @@ export const load: PageServerLoad = async (event) => {
 				statusForm,
 				personalDetailsForm,
 				disciplinesForm,
-				comments: []
+				comments: [],
+				availability,
+				availabilityWindow: { from: availabilityFrom, to: availabilityTo }
 			};
 };
 
 export const actions = {
+	/**
+	 * Staff setting a professional's availability, typically from a phone call.
+	 *
+	 * Two switches the professional's own door never gets, mirroring
+	 * setDisciplineCertification's allowPastDate/allowDisable: an admin may record a
+	 * past absence, and an admin may mark a day off that the professional is already
+	 * booked on ("she's out sick Thursday" is how a cancellation begins — refusing it
+	 * would force staff to cancel first and lose the note).
+	 *
+	 * This feature NEVER mutates shift state. Blacking out a booked day does not
+	 * cancel the workday; that still goes through the cancel paths, which keep the
+	 * recurrence_day_cancellations ledger and notify the client.
+	 */
+	updateAvailability: async ({ request, locals, params }) => {
+		const { id } = params;
+		const user = locals.user;
+		if (!user) return fail(403);
+
+		// A professional's days off are schedule-privacy data, so this is SUPERADMIN
+		// only — the same gate as the rest of this page's write actions and the same
+		// gate as the Work History tab.
+		if (user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { message: "You do not have permission to update a professional's availability" });
+		}
+
+		const fd = await request.formData();
+		let availableDays: number[] | null = null;
+		let blockedDates: string[] = [];
+		try {
+			const rawDays = fd.get('availableDays');
+			const rawDates = fd.get('blockedDates');
+			availableDays = rawDays ? JSON.parse(String(rawDays)) : null;
+			blockedDates = rawDates ? JSON.parse(String(rawDates)) : [];
+		} catch {
+			return fail(400, { message: 'Could not read the availability selection.' });
+		}
+
+		const from = String(fd.get('replaceFrom') ?? todayInET());
+		const to = String(fd.get('replaceTo') ?? '');
+		if (!to) return fail(400, { message: 'Missing the window being saved.' });
+
+		const result = await saveCandidateAvailability({
+			candidateId: id,
+			availableDays,
+			blackouts: { from, to, dates: blockedDates },
+			source: 'ADMIN',
+			actor: user,
+			allowPastDate: true
+		});
+
+		if (!result.ok) {
+			return fail(result.reason === 'ERROR' ? 500 : 400, { message: result.message });
+		}
+
+		// The professional IS told that a third party changed what work they are shown:
+		// saveCandidateAvailability stamps available_days_source = 'ADMIN', and the
+		// candidate app's Settings -> Availability page renders an attribution banner
+		// off that (COPY.adminBanner), alongside the full action_history entry.
+		//
+		// Deliberately NOT routed through src/lib/server/notifications/
+		// inAppNotificationService: that class is never instantiated and nothing reads
+		// in_app_notifications, so a write there would be a notification in name only —
+		// worse than none, because this code would claim the professional had been told.
+		// A push channel (email) for admin-made availability changes is a worthwhile
+		// follow-up; it needs a real template rather than a write into a dead table.
+		return { success: true, availability: result };
+	},
+
 	updatePersonalDetails: async ({ request, locals, params }) => {
 		console.log('Update personal details action called');
 		const { id } = params;
@@ -135,7 +222,8 @@ export const actions = {
 			return fail(400, { form });
 		}
 		console.log('Form data:', form.data);
-		const { email, lastName, firstName, birthday, cellPhone, workersCompCode } = form.data;
+		const { email, lastName, firstName, birthday, cellPhone, workersCompCode, workPreference } =
+			form.data;
 
 		try {
 			const candidateResult = await getCandidateProfileById(id);
@@ -156,6 +244,13 @@ export const actions = {
 			if (birthday !== undefined) profileData.birthday = birthday ?? null;
 			if (cellPhone !== undefined) profileData.cellPhone = cellPhone || null;
 			if (workersCompCode !== undefined) profileData.workersCompCode = workersCompCode || null;
+			// Temp / permanent / both. Stamped only when submitted, so an unrelated
+			// save doesn't claim the professional answered the question — and stamped
+			// even on null, because a reset to the default is still an answer.
+			if (workPreference !== undefined) {
+				profileData.workPreference = workPreference ?? null;
+				profileData.workPreferenceUpdatedAt = new Date();
+			}
 			const addr = form.data.completeAddress;
 			let queueGeocode = false;
 			if (addr && addr !== 'undefined') {

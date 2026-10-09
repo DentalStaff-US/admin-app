@@ -12,6 +12,13 @@
 	export let placeholder = 'Search all professionals by name...';
 	/** Bound out so the host can hide its own list while a search is active. */
 	export let searching = false;
+	/**
+	 * Calendar dates ('YYYY-MM-DD') the host intends to staff. Forwarded to the
+	 * search endpoint so each result carries `unavailableDates`/`isUnavailable`
+	 * for the host's warning badge. The component itself stays ignorant of what
+	 * availability means — it just plumbs the dates through and exposes the row.
+	 */
+	export let dates: string[] = [];
 
 	let term = '';
 	let results: ProfessionalSearchResult[] = [];
@@ -26,6 +33,10 @@
 	const MIN_CHARS = 2;
 
 	$: searching = term.trim().length >= MIN_CHARS;
+
+	// Re-query when the target dates change so a badge can never describe a
+	// different day from the one being staffed.
+	$: if (dates && lastAppliedTerm) runSearch(term);
 
 	const runSearch = debounce(async (value: string) => {
 		const query = value.trim();
@@ -45,8 +56,10 @@
 		loading = true;
 		errorMessage = null;
 		try {
+			const params = new URLSearchParams({ q: query });
+			for (const date of dates) params.append('date', date);
 			const res = await fetch(
-				`/api/requisitions/${requisitionId}/search-professionals?q=${encodeURIComponent(query)}`
+				`/api/requisitions/${requisitionId}/search-professionals?${params.toString()}`
 			);
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const data: ProfessionalSearchResult[] = await res.json();
@@ -142,8 +155,15 @@
 											<span class="text-muted-foreground">Distance unknown</span>
 										{/if}
 									</div>
-									<div class="mt-2">
+									<div class="mt-2 flex flex-wrap items-center gap-2">
 										<DisciplineCell disciplines={professional.disciplines ?? []} max={3} />
+										<!--
+											Hosts inject warning pills here without this component having
+											to learn what a credential or an availability rule is. The
+											default slot below is the ACTION column, which is why these
+											need their own seam.
+										-->
+										<slot name="badges" {professional} />
 									</div>
 								</div>
 							</div>

@@ -12,6 +12,7 @@ import {
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { credentialSelectFields } from '$lib/server/certifications/credentialGateSql';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
+import { wantsPermanentWork } from '$lib/server/workPreference';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { recordAction } from '$lib/server/audit/audit';
 import { and, eq } from 'drizzle-orm';
@@ -91,6 +92,21 @@ export const POST: RequestHandler = async ({ request }) => {
 						reason: 'account_status'
 					},
 					{ status: 403, headers: corsHeaders }
+				);
+			}
+
+			// Work-type preference gate — the mirror of the one in
+			// applyForTempRequisition. No override, for the same reason: this is one
+			// setting the professional flips themselves.
+			if (!wantsPermanentWork(candidateProfile.workPreference)) {
+				return json(
+					{
+						success: false,
+						message:
+							'Your profile is set to temporary shifts only. Update it in Settings → Edit Profile to apply for permanent positions.',
+						reason: 'workPreference'
+					},
+					{ status: 409, headers: corsHeaders }
 				);
 			}
 

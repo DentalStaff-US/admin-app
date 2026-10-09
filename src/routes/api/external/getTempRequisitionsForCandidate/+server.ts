@@ -25,9 +25,16 @@ import { splitByCredentialEligibility } from '$lib/server/certifications/credent
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
 import { logger } from '$lib/server/logger';
 import { maskShiftRowForCandidate } from '$lib/server/privacy/clientIdentity';
+import { getCandidateAvailability } from '$lib/server/availability/queries';
+import { wantsTempWork, workPreferenceExclusionReason } from '$lib/server/workPreference';
+import { checkAvailability, hasCustomWeeklyPattern } from '$lib/server/availability/availability';
 
-export const GET: RequestHandler = async ({ request }) => {
+export const GET: RequestHandler = async ({ request, url }) => {
 	const user = await authenticateUser(request);
+	// The candidate app's "Show them anyway" affordance. Blocked shifts come back
+	// flagged rather than removed, so the board can explain the absence instead of
+	// silently shrinking — the same contract as `certLocked` below.
+	const includeUnavailable = url.searchParams.get('includeUnavailable') === 'true';
 
 	try {
 		const { miles: radiusMiles, meters: radiusMeters } = await getDefaultSearchRadius();
@@ -40,6 +47,32 @@ export const GET: RequestHandler = async ({ request }) => {
 
 		if (!candidateProfile) {
 			throw error(404, 'Candidate profile not found');
+		}
+
+		// Work-type preference gate. This is a WHOLE-BOARD gate, not a row filter:
+		// `requisitions.permanent_position` already splits the platform into the temp
+		// shift board and the permanent openings board, and this endpoint IS the temp
+		// board. A professional who said "permanent only" gets an empty list plus the
+		// reason, exactly like certLocked — so the shifts don't simply vanish.
+		//
+		// wantsTempWork(), never `preference === 'TEMP'`: NULL means never answered,
+		// which means show everything. See $lib/server/workPreference.
+		if (!wantsTempWork(candidateProfile.workPreference)) {
+			return json({
+				candidateLocation: {
+					lat: candidateProfile.lat,
+					lon: candidateProfile.lon,
+					address: candidateProfile.completeAddress
+				},
+				recurrenceDays: [],
+				searchRadius: radiusMiles,
+				totalFound: 0,
+				certLocked: [],
+				workPreference: {
+					preference: candidateProfile.workPreference,
+					excluded: workPreferenceExclusionReason(candidateProfile.workPreference, 'TEMP')
+				}
+			});
 		}
 
 		// Non-active candidates (pending/inactive/denied) can't see shifts.
@@ -318,11 +351,44 @@ export const GET: RequestHandler = async ({ request }) => {
 				}).qualified
 		);
 
+		// Availability gate. Applied in memory rather than in the WHERE clause for one
+		// specific reason: `hiddenByAvailability` has to count shifts hidden by
+		// availability among shifts that OTHERWISE QUALIFY, and qualification is the
+		// in-memory filter above. A SQL count cannot produce that number honestly, and
+		// a dishonest count drives a banner that says "3 shifts hidden" when it isn't 3.
+		//
+		// The already-booked rule stays in SQL above (`dateCondition`), untouched.
+		const availability = await getCandidateAvailability(candidateProfile.id, {
+			includeBooked: false
+		});
+
+		const availabilityAnnotated = filteredRecurrenceDays.map((shift) => {
+			// A shift this candidate already holds is NEVER blocked. Someone who claims
+			// a shift and then blacks out that date — or whose admin does — must still
+			// see it, or it vanishes with no explanation and they no-show.
+			if (shift.workday?.candidateId === candidateProfile.id) {
+				return { shift, blocked: null as null | 'WEEKDAY' | 'DATE' };
+			}
+			const result = checkAvailability(availability.pattern, shift.recurrenceDay.date, {
+				considerBooked: false
+			});
+			if (result.available) return { shift, blocked: null as null | 'WEEKDAY' | 'DATE' };
+			return { shift, blocked: result.reason === 'weekday' ? ('WEEKDAY' as const) : ('DATE' as const) };
+		});
+
+		const hiddenByAvailability = availabilityAnnotated.filter((row) => row.blocked).length;
+		const shown = includeUnavailable
+			? availabilityAnnotated
+			: availabilityAnnotated.filter((row) => !row.blocked);
+
 		// Practice identity is stripped server-side for every shift this candidate
 		// doesn't hold — see $lib/server/privacy/clientIdentity.
-		const visibleRecurrenceDays = filteredRecurrenceDays.map((shift) =>
-			maskShiftRowForCandidate(shift, candidateProfile.id)
-		);
+		const visibleRecurrenceDays = shown.map((row) => ({
+			...maskShiftRowForCandidate(row.shift, candidateProfile.id),
+			// Only meaningful when includeUnavailable=true; absent otherwise.
+			blockedByAvailability: row.blocked ? true : undefined,
+			blockedReason: row.blocked ?? undefined
+		}));
 
 		return json({
 			candidateLocation: {
@@ -336,7 +402,26 @@ export const GET: RequestHandler = async ({ request }) => {
 			nearbyOfficeCount: officeLocationIds.length,
 			// Non-empty even when shifts were found: a two-discipline professional who
 			// lost one still needs telling.
-			certLocked
+			certLocked,
+			// Same purpose as certLocked: let the board explain an absence rather than
+			// have shifts quietly disappear.
+			// Always present, so the board can state the setting rather than only
+			// explain its absence. `excluded` is null whenever the preference is not
+			// the reason for anything being missing.
+			workPreference: {
+				preference: candidateProfile.workPreference,
+				excluded: workPreferenceExclusionReason(candidateProfile.workPreference, 'TEMP')
+			},
+			availability: {
+				availableDays: availability.availableDays,
+				// False when they have never touched availability, so the UI can say
+				// "you haven't set this yet" instead of showing seven ticked boxes that
+				// look like a saved choice.
+				isCustomised:
+					hasCustomWeeklyPattern(availability.availableDays) || availability.blackouts.length > 0,
+				hiddenByAvailability,
+				showingUnavailable: includeUnavailable
+			}
 		});
 	} catch (err) {
 		logger.error('getTempRequisitionsForCandidate failed', { error: err, distinctId: user?.id });

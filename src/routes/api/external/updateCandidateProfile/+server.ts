@@ -79,7 +79,12 @@ export const POST: RequestHandler = async ({ request }) => {
 			...profile,
 			...addressPatch.patch,
 			updatedAt: new Date(),
-			birthday: profile.birthday ? new Date(profile.birthday).toISOString() : null
+			birthday: profile.birthday ? new Date(profile.birthday).toISOString() : null,
+			// Stamped only when the field was actually submitted, so an unrelated
+			// profile save doesn't claim they answered the work-type question. Stamped
+			// even on an explicit null (a reset to the default is still an answer),
+			// which is what keeps "never answered" meaningful.
+			...('workPreference' in profile ? { workPreferenceUpdatedAt: new Date() } : {})
 		};
 
 		const [updatedProfile] = await db
