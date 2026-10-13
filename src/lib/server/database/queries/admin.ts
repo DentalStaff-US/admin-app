@@ -41,6 +41,7 @@ import type Stripe from 'stripe';
 import { error } from '@sveltejs/kit';
 import { disciplineTable } from '../schemas/skill';
 import { parseCompleteAddress } from '$lib/server/address';
+import { unbilledPlacementCondition } from '$lib/server/requisitions/unbilled';
 import type { DisciplineSummary } from '$lib/_helpers/professional-filters';
 
 // The ledger writer lives in $lib/server/audit; re-exported here so the
@@ -622,31 +623,16 @@ export async function getInvoicesDueTotal(): Promise<number> {
 	return Number(result?.total ?? 0);
 }
 
-// Permanent placements that have been filled but never billed: the requisition
-// sits at PAYMENT_REQUIRED (set when an application is approved) with no live
-// invoice pointing at it. Perm fees are raised by hand, so nothing else catches
-// a placement someone forgot to invoice — there is no cron and no reminder.
-//
-// `status <> 'void'` is the point: a voided invoice is not payment, so a
-// requisition whose only invoice was voided is still unbilled. Invoices raised
-// from the client page without a requisition target are invisible here, which is
-// why that form now offers a requisition to bill against.
+// Permanent placements that have been filled but never billed. The predicate
+// lives in `unbilledPlacementCondition` so this count and the
+// `/requisitions?filter=unbilled` list it links to can't drift apart. Invoices
+// raised from the client page without a requisition target are invisible here,
+// which is why that form offers a requisition to bill against.
 export async function getUnbilledPermanentPlacementsCount(): Promise<number> {
 	const [result] = await db
 		.select({ count: count() })
 		.from(requisitionTable)
-		.where(
-			and(
-				eq(requisitionTable.permanentPosition, true),
-				eq(requisitionTable.status, 'PAYMENT_REQUIRED'),
-				sql`not exists (
-					select 1
-					from ${invoiceTable}
-					where ${invoiceTable.requisitionId} = ${requisitionTable.id}
-						and ${invoiceTable.status} <> 'void'
-				)`
-			)
-		);
+		.where(unbilledPlacementCondition());
 
 	return result?.count ?? 0;
 }

@@ -22,6 +22,7 @@ import {
 	getRequisitionsAdmin,
 	getRequisitionsForClient
 } from '$lib/server/database/queries/requisitions';
+import { parseRequisitionListFilter } from '$lib/server/requisitions/unbilled';
 import { error, fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { message, superValidate } from 'sveltekit-superforms/server';
@@ -29,17 +30,22 @@ import { message, superValidate } from 'sveltekit-superforms/server';
 export const load = async (event: RequestEvent) => {
 	const user = event.locals.user;
 	const searchTerm = event.url.searchParams.get('search') || '';
+	// Allowlisted list views (e.g. the dashboard's "Unbilled Placements" link).
+	// Admin-only: client roles ignore it.
+	const filter = parseRequisitionListFilter(event.url.searchParams.get('filter'));
 
 	if (!user) {
 		redirect(301, '/auth/sign-in');
 	}
 
 	if (user?.role === USER_ROLES.SUPERADMIN) {
-		const requisitions = await getRequisitionsAdmin(searchTerm);
+		const requisitions = await getRequisitionsAdmin(searchTerm, { view: filter });
 		const form = await superValidate(event, adminRequisitionSchema);
 
 		return {
 			user: event.locals.user,
+			searchTerm,
+			filter,
 			requisitions: requisitions || [],
 			adminForm: form,
 			clientForm: null,
@@ -66,6 +72,8 @@ export const load = async (event: RequestEvent) => {
 		const billing = await getClientBillingReadiness(client.id);
 		return {
 			user,
+			searchTerm,
+			filter: null,
 			requisitions: requisitions || [],
 			clientForm: form,
 			adminForm: null,
@@ -90,6 +98,8 @@ export const load = async (event: RequestEvent) => {
 		const billing = await getClientBillingReadiness(client?.id);
 		return {
 			user,
+			searchTerm,
+			filter: null,
 			requisitions: requisitions || [],
 			clientForm: form,
 			adminForm: null,
@@ -103,6 +113,8 @@ export const load = async (event: RequestEvent) => {
 
 	return {
 		user: event.locals.user,
+		searchTerm,
+		filter: null,
 		requisitions: [],
 		adminForm: null,
 		clientForm: null,

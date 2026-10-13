@@ -26,6 +26,7 @@ import {
 } from './client';
 import { candidateProfileTable, type CandidateProfileSelect } from './candidate';
 import { disciplineTable, experienceLevelTable } from './skill';
+import { userTable } from './auth';
 import { sql } from 'drizzle-orm/sql';
 import type Stripe from 'stripe';
 import type { InvoiceLineItem } from '../queries/requisitions';
@@ -578,6 +579,35 @@ export const requisitionApplicationTable = pgTable('requisition_application', {
 		mode: 'date'
 	})
 });
+
+// Shared comment thread on a requisition, between DentalStaff admins and the
+// client. `internal` rows are admin-only notes — never returned to client roles.
+// Generic on purpose (any requisition), though the UI only exposes it on perm reqs.
+export const requisitionCommentTable = pgTable(
+	'requisition_comments',
+	{
+		id: text('id').notNull().primaryKey(),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+			.notNull()
+			.defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+			.notNull()
+			.defaultNow(),
+		requisitionId: integer('requisition_id')
+			.notNull()
+			.references(() => requisitionTable.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+		authorId: text('author_id')
+			.notNull()
+			.references(() => userTable.id, { onDelete: 'cascade' }),
+		body: text('body').notNull(),
+		internal: boolean('internal').notNull().default(false)
+	},
+	(table) => [
+		index('requisition_comments_requisition_idx').on(table.requisitionId, table.createdAt)
+	]
+);
+
+export type RequisitionCommentSelect = typeof requisitionCommentTable.$inferSelect;
 
 export const candidateRequisitionSavesTable = pgTable(
 	'candidate_saved_requisitions',
