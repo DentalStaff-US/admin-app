@@ -346,8 +346,12 @@
 							</div>
 						</div>
 						<div class="mt-4">
-							<Button variant="link" class="text-amber-600 p-0 h-auto" href="/requisitions">
-								View requisitions
+							<Button
+								variant="link"
+								class="text-amber-600 p-0 h-auto"
+								href="/requisitions?filter=unbilled"
+							>
+								View unbilled placements
 								<ArrowRight size={16} class="ml-1" />
 							</Button>
 						</div>

@@ -36,6 +36,7 @@
 	} from '$lib/config/zod-schemas';
 	import { writable } from 'svelte/store';
 	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
 	import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
 	import { formatInTimeZone } from 'date-fns-tz';
 
@@ -60,18 +61,40 @@
 		referenceTimezone: string;
 		subregionName: string;
 		recurrenceDays: { dayStart: Date; dayEnd: Date }[];
+		unbilled?: boolean;
 	};
 
 	let drawerExpanded = false;
-	$: searchTerm = '';
-	let activeTab = 'open';
+	let searchTerm = data.searchTerm ?? '';
+
+	// One tab per requisition status. Open/Closed/Canceled are always shown; the
+	// rest only appear when something is in them (or they're the active tab), so
+	// temp-only clients see the same three tabs as before. PENDING and the perm
+	// payment statuses used to have no tab at all — those rows were loaded and
+	// then silently dropped, which is why "Unbilled Placements" had nowhere to land.
+	type TabDef = { value: string; label: string; status: string; always?: boolean };
+	const TABS: TabDef[] = [
+		{ value: 'open', label: 'Open', status: 'OPEN', always: true },
+		{ value: 'pending', label: 'Pending', status: 'PENDING' },
+		{ value: 'payment-required', label: 'Payment Required', status: 'PAYMENT_REQUIRED' },
+		{ value: 'payment-received', label: 'Payment Received', status: 'PAYMENT_RECEIVED' },
+		{ value: 'closed', label: 'Closed', status: 'CLOSED', always: true },
+		{ value: 'canceled', label: 'Canceled', status: 'CANCELED', always: true }
+	];
+
+	function initialTab(): string {
+		const fromUrl = $page.url.searchParams.get('tab');
+		if (fromUrl && TABS.some((t) => t.value === fromUrl)) return fromUrl;
+		if (data.filter === 'unbilled') return 'payment-required';
+		return 'open';
+	}
+	let activeTab = initialTab();
 
 	$: user = data.user;
 	$: requisitions = (data.requisitions as RequisitionData[]) || [];
 	$: clientForm = data.clientForm as SuperValidated<ClientRequisitionSchema>;
 	$: adminForm = data.adminForm as SuperValidated<AdminRequisitionSchema>;
 	$: isAdmin = user?.role === USER_ROLES.SUPERADMIN;
-
 	function formatWorkWeek(
 		recurrenceDays: { dayStart: Date; dayEnd: Date }[],
 		timezone: string
@@ -121,7 +144,8 @@
 			{
 				id: 'status',
 				header: 'Status',
-				accessorKey: 'status',
+				// `unbilled` is admin-only (perm placement with no live invoice).
+				accessorFn: (row) => (row.unbilled ? `${row.status} · Unbilled` : row.status),
 				enableSorting: true
 			},
 			{
@@ -173,7 +197,7 @@
 
 	// Filter requisitions by status
 	const filterByStatus = (requisitions: RequisitionData[], status: string) => {
-		return requisitions.filter((req) => req.status === status.toUpperCase());
+		return requisitions.filter((req) => req.status === status);
 	};
 
 	// Create separate table instances for each tab
@@ -190,58 +214,57 @@
 		}
 	});
 
-	// Table options for each status
-	const openOptions = writable<TableOptions<RequisitionData>>(createTableOptions([]));
-	const closedOptions = writable<TableOptions<RequisitionData>>(createTableOptions([]));
-	const canceledOptions = writable<TableOptions<RequisitionData>>(createTableOptions([]));
+	const tableOptions = Object.fromEntries(
+		TABS.map((t) => [t.value, writable<TableOptions<RequisitionData>>(createTableOptions([]))])
+	);
+	const tables = Object.fromEntries(
+		TABS.map((t) => [t.value, createSvelteTable(tableOptions[t.value])])
+	);
 
-	// Create table instances
-	const openTable = createSvelteTable(openOptions);
-	const closedTable = createSvelteTable(closedOptions);
-	const canceledTable = createSvelteTable(canceledOptions);
+	$: currentTable = tables[activeTab] ?? tables.open;
 
-	// Get current active table
-	$: currentTable =
-		activeTab === 'open' ? openTable : activeTab === 'closed' ? closedTable : canceledTable;
-
-	// Update table data when requisitions change
-	$: {
-		const openData = filterByStatus(requisitions, 'open');
-		const closedData = filterByStatus(requisitions, 'closed');
-		const canceledData = filterByStatus(requisitions, 'canceled');
-
-		openOptions.update((opts) => ({ ...opts, data: openData, columns }));
-		closedOptions.update((opts) => ({ ...opts, data: closedData, columns }));
-		canceledOptions.update((opts) => ({ ...opts, data: canceledData, columns }));
+	function syncTables(rows: RequisitionData[], cols: ColumnDef<RequisitionData>[]) {
+		for (const t of TABS) {
+			tableOptions[t.value].update((opts) => ({
+				...opts,
+				data: filterByStatus(rows, t.status),
+				columns: cols
+			}));
+		}
 	}
 
-	onMount(() => {
-		const openData = filterByStatus(requisitions, 'open');
-		const closedData = filterByStatus(requisitions, 'closed');
-		const canceledData = filterByStatus(requisitions, 'canceled');
+	$: syncTables(requisitions, columns);
+	onMount(() => syncTables(requisitions, columns));
 
-		openOptions.update((opts) => ({ ...opts, data: openData, columns }));
-		closedOptions.update((opts) => ({ ...opts, data: closedData, columns }));
-		canceledOptions.update((opts) => ({ ...opts, data: canceledData, columns }));
-	});
+	$: tabCounts = Object.fromEntries(
+		TABS.map((t) => [t.value, filterByStatus(requisitions, t.status).length])
+	) as Record<string, number>;
 
-	// Get tab counts
-	$: tabCounts = {
-		open: filterByStatus(requisitions, 'open').length,
-		closed: filterByStatus(requisitions, 'closed').length,
-		canceled: filterByStatus(requisitions, 'canceled').length
-	};
+	$: visibleTabs = TABS.filter((t) => t.always || tabCounts[t.value] > 0 || t.value === activeTab);
+	$: activeTabLabel = (TABS.find((t) => t.value === activeTab)?.label ?? activeTab).toLowerCase();
 
 	function handleRowClick(requisitionId: string) {
 		goto(`/requisitions/${requisitionId}`);
 	}
 
-	function handleSearch(searchTerm: string) {
-		if (!searchTerm || searchTerm.trim() === '') {
-			goto('/requisitions');
-		} else {
-			goto(`/requisitions?search=${encodeURIComponent(searchTerm.trim())}`);
-		}
+	// Rebuilds the URL from the current search + filter + tab so searching inside
+	// a filtered view (e.g. unbilled) doesn't silently drop the filter.
+	function listUrl(opts: { search?: string; filter?: string | null; tab?: string }) {
+		const params = new URLSearchParams();
+		if (opts.search) params.set('search', opts.search);
+		if (opts.filter) params.set('filter', opts.filter);
+		if (opts.tab && opts.tab !== 'open') params.set('tab', opts.tab);
+		const qs = params.toString();
+		return qs ? `/requisitions?${qs}` : '/requisitions';
+	}
+
+	function handleSearch(term: string) {
+		goto(listUrl({ search: term?.trim(), filter: data.filter, tab: activeTab }));
+	}
+
+	function clearFilter() {
+		activeTab = 'open';
+		goto(listUrl({ search: searchTerm?.trim() }));
 	}
 </script>
 
@@ -298,34 +321,46 @@
 		>
 	</form>
 
+	{#if data.filter === 'unbilled'}
+		<div
+			class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+		>
+			<span>
+				Showing <strong>{requisitions.length}</strong> unbilled permanent placement{requisitions.length ===
+				1
+					? ''
+					: 's'} — filled, but no live invoice raised yet.
+			</span>
+			<Button variant="link" class="h-auto p-0 text-amber-900 underline" on:click={clearFilter}>
+				Clear filter
+			</Button>
+		</div>
+	{/if}
+
 	<!-- Tabs with Tables -->
 	<Tabs.Root bind:value={activeTab} class="">
-		<Tabs.List class="grid w-full grid-cols-3">
-			<Tabs.Trigger value="open" class="relative">
-				Open
-				{#if tabCounts.open > 0}
-					<Badge variant="destructive" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.open}
-					></Badge>
-				{/if}
-			</Tabs.Trigger>
-			<Tabs.Trigger value="closed" class="relative">
-				Closed
-				{#if tabCounts.closed > 0}
-					<Badge variant="secondary" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.closed}
-					></Badge>
-				{/if}
-			</Tabs.Trigger>
-			<Tabs.Trigger value="canceled" class="relative">
-				Canceled
-				{#if tabCounts.canceled > 0}
-					<Badge variant="secondary" class="ml-2 h-5 min-w-5 text-xs" value={tabCounts.canceled}
-					></Badge>
-				{/if}
-			</Tabs.Trigger>
+		<Tabs.List
+			class="grid w-full h-auto"
+			style={`grid-template-columns: repeat(${visibleTabs.length}, minmax(0, 1fr));`}
+		>
+			{#each visibleTabs as tab}
+				<Tabs.Trigger value={tab.value} class="relative">
+					{tab.label}
+					{#if tabCounts[tab.value] > 0}
+						<Badge
+							variant={tab.value === 'open' || tab.value === 'payment-required'
+								? 'destructive'
+								: 'secondary'}
+							class="ml-2 h-5 min-w-5 text-xs"
+							value={tabCounts[tab.value]}
+						></Badge>
+					{/if}
+				</Tabs.Trigger>
+			{/each}
 		</Tabs.List>
 
 		<!-- Tab Contents -->
-		{#each ['open', 'closed', 'canceled'] as tabValue}
+		{#each visibleTabs.map((t) => t.value) as tabValue}
 			<Tabs.Content value={tabValue} class="">
 				{#if activeTab === tabValue}
 					<div class="bg-white rounded-lg shadow-sm">
@@ -421,13 +456,13 @@
 									<Filter class="w-8 h-8 text-gray-400" />
 								</div>
 								<h3 class="text-lg font-medium text-gray-900 mb-2">
-									No {activeTab} requisitions found
+									No {activeTabLabel} requisitions found
 								</h3>
 								<p class="text-sm text-gray-500">
 									{#if searchTerm}
 										Try adjusting your search terms
 									{:else}
-										No {activeTab} requisitions available
+										No {activeTabLabel} requisitions available
 									{/if}
 								</p>
 							</div>

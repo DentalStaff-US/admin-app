@@ -82,6 +82,9 @@
 	import TableRow from '$lib/components/ui/table/table-row.svelte';
 	import { formatInTimeZone } from 'date-fns-tz';
 	import { enhance } from '$app/forms';
+	import { page } from '$app/stores';
+	import RequisitionBillingPanel from '$lib/components/requisitions/RequisitionBillingPanel.svelte';
+	import RequisitionComments from '$lib/components/requisitions/RequisitionComments.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
@@ -108,9 +111,38 @@
 	$: recurrenceDays = data.recurrenceDays;
 	$: location = data.location;
 	$: applications = data.applications;
-	// Invoices raised against this requisition (admin-only tab). Voided ones are
-	// kept and marked — the void is part of the billing history.
-	$: requisitionInvoices = data.requisitionInvoices ?? [];
+	// Invoices + payment history raised against this requisition. Admins see every
+	// requisition's (voids kept — the void is part of the billing history); clients
+	// see their own non-void invoices on perm reqs only. Null = not shown.
+	$: billing = data.billing ?? null;
+	$: comments = data.comments ?? [];
+	$: showBillingTab = !!billing && (isAdmin || requisition?.permanentPosition);
+	$: showCommentsTab = !!requisition?.permanentPosition;
+	$: tabCount =
+		(requisition?.permanentPosition ? 2 : 3) +
+		(showBillingTab ? 1 : 0) +
+		(showCommentsTab ? 1 : 0) +
+		(isAdmin ? 1 : 0);
+	$: tabGridClass =
+		tabCount >= 5 ? 'grid-cols-5' : tabCount === 4 ? 'grid-cols-4' : 'grid-cols-3';
+
+	// Deep-linkable tabs (?tab=comments from the comment email, ?tab=invoices).
+	const TAB_VALUES = [
+		'applications',
+		'workdays',
+		'timesheets',
+		'details',
+		'invoices',
+		'comments',
+		'activity'
+	];
+	function initialTab(): string {
+		const t = $page.url.searchParams.get('tab');
+		const wanted = t === 'billing' ? 'invoices' : t;
+		if (wanted && TAB_VALUES.includes(wanted)) return wanted;
+		return data.requisition?.permanentPosition ? 'applications' : 'workdays';
+	}
+	const startTab = initialTab();
 	$: status = requisition?.status;
 	$: hasRequisitionRights = data.hasRequisitionRights;
 	$: disciplines = data.disciplines || [];
@@ -294,7 +326,12 @@
 		{
 			header: 'Applicant Name',
 			id: 'title',
-			accessorFn: (original) => `${original.user.lastName}, ${original.user.firstName}`
+			// On a perm req the approved applicant is the placement — flag it.
+			accessorFn: (original) =>
+				`${original.user.lastName}, ${original.user.firstName}` +
+				(requisition?.permanentPosition && original.application.status === 'APPROVED'
+					? ' · Hired'
+					: '')
 		},
 		{
 			header: 'Date Submitted',
@@ -679,16 +716,8 @@
 		</div>
 
 		<!-- ── Tabs ────────────────────────────────────────────────────── -->
-		<Tabs class="w-full" value={requisition.permanentPosition ? "applications" : "workdays"}>
-			<TabsList
-				class="grid lg:w-fit bg-muted h-fit {requisition.permanentPosition
-					? isAdmin
-						? 'grid-cols-4'
-						: 'grid-cols-2'
-					: isAdmin
-						? 'grid-cols-5'
-						: 'grid-cols-3'}"
-			>
+		<Tabs class="w-full" value={startTab}>
+			<TabsList class="grid lg:w-fit bg-muted h-fit {tabGridClass}">
 				{#if requisition.permanentPosition}
 					<TabsTrigger value="applications" class="data-[state=active]:bg-background"
 						>Applications</TabsTrigger
@@ -702,88 +731,82 @@
 					>
 				{/if}
 				<TabsTrigger value="details" class="data-[state=active]:bg-background">Details</TabsTrigger>
-				{#if isAdmin}
+				{#if showBillingTab && billing}
 					<TabsTrigger value="invoices" class="data-[state=active]:bg-background"
-						>Invoices{requisitionInvoices.length ? ` (${requisitionInvoices.length})` : ''}</TabsTrigger
+						>{requisition.permanentPosition ? 'Billing' : 'Invoices'}{billing.invoices.length
+							? ` (${billing.invoices.length})`
+							: ''}</TabsTrigger
 					>
+				{/if}
+				{#if showCommentsTab}
+					<TabsTrigger value="comments" class="data-[state=active]:bg-background"
+						>Comments{comments.length ? ` (${comments.length})` : ''}</TabsTrigger
+					>
+				{/if}
+				{#if isAdmin}
 					<TabsTrigger value="activity" class="data-[state=active]:bg-background"
 						>Activity</TabsTrigger
 					>
 				{/if}
 			</TabsList>
 
-			{#if isAdmin}
+			{#if showBillingTab && billing}
 				<TabsContent value="invoices" class="mt-4">
 					<Card class="max-w-none">
 						<CardHeader>
-							<CardTitle>Invoices</CardTitle>
+							<CardTitle
+								>{requisition.permanentPosition ? 'Invoices & Payments' : 'Invoices'}</CardTitle
+							>
 							<CardDescription>
-								Every invoice raised against this requisition. Voided invoices stay listed —
-								check here before creating another so a placement isn't billed twice.
+								{#if isAdmin}
+									Every invoice raised against this requisition and the payments recorded on
+									them.
+								{:else}
+									Your placement fee invoices and the payments we've received.
+								{/if}
 							</CardDescription>
 						</CardHeader>
 						<CardContent>
-							{#if requisitionInvoices.length === 0}
-								<div class="text-center py-10">
-									<CreditCard class="h-12 w-12 mx-auto text-gray-300" />
-									<h3 class="mt-4 text-lg font-medium">No invoices yet</h3>
-									<p class="mt-2 text-sm text-gray-500">
-										{#if requisition.permanentPosition}
-											Nothing has been billed against this requisition.
-										{:else}
-											Invoices appear here once timesheets are approved.
-										{/if}
-									</p>
-								</div>
-							{:else}
-								<div class="rounded-md border overflow-x-auto">
-									<Table.Root>
-										<TableHeader>
-											<TableRow>
-												<TableHead>Invoice #</TableHead>
-												<TableHead>Status</TableHead>
-												<TableHead>Method</TableHead>
-												<TableHead>Amount</TableHead>
-												<TableHead>Due</TableHead>
-												<TableHead>Created</TableHead>
-												<TableHead class="w-12"></TableHead>
-											</TableRow>
-										</TableHeader>
-										<TableBody>
-											{#each requisitionInvoices as row (row.invoice.id)}
-												<TableRow class={row.invoice.status === 'void' ? 'opacity-60' : ''}>
-													<TableCell class="font-medium">{row.invoice.invoiceNumber}</TableCell>
-													<TableCell><StatusBadge status={row.invoice.status} /></TableCell>
-													<TableCell class="text-sm text-gray-600"
-														>{row.invoice.invoiceType === 'PAPER' ? 'Paper' : 'Stripe'}</TableCell
-													>
-													<TableCell>${Number(row.invoice.total || 0).toFixed(2)}</TableCell>
-													<TableCell class="text-sm text-gray-600">
-														{row.invoice.dueDate
-															? format(new Date(row.invoice.dueDate), 'MMM d, yyyy')
-															: '—'}
-													</TableCell>
-													<TableCell class="text-sm text-gray-600">
-														{format(new Date(row.invoice.createdAt), 'MMM d, yyyy')}
-													</TableCell>
-													<TableCell>
-														<Button
-															variant="link"
-															size="sm"
-															class="p-0 h-auto"
-															href={`/invoices/${row.invoice.id}`}>View</Button
-														>
-													</TableCell>
-												</TableRow>
-											{/each}
-										</TableBody>
-									</Table.Root>
-								</div>
-							{/if}
+							<RequisitionBillingPanel
+								{billing}
+								{isAdmin}
+								canOpenInvoicePage={user?.role === USER_ROLES.CLIENT}
+								permanentPosition={!!requisition.permanentPosition}
+								requisitionStatus={status ?? null}
+								on:createInvoice={() => (showInvoiceDialog = true)}
+							/>
 						</CardContent>
 					</Card>
 				</TabsContent>
+			{/if}
 
+			{#if showCommentsTab}
+				<TabsContent value="comments" class="mt-4">
+					<Card class="max-w-none">
+						<CardHeader>
+							<CardTitle>Comments</CardTitle>
+							<CardDescription>
+								{#if isAdmin}
+									Shared with the client unless marked internal. New comments email the other
+									side.
+								{:else}
+									A conversation with our team about this placement.
+								{/if}
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<RequisitionComments
+								{comments}
+								{isAdmin}
+								currentUserId={user?.id ?? ''}
+								companyName={company?.companyName ?? null}
+							/>
+						</CardContent>
+					</Card>
+				</TabsContent>
+			{/if}
+
+			{#if isAdmin}
 				<TabsContent value="activity" class="mt-4">
 					<Card class="max-w-none">
 						<CardHeader>
@@ -920,7 +943,6 @@
 										size="sm"
 										on:click={() => {
 											editPanelOpen = false;
-											showTimezoneWarning = false;
 										}}
 									>
 										Cancel

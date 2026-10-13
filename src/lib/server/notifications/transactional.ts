@@ -57,8 +57,9 @@ import {
 	clientProfileTable,
 	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
-import { USER_ROLES } from '$lib/config/constants';
+import { APP_NAME, USER_ROLES } from '$lib/config/constants';
 import { recordAction } from '$lib/server/audit/audit';
+import { pickCommentRecipients } from '$lib/server/requisitions/commentRules';
 import type { AuditEntityType } from '$lib/audit/constants';
 
 const emailService = new EmailService();
@@ -1751,7 +1752,13 @@ export async function notifyCertExpiring(args: {
  * visible to staff.
  */
 export async function notifyAdminsOfCertExpiryDigest(sections: {
-	bookedWithExpired: Array<{ name: string; discipline: string; expiresOn: string; shiftDates: string; candidateId: string }>;
+	bookedWithExpired: Array<{
+		name: string;
+		discipline: string;
+		expiresOn: string;
+		shiftDates: string;
+		candidateId: string;
+	}>;
 	expired: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string }>;
 	expiring: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string }>;
 	missing: Array<{ discipline: string; count: number }>;
@@ -1841,5 +1848,108 @@ export async function notifyLicenseGraceExpired(args: {
 		await dispatch(label, sends);
 	} catch (error) {
 		console.error(`[transactional:${label}] top-level error:`, error);
+	}
+}
+
+/**
+ * New comment on a requisition's shared thread — email the other side.
+ *
+ *   - internal (admin-only) note → nobody; it must never reach the client.
+ *   - admin author               → the client account owner, plus any client-side
+ *                                  users who have already joined the thread.
+ *   - client author              → admins with receiveEmail=true.
+ *
+ * The author is never emailed about their own comment. Never throws.
+ */
+export async function notifyRequisitionComment(commentId: string): Promise<void> {
+	const label = 'requisitionComment';
+	try {
+		const { getRequisitionCommentById, getClientCommenterEmails } = await import(
+			'$lib/server/database/queries/requisitionComments'
+		);
+		const comment = await getRequisitionCommentById(commentId);
+		if (!comment) {
+			console.warn(`[transactional:${label}] aborted: comment ${commentId} not found`);
+			return;
+		}
+		if (comment.internal) return;
+
+		const [author] = await db
+			.select({
+				firstName: userTable.firstName,
+				lastName: userTable.lastName,
+				role: userTable.role
+			})
+			.from(userTable)
+			.where(eq(userTable.id, comment.authorId))
+			.limit(1);
+
+		const [req] = await db
+			.select({
+				id: requisitionTable.id,
+				title: requisitionTable.title,
+				disciplineName: disciplineTable.name,
+				companyName: clientCompanyTable.companyName,
+				ownerUserId: userTable.id,
+				ownerEmail: userTable.email
+			})
+			.from(requisitionTable)
+			.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
+			.innerJoin(clientProfileTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
+			.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
+			.leftJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
+			.where(eq(requisitionTable.id, comment.requisitionId))
+			.limit(1);
+
+		if (!author || !req) {
+			console.warn(`[transactional:${label}] aborted: author or requisition missing`);
+			return;
+		}
+
+		const authorIsAdmin = author.role === USER_ROLES.SUPERADMIN;
+		const recipients = pickCommentRecipients({
+			internal: comment.internal,
+			authorId: comment.authorId,
+			authorIsAdmin,
+			owner: { userId: req.ownerUserId, email: req.ownerEmail },
+			clientCommenters: authorIsAdmin ? await getClientCommenterEmails(req.id) : [],
+			adminEmails: authorIsAdmin
+				? []
+				: (
+						await db
+							.select({ email: userTable.email })
+							.from(userTable)
+							.where(
+								and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true))
+							)
+					).map((a) => a.email)
+		});
+		if (recipients.length === 0) {
+			console.warn(`[transactional:${label}] no recipients for comment ${commentId}`);
+			return;
+		}
+
+		const details = {
+			requisitionId: req.id,
+			requisitionLabel:
+				[req.title || req.disciplineName, req.companyName].filter(Boolean).join(' · ') ||
+				`Requisition #${req.id}`,
+			authorName: `${author.firstName ?? ''} ${author.lastName ?? ''}`.trim() || 'Someone',
+			authorOrg: authorIsAdmin ? APP_NAME : (req.companyName ?? 'Client'),
+			body: comment.body
+		};
+
+		await dispatch(
+			label,
+			recipients.map((to) =>
+				safeEmail(label, to, () => emailService.sendRequisitionCommentEmail(to, details), {
+					entityType: 'REQUISITIONS',
+					entityId: String(req.id),
+					metadata: { template: 'requisitionComment', commentId }
+				})
+			)
+		);
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
 	}
 }

@@ -1,4 +1,5 @@
 import { APP_NAME, USER_ROLES } from '$lib/config/constants';
+import { escapeHtml, textToHtml } from '$lib/server/campaigns/render';
 import { BASE_URL } from '$env/static/private';
 import { env } from '$env/dynamic/private';
 import type { Invoice } from '../database/schemas/requisition';
@@ -485,6 +486,48 @@ export const EMAIL_TEMPLATES: Record<
         `.trim();
 
 		const subject = `[${APP_NAME}] New support ticket: ${title}`;
+
+		return { textEmail, htmlEmail, subject };
+	},
+	// New comment on a requisition's shared thread. Sent to the other side of the
+	// conversation (client → admins, admin → client). Internal notes never send.
+	// The body is user-typed, so it is escaped before going into the HTML.
+	requisitionCommentEmail: (details: {
+		requisitionId: number;
+		requisitionLabel: string;
+		authorName: string;
+		authorOrg: string;
+		body: string;
+	}) => {
+		const { requisitionId, requisitionLabel, authorName, authorOrg, body } = details;
+		const url = `${BASE_URL}/requisitions/${requisitionId}?tab=comments`;
+
+		const textEmail = `
+            ${authorName} (${authorOrg}) commented on requisition #${requisitionId} — ${requisitionLabel}.
+
+            ${body}
+
+            View and reply:
+            ${url}
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>New comment on requisition #${requisitionId}</h2>
+                <p style="color: #374151;"><strong>${escapeHtml(authorName)}</strong> (${escapeHtml(authorOrg)}) commented on <strong>${escapeHtml(requisitionLabel)}</strong>:</p>
+                <div style="background-color: #F9FAFB; border-left: 3px solid #D1D5DB; padding: 12px 16px; margin: 16px 0;">${textToHtml(body)}</div>
+                <p style="margin: 24px 0;">
+                    <a href="${url}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        View &amp; Reply
+                    </a>
+                </p>
+                <p style="color: #6B7280; font-size: 14px;">Or open it directly: ${url}</p>
+            </div>
+        `.trim();
+
+		const subject = `[${APP_NAME}] New comment on requisition #${requisitionId}`;
 
 		return { textEmail, htmlEmail, subject };
 	},

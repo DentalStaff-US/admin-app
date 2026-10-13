@@ -3,19 +3,20 @@ import type { PageServerLoad, RequestEvent } from './$types';
 import {
 	approveApplication,
 	denyApplication,
-	getRequisitionApplicationDetails,
-	getRequisitionDetailsById
+	getRequisitionApplicationDetails
 } from '$lib/server/database/queries/requisitions';
 import {
 	notifyApplicationApproved,
 	notifyApplicationDenied
 } from '$lib/server/notifications/transactional';
 import { InboxService } from '$lib/server/inbox/service';
+import type { ParticipantType } from '$lib/server/inbox';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { superValidate } from 'sveltekit-superforms/server';
 import { z } from 'zod';
 import { USER_ROLES } from '$lib/config/constants';
-import { assertCanAccessLocation } from '$lib/server/scoping';
+import { resolveRequisitionAccess } from '$lib/server/requisitions/access';
+import { getActivityForEntity } from '$lib/server/audit/queries';
 import {
 	getClientProfileByStaffUserId,
 	getClientProfilebyUserId
@@ -32,13 +33,38 @@ export const load: PageServerLoad = async (event) => {
 		redirect(302, '/auth/sign-in');
 	}
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
-		redirect(302, '/dashboard');
-	}
+	// Tenancy guard for every role: 404s unless the requisition belongs to the
+	// caller's company (and, for scoped staff, their location). Previously only
+	// CLIENT_STAFF had a location check, and CLIENT had none at all.
+	await resolveRequisitionAccess(user, +id);
 
 	const messageForm = await superValidate(event, z.object({ id: z.string() }));
 	const approvalForm = await superValidate(event, z.object({ applicationId: z.string() }));
+	// Scoped to (requisition, application), so an application id from another
+	// requisition comes back empty.
 	const applicationDetails = await getRequisitionApplicationDetails(+id, applicationId);
+
+	if (user.role === USER_ROLES.SUPERADMIN) {
+		const activity = applicationDetails
+			? await getActivityForEntity('REQUISITION_APPLICATIONS', applicationId)
+			: [];
+
+		if (applicationDetails) {
+			void recordView({
+				entityType: 'REQUISITION_APPLICATIONS',
+				entityId: applicationId,
+				metadata: { requisitionId: +id }
+			});
+		}
+
+		return {
+			user,
+			application: applicationDetails || null,
+			messageForm,
+			approvalForm,
+			activity
+		};
+	}
 
 	if (user.role === USER_ROLES.CLIENT) {
 		if (!user.completedOnboarding) {
@@ -60,7 +86,8 @@ export const load: PageServerLoad = async (event) => {
 			user,
 			application: applicationDetails || null,
 			messageForm,
-			approvalForm
+			approvalForm,
+			activity: []
 		};
 	}
 
@@ -68,10 +95,6 @@ export const load: PageServerLoad = async (event) => {
 		const client = await getClientProfileByStaffUserId(user.id);
 
 		await redirectIfNotValidCustomer(client?.id, user.role);
-
-		// Access guard: staff must be assigned to this requisition's location.
-		const requisition = await getRequisitionDetailsById(+id);
-		await assertCanAccessLocation(user, requisition?.requisition?.location?.id);
 
 		if (applicationDetails) {
 			void recordView({
@@ -85,9 +108,12 @@ export const load: PageServerLoad = async (event) => {
 			user,
 			application: applicationDetails || null,
 			messageForm,
-			approvalForm
+			approvalForm,
+			activity: []
 		};
 	}
+
+	redirect(302, '/dashboard');
 };
 
 export const actions = {
@@ -95,12 +121,13 @@ export const actions = {
 		const user = event.locals.user;
 		const { id, applicationId } = event.params;
 
+		await resolveRequisitionAccess(user, +id);
 		const applicationDetails = await getRequisitionApplicationDetails(+id, applicationId);
 
 		const form = await superValidate(event, z.object({ id: z.string() }));
 
 		if (!form.valid) {
-			fail(400, { form });
+			return fail(400, { form });
 		}
 
 		if (!applicationDetails) {
@@ -129,7 +156,9 @@ export const actions = {
 				},
 				{
 					userId: user!.id,
-					participantType: 'CLIENT_STAFF'
+					// The starter's real role (admins can now open this page too), matching
+					// how the inbox routes record participants. Was hardcoded to CLIENT_STAFF.
+					participantType: user!.role as ParticipantType
 				}
 			],
 			applicationId
@@ -155,6 +184,12 @@ export const actions = {
 
 		if (!user || (user && user.role === 'CANDIDATE')) {
 			return fail(403);
+		}
+		// Tenancy: the requisition must be the caller's, and the application must
+		// belong to it — otherwise any client could act on another company's applicants.
+		await resolveRequisitionAccess(user, +id);
+		if (!(await getRequisitionApplicationDetails(+id, applicationId))) {
+			return fail(404);
 		}
 
 		try {
@@ -191,6 +226,12 @@ export const actions = {
 
 		if (!user || (user && user.role === 'CANDIDATE')) {
 			return fail(403);
+		}
+		// Tenancy: the requisition must be the caller's, and the application must
+		// belong to it — otherwise any client could act on another company's applicants.
+		await resolveRequisitionAccess(user, +id);
+		if (!(await getRequisitionApplicationDetails(+id, applicationId))) {
+			return fail(404);
 		}
 
 		try {

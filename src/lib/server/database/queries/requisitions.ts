@@ -21,6 +21,11 @@ import {
 	isNull
 } from 'drizzle-orm';
 import db from '../drizzle';
+import {
+	isUnbilledPlacementColumn,
+	unbilledPlacementCondition,
+	type RequisitionListFilter
+} from '$lib/server/requisitions/unbilled';
 import { CLEARED_ADMIN_FEE_SNAPSHOT, type AdminFeeSnapshot } from '$lib/server/timesheets/adminFee';
 import {
 	recurrenceDayTable,
@@ -336,7 +341,10 @@ export async function getRequisitionsForClient(
 	}
 }
 
-export async function getRequisitionsAdmin(searchTerm?: string) {
+export async function getRequisitionsAdmin(
+	searchTerm?: string,
+	filters: { view?: RequisitionListFilter | null } = {}
+) {
 	try {
 		const results = await db
 			.select({
@@ -358,7 +366,8 @@ export async function getRequisitionsAdmin(searchTerm?: string) {
 				firstName: userTable.firstName,
 				lastName: userTable.lastName,
 				email: userTable.email,
-				disciplineName: disciplineTable.name
+				disciplineName: disciplineTable.name,
+				unbilled: isUnbilledPlacementColumn()
 			})
 			.from(requisitionTable)
 			.innerJoin(
@@ -375,6 +384,7 @@ export async function getRequisitionsAdmin(searchTerm?: string) {
 			.where(
 				and(
 					eq(requisitionTable.archived, false),
+					filters.view === 'unbilled' ? unbilledPlacementCondition() : undefined,
 					or(
 						searchTerm ? ilike(requisitionTable.title, `%${searchTerm}%`) : undefined,
 						searchTerm ? ilike(userTable.firstName, `%${searchTerm}%`) : undefined,

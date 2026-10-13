@@ -503,6 +503,36 @@ export class EmailService {
 	}
 
 	/**
+	 * New comment on a requisition thread — sent to the other side of the conversation.
+	 */
+	async sendRequisitionCommentEmail(
+		email: string,
+		details: {
+			requisitionId: number;
+			requisitionLabel: string;
+			authorName: string;
+			authorOrg: string;
+			body: string;
+		}
+	): Promise<EmailSendResult> {
+		try {
+			const template = EMAIL_TEMPLATES.requisitionCommentEmail(details);
+			return await this.sendEmail({
+				to: [{ email }],
+				subject: template.subject,
+				html: template.htmlEmail,
+				text: template.textEmail
+			});
+		} catch (error: any) {
+			return {
+				id: crypto.randomUUID(),
+				success: false,
+				error: error.message || 'Failed to send requisition comment email'
+			};
+		}
+	}
+
+	/**
 	 * Notify an admin that a new client signed up.
 	 */
 	async sendNewClientSignupAdminEmail(
