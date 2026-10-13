@@ -143,6 +143,11 @@
 
 	$: allProfessionals = [...qualifiedProfessionals, ...extendedProfessionals];
 	$: selectedPro = allProfessionals.find((p) => p.candidateId === selectedCandidateId) ?? null;
+	// A warning about one professional must not survive picking another.
+	$: if (selectedCandidateId !== undefined) {
+		unavailableDates = [];
+		acknowledgeUnavailable = false;
+	}
 
 	async function loadAllExperienceCandidates() {
 		if (loadingExtended || extendedLoaded) return;
@@ -164,14 +169,45 @@
 		}
 	}
 
+	/**
+	 * Dates the chosen professional marked unavailable, as reported by the server's
+	 * 409 on addRecurrenceDays.
+	 *
+	 * Warn-don't-hide: the server refuses an UNACKNOWLEDGED assignment onto a
+	 * blocked day, and this is how staff acknowledge it. Without this the bulk
+	 * direct-assign path would simply fail on a blocked day, which would be
+	 * hiding by another name.
+	 */
+	let unavailableDates: Array<{ date: string; reason: string; message?: string }> = [];
+	let acknowledgeUnavailable = false;
+
 	const {
 		enhance,
 		submitting,
 		message: serverMessage
 	} = superForm(form, {
+		onSubmit({ formData }) {
+			// The server refuses an unacknowledged assignment onto a blocked day and
+			// records the acknowledgement in action_history, so the ticked checkbox
+			// has to travel with the request.
+			if (acknowledgeUnavailable) formData.set('acknowledgeUnavailable', 'true');
+		},
 		onResult({ result }) {
 			if (result.type === 'success') {
 				isOpen = false;
+			}
+			if (
+				result.type === 'failure' &&
+				(result.data as { requiresAvailabilityConfirmation?: boolean } | undefined)
+					?.requiresAvailabilityConfirmation
+			) {
+				unavailableDates =
+					(
+						result.data as {
+							unavailableDates?: Array<{ date: string; reason: string; message?: string }>;
+						}
+					).unavailableDates ?? [];
+				acknowledgeUnavailable = false;
 			}
 		},
 		onUpdate({ form }) {
@@ -352,6 +388,9 @@
 	})();
 
 	$: isFormValid = (() => {
+		// Once the server has reported blocked days, submit stays disabled until
+		// staff tick the acknowledgement. The server enforces the same rule.
+		if (unavailableDates.length && !acknowledgeUnavailable) return false;
 		if (!finalDateValue) return false;
 		if (Array.isArray(finalDateValue)) {
 			return (
@@ -769,6 +808,41 @@
 			{/if}
 
 			<form use:enhance method="POST" action="?/addRecurrenceDays" class="mt-auto pb-4">
+				{#if unavailableDates.length}
+					<!-- A bulk action across several dates must not collapse into one
+					     browser yes/no that names no dates, so this is an explicit
+					     gating checkbox listing the days. Mirrors the validation-notice
+					     idiom already used in this drawer. -->
+					<div
+						class="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+					>
+						<p class="font-medium">
+							{selectedPro
+								? `${selectedPro.firstName} ${selectedPro.lastName} marked`
+								: 'This professional marked'}
+							{unavailableDates.length}
+							{unavailableDates.length === 1 ? 'day' : 'days'} in this set as unavailable:
+						</p>
+						<ul class="mt-1 list-inside list-disc">
+							{#each unavailableDates as blocked (blocked.date)}
+								<li>
+									{blocked.date}
+									<span class="text-xs">
+										({blocked.reason === 'weekday'
+											? 'does not work that weekday'
+											: blocked.reason === 'booked'
+												? 'already working that day'
+												: 'marked the day off'})
+									</span>
+								</li>
+							{/each}
+						</ul>
+						<label class="mt-2 flex items-center gap-2 font-medium">
+							<input type="checkbox" bind:checked={acknowledgeUnavailable} />
+							Assign them on those days anyway
+						</label>
+					</div>
+				{/if}
 				<input type="hidden" name="recurrenceDays" value={JSON.stringify(finalDateValue)} />
 				<input type="hidden" name="candidateId" value={selectedCandidateId} />
 

@@ -204,6 +204,8 @@ export async function runPendingApprovalTouchpoint(): Promise<{
 				'Your profile is complete and is with our team for approval. There is',
 				'nothing you need to do right now.',
 				'',
+				// True as of the availability feature: Settings -> Availability exists in
+				// the candidate app. Ship this nudge only once that app is deployed.
 				'If anything has changed — your availability, licenses, or contact',
 				'details — you can update it from your settings at any time.',
 				'',

@@ -34,6 +34,9 @@ import {
 	getQualifiedProfessionalsForRequisition
 } from '$lib/server/database/queries/candidates';
 import { isClientActiveByCompanyId } from '$lib/server/clientStatusGuards';
+import { getUnavailabilityForCandidates } from '$lib/server/availability/queries';
+import { selectNotifiableCandidates } from '$lib/server/availability/availability';
+import { wantsTempWork } from '$lib/server/workPreference';
 import { resolveBillingRecipient } from '$lib/server/billing/recipients';
 import { userTable } from '$lib/server/database/schemas/auth';
 import {
@@ -494,11 +497,18 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
 						.where(inArray(recurrenceDayTable.id, newRecurrenceDayIds))
 						.orderBy(recurrenceDayTable.dayStart);
 
-		const formattedDays = newDays.map((d) => ({
-			date: fmtDate(d.date),
-			workdayStart: fmtTime(d.dayStart, tz),
-			workdayEnd: fmtTime(d.dayEnd, tz)
-		}));
+		// Keyed by the raw calendar date so each recipient's message can be built from
+		// only the days THEY can actually take (see the trimming below).
+		const formattedByDate = new Map(
+			newDays.map((d) => [
+				d.date,
+				{
+					date: fmtDate(d.date),
+					workdayStart: fmtTime(d.dayStart, tz),
+					workdayEnd: fmtTime(d.dayEnd, tz)
+				}
+			])
+		);
 
 		let experience = '';
 		if (requisition.experienceLevelId) {
@@ -516,28 +526,77 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
 		// discipline-only query, which blasted SMS to everyone in the discipline
 		// regardless of location/experience/active status.
 		const qualified = await getQualifiedProfessionalsForRequisition(requisition, location);
-		const candidates = qualified.map((c) => ({
-			phone: c.phoneNumber,
-			email: c.email,
-			firstName: c.firstName,
-			lastName: c.lastName
-		}));
+
+		// Work-type preference is a HARD filter here, like availability below and for
+		// the same reason: the blast is the one surface a professional cannot opt out
+		// of, so texting someone about temp shifts when they told us they only want
+		// permanent work is exactly the waste this setting exists to stop.
+		//
+		// The admin match list that feeds this query deliberately only WARNS (see
+		// wantsThisWorkType in getQualifiedProfessionalsForRequisition) — a human
+		// choosing may always go ahead; an automated blast may not.
+		//
+		// This dispatcher only ever fires for temp work: it is called with new
+		// recurrence day ids, and permanent requisitions have no recurrence days.
+		const candidates = qualified
+			.filter((c) => wantsTempWork(c.workPreference))
+			.map((c) => ({
+				candidateId: c.candidateId as string,
+				phone: c.phoneNumber,
+				email: c.email,
+				firstName: c.firstName,
+				lastName: c.lastName
+			}));
 
 		if (candidates.length === 0) return;
 
-		const workdayDetails = {
-			discipline: discipline?.name ?? '',
-			// Broadcast to every qualified candidate, none of whom hold the shift
-			// yet — so the practice is described by area only. Naming it here
-			// would route around the masking on the listing itself.
-			location: [location.city, location.state].filter(Boolean).join(', '),
-			experience,
-			days: formattedDays
-		};
+		// Availability is a HARD filter here and nowhere else in this file.
+		//
+		// The blast is the one surface a professional cannot opt out of, so texting
+		// someone about a Saturday they told us they do not work is the exact failure
+		// this feature exists to prevent. Every surface where a HUMAN is choosing warns
+		// instead — see getQualifiedProfessionalsForRequisition, whose `dates` option
+		// is deliberately annotative.
+		//
+		// PER-CANDIDATE, NOT PER-BLAST: someone available Mon-Wed must still hear about
+		// a Mon-Fri posting. Each recipient's copy is trimmed to the days they can
+		// actually take, and they are dropped only when nothing is left.
+		//
+		// considerBooked also stops texting someone about a day they already work —
+		// their board already hides it, so the message pointed at an invisible shift.
+		const unavailability = newDays.length
+			? await getUnavailabilityForCandidates(
+					candidates.map((c) => c.candidateId),
+					newDays.map((d) => d.date),
+					{ considerBooked: true }
+				)
+			: new Map();
+
+		const notifiable = newDays.length
+			? selectNotifiableCandidates(candidates, newDays, unavailability)
+			: candidates.map((candidate) => ({ candidate, days: newDays }));
+
+		if (notifiable.length === 0) return;
 
 		await dispatch(
 			'qualifiedCandidatesNewWorkdays',
-			candidates.flatMap((c) => {
+			notifiable.flatMap(({ candidate: c, days }) => {
+				// Built INSIDE the loop on purpose. A single shared object here is how
+				// "trim the filter but share the copy" happens, which mails someone a
+				// list containing a Saturday they do not work while the subject line
+				// claims the job matches their availability.
+				const workdayDetails = {
+					discipline: discipline?.name ?? '',
+					// Broadcast to every qualified candidate, none of whom hold the shift
+					// yet — so the practice is described by area only. Naming it here
+					// would route around the masking on the listing itself.
+					location: [location.city, location.state].filter(Boolean).join(', '),
+					experience,
+					days: days
+						.map((d) => formattedByDate.get(d.date))
+						.filter((d): d is NonNullable<typeof d> => Boolean(d))
+				};
+
 				const sends: Promise<boolean>[] = [];
 				if (c.email) {
 					sends.push(

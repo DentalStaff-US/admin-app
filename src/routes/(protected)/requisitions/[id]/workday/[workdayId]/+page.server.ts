@@ -22,6 +22,23 @@ import { getClientProfileByIdAdmin } from '$lib/server/database/queries/admin';
 import { getQualifiedProfessionalsForRequisition } from '$lib/server/database/queries/candidates';
 import { addCandidateToBlacklist } from '$lib/server/database/queries/blacklist';
 import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
+import { checkCandidateAvailableOnDates } from '$lib/server/availability/queries';
+import type { BlockedDate } from '$lib/server/availability/availability';
+
+/**
+ * Thrown inside an assign transaction when the professional has marked the shift's
+ * date unavailable and staff have not yet acknowledged it.
+ *
+ * A typed error rather than an early return because the check has to run inside the
+ * transaction (it needs the recurrence day), and throwing is what rolls the
+ * transaction back so nothing is written before the confirm.
+ */
+class AvailabilityConfirmationRequired extends Error {
+	constructor(public blocked: BlockedDate[]) {
+		super('Professional marked this date unavailable');
+		this.name = 'AvailabilityConfirmationRequired';
+	}
+}
 import db from '$lib/server/database/drizzle';
 import {
 	recurrenceDayTable,
@@ -111,7 +128,12 @@ export async function load(event: RequestEvent) {
 		const { miles: defaultSearchRadiusMiles } = await getDefaultSearchRadius();
 		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
 			requisition.requisition,
-			location
+			location,
+			// Annotative only: every professional is still returned, each with
+			// `unavailableDates`/`isUnavailable` so the list can warn. Nobody is
+			// removed for being unavailable — staff must always be able to staff a
+			// shift by picking up the phone.
+			{ dates: [recurrenceDay.recurrenceDay.date] }
 		);
 
 		editWorkdayScheduleForm.data = {
@@ -170,7 +192,12 @@ export async function load(event: RequestEvent) {
 		const { miles: defaultSearchRadiusMiles } = await getDefaultSearchRadius();
 		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
 			requisition.requisition,
-			location
+			location,
+			// Annotative only: every professional is still returned, each with
+			// `unavailableDates`/`isUnavailable` so the list can warn. Nobody is
+			// removed for being unavailable — staff must always be able to staff a
+			// shift by picking up the phone.
+			{ dates: [recurrenceDay.recurrenceDay.date] }
 		);
 
 		editWorkdayScheduleForm.data = {
@@ -227,7 +254,12 @@ export async function load(event: RequestEvent) {
 		const { miles: defaultSearchRadiusMiles } = await getDefaultSearchRadius();
 		const qualifiedProfessionals = await getQualifiedProfessionalsForRequisition(
 			requisition.requisition,
-			location
+			location,
+			// Annotative only: every professional is still returned, each with
+			// `unavailableDates`/`isUnavailable` so the list can warn. Nobody is
+			// removed for being unavailable — staff must always be able to staff a
+			// shift by picking up the phone.
+			{ dates: [recurrenceDay.recurrenceDay.date] }
 		);
 
 		editWorkdayScheduleForm.data = {
@@ -345,10 +377,16 @@ export const actions = {
 		const candidateId = formData.get('candidateId') as string;
 		const recurrenceDayId = formData.get('recurrenceDayId') as string;
 		const requisitionId = Number(params.id);
+		// Warn-don't-hide, enforced on the SERVER. A UI-only confirm is advisory: a
+		// stale page or a direct POST would assign over a blackout with nothing in
+		// the ledger showing that anyone said yes.
+		const acknowledgeUnavailable = formData.get('acknowledgeUnavailable') === 'true';
 
 		if (!candidateId || !recurrenceDayId) {
 			return fail(400, { error: 'Missing required fields' });
 		}
+
+		let overriddenAvailability: Array<{ date: string; reason: string }> = [];
 
 		try {
 			const newWorkdayId = await db.transaction(async (tx) => {
@@ -383,6 +421,23 @@ export const actions = {
 					.then((rows) => rows[0]);
 
 				if (!requisition) throw new Error('Requisition not found');
+
+				// Availability check sits AFTER the already-assigned throw (don't prompt
+				// about a day that's going to be rejected anyway) and BEFORE the
+				// insert/revive. The professional is never hidden from the assign list —
+				// staff may always go ahead, they just have to mean it.
+				const availability = await checkCandidateAvailableOnDates(
+					candidateId,
+					[recurrenceDay.date],
+					{ considerBooked: true, tx }
+				);
+				if (!availability.available && !acknowledgeUnavailable) {
+					throw new AvailabilityConfirmationRequired(availability.blocked);
+				}
+				overriddenAvailability = availability.blocked.map((b) => ({
+					date: b.date,
+					reason: b.reason
+				}));
 
 				let workdayId: string;
 				if (existingWorkday) {
@@ -440,7 +495,12 @@ export const actions = {
 						candidateId,
 						workdayId,
 						revived: !!existingWorkday,
-						shiftStart: recurrenceDay.dayStart?.toISOString?.() ?? null
+						shiftStart: recurrenceDay.dayStart?.toISOString?.() ?? null,
+						// Staff knowingly assigned over the professional's stated
+						// availability. Recorded so the override is attributable.
+						assignedDespiteUnavailable: overriddenAvailability.length
+							? overriddenAvailability
+							: undefined
 					}
 				});
 
@@ -458,6 +518,15 @@ export const actions = {
 			);
 			return { success: true };
 		} catch (error) {
+			if (error instanceof AvailabilityConfirmationRequired) {
+				// 409 + the blocked dates, so the page can confirm and resubmit with
+				// acknowledgeUnavailable. Nothing was written.
+				return fail(409, {
+					requiresAvailabilityConfirmation: true,
+					unavailableDates: error.blocked,
+					error: error.blocked[0]?.message ?? 'This professional is unavailable on that date.'
+				});
+			}
 			console.error('Error assigning candidate:', error);
 			const errorMessage = error instanceof Error ? error.message : 'Failed to assign candidate';
 			setFlash(
@@ -614,10 +683,14 @@ export const actions = {
 		const newCandidateId = formData.get('candidateId') as string;
 		const recurrenceDayId = formData.get('recurrenceDayId') as string;
 		const requisitionId = Number(params.id);
+		// Warn-don't-hide, enforced server-side. See assignCandidate.
+		const acknowledgeUnavailable = formData.get('acknowledgeUnavailable') === 'true';
 
 		if (!newCandidateId || !recurrenceDayId) {
 			return fail(400, { error: 'Missing required fields' });
 		}
+
+		let overriddenAvailability: Array<{ date: string; reason: string }> = [];
 
 		try {
 			const reassignSnapshot = await db.transaction(async (tx) => {
@@ -665,6 +738,22 @@ export const actions = {
 					.then((rows) => rows[0]);
 
 				if (!recurrenceDay) throw new Error('Recurrence day not found');
+
+				// Availability gate for the INCOMING professional. Throwing rolls back the
+				// workday delete above, so an unacknowledged reassignment leaves the
+				// original assignment intact.
+				const availability = await checkCandidateAvailableOnDates(
+					newCandidateId,
+					[recurrenceDay.date],
+					{ considerBooked: true, tx }
+				);
+				if (!availability.available && !acknowledgeUnavailable) {
+					throw new AvailabilityConfirmationRequired(availability.blocked);
+				}
+				overriddenAvailability = availability.blocked.map((b) => ({
+					date: b.date,
+					reason: b.reason
+				}));
 
 				// Get requisition for client ID
 				const requisition = await tx
@@ -761,7 +850,10 @@ export const actions = {
 						toCandidateId: newCandidateId,
 						oldWorkdayId: existingWorkday.id,
 						newWorkdayId,
-						timesheetId: newTimesheetId ?? null
+						timesheetId: newTimesheetId ?? null,
+						assignedDespiteUnavailable: overriddenAvailability.length
+							? overriddenAvailability
+							: undefined
 					}
 				});
 
@@ -789,6 +881,14 @@ export const actions = {
 			setFlash({ type: 'success', message: 'Professional successfully reassigned' }, event);
 			return { success: true };
 		} catch (error) {
+			if (error instanceof AvailabilityConfirmationRequired) {
+				// Nothing was written — the throw rolled the transaction back.
+				return fail(409, {
+					requiresAvailabilityConfirmation: true,
+					unavailableDates: error.blocked,
+					error: error.blocked[0]?.message ?? 'This professional is unavailable on that date.'
+				});
+			}
 			console.error('Error reassigning candidate:', error);
 			setFlash({ type: 'error', message: 'Failed to reassign professional' }, event);
 			return fail(500, { error: error instanceof Error ? error.message : 'Unknown error' });

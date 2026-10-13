@@ -22,6 +22,9 @@ import {
 	licenseGraceStartedOnSql
 } from '$lib/server/certifications/credentialGateSql';
 import { toCredentialExpiryDate } from '$lib/server/certifications/credentialLink';
+import { getUnavailabilityForCandidates } from '$lib/server/availability/queries';
+import { wantsRequisition } from '$lib/server/workPreference';
+import type { AvailabilityBlockReason } from '$lib/server/availability/availability';
 import db from '$lib/server/database/drizzle';
 import { userTable, type User } from '../schemas/auth';
 import {
@@ -663,7 +666,28 @@ export async function uploadCandidateDocuments(
 export async function getQualifiedProfessionalsForRequisition(
 	requisition: any,
 	location: any,
-	options: { includeAllExperience?: boolean; includeOutsidePayRange?: boolean } = {}
+	options: {
+		includeAllExperience?: boolean;
+		includeOutsidePayRange?: boolean;
+		/**
+		 * Calendar dates ('YYYY-MM-DD') the caller intends to staff.
+		 *
+		 * PURELY ANNOTATIVE. Every returned row gains `unavailableDates` and
+		 * `isUnavailable`, and NOBODY is removed for being unavailable. Admin and
+		 * client match lists must keep showing the professional with a per-date
+		 * warning, and assigning anyway is permitted with a confirm — the same
+		 * warn-don't-hide rule as `certBlocked` in searchProfessionalsForRequisition.
+		 *
+		 * DO NOT move this into the WHERE clause below. The one caller that DOES hard
+		 * filter is notifyQualifiedCandidatesOfNewWorkdays, which does it on the
+		 * results, because the blast is the single surface a professional cannot opt
+		 * out of.
+		 *
+		 * Omitted ⇒ `unavailableDates: []` on every row and no extra query, so the
+		 * existing callers are behaviourally identical until each is updated.
+		 */
+		dates?: string[];
+	} = {}
 ) {
 	try {
 		// Get location coordinates
@@ -733,6 +757,9 @@ export async function getQualifiedProfessionalsForRequisition(
 				avgRating: candidateProfileTable.avgRating,
 				approved: candidateProfileTable.approved,
 				status: candidateProfileTable.status,
+				// Temp / permanent / both. NULL = never answered = both. Read through
+				// $lib/server/workPreference, never compared directly.
+				workPreference: candidateProfileTable.workPreference,
 
 				// Discipline/Experience
 				disciplineId: candidateDisciplineExperienceTable.disciplineId,
@@ -820,10 +847,34 @@ export async function getQualifiedProfessionalsForRequisition(
 
 		console.log(`Found ${candidates.length} qualified candidates within ${radiusMiles} miles`);
 
-		return candidates.map((c) => ({
-			...c,
-			distance: Number(c.distance).toFixed(1) // Format distance to 1 decimal
-		}));
+		// Availability as an ANNOTATION, in a second query rather than a projection on
+		// the one above. Three reasons: that query returns one row per discipline and
+		// has no GROUP BY, so a correlated jsonb_agg would be the riskiest possible
+		// edit; a separate call is testable with the fakeDb pattern; and it costs
+		// nothing when `dates` is absent.
+		const unavailability = options.dates?.length
+			? await getUnavailabilityForCandidates(
+					[...new Set(candidates.map((c) => c.candidateId as string))],
+					options.dates,
+					{ considerBooked: true }
+				)
+			: new Map<string, Array<{ date: string; reason: string }>>();
+
+		return candidates.map((c) => {
+			const blocked = unavailability.get(c.candidateId as string) ?? [];
+			return {
+				...c,
+				distance: Number(c.distance).toFixed(1), // Format distance to 1 decimal
+				unavailableDates: blocked,
+				isUnavailable: blocked.length > 0,
+				// ANNOTATION, not a filter — the same warn-don't-hide rule as
+				// unavailableDates above. A professional who only wants permanent work
+				// is still listed for a temp shift, badged, and assignable: staff
+				// filling a gap tomorrow must be able to ask. The blast is where this
+				// becomes a hard filter, because nobody opts into that.
+				wantsThisWorkType: wantsRequisition(c.workPreference, requisition.permanentPosition)
+			};
+		});
 	} catch (error) {
 		console.error('Error finding qualified professionals:', error);
 		return [];
@@ -858,7 +909,24 @@ export type { ProfessionalSearchResult };
 export async function searchProfessionalsForRequisition(
 	requisition: { companyId: string },
 	location: { lat?: string | null; lon?: string | null },
-	options: { search: string; limit?: number }
+	options: {
+		search: string;
+		limit?: number;
+		/**
+		 * Calendar dates ('YYYY-MM-DD') the caller intends to staff.
+		 *
+		 * PURELY ANNOTATIVE, exactly like the `dates` option on
+		 * getQualifiedProfessionalsForRequisition: rows gain `unavailableDates` /
+		 * `isUnavailable` and NOBODY is removed. This function already deliberately
+		 * drops discipline, experience, pay range and radius so staff can assign
+		 * anyone by name — adding a hidden availability filter here would defeat
+		 * the point of the override. It sits beside the per-discipline `certBlocked`
+		 * flag, which follows the same warn-don't-hide rule.
+		 *
+		 * Omitted ⇒ `unavailableDates: []` on every row and no extra query.
+		 */
+		dates?: string[];
+	}
 ): Promise<ProfessionalSearchResult[]> {
 	const term = options.search?.trim();
 	// Two characters is the floor; below that the result set is meaningless and
@@ -955,15 +1023,31 @@ export async function searchProfessionalsForRequisition(
 			.orderBy(sql`distance ASC NULLS LAST`, asc(userTable.lastName))
 			.limit(limit);
 
-		return rows.map((row) => ({
-			...row,
-			disciplines: (row.disciplines ?? [])
-				.slice()
-				.sort((a, b) =>
-					(a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' })
-				),
-			distance: row.distance == null ? null : Number(row.distance).toFixed(1)
-		}));
+		// A second query rather than a projection: this one has a GROUP BY and a
+		// jsonb_agg already, so a correlated availability aggregate would be the
+		// riskiest possible edit here. Costs nothing when `dates` is absent.
+		const unavailability = options.dates?.length
+			? await getUnavailabilityForCandidates(
+					[...new Set(rows.map((r) => r.candidateId as string))],
+					options.dates,
+					{ considerBooked: true }
+				)
+			: new Map<string, Array<{ date: string; reason: AvailabilityBlockReason }>>();
+
+		return rows.map((row) => {
+			const blocked = unavailability.get(row.candidateId as string) ?? [];
+			return {
+				...row,
+				disciplines: (row.disciplines ?? [])
+					.slice()
+					.sort((a, b) =>
+						(a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' })
+					),
+				distance: row.distance == null ? null : Number(row.distance).toFixed(1),
+				unavailableDates: blocked,
+				isUnavailable: blocked.length > 0
+			};
+		});
 	} catch (err) {
 		console.error('Error searching professionals for requisition:', err);
 		return [];

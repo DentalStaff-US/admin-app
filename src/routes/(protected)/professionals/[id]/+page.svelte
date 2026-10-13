@@ -6,7 +6,6 @@
 	import convertNameToInitials from '$lib/_helpers/convertNameToInitials';
 	import { Button } from '$lib/components/ui/button';
 	import { cn } from '$lib/utils';
-	import Calendar from '$lib/components/calendar/calendar.svelte';
 	import { Tabs, TabsContent, TabsList, TabsTrigger } from '$lib/components/ui/tabs/index.js';
 	import { Input } from '$lib/components/ui/input';
 	import PhoneInput from '$lib/components/PhoneInput.svelte';
@@ -43,6 +42,12 @@
 	import { StatusBadge } from '$lib/components/ui/status-badge';
 	import { Card } from 'flowbite-svelte';
 	import { enhance } from '$app/forms';
+	import AvailabilityEditor from '$lib/components/availability/AvailabilityEditor.svelte';
+	import ImpersonateButton from '$lib/components/admin/ImpersonateButton.svelte';
+	import {
+		formatShortDate as formatAvailabilityShortDate,
+		normalizeDays as normalizeAvailabilityDays
+	} from '$lib/components/availability/availability';
 	import { CandidateStatusSchema } from '$lib/config/zod-schemas';
 	import {
 		DropdownMenu,
@@ -133,6 +138,58 @@
 	$: birthdate = new Date(candidate?.profile.birthday as string);
 	$: user = data.user;
 	$: isAdmin = user?.role === USER_ROLES.SUPERADMIN;
+
+	/**
+	 * Mirrors WORK_PREFERENCE_LABELS in $lib/server/workPreference, which is the
+	 * authority. Not imported from there because that module is server-only.
+	 */
+	const WORK_PREFERENCE_CHOICES = [
+		{ value: 'BOTH', label: 'Both temporary and permanent' },
+		{ value: 'TEMP', label: 'Temporary shifts only' },
+		{ value: 'PERMANENT', label: 'Permanent positions only' }
+	] as const;
+
+	// ── Availability tab ─────────────────────────────────────────────────────────
+	$: professionalFirstName = data.candidate?.user?.firstName ?? 'This professional';
+	$: availabilitySetByAdmin = data.availability?.availableDaysSource === 'ADMIN';
+	$: adminBookedDays =
+		data.availability?.bookedDates.map((b) => ({
+			date: b.date,
+			label: `Working — Req #${b.requisitionId}`,
+			workdayId: b.workdayId
+		})) ?? [];
+
+	let availabilityDays: number[] = normalizeAvailabilityDays(data.availability?.availableDays ?? null);
+	let availabilityDates: string[] = data.availability?.blackouts.map((b) => b.date) ?? [];
+	let availabilitySubmitting = false;
+	let availabilityFormEl: HTMLFormElement;
+
+	const formatAvailabilityDate = (date: string) => formatAvailabilityShortDate(date);
+
+	/**
+	 * A deliberate action on someone else's behalf, so it is confirmed rather than
+	 * saved silently. Native confirm() matches the cert-override precedent on the
+	 * assign page; the stakes here are the same shape.
+	 */
+	function requestAvailabilitySave() {
+		const offCount = availabilityDates.filter((d) => d >= data.availabilityWindow.from).length;
+		const ok = confirm(
+			`Save availability for ${professionalFirstName}?\n\n` +
+				`This hides shifts from them and stops their new-job texts on the days you have marked off` +
+				(offCount ? ` (${offCount} ${offCount === 1 ? 'day' : 'days'})` : '') +
+				`. They will see that DTSS staff made the change.`
+		);
+		if (!ok) return;
+		availabilitySubmitting = true;
+		availabilityFormEl.requestSubmit();
+	}
+
+	const handleAvailabilitySubmit = () => {
+		return async ({ update }: { update: () => Promise<void> }) => {
+			availabilitySubmitting = false;
+			await update();
+		};
+	};
 	$: candidate = data.candidate as CandidateWithProfile | null;
 	// $: supportTickets = data.supportTickets || [];
 	$: workHistory = data.workHistory || [];
@@ -506,6 +563,17 @@
 
 					{#if isAdmin}
 						<div class="flex items-center gap-3">
+							<!--
+								Candidates cannot hold a session in this app, so this opens the
+								candidate portal in a new tab rather than swapping this tab's
+								session. redirectTo is therefore unused on this path.
+							-->
+							<ImpersonateButton
+								userId={candidate.user.id}
+								userName={`${candidate.user.firstName ?? ''} ${candidate.user.lastName ?? ''}`.trim() ||
+									candidate.user.email}
+								crossApp
+							/>
 							<form
 								use:enhance
 								id="status-form"
@@ -561,10 +629,12 @@
 						<User class="h-4 w-4" />
 						<span>Profile</span>
 					</TabsTrigger>
-					<!-- <TabsTrigger value="availability" class="gap-2 flex-1">
-                        <CalendarIcon class="h-4 w-4" />
-                        <span >Availability</span>
-                    </TabsTrigger> -->
+					{#if isAdmin}
+						<TabsTrigger value="availability" class="gap-2 flex-1">
+							<CalendarIcon class="h-4 w-4" />
+							<span>Availability</span>
+						</TabsTrigger>
+					{/if}
 					<TabsTrigger value="documents" class="gap-2 flex-1">
 						<FileText class="h-4 w-4" />
 						<span>Documents</span>
@@ -734,6 +804,33 @@
 											/>
 										</div>
 
+										<!--
+											What work this professional is shown. Native radios rather than
+											a Select because all three options carry a consequence worth
+											reading, and because the value then submits with the form
+											without any hidden-input bookkeeping.
+
+											Seeded from the stored value OR 'BOTH' when it is null: NULL
+											means never answered, which the server already treats as both.
+										-->
+										<fieldset class="space-y-2">
+											<legend class="text-sm font-medium">Looking for</legend>
+											{#each WORK_PREFERENCE_CHOICES as choice (choice.value)}
+												<label class="flex cursor-pointer items-center gap-2 text-sm">
+													<input
+														type="radio"
+														name="workPreference"
+														value={choice.value}
+														checked={(candidate.profile.workPreference ?? 'BOTH') === choice.value}
+													/>
+													<span>{choice.label}</span>
+												</label>
+											{/each}
+											<p class="text-xs text-muted-foreground">
+												Controls which jobs they see and are texted about. “Both” is the default.
+											</p>
+										</fieldset>
+
 										<div class="flex gap-2 pt-4">
 											<Button
 												type="submit"
@@ -823,6 +920,18 @@
 												<p class="mt-1">{candidate.profile.workersCompCode || 'None specified'}</p>
 											</div>
 										{/if}
+
+										<div>
+											<h3 class="text-sm font-medium text-muted-foreground">Looking for</h3>
+											<p class="mt-1">
+												{WORK_PREFERENCE_CHOICES.find(
+													(c) => c.value === (candidate.profile.workPreference ?? 'BOTH')
+												)?.label}
+												{#if !candidate.profile.workPreference}
+													<span class="text-xs text-muted-foreground">(not set — default)</span>
+												{/if}
+											</p>
+										</div>
 									</div>
 								{/if}
 							</CardContent>
@@ -1266,19 +1375,99 @@
 				</TabsContent>
 
 				<!-- Availability Tab -->
-				<!-- <TabsContent value="availability" class="mt-6">
-                    <Card class="w-full max-w-none">
-                        <CardHeader class="pb-3">
-                            <CardTitle class="text-blue-600 flex items-center gap-2 text-lg">
-                                <CalendarIcon class="h-4 w-4" />
-                                Availability Schedule
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent class="pt-0">
-                            <Calendar events={[]} />
-                        </CardContent>
-                    </Card>
-                </TabsContent> -->
+				{#if isAdmin}
+					<TabsContent value="availability" class="mt-6">
+						<Card class="w-full max-w-none">
+							<CardHeader class="pb-3">
+								<CardTitle class="text-blue-600 flex items-center gap-2 text-lg">
+									<CalendarIcon class="h-4 w-4" />
+									Availability
+								</CardTitle>
+								<p class="text-sm text-muted-foreground">
+									{professionalFirstName} is available by default. Only the days marked here are
+									hidden from their shift board and left out of new-job texts.
+									{#if availabilitySetByAdmin}
+										Last set by DTSS staff.
+									{:else if data.availability?.availableDaysUpdatedAt}
+										Last set by the professional.
+									{:else}
+										Nothing has been set — they are shown as available every day.
+									{/if}
+								</p>
+							</CardHeader>
+							<CardContent class="pt-0">
+								<form
+									method="POST"
+									action="?/updateAvailability"
+									use:enhance={handleAvailabilitySubmit}
+									bind:this={availabilityFormEl}
+								>
+									<input
+										type="hidden"
+										name="availableDays"
+										value={JSON.stringify(availabilityDays)}
+									/>
+									<input
+										type="hidden"
+										name="blockedDates"
+										value={JSON.stringify(availabilityDates)}
+									/>
+									<input type="hidden" name="replaceFrom" value={data.availabilityWindow.from} />
+									<input type="hidden" name="replaceTo" value={data.availabilityWindow.to} />
+
+									<AvailabilityEditor
+										initialAvailableDays={data.availability?.availableDays ?? null}
+										initialBlockedDates={data.availability?.blackouts.map((b) => b.date) ?? []}
+										bookedDates={adminBookedDays}
+										bind:days={availabilityDays}
+										bind:dates={availabilityDates}
+										today={data.availabilityWindow.from}
+										subject={professionalFirstName}
+										submitting={availabilitySubmitting}
+										onSave={requestAvailabilitySave}
+									/>
+								</form>
+
+								{#if data.availability?.blackouts.length}
+									<!-- A chronological list beside the grid: on a phone call staff want
+									     to read dates off, not hunt a month view. -->
+									<div class="mt-6 space-y-2">
+										<h3 class="text-sm font-semibold">Days off on record</h3>
+										<ul class="space-y-1 text-sm">
+											{#each data.availability.blackouts as blackout (blackout.date)}
+												<li class="flex items-center justify-between gap-2 border-b py-1">
+													<span>{formatAvailabilityDate(blackout.date)}</span>
+													<span class="text-xs text-muted-foreground">
+														{blackout.source === 'ADMIN' ? 'Set by DTSS staff' : 'Set by the professional'}
+														{#if blackout.note}· {blackout.note}{/if}
+													</span>
+												</li>
+											{/each}
+										</ul>
+									</div>
+								{/if}
+
+								{#if adminBookedDays.length}
+									<div class="mt-6 space-y-2">
+										<h3 class="text-sm font-semibold">Upcoming booked days</h3>
+										<p class="text-xs text-muted-foreground">
+											These days are locked above — marking one off here does not cancel the
+											shift.
+										</p>
+										<ul class="space-y-1 text-sm">
+											{#each adminBookedDays as day (day.date)}
+												<li class="flex items-center justify-between gap-2 border-b py-1">
+													<span>{formatAvailabilityDate(day.date)}</span>
+													<span class="text-xs text-muted-foreground">{day.label}</span>
+												</li>
+											{/each}
+										</ul>
+									</div>
+								{/if}
+							</CardContent>
+						</Card>
+					</TabsContent>
+				{/if}
 
 				<!-- Documents Tab -->
 				<TabsContent value="documents" class="mt-6">

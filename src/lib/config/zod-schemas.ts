@@ -424,6 +424,10 @@ export const newSupportTicketSchema = z.object({
 export type NewSupportTicketSchema = typeof newSupportTicketSchema;
 
 export const newCandidateProfileSchema = z.object({
+	// Temp / permanent / both. Absent leaves the stored value alone; null is an
+	// explicit reset to the default (never set = both). See
+	// $lib/server/workPreference.
+	workPreference: z.enum(['TEMP', 'PERMANENT', 'BOTH']).nullable().optional(),
 	hourlyRateMin: z.number().nullable().optional(),
 	hourlyRateMax: z.number().nullable().optional(),
 	cellPhone: usPhoneField().nullable().optional(),
@@ -442,6 +446,10 @@ export const newCandidateProfileSchema = z.object({
 export type NewCandidateProfileSchema = typeof newCandidateProfileSchema;
 
 export const updateCandidateProfileSchema = z.object({
+	// Temp / permanent / both. Absent leaves the stored value alone; null is an
+	// explicit reset to the default (never set = both). See
+	// $lib/server/workPreference.
+	workPreference: z.enum(['TEMP', 'PERMANENT', 'BOTH']).nullable().optional(),
 	firstName: z.string().optional(),
 	lastName: z.string().optional(),
 	email: z.string().email('Invalid email address').optional(),

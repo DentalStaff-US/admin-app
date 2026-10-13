@@ -1,4 +1,12 @@
 export const SMS_TEMPLATES = {
+	/**
+	 * "matches your credentials and availability" is a LOAD-BEARING claim, not
+	 * marketing. It became true when notifyQualifiedCandidatesOfNewWorkdays started
+	 * hard-filtering recipients on availability (weekly pattern + blackout dates +
+	 * already-booked days) and trimming each recipient's day list to the days they
+	 * can actually take. If that filter is ever removed, this sentence has to go
+	 * with it.
+	 */
 	newRequisitionNotification: () => ({
 		textMessage: `Hello, DTSS has a new job that matches your credentials and availability. Please log into your profile or call us at 888-653-1657 to accept this assignment.`
 	}),
