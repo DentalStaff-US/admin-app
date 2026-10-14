@@ -1953,3 +1953,131 @@ export async function notifyRequisitionComment(commentId: string): Promise<void>
 		console.error(`[transactional:${label}] top-level error:`, e);
 	}
 }
+
+async function loadRecommendationContext(applicationId: string) {
+	const [row] = await db
+		.select({
+			applicationId: requisitionApplicationTable.id,
+			source: requisitionApplicationTable.source,
+			note: requisitionApplicationTable.recommendationNote,
+			requisitionId: requisitionTable.id,
+			permanentPosition: requisitionTable.permanentPosition,
+			companyId: requisitionTable.companyId,
+			disciplineName: disciplineTable.name,
+			city: companyOfficeLocationTable.city,
+			state: companyOfficeLocationTable.state,
+			candidateFirstName: userTable.firstName,
+			candidateLastName: userTable.lastName,
+			candidateEmail: userTable.email
+		})
+		.from(requisitionApplicationTable)
+		.innerJoin(requisitionTable, eq(requisitionTable.id, requisitionApplicationTable.requisitionId))
+		.innerJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
+		.innerJoin(
+			companyOfficeLocationTable,
+			eq(companyOfficeLocationTable.id, requisitionTable.locationId)
+		)
+		.innerJoin(
+			candidateProfileTable,
+			eq(candidateProfileTable.id, requisitionApplicationTable.candidateId)
+		)
+		.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+		.where(eq(requisitionApplicationTable.id, applicationId))
+		.limit(1);
+	if (!row || row.source !== 'ADMIN_RECOMMENDED' || !row.permanentPosition) return null;
+	return row;
+}
+
+/**
+ * Admin put a professional forward on a perm req — email the client account owner
+ * with a link straight to the application. Never throws.
+ */
+export async function notifyClientOfRecommendation(applicationId: string): Promise<void> {
+	const label = 'recommendedCandidateClient';
+	try {
+		const ctx = await loadRecommendationContext(applicationId);
+		if (!ctx) return;
+
+		const [owner] = await db
+			.select({ email: userTable.email })
+			.from(clientCompanyTable)
+			.innerJoin(clientProfileTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
+			.innerJoin(userTable, eq(userTable.id, clientProfileTable.userId))
+			.where(eq(clientCompanyTable.id, ctx.companyId))
+			.limit(1);
+
+		const details = {
+			requisitionId: ctx.requisitionId,
+			applicationId: ctx.applicationId,
+			disciplineName: ctx.disciplineName,
+			candidateName:
+				`${ctx.candidateFirstName ?? ''} ${ctx.candidateLastName ?? ''}`.trim() || 'A professional',
+			note: ctx.note
+		};
+
+		await dispatch(label, [
+			safeEmail(
+				label,
+				owner?.email,
+				() => {
+					const t = EMAIL_TEMPLATES.recommendedCandidateClientEmail(details);
+					return emailService.sendEmail({
+						to: [{ email: owner!.email as string }],
+						subject: t.subject,
+						html: t.htmlEmail,
+						text: t.textEmail
+					});
+				},
+				{
+					entityType: 'REQUISITION_APPLICATIONS',
+					entityId: ctx.applicationId,
+					metadata: { template: label, requisitionId: ctx.requisitionId }
+				}
+			)
+		]);
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
+	}
+}
+
+/**
+ * Tell the professional they were put forward. The practice is NOT named — it
+ * stays masked until approval, same as the perm board. Never throws.
+ */
+export async function notifyCandidateRecommended(applicationId: string): Promise<void> {
+	const label = 'recommendedCandidate';
+	try {
+		const ctx = await loadRecommendationContext(applicationId);
+		if (!ctx) return;
+
+		const area = [ctx.city, ctx.state].filter(Boolean).join(', ') || null;
+
+		await dispatch(label, [
+			safeEmail(
+				label,
+				ctx.candidateEmail,
+				() => {
+					const t = EMAIL_TEMPLATES.recommendedCandidateEmail({
+						firstName: ctx.candidateFirstName,
+						disciplineName: ctx.disciplineName,
+						area,
+						dashboardUrl: CANDIDATE_APP_DOMAIN
+					});
+					return emailService.sendEmail({
+						to: [{ email: ctx.candidateEmail as string }],
+						subject: t.subject,
+						html: t.htmlEmail,
+						text: t.textEmail
+					});
+				},
+				{
+					entityType: 'REQUISITION_APPLICATIONS',
+					entityId: ctx.applicationId,
+					metadata: { template: label, requisitionId: ctx.requisitionId }
+				}
+			)
+		]);
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
+	}
+}

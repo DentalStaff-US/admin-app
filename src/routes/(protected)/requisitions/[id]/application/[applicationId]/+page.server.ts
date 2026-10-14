@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { USER_ROLES } from '$lib/config/constants';
 import { resolveRequisitionAccess } from '$lib/server/requisitions/access';
 import { getActivityForEntity } from '$lib/server/audit/queries';
+import { getUserById } from '$lib/server/database/queries/users';
 import {
 	getClientProfileByStaffUserId,
 	getClientProfilebyUserId
@@ -48,6 +49,12 @@ export const load: PageServerLoad = async (event) => {
 		const activity = applicationDetails
 			? await getActivityForEntity('REQUISITION_APPLICATIONS', applicationId)
 			: [];
+		const recommenderId = applicationDetails?.application?.recommendedByUserId;
+		const recommender = recommenderId ? await getUserById(recommenderId) : null;
+		const recommendedBy = recommender
+			? `${recommender.user.firstName ?? ''} ${recommender.user.lastName ?? ''}`.trim() ||
+				recommender.user.email
+			: null;
 
 		if (applicationDetails) {
 			void recordView({
@@ -62,7 +69,8 @@ export const load: PageServerLoad = async (event) => {
 			application: applicationDetails || null,
 			messageForm,
 			approvalForm,
-			activity
+			activity,
+			recommendedBy
 		};
 	}
 
@@ -87,7 +95,8 @@ export const load: PageServerLoad = async (event) => {
 			application: applicationDetails || null,
 			messageForm,
 			approvalForm,
-			activity: []
+			activity: [],
+			recommendedBy: null
 		};
 	}
 
@@ -109,7 +118,8 @@ export const load: PageServerLoad = async (event) => {
 			application: applicationDetails || null,
 			messageForm,
 			approvalForm,
-			activity: []
+			activity: [],
+			recommendedBy: null
 		};
 	}
 

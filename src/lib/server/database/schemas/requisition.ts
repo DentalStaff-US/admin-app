@@ -554,6 +554,13 @@ export const requisitionApplicationStatusEnum = pgEnum('requisition_application_
 	'DENIED'
 ]);
 
+// How an application came to exist: the candidate applied themselves, or an admin
+// put them forward after vetting (with the candidate's consent recorded).
+export const applicationSourceEnum = pgEnum('application_source', [
+	'CANDIDATE',
+	'ADMIN_RECOMMENDED'
+]);
+
 export const requisitionApplicationTable = pgTable('requisition_application', {
 	id: text('id').notNull().primaryKey(),
 	createdAt: timestamp('created_at', {
@@ -577,7 +584,15 @@ export const requisitionApplicationTable = pgTable('requisition_application', {
 	archived: boolean('archived').default(false),
 	archivedDate: timestamp('archived_at', {
 		mode: 'date'
-	})
+	}),
+	source: applicationSourceEnum('source').notNull().default('CANDIDATE'),
+	// Set only for ADMIN_RECOMMENDED. The note is shown to the client.
+	recommendedByUserId: text('recommended_by_user_id').references(() => userTable.id, {
+		onDelete: 'set null'
+	}),
+	recommendationNote: text('recommendation_note'),
+	// When the admin confirmed the candidate agreed to be put forward.
+	candidateConsentAt: timestamp('candidate_consent_at', { withTimezone: true, mode: 'date' })
 });
 
 // Shared comment thread on a requisition, between DentalStaff admins and the

@@ -32,6 +32,8 @@
 	export let size: 'sm' | 'default' = 'sm';
 	/** Icon-only, for dense rows. */
 	export let iconOnly = false;
+	/** Overrides the default button text, e.g. "Sign in as owner". */
+	export let label: string | null = null;
 	/**
 	 * True when the target lives in the candidate app (role CANDIDATE), so the
 	 * server will hand off to that domain and the browser opens a NEW TAB.
@@ -107,13 +109,15 @@
 			class="gap-2 text-blue-700 hover:bg-blue-50"
 			disabled={busy}
 			title={crossApp
-				? 'Sign in as this user (opens their portal in a new tab)'
-				: 'Sign in as this user'}
+				? `Sign in as ${userName} (opens their portal in a new tab)`
+				: `Sign in as ${userName}`}
 			on:click={start}
 		>
 			<UserCog class="h-4 w-4" />
 			{#if !iconOnly}
-				{busy ? 'Starting…' : crossApp ? 'Sign in as user ↗' : 'Sign in as user'}
+				{busy
+					? 'Starting…'
+					: (label ?? 'Sign in as user') + (crossApp ? ' ↗' : '')}
 			{/if}
 		</Button>
 		{#if errorMessage}

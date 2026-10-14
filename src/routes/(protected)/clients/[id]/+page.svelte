@@ -779,10 +779,15 @@
 											their dashboard. The amber banner in (protected)/+layout.svelte
 											is the way back.
 										-->
+										<!-- Always the account OWNER (client_profiles.user_id), never staff;
+										     staff have their own per-row buttons in the Staff table. -->
 										<ImpersonateButton
 											userId={client.user.id}
-											userName={`${client.user.firstName ?? ''} ${client.user.lastName ?? ''}`.trim() ||
-												client.user.email}
+											userName={`${
+												`${client.user.firstName ?? ''} ${client.user.lastName ?? ''}`.trim() ||
+												client.user.email
+											} (account owner)`}
+											label="Sign in as owner"
 										/>
 										<div class="flex items-center gap-2">
 											<StatusBadge
@@ -1686,6 +1691,17 @@
 																>
 																	<Eye class="h-4 w-4" />
 																</Button>
+																{#if isAdmin}
+																	<!-- Troubleshooting a staff member's access: signs in as THIS
+																	     staff user (location scoping and staff role apply). -->
+																	<ImpersonateButton
+																		userId={row.original.user.id}
+																		userName={`${row.original.user.firstName ?? ''} ${row.original.user.lastName ?? ''}`.trim() +
+																			' (staff)'}
+																		variant="ghost"
+																		iconOnly
+																	/>
+																{/if}
 															</div>
 														</TableCell>
 													</TableRow>

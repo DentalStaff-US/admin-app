@@ -1,6 +1,6 @@
 import { newMessageSchema } from '$lib/config/zod-schemas';
 import { InboxService, sendMessageSchema, type SendMessageParams } from '$lib/server/inbox';
-import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
+import { fail, isRedirect, redirect, type RequestEvent } from '@sveltejs/kit';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import type { PageServerLoad } from './$types';
@@ -87,6 +87,8 @@ export const actions = {
 
 			redirect(302, `/inbox/${conversationId}`);
 		} catch (error) {
+			// redirect() works by throwing — don't swallow the hop to the thread.
+			if (isRedirect(error)) throw error;
 			console.log(error);
 		}
 	},

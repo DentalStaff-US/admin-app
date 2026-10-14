@@ -85,6 +85,7 @@
 	import { page } from '$app/stores';
 	import RequisitionBillingPanel from '$lib/components/requisitions/RequisitionBillingPanel.svelte';
 	import RequisitionComments from '$lib/components/requisitions/RequisitionComments.svelte';
+	import PotentialMatches from '$lib/components/requisitions/PotentialMatches.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
@@ -118,13 +119,23 @@
 	$: comments = data.comments ?? [];
 	$: showBillingTab = !!billing && (isAdmin || requisition?.permanentPosition);
 	$: showCommentsTab = !!requisition?.permanentPosition;
+	// Admin-only sourcing pool of perm-seeking professionals near this req.
+	$: potentialMatches = data.potentialMatches ?? [];
+	$: showMatchesTab = isAdmin && !!requisition?.permanentPosition;
 	$: tabCount =
 		(requisition?.permanentPosition ? 2 : 3) +
 		(showBillingTab ? 1 : 0) +
 		(showCommentsTab ? 1 : 0) +
+		(showMatchesTab ? 1 : 0) +
 		(isAdmin ? 1 : 0);
 	$: tabGridClass =
-		tabCount >= 5 ? 'grid-cols-5' : tabCount === 4 ? 'grid-cols-4' : 'grid-cols-3';
+		tabCount >= 6
+			? 'grid-cols-3 sm:grid-cols-6'
+			: tabCount === 5
+				? 'grid-cols-5'
+				: tabCount === 4
+					? 'grid-cols-4'
+					: 'grid-cols-3';
 
 	// Deep-linkable tabs (?tab=comments from the comment email, ?tab=invoices).
 	const TAB_VALUES = [
@@ -134,13 +145,14 @@
 		'details',
 		'invoices',
 		'comments',
+		'matches',
 		'activity'
 	];
 	function initialTab(): string {
 		const t = $page.url.searchParams.get('tab');
 		const wanted = t === 'billing' ? 'invoices' : t;
 		if (wanted && TAB_VALUES.includes(wanted)) return wanted;
-		return data.requisition?.permanentPosition ? 'applications' : 'workdays';
+		return data.requisition?.permanentPosition ? 'matches' : 'workdays';
 	}
 	const startTab = initialTab();
 	$: status = requisition?.status;
@@ -331,7 +343,8 @@
 				`${original.user.lastName}, ${original.user.firstName}` +
 				(requisition?.permanentPosition && original.application.status === 'APPROVED'
 					? ' · Hired'
-					: '')
+					: '') +
+				(original.application.source === 'ADMIN_RECOMMENDED' ? ' · Recommended' : '')
 		},
 		{
 			header: 'Date Submitted',
@@ -719,6 +732,11 @@
 		<Tabs class="w-full" value={startTab}>
 			<TabsList class="grid lg:w-fit bg-muted h-fit {tabGridClass}">
 				{#if requisition.permanentPosition}
+					{#if showMatchesTab}
+						<TabsTrigger value="matches" class="data-[state=active]:bg-background"
+							>Matches{potentialMatches.length ? ` (${potentialMatches.length})` : ''}</TabsTrigger
+						>
+					{/if}
 					<TabsTrigger value="applications" class="data-[state=active]:bg-background"
 						>Applications</TabsTrigger
 					>
@@ -743,6 +761,7 @@
 						>Comments{comments.length ? ` (${comments.length})` : ''}</TabsTrigger
 					>
 				{/if}
+				
 				{#if isAdmin}
 					<TabsTrigger value="activity" class="data-[state=active]:bg-background"
 						>Activity</TabsTrigger
@@ -775,6 +794,24 @@
 								requisitionStatus={status ?? null}
 								on:createInvoice={() => (showInvoiceDialog = true)}
 							/>
+						</CardContent>
+					</Card>
+				</TabsContent>
+			{/if}
+
+			{#if showMatchesTab}
+				<TabsContent value="matches" class="mt-4">
+					<Card class="max-w-none">
+						<CardHeader>
+							<CardTitle>Potential Matches</CardTitle>
+							<CardDescription>
+								Professionals open to permanent work near this location. Message them to vet
+								availability and skills, then recommend the right ones to the client. Only admins
+								see this tab.
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<PotentialMatches matches={potentialMatches} requisitionOpen={status === 'OPEN'} />
 						</CardContent>
 					</Card>
 				</TabsContent>

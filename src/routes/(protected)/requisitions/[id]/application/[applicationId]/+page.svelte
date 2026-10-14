@@ -29,6 +29,7 @@
 		Eye,
 		Briefcase,
 		ShieldCheck,
+		Sparkles,
 		UserRound
 	} from 'lucide-svelte';
 	import type { PageData } from './$types';
@@ -201,6 +202,30 @@
 			<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
 				<!-- Left column - Candidate details -->
 				<div class="md:col-span-2 space-y-6">
+					{#if application.application.source === 'ADMIN_RECOMMENDED'}
+						<div class="rounded-lg border border-blue-200 bg-blue-50 p-4">
+							<p class="flex items-center gap-2 font-medium text-blue-900">
+								<Sparkles class="h-4 w-4" /> Recommended by our team
+							</p>
+							{#if application.application.recommendationNote}
+								<p class="mt-2 text-sm text-blue-900 whitespace-pre-wrap">
+									{application.application.recommendationNote}
+								</p>
+							{:else}
+								<p class="mt-1 text-sm text-blue-800">
+									We've vetted this professional and they've agreed to be considered for this role.
+								</p>
+							{/if}
+							{#if isAdmin}
+								<p class="mt-2 text-xs text-blue-700">
+									Recommended by {data.recommendedBy ?? 'an admin'}{application.application
+										.candidateConsentAt
+										? ` · consent confirmed ${format(application.application.candidateConsentAt, 'PPp')}`
+										: ''}
+								</p>
+							{/if}
+						</div>
+					{/if}
 					<!-- Personal info -->
 					<Card>
 						<CardHeader class="pb-3">

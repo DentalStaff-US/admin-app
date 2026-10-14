@@ -531,6 +531,82 @@ export const EMAIL_TEMPLATES: Record<
 
 		return { textEmail, htmlEmail, subject };
 	},
+	// Admin put a vetted professional forward on a perm requisition — tell the client.
+	// The professional's name is fine here: clients already see applicants in full.
+	recommendedCandidateClientEmail: (details: {
+		requisitionId: number;
+		applicationId: string;
+		disciplineName: string;
+		candidateName: string;
+		note: string | null;
+	}) => {
+		const { requisitionId, applicationId, disciplineName, candidateName, note } = details;
+		const url = `${BASE_URL}/requisitions/${requisitionId}/application/${applicationId}`;
+		const subject = `[${APP_NAME}] We recommended a ${disciplineName} for requisition #${requisitionId}`;
+
+		const textEmail = `
+            Our team has recommended ${candidateName} for your ${disciplineName} position (requisition #${requisitionId}).
+
+            ${note ? `Why we think they're a fit: ${note}\n` : ''}
+            Review the candidate and approve or decline:
+            ${url}
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>A recommended candidate for requisition #${requisitionId}</h2>
+                <p>Our team has vetted and recommended <strong>${escapeHtml(candidateName)}</strong> for your <strong>${escapeHtml(disciplineName)}</strong> position.</p>
+                ${note ? `<div style="background-color: #EFF6FF; border-left: 3px solid #2a93d1; padding: 12px 16px; margin: 16px 0;">${textToHtml(note)}</div>` : ''}
+                <p style="margin: 24px 0;">
+                    <a href="${url}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        Review Candidate
+                    </a>
+                </p>
+                <p style="color: #6B7280; font-size: 14px;">Or open it directly: ${url}</p>
+            </div>
+        `.trim();
+
+		return { textEmail, htmlEmail, subject };
+	},
+	// Professional was put forward by our team. MUST NOT name the practice — the
+	// practice stays masked until the application is approved.
+	recommendedCandidateEmail: (details: {
+		firstName: string | null;
+		disciplineName: string;
+		area: string | null;
+		dashboardUrl: string;
+	}) => {
+		const { firstName, disciplineName, area, dashboardUrl } = details;
+		const where = area ? ` near ${area}` : '';
+		const subject = `You've been put forward for a permanent ${disciplineName} role`;
+
+		const textEmail = `
+            Hi ${firstName ?? 'there'},
+
+            As discussed, our team has put you forward for a permanent ${disciplineName} position${where}. The practice will review your profile, and we'll let you know as soon as they decide.
+
+            You can follow the status in your dashboard:
+            ${dashboardUrl}
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <p>Hi ${escapeHtml(firstName ?? 'there')},</p>
+                <p>As discussed, our team has put you forward for a <strong>permanent ${escapeHtml(disciplineName)}</strong> position${escapeHtml(where)}. The practice will review your profile, and we'll let you know as soon as they decide.</p>
+                <p style="margin: 24px 0;">
+                    <a href="${dashboardUrl}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        View My Applications
+                    </a>
+                </p>
+            </div>
+        `.trim();
+
+		return { textEmail, htmlEmail, subject };
+	},
 	adminUserInviteEmail: (token: string) => {
 		const verifyEmailURL = `${BASE_URL}/auth/invite/${token}`;
 		const textEmail = `

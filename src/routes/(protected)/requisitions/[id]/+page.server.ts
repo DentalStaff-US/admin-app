@@ -87,6 +87,11 @@ import { getActivityForEntity } from '$lib/server/audit/queries';
 import { resolveRequisitionAccess } from '$lib/server/requisitions/access';
 import { getRequisitionBilling } from '$lib/server/requisitions/billing';
 import { resolveCommentInternal } from '$lib/server/requisitions/commentRules';
+import { getPermPotentialMatches } from '$lib/server/requisitions/matches';
+import {
+	RECOMMENDATION_NOTE_MAX_LENGTH,
+	recommendCandidate
+} from '$lib/server/requisitions/recommendations';
 import {
 	REQUISITION_COMMENT_MAX_LENGTH,
 	addRequisitionComment,
@@ -176,6 +181,8 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		const comments = requisition.requisition.permanentPosition
 			? await getRequisitionComments(idAsNum, { includeInternal: true })
 			: [];
+		// Admin-only sourcing pool: perm-seeking pros near this req (empty for temp).
+		const potentialMatches = await getPermPotentialMatches(requisition.requisition, location);
 
 		const readiness = await getRequisitionBillingReadiness(idAsNum);
 		const billingBlockedMessage = readiness.ready
@@ -238,6 +245,7 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			clientInvoiceMethod: clientProfile?.clientInvoiceMethod ?? 'STRIPE',
 			billing,
 			comments,
+			potentialMatches,
 			billingBlockedMessage,
 			billingMismatchMessage
 		};
@@ -292,6 +300,7 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			activity: [],
 			billing,
 			comments,
+			potentialMatches: [],
 			company,
 			location,
 			hasRequisitionRights,
@@ -365,6 +374,7 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			activity: [],
 			billing,
 			comments,
+			potentialMatches: [],
 			company,
 			location,
 			changeStatusForm,
@@ -1317,5 +1327,43 @@ export const actions = {
 		});
 
 		return { success: true };
+	},
+
+	recommendCandidate: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		const requisitionId = Number(event.params.id);
+		await resolveRequisitionAccess(user, requisitionId);
+
+		const formData = await event.request.formData();
+		const candidateId = String(formData.get('candidateId') ?? '');
+		const note = String(formData.get('note') ?? '').trim();
+		if (!candidateId) return fail(400, { error: 'Missing professional.' });
+		if (note.length > RECOMMENDATION_NOTE_MAX_LENGTH) {
+			return fail(400, {
+				error: `Note is too long (max ${RECOMMENDATION_NOTE_MAX_LENGTH} characters).`
+			});
+		}
+
+		const result = await recommendCandidate({
+			requisitionId,
+			candidateId,
+			note: note || null,
+			consentConfirmed: formData.get('consent') === 'true',
+			adminUserId: user.id
+		});
+
+		if (!result.ok) {
+			setFlash({ type: 'error', message: result.message }, event);
+			return fail(400, { error: result.message });
+		}
+		setFlash(
+			{
+				type: 'success',
+				message: 'Professional recommended — the client and professional have been notified.'
+			},
+			event
+		);
+		return { success: true, applicationId: result.applicationId };
 	}
 };
