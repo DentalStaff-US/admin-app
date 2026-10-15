@@ -27,7 +27,10 @@
 		Maximize2,
 		X,
 		Eye,
-		Briefcase
+		Briefcase,
+		ShieldCheck,
+		Sparkles,
+		UserRound
 	} from 'lucide-svelte';
 	import type { PageData } from './$types';
 	import convertNameToInitials from '$lib/_helpers/convertNameToInitials';
@@ -35,11 +38,16 @@
 	import { superForm } from 'sveltekit-superforms/client';
 	import { Badge } from '$lib/components/ui/badge';
 	import { StatusBadge } from '$lib/components/ui/status-badge';
+	import { enhance as formEnhance } from '$app/forms';
+	import { page } from '$app/stores';
+	import { USER_ROLES } from '$lib/config/constants';
+	import ActivityLog from '$lib/components/audit/ActivityLog.svelte';
 
 	export let data: PageData;
 	$: application = data.application;
+	$: isAdmin = data.user?.role === USER_ROLES.SUPERADMIN;
 
-	$: console.log({ application });
+	let denying = false;
 
 	const { enhance, formId, submitting } = superForm(data.messageForm);
 	const {
@@ -128,6 +136,37 @@
 								{/if}
 							</Button>
 						</form>
+						{#if application.application.status === 'PENDING'}
+							<form
+								method="POST"
+								action="?/denyApplication"
+								use:formEnhance={({ cancel }) => {
+									if (
+										!confirm(
+											`Deny ${application.user.firstName} ${application.user.lastName}'s application? They will be notified.`
+										)
+									) {
+										cancel();
+										return;
+									}
+									denying = true;
+									return async ({ update }) => {
+										denying = false;
+										await update();
+									};
+								}}
+							>
+								<Button type="submit" variant="destructiveOutline" disabled={denying}>
+									{#if denying}
+										<Loader2 class="h-4 w-4 mr-2 animate-spin" />
+										Please Wait...
+									{:else}
+										<X class="h-4 w-4 mr-2" />
+										Deny Application
+									{/if}
+								</Button>
+							</form>
+						{/if}
 						<form method="POST" use:enhance class="">
 							<Button
 								type="submit"
@@ -163,6 +202,30 @@
 			<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
 				<!-- Left column - Candidate details -->
 				<div class="md:col-span-2 space-y-6">
+					{#if application.application.source === 'ADMIN_RECOMMENDED'}
+						<div class="rounded-lg border border-blue-200 bg-blue-50 p-4">
+							<p class="flex items-center gap-2 font-medium text-blue-900">
+								<Sparkles class="h-4 w-4" /> Recommended by our team
+							</p>
+							{#if application.application.recommendationNote}
+								<p class="mt-2 text-sm text-blue-900 whitespace-pre-wrap">
+									{application.application.recommendationNote}
+								</p>
+							{:else}
+								<p class="mt-1 text-sm text-blue-800">
+									We've vetted this professional and they've agreed to be considered for this role.
+								</p>
+							{/if}
+							{#if isAdmin}
+								<p class="mt-2 text-xs text-blue-700">
+									Recommended by {data.recommendedBy ?? 'an admin'}{application.application
+										.candidateConsentAt
+										? ` · consent confirmed ${format(application.application.candidateConsentAt, 'PPp')}`
+										: ''}
+								</p>
+							{/if}
+						</div>
+					{/if}
 					<!-- Personal info -->
 					<Card>
 						<CardHeader class="pb-3">
@@ -272,6 +335,31 @@
 
 				<!-- Right column - Application info -->
 				<div class="space-y-6">
+					{#if isAdmin}
+						<Card class="border-blue-200">
+							<CardHeader class="pb-3">
+								<CardTitle class="flex items-center gap-2">
+									<ShieldCheck class="h-5 w-5 text-blue-600" /> Admin
+								</CardTitle>
+							</CardHeader>
+							<CardContent class="space-y-3">
+								<Button
+									variant="outline"
+									class="w-full justify-start"
+									href={`/professionals/${application.candidateProfile.id}`}
+								>
+									<UserRound class="h-4 w-4 mr-2" /> View full professional profile
+								</Button>
+								<Button
+									variant="outline"
+									class="w-full justify-start"
+									href={`/requisitions/${$page.params.id}`}
+								>
+									<Briefcase class="h-4 w-4 mr-2" /> Back to requisition #{$page.params.id}
+								</Button>
+							</CardContent>
+						</Card>
+					{/if}
 					<!-- Application Timeline -->
 					<Card>
 						<CardHeader class="pb-3">
@@ -336,6 +424,17 @@
 							</div>
 						</CardContent>
 					</Card>
+					{#if isAdmin}
+						<Card>
+							<CardHeader class="pb-3">
+								<CardTitle>Activity</CardTitle>
+								<CardDescription>Every view and action on this application.</CardDescription>
+							</CardHeader>
+							<CardContent>
+								<ActivityLog entries={data.activity ?? []} />
+							</CardContent>
+						</Card>
+					{/if}
 					<!-- Candidate Experience -->
 					<Card>
 						<CardHeader class="pb-3">

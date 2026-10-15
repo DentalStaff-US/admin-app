@@ -19,6 +19,8 @@ import { and, eq } from 'drizzle-orm';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { notifyWorkdayClaimed } from '$lib/server/notifications/transactional';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
+import { checkCandidateAvailableOnDates } from '$lib/server/availability/queries';
+import { wantsTempWork } from '$lib/server/workPreference';
 import { linkWorkdayToOpenTimesheet } from '$lib/server/database/queries/requisitions';
 import { isClientActiveByCompanyId } from '$lib/server/clientStatusGuards';
 import { logger } from '$lib/server/logger';
@@ -66,6 +68,12 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		const { recurrenceDayId } = body;
+		// The professional deliberately claiming a shift on a day they marked off is
+		// their own override, so it is permitted — but only when they said so. Hidden
+		// is not the same as forbidden: the board's "Show them anyway" affordance
+		// would be a lie otherwise, and it is symmetric with the warn-don't-hide rule
+		// the admin side follows. A genuine double-booking is NOT overridable; see below.
+		const acknowledgeUnavailable = body.acknowledgeUnavailable === true;
 
 		// Run the DB work in a transaction; return either a JSON Response (early
 		// failures) or a result object so the caller can fire notifications AFTER
@@ -240,6 +248,71 @@ export const POST: RequestHandler = async ({ request }) => {
 					};
 				}
 
+				// Work-type preference gate. Unlike the availability gate below there is
+				// NO override: availability is a per-date judgement an admin or the
+				// professional may knowingly set aside, whereas this is one setting the
+				// professional can flip themselves in a single tap. Offering an
+				// "anyway" path would be more confusing than the fix.
+				if (!wantsTempWork(candidateProfile.workPreference)) {
+					return {
+						kind: 'response',
+						response: json(
+							{
+								success: false,
+								message:
+									'Your profile is set to permanent positions only. Update it in Settings → Edit Profile to claim temporary shifts.',
+								reason: 'workPreference'
+							},
+							{ status: 409, headers: corsHeaders }
+						)
+					};
+				}
+
+				// Availability gate. A sibling of checkCandidateQualified rather than part
+				// of it — see $lib/server/availability/availability.ts for why.
+				//
+				// Reaching this endpoint on a blocked day means a stale page, a deep
+				// link, the "Show them anyway" affordance, or an SMS sent before the
+				// blackout existed. Two different answers:
+				//
+				//   'booked' — they already work a different shift that calendar day.
+				//     HARD block, no override. This also closes a pre-existing hole: the
+				//     listing endpoints filtered same-day bookings but this endpoint only
+				//     ever checked for a workday on the SAME recurrence day, so two
+				//     browser tabs could double-book a date.
+				//
+				//   'blackout' / 'weekday' — their own stated preference, which they may
+				//     knowingly override by resending with acknowledgeUnavailable.
+				const availability = await checkCandidateAvailableOnDates(
+					candidateProfile.id,
+					[recurrenceDay.recurrenceDay.date],
+					{ considerBooked: true, tx }
+				);
+				if (!availability.available) {
+					const blocked = availability.blocked[0];
+					const overridable = blocked.reason !== 'booked';
+					if (!overridable || !acknowledgeUnavailable) {
+						return {
+							kind: 'response',
+							response: json(
+								{
+									success: false,
+									message: blocked.message,
+									reason: 'availability',
+									blockedReason: blocked.reason,
+									// Lets the client offer "claim anyway" instead of a dead end.
+									overridable
+								},
+								// 409, not 403: a self-inflicted, self-clearable conflict. The
+								// candidate app offers "update your availability", not
+								// "contact support".
+								{ status: 409, headers: corsHeaders }
+							)
+						};
+					}
+				}
+				const overroteAvailability = !availability.available;
+
 				// Create a Workday for this temp requisition for this recurrence day
 				const [newWorkday] = await tx
 					.insert(workdayTable)
@@ -288,7 +361,12 @@ export const POST: RequestHandler = async ({ request }) => {
 						shiftStart: shiftStart?.toISOString?.() ?? null,
 						hoursBeforeShift: shiftStart
 							? Number(((shiftStart.getTime() - Date.now()) / 3_600_000).toFixed(2))
-							: null
+							: null,
+						// They claimed a day they had marked unavailable, knowingly. Recorded
+						// so the ledger explains why an apparently-blocked day got claimed.
+						claimedDespiteUnavailable: overroteAvailability
+							? availability.blocked.map((b) => ({ date: b.date, reason: b.reason }))
+							: undefined
 					}
 				});
 

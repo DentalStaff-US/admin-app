@@ -2,6 +2,7 @@
 	import type { ClientCompanyLocation } from '$lib/server/database/schemas/client';
 	import { CLIENT_STATUS, STAFF_ROLE_ENUM, USER_ROLES } from '$lib/config/constants';
 	import { StatusBadge } from '$lib/components/ui/status-badge';
+	import ImpersonateButton from '$lib/components/admin/ImpersonateButton.svelte';
 	import type { PageData } from './$types';
 	import convertNameToInitials from '$lib/_helpers/convertNameToInitials';
 	import { Download, Lock, Unlock, MoreHorizontal, Trash } from 'lucide-svelte';
@@ -772,6 +773,22 @@
 
 								<div class="flex gap-2 mt-3 md:mt-0 items-center flex-wrap">
 									{#if isAdmin}
+										<!--
+											CLIENT / CLIENT_STAFF live in THIS app, so this swaps the
+											session cookie on this domain and does a full page load to
+											their dashboard. The amber banner in (protected)/+layout.svelte
+											is the way back.
+										-->
+										<!-- Always the account OWNER (client_profiles.user_id), never staff;
+										     staff have their own per-row buttons in the Staff table. -->
+										<ImpersonateButton
+											userId={client.user.id}
+											userName={`${
+												`${client.user.firstName ?? ''} ${client.user.lastName ?? ''}`.trim() ||
+												client.user.email
+											} (account owner)`}
+											label="Sign in as owner"
+										/>
 										<div class="flex items-center gap-2">
 											<StatusBadge
 												status={client.profile.status}
@@ -1674,6 +1691,17 @@
 																>
 																	<Eye class="h-4 w-4" />
 																</Button>
+																{#if isAdmin}
+																	<!-- Troubleshooting a staff member's access: signs in as THIS
+																	     staff user (location scoping and staff role apply). -->
+																	<ImpersonateButton
+																		userId={row.original.user.id}
+																		userName={`${row.original.user.firstName ?? ''} ${row.original.user.lastName ?? ''}`.trim() +
+																			' (staff)'}
+																		variant="ghost"
+																		iconOnly
+																	/>
+																{/if}
 															</div>
 														</TableCell>
 													</TableRow>

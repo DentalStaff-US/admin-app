@@ -13,12 +13,10 @@ import {
 	getRequisitionDetailsByIdAdmin,
 	closeAllUpcomingRecurrenceDays,
 	createInvoiceRecord,
-	getInvoicesByRequisitionId,
 	createPaperInvoiceRecord,
 	linkWorkdayToOpenTimesheet
 } from '$lib/server/database/queries/requisitions';
 import { createStripeInvoice, withCardProcessingFee } from '$lib/server/stripe';
-import { assertCanAccessLocation } from '$lib/server/scoping';
 import { z } from 'zod';
 import { fail, redirect } from '@sveltejs/kit';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
@@ -64,7 +62,8 @@ import {
 	notifyCandidateAssignedToWorkdays,
 	notifyWorkdayChanged,
 	notifyWorkdayDeleted,
-	notifyInvoiceCreated
+	notifyInvoiceCreated,
+	notifyRequisitionComment
 } from '$lib/server/notifications/transactional';
 import { resolveBillingRecipient } from '$lib/server/billing/recipients';
 import db from '$lib/server/database/drizzle';
@@ -83,7 +82,22 @@ import {
 } from '$lib/server/requisitions/cancelRecurrenceDay';
 import type { CancellationRole } from '$lib/server/cancellations';
 import { recordAction, recordView } from '$lib/server/audit/audit';
+import { checkCandidateAvailableOnDates } from '$lib/server/availability/queries';
 import { getActivityForEntity } from '$lib/server/audit/queries';
+import { resolveRequisitionAccess } from '$lib/server/requisitions/access';
+import { getRequisitionBilling } from '$lib/server/requisitions/billing';
+import { resolveCommentInternal } from '$lib/server/requisitions/commentRules';
+import { getPermPotentialMatches } from '$lib/server/requisitions/matches';
+import {
+	RECOMMENDATION_NOTE_MAX_LENGTH,
+	recommendCandidate
+} from '$lib/server/requisitions/recommendations';
+import {
+	REQUISITION_COMMENT_MAX_LENGTH,
+	addRequisitionComment,
+	deleteRequisitionComment,
+	getRequisitionComments
+} from '$lib/server/database/queries/requisitionComments';
 
 const invoiceLineItemSchema = z.array(
 	z.object({
@@ -159,13 +173,19 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		// Billing gate for adding shifts — a requisition created before the
 		// create-time gate existed may belong to a client who still can't be
 		// invoiced. Surface it on the page and disable Add Shifts.
-		// Every invoice raised against this requisition, voids included. Without this
-		// the page offers "Create Invoice" while showing no sign the placement has
-		// already been billed — which is how one gets billed twice.
-		const requisitionInvoices = await getInvoicesByRequisitionId(idAsNum);
+		// Every invoice raised against this requisition (voids included) plus its
+		// payment history. Without this the page offers "Create Invoice" while showing
+		// no sign the placement has already been billed — which is how one gets
+		// billed twice.
+		const billing = await getRequisitionBilling(requisition.requisition);
+		const comments = requisition.requisition.permanentPosition
+			? await getRequisitionComments(idAsNum, { includeInternal: true })
+			: [];
+		// Admin-only sourcing pool: perm-seeking pros near this req (empty for temp).
+		const potentialMatches = await getPermPotentialMatches(requisition.requisition, location);
 
-		const billing = await getRequisitionBillingReadiness(idAsNum);
-		const billingBlockedMessage = billing.ready
+		const readiness = await getRequisitionBillingReadiness(idAsNum);
+		const billingBlockedMessage = readiness.ready
 			? null
 			: billingNotReadyMessage({
 					audience: 'ADMIN',
@@ -177,7 +197,7 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		// an unused Stripe customer, so every invoice (approved timesheets included)
 		// comes out as paper. Admins bill from this page, so they see it here.
 		const billingMismatchMessage =
-			billing.ready && billing.mismatch
+			readiness.ready && readiness.mismatch
 				? billingMethodMismatchMessage({
 						audience: 'ADMIN',
 						companyName: company.companyName
@@ -223,7 +243,9 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 			locations,
 			qualifiedProfessionals,
 			clientInvoiceMethod: clientProfile?.clientInvoiceMethod ?? 'STRIPE',
-			requisitionInvoices,
+			billing,
+			comments,
+			potentialMatches,
 			billingBlockedMessage,
 			billingMismatchMessage
 		};
@@ -237,8 +259,18 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 
 		await redirectIfNotValidCustomer(client.id, user.role);
 
+		// Tenancy guard: 404s unless this requisition belongs to the caller's company.
+		await resolveRequisitionAccess(user, idAsNum);
+
 		const company = await getClientCompanyByClientId(client.id);
 		const result = await getRequisitionDetailsById(idAsNum);
+		const isPerm = !!result?.requisition?.permanentPosition;
+		const billing = isPerm
+			? await getRequisitionBilling(result.requisition, { clientId: client.id })
+			: null;
+		const comments = isPerm
+			? await getRequisitionComments(idAsNum, { includeInternal: false })
+			: [];
 		const requisitionApplications = await getRequisitionApplications(idAsNum);
 		const requisitionTimesheets = await getRequisitionTimesheets(idAsNum);
 		const requisitionRecurrenceDays = await getRecurrenceDaysWithAssignmentsForRequisition(idAsNum);
@@ -248,12 +280,12 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		const locations = await getAllClientLocationsByCompanyId(company.id);
 
 		const hasRequisitionRights = true;
-		const billing = await getRequisitionBillingReadiness(idAsNum);
-		const billingBlockedMessage = billing.ready
+		const readiness = await getRequisitionBillingReadiness(idAsNum);
+		const billingBlockedMessage = readiness.ready
 			? null
 			: billingNotReadyMessage({ audience: 'CLIENT', what: 'add shifts' });
 		const billingMismatchMessage =
-			billing.ready && billing.mismatch
+			readiness.ready && readiness.mismatch
 				? billingMethodMismatchMessage({ audience: 'CLIENT' })
 				: null;
 
@@ -266,7 +298,9 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		return {
 			user,
 			activity: [],
-			requisitionInvoices: [],
+			billing,
+			comments,
+			potentialMatches: [],
 			company,
 			location,
 			hasRequisitionRights,
@@ -294,9 +328,18 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 
 		const profile: ClientCompanyStaffProfile | null = await getClientStaffProfilebyUserId(user.id);
 		const company = await getClientCompanyByClientId(client?.id);
+		// Access guard: the requisition must belong to the staff member's company,
+		// and scoped staff must be assigned to its location.
+		await resolveRequisitionAccess(user, idAsNum);
 		const result = await getRequisitionDetailsById(idAsNum);
-		// Access guard: staff must be assigned to this requisition's location.
-		await assertCanAccessLocation(user, result?.requisition?.location?.id);
+		const isPerm = !!result?.requisition?.permanentPosition;
+		const billing =
+			isPerm && client?.id
+				? await getRequisitionBilling(result.requisition, { clientId: client.id })
+				: null;
+		const comments = isPerm
+			? await getRequisitionComments(idAsNum, { includeInternal: false })
+			: [];
 		const requisitionApplications = await getRequisitionApplications(idAsNum);
 		const requisitionTimesheets = await getRequisitionTimesheets(idAsNum);
 		const requisitionRecurrenceDays = await getRecurrenceDaysWithAssignmentsForRequisition(idAsNum);
@@ -307,12 +350,12 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 
 		const hasRequisitionRights =
 			profile?.staffRole === 'CLIENT_ADMIN' || profile?.staffRole === 'CLIENT_MANAGER';
-		const billing = await getRequisitionBillingReadiness(idAsNum);
-		const billingBlockedMessage = billing.ready
+		const readiness = await getRequisitionBillingReadiness(idAsNum);
+		const billingBlockedMessage = readiness.ready
 			? null
 			: billingNotReadyMessage({ audience: 'CLIENT', what: 'add shifts' });
 		const billingMismatchMessage =
-			billing.ready && billing.mismatch
+			readiness.ready && readiness.mismatch
 				? billingMethodMismatchMessage({ audience: 'CLIENT' })
 				: null;
 
@@ -329,7 +372,9 @@ export const load: PageServerLoad = async (event: RequestEvent) => {
 		return {
 			user,
 			activity: [],
-			requisitionInvoices: [],
+			billing,
+			comments,
+			potentialMatches: [],
 			company,
 			location,
 			changeStatusForm,
@@ -362,7 +407,7 @@ export const actions = {
 		const form = await superValidate(request, changeStatusSchema);
 
 		if (!form.valid) {
-			fail(400, { form });
+			return fail(400, { form });
 		}
 
 		// Payment-tracking statuses are admin-only. The UI hides them from clients,
@@ -467,6 +512,52 @@ export const actions = {
 
 		console.log('Fetched requisition details:', requisition);
 
+		// Availability check for the direct-assign branch, BEFORE any day is created.
+		//
+		// Timing is the whole point: processDay creates the days FILLED and the
+		// transaction below inserts their workdays, so a confirm raised afterwards
+		// would be asking about rows that already exist, and the retry would
+		// double-create. The dates are derived exactly the way processDay derives
+		// them — through convertRecurrenceDayToUTC with the requisition's
+		// referenceTimezone — so the check and the insert agree on which calendar day
+		// each entry is.
+		//
+		// Warn-don't-hide: staff may always go ahead, they just have to mean it.
+		const acknowledgeUnavailable = formData.get('acknowledgeUnavailable') === 'true';
+		let overriddenAvailability: Array<{ date: string; reason: string }> = [];
+		if (assigning) {
+			const rawDays = form.data.recurrenceDays;
+			const entries = Array.isArray(rawDays) ? rawDays : [rawDays];
+			const dates = [
+				...new Set(
+					entries
+						.map(
+							(day) =>
+								convertRecurrenceDayToUTC(
+									day as Record<string, any>,
+									requisition.requisition.referenceTimezone
+								).date as string
+						)
+						.filter(Boolean)
+				)
+			];
+
+			const availability = await checkCandidateAvailableOnDates(candidateId!, dates, {
+				considerBooked: true
+			});
+			if (!availability.available && !acknowledgeUnavailable) {
+				return fail(409, {
+					form,
+					requiresAvailabilityConfirmation: true,
+					unavailableDates: availability.blocked
+				});
+			}
+			overriddenAvailability = availability.blocked.map((b) => ({
+				date: b.date,
+				reason: b.reason
+			}));
+		}
+
 		try {
 			const daysToAdd = form.data.recurrenceDays;
 			console.log('Received recurrence days:', daysToAdd);
@@ -518,7 +609,12 @@ export const actions = {
 								requisitionId: idAsNum,
 								candidateId,
 								workdayId,
-								onCreate: true
+								onCreate: true,
+								// Staff knowingly assigned over the professional's stated
+								// availability for one or more of these days.
+								assignedDespiteUnavailable: overriddenAvailability.length
+									? overriddenAvailability
+									: undefined
 							}
 						});
 					}
@@ -1168,5 +1264,106 @@ export const actions = {
 			request
 		);
 		return { success: true };
+	},
+
+	addComment: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const requisitionId = Number(event.params.id);
+		const { requisition } = await resolveRequisitionAccess(user, requisitionId);
+		if (!requisition.permanentPosition) {
+			return fail(400, { error: 'Comments are only available on permanent requisitions.' });
+		}
+
+		const formData = await event.request.formData();
+		const body = String(formData.get('body') ?? '').trim();
+		if (!body) return fail(400, { error: 'Comment cannot be empty.' });
+		if (body.length > REQUISITION_COMMENT_MAX_LENGTH) {
+			return fail(400, {
+				error: `Comment is too long (max ${REQUISITION_COMMENT_MAX_LENGTH} characters).`
+			});
+		}
+		// Only admins can write internal (client-hidden) notes; anyone else's flag is ignored.
+		const internal = resolveCommentInternal(user!.role, formData.get('internal'));
+
+		const comment = await addRequisitionComment({
+			requisitionId,
+			authorId: user!.id,
+			body,
+			internal
+		});
+
+		await recordAction({
+			action: 'COMMENT',
+			entityType: 'REQUISITIONS',
+			entityId: String(requisitionId),
+			metadata: { commentId: comment.id, internal }
+		});
+
+		void notifyRequisitionComment(comment.id);
+
+		return { success: true };
+	},
+
+	deleteComment: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		const requisitionId = Number(event.params.id);
+		await resolveRequisitionAccess(user, requisitionId);
+
+		const formData = await event.request.formData();
+		const commentId = String(formData.get('commentId') ?? '');
+		if (!commentId) return fail(400, { error: 'Missing comment id.' });
+
+		const deleted = await deleteRequisitionComment(commentId, requisitionId, {
+			userId: user!.id,
+			isAdmin: user!.role === USER_ROLES.SUPERADMIN
+		});
+		if (!deleted) return fail(404, { error: 'Comment not found.' });
+
+		await recordAction({
+			action: 'DELETE',
+			entityType: 'REQUISITIONS',
+			entityId: String(requisitionId),
+			metadata: { commentId, kind: 'COMMENT', internal: deleted.internal }
+		});
+
+		return { success: true };
+	},
+
+	recommendCandidate: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		const requisitionId = Number(event.params.id);
+		await resolveRequisitionAccess(user, requisitionId);
+
+		const formData = await event.request.formData();
+		const candidateId = String(formData.get('candidateId') ?? '');
+		const note = String(formData.get('note') ?? '').trim();
+		if (!candidateId) return fail(400, { error: 'Missing professional.' });
+		if (note.length > RECOMMENDATION_NOTE_MAX_LENGTH) {
+			return fail(400, {
+				error: `Note is too long (max ${RECOMMENDATION_NOTE_MAX_LENGTH} characters).`
+			});
+		}
+
+		const result = await recommendCandidate({
+			requisitionId,
+			candidateId,
+			note: note || null,
+			consentConfirmed: formData.get('consent') === 'true',
+			adminUserId: user.id
+		});
+
+		if (!result.ok) {
+			setFlash({ type: 'error', message: result.message }, event);
+			return fail(400, { error: result.message });
+		}
+		setFlash(
+			{
+				type: 'success',
+				message: 'Professional recommended — the client and professional have been notified.'
+			},
+			event
+		);
+		return { success: true, applicationId: result.applicationId };
 	}
 };

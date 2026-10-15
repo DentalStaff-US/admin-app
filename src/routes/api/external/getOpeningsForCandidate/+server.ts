@@ -23,6 +23,7 @@ import { logger } from '$lib/server/logger';
 import { credentialSelectFields } from '$lib/server/certifications/credentialGateSql';
 import { splitByCredentialEligibility } from '$lib/server/certifications/credentialStatus';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
+import { wantsPermanentWork, workPreferenceExclusionReason } from '$lib/server/workPreference';
 import {
 	isApplicationUnlocked,
 	maskLocation,
@@ -47,6 +48,24 @@ export const GET: RequestHandler = async ({ request }) => {
 		}
 
 		const candidate = candidateProfile[0];
+
+		// Work-type preference gate — the mirror of the one in
+		// getTempRequisitionsForCandidate. This endpoint IS the permanent openings
+		// board (`permanent_position = true`), so a professional who said "temp only"
+		// gets an empty list plus the reason.
+		//
+		// wantsPermanentWork(), never `preference === 'PERMANENT'`: NULL means never
+		// answered, which means show everything. See $lib/server/workPreference.
+		if (!wantsPermanentWork(candidate.workPreference)) {
+			return json({
+				requisitions: [],
+				totalFound: 0,
+				workPreference: {
+					preference: candidate.workPreference,
+					excluded: workPreferenceExclusionReason(candidate.workPreference, 'PERMANENT')
+				}
+			});
+		}
 
 		// Non-active candidates (pending/inactive/denied) can't see openings.
 		if (candidate.status !== 'ACTIVE') {
@@ -286,7 +305,11 @@ export const GET: RequestHandler = async ({ request }) => {
 			nearbyOfficeCount: nearbyOfficeLocationIds.length,
 			// Reported even when openings were found: a two-discipline professional
 			// who lost one still needs telling.
-			certLocked
+			certLocked,
+			workPreference: {
+				preference: candidate.workPreference,
+				excluded: workPreferenceExclusionReason(candidate.workPreference, 'PERMANENT')
+			}
 		});
 	} catch (err) {
 		logger.error('getOpeningsForCandidate failed', { error: err, distinctId: user?.id });

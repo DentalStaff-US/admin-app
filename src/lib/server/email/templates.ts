@@ -1,4 +1,5 @@
 import { APP_NAME, USER_ROLES } from '$lib/config/constants';
+import { escapeHtml, textToHtml } from '$lib/server/campaigns/render';
 import { BASE_URL } from '$env/static/private';
 import { env } from '$env/dynamic/private';
 import type { Invoice } from '../database/schemas/requisition';
@@ -488,6 +489,124 @@ export const EMAIL_TEMPLATES: Record<
 
 		return { textEmail, htmlEmail, subject };
 	},
+	// New comment on a requisition's shared thread. Sent to the other side of the
+	// conversation (client → admins, admin → client). Internal notes never send.
+	// The body is user-typed, so it is escaped before going into the HTML.
+	requisitionCommentEmail: (details: {
+		requisitionId: number;
+		requisitionLabel: string;
+		authorName: string;
+		authorOrg: string;
+		body: string;
+	}) => {
+		const { requisitionId, requisitionLabel, authorName, authorOrg, body } = details;
+		const url = `${BASE_URL}/requisitions/${requisitionId}?tab=comments`;
+
+		const textEmail = `
+            ${authorName} (${authorOrg}) commented on requisition #${requisitionId} — ${requisitionLabel}.
+
+            ${body}
+
+            View and reply:
+            ${url}
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>New comment on requisition #${requisitionId}</h2>
+                <p style="color: #374151;"><strong>${escapeHtml(authorName)}</strong> (${escapeHtml(authorOrg)}) commented on <strong>${escapeHtml(requisitionLabel)}</strong>:</p>
+                <div style="background-color: #F9FAFB; border-left: 3px solid #D1D5DB; padding: 12px 16px; margin: 16px 0;">${textToHtml(body)}</div>
+                <p style="margin: 24px 0;">
+                    <a href="${url}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        View &amp; Reply
+                    </a>
+                </p>
+                <p style="color: #6B7280; font-size: 14px;">Or open it directly: ${url}</p>
+            </div>
+        `.trim();
+
+		const subject = `[${APP_NAME}] New comment on requisition #${requisitionId}`;
+
+		return { textEmail, htmlEmail, subject };
+	},
+	// Admin put a vetted professional forward on a perm requisition — tell the client.
+	// The professional's name is fine here: clients already see applicants in full.
+	recommendedCandidateClientEmail: (details: {
+		requisitionId: number;
+		applicationId: string;
+		disciplineName: string;
+		candidateName: string;
+		note: string | null;
+	}) => {
+		const { requisitionId, applicationId, disciplineName, candidateName, note } = details;
+		const url = `${BASE_URL}/requisitions/${requisitionId}/application/${applicationId}`;
+		const subject = `[${APP_NAME}] We recommended a ${disciplineName} for requisition #${requisitionId}`;
+
+		const textEmail = `
+            Our team has recommended ${candidateName} for your ${disciplineName} position (requisition #${requisitionId}).
+
+            ${note ? `Why we think they're a fit: ${note}\n` : ''}
+            Review the candidate and approve or decline:
+            ${url}
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>A recommended candidate for requisition #${requisitionId}</h2>
+                <p>Our team has vetted and recommended <strong>${escapeHtml(candidateName)}</strong> for your <strong>${escapeHtml(disciplineName)}</strong> position.</p>
+                ${note ? `<div style="background-color: #EFF6FF; border-left: 3px solid #2a93d1; padding: 12px 16px; margin: 16px 0;">${textToHtml(note)}</div>` : ''}
+                <p style="margin: 24px 0;">
+                    <a href="${url}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        Review Candidate
+                    </a>
+                </p>
+                <p style="color: #6B7280; font-size: 14px;">Or open it directly: ${url}</p>
+            </div>
+        `.trim();
+
+		return { textEmail, htmlEmail, subject };
+	},
+	// Professional was put forward by our team. MUST NOT name the practice — the
+	// practice stays masked until the application is approved.
+	recommendedCandidateEmail: (details: {
+		firstName: string | null;
+		disciplineName: string;
+		area: string | null;
+		dashboardUrl: string;
+	}) => {
+		const { firstName, disciplineName, area, dashboardUrl } = details;
+		const where = area ? ` near ${area}` : '';
+		const subject = `You've been put forward for a permanent ${disciplineName} role`;
+
+		const textEmail = `
+            Hi ${firstName ?? 'there'},
+
+            As discussed, our team has put you forward for a permanent ${disciplineName} position${where}. The practice will review your profile, and we'll let you know as soon as they decide.
+
+            You can follow the status in your dashboard:
+            ${dashboardUrl}
+        `.trim();
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <p>Hi ${escapeHtml(firstName ?? 'there')},</p>
+                <p>As discussed, our team has put you forward for a <strong>permanent ${escapeHtml(disciplineName)}</strong> position${escapeHtml(where)}. The practice will review your profile, and we'll let you know as soon as they decide.</p>
+                <p style="margin: 24px 0;">
+                    <a href="${dashboardUrl}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        View My Applications
+                    </a>
+                </p>
+            </div>
+        `.trim();
+
+		return { textEmail, htmlEmail, subject };
+	},
 	adminUserInviteEmail: (token: string) => {
 		const verifyEmailURL = `${BASE_URL}/auth/invite/${token}`;
 		const textEmail = `
@@ -752,6 +871,14 @@ export const EMAIL_TEMPLATES: Record<
 	// street address. Candidate-facing notifications are outside the app's
 	// masking, so a full address here would hand over exactly what
 	// $lib/server/privacy/clientIdentity withholds until a shift is claimed.
+	//
+	// "matches your ... credentials and availability" is a LOAD-BEARING claim.
+	// It became true when notifyQualifiedCandidatesOfNewWorkdays started
+	// hard-filtering recipients on availability, and `workdayDetails.days` is built
+	// PER RECIPIENT there so this list contains only the dates this person can
+	// actually take. A shared day list would mail someone a Saturday they told us
+	// they do not work, directly under a sentence claiming the opposite — so if the
+	// caller is ever refactored, that per-recipient construction must survive.
 	qualifiedCandidateNotificationEmail: (
 		candidateDetails: { firstName: string; lastName: string },
 		workdayDetails: {

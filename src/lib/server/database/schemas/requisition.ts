@@ -26,6 +26,7 @@ import {
 } from './client';
 import { candidateProfileTable, type CandidateProfileSelect } from './candidate';
 import { disciplineTable, experienceLevelTable } from './skill';
+import { userTable } from './auth';
 import { sql } from 'drizzle-orm/sql';
 import type Stripe from 'stripe';
 import type { InvoiceLineItem } from '../queries/requisitions';
@@ -553,6 +554,13 @@ export const requisitionApplicationStatusEnum = pgEnum('requisition_application_
 	'DENIED'
 ]);
 
+// How an application came to exist: the candidate applied themselves, or an admin
+// put them forward after vetting (with the candidate's consent recorded).
+export const applicationSourceEnum = pgEnum('application_source', [
+	'CANDIDATE',
+	'ADMIN_RECOMMENDED'
+]);
+
 export const requisitionApplicationTable = pgTable('requisition_application', {
 	id: text('id').notNull().primaryKey(),
 	createdAt: timestamp('created_at', {
@@ -576,8 +584,45 @@ export const requisitionApplicationTable = pgTable('requisition_application', {
 	archived: boolean('archived').default(false),
 	archivedDate: timestamp('archived_at', {
 		mode: 'date'
-	})
+	}),
+	source: applicationSourceEnum('source').notNull().default('CANDIDATE'),
+	// Set only for ADMIN_RECOMMENDED. The note is shown to the client.
+	recommendedByUserId: text('recommended_by_user_id').references(() => userTable.id, {
+		onDelete: 'set null'
+	}),
+	recommendationNote: text('recommendation_note'),
+	// When the admin confirmed the candidate agreed to be put forward.
+	candidateConsentAt: timestamp('candidate_consent_at', { withTimezone: true, mode: 'date' })
 });
+
+// Shared comment thread on a requisition, between DentalStaff admins and the
+// client. `internal` rows are admin-only notes — never returned to client roles.
+// Generic on purpose (any requisition), though the UI only exposes it on perm reqs.
+export const requisitionCommentTable = pgTable(
+	'requisition_comments',
+	{
+		id: text('id').notNull().primaryKey(),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+			.notNull()
+			.defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
+			.notNull()
+			.defaultNow(),
+		requisitionId: integer('requisition_id')
+			.notNull()
+			.references(() => requisitionTable.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+		authorId: text('author_id')
+			.notNull()
+			.references(() => userTable.id, { onDelete: 'cascade' }),
+		body: text('body').notNull(),
+		internal: boolean('internal').notNull().default(false)
+	},
+	(table) => [
+		index('requisition_comments_requisition_idx').on(table.requisitionId, table.createdAt)
+	]
+);
+
+export type RequisitionCommentSelect = typeof requisitionCommentTable.$inferSelect;
 
 export const candidateRequisitionSavesTable = pgTable(
 	'candidate_saved_requisitions',

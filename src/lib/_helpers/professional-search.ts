@@ -19,4 +19,13 @@ export type ProfessionalSearchResult = {
 	disciplines: DisciplineSummary[];
 	/** Miles to the requisition's location, 1dp. Null when never geocoded. */
 	distance: string | null;
+	/**
+	 * Dates (from the caller's `dates` option) this professional marked
+	 * unavailable, with the reason. Empty when the caller asked about no dates.
+	 *
+	 * A WARNING, never a filter — the row is present either way. Same rule as the
+	 * per-discipline `certBlocked` flag on `disciplines`.
+	 */
+	unavailableDates: Array<{ date: string; reason: 'blackout' | 'weekday' | 'booked' }>;
+	isUnavailable: boolean;
 };

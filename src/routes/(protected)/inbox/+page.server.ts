@@ -1,4 +1,4 @@
-import { redirect } from '@sveltejs/kit';
+import { isRedirect, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from './$types';
 import { superValidate } from 'sveltekit-superforms/server';
 import { z } from 'zod';
@@ -60,6 +60,8 @@ export const actions = {
 
 			redirect(302, `/inbox/${conversationId}`);
 		} catch (error) {
+			// redirect() works by throwing — don't swallow the hop to the thread.
+			if (isRedirect(error)) throw error;
 			console.log(error);
 		}
 	}

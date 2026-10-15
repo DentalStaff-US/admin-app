@@ -34,6 +34,9 @@ import {
 	getQualifiedProfessionalsForRequisition
 } from '$lib/server/database/queries/candidates';
 import { isClientActiveByCompanyId } from '$lib/server/clientStatusGuards';
+import { getUnavailabilityForCandidates } from '$lib/server/availability/queries';
+import { selectNotifiableCandidates } from '$lib/server/availability/availability';
+import { wantsTempWork } from '$lib/server/workPreference';
 import { resolveBillingRecipient } from '$lib/server/billing/recipients';
 import { userTable } from '$lib/server/database/schemas/auth';
 import {
@@ -54,8 +57,9 @@ import {
 	clientProfileTable,
 	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
-import { USER_ROLES } from '$lib/config/constants';
+import { APP_NAME, USER_ROLES } from '$lib/config/constants';
 import { recordAction } from '$lib/server/audit/audit';
+import { pickCommentRecipients } from '$lib/server/requisitions/commentRules';
 import type { AuditEntityType } from '$lib/audit/constants';
 
 const emailService = new EmailService();
@@ -494,11 +498,18 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
 						.where(inArray(recurrenceDayTable.id, newRecurrenceDayIds))
 						.orderBy(recurrenceDayTable.dayStart);
 
-		const formattedDays = newDays.map((d) => ({
-			date: fmtDate(d.date),
-			workdayStart: fmtTime(d.dayStart, tz),
-			workdayEnd: fmtTime(d.dayEnd, tz)
-		}));
+		// Keyed by the raw calendar date so each recipient's message can be built from
+		// only the days THEY can actually take (see the trimming below).
+		const formattedByDate = new Map(
+			newDays.map((d) => [
+				d.date,
+				{
+					date: fmtDate(d.date),
+					workdayStart: fmtTime(d.dayStart, tz),
+					workdayEnd: fmtTime(d.dayEnd, tz)
+				}
+			])
+		);
 
 		let experience = '';
 		if (requisition.experienceLevelId) {
@@ -516,28 +527,77 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
 		// discipline-only query, which blasted SMS to everyone in the discipline
 		// regardless of location/experience/active status.
 		const qualified = await getQualifiedProfessionalsForRequisition(requisition, location);
-		const candidates = qualified.map((c) => ({
-			phone: c.phoneNumber,
-			email: c.email,
-			firstName: c.firstName,
-			lastName: c.lastName
-		}));
+
+		// Work-type preference is a HARD filter here, like availability below and for
+		// the same reason: the blast is the one surface a professional cannot opt out
+		// of, so texting someone about temp shifts when they told us they only want
+		// permanent work is exactly the waste this setting exists to stop.
+		//
+		// The admin match list that feeds this query deliberately only WARNS (see
+		// wantsThisWorkType in getQualifiedProfessionalsForRequisition) — a human
+		// choosing may always go ahead; an automated blast may not.
+		//
+		// This dispatcher only ever fires for temp work: it is called with new
+		// recurrence day ids, and permanent requisitions have no recurrence days.
+		const candidates = qualified
+			.filter((c) => wantsTempWork(c.workPreference))
+			.map((c) => ({
+				candidateId: c.candidateId as string,
+				phone: c.phoneNumber,
+				email: c.email,
+				firstName: c.firstName,
+				lastName: c.lastName
+			}));
 
 		if (candidates.length === 0) return;
 
-		const workdayDetails = {
-			discipline: discipline?.name ?? '',
-			// Broadcast to every qualified candidate, none of whom hold the shift
-			// yet — so the practice is described by area only. Naming it here
-			// would route around the masking on the listing itself.
-			location: [location.city, location.state].filter(Boolean).join(', '),
-			experience,
-			days: formattedDays
-		};
+		// Availability is a HARD filter here and nowhere else in this file.
+		//
+		// The blast is the one surface a professional cannot opt out of, so texting
+		// someone about a Saturday they told us they do not work is the exact failure
+		// this feature exists to prevent. Every surface where a HUMAN is choosing warns
+		// instead — see getQualifiedProfessionalsForRequisition, whose `dates` option
+		// is deliberately annotative.
+		//
+		// PER-CANDIDATE, NOT PER-BLAST: someone available Mon-Wed must still hear about
+		// a Mon-Fri posting. Each recipient's copy is trimmed to the days they can
+		// actually take, and they are dropped only when nothing is left.
+		//
+		// considerBooked also stops texting someone about a day they already work —
+		// their board already hides it, so the message pointed at an invisible shift.
+		const unavailability = newDays.length
+			? await getUnavailabilityForCandidates(
+					candidates.map((c) => c.candidateId),
+					newDays.map((d) => d.date),
+					{ considerBooked: true }
+				)
+			: new Map();
+
+		const notifiable = newDays.length
+			? selectNotifiableCandidates(candidates, newDays, unavailability)
+			: candidates.map((candidate) => ({ candidate, days: newDays }));
+
+		if (notifiable.length === 0) return;
 
 		await dispatch(
 			'qualifiedCandidatesNewWorkdays',
-			candidates.flatMap((c) => {
+			notifiable.flatMap(({ candidate: c, days }) => {
+				// Built INSIDE the loop on purpose. A single shared object here is how
+				// "trim the filter but share the copy" happens, which mails someone a
+				// list containing a Saturday they do not work while the subject line
+				// claims the job matches their availability.
+				const workdayDetails = {
+					discipline: discipline?.name ?? '',
+					// Broadcast to every qualified candidate, none of whom hold the shift
+					// yet — so the practice is described by area only. Naming it here
+					// would route around the masking on the listing itself.
+					location: [location.city, location.state].filter(Boolean).join(', '),
+					experience,
+					days: days
+						.map((d) => formattedByDate.get(d.date))
+						.filter((d): d is NonNullable<typeof d> => Boolean(d))
+				};
+
 				const sends: Promise<boolean>[] = [];
 				if (c.email) {
 					sends.push(
@@ -1692,7 +1752,13 @@ export async function notifyCertExpiring(args: {
  * visible to staff.
  */
 export async function notifyAdminsOfCertExpiryDigest(sections: {
-	bookedWithExpired: Array<{ name: string; discipline: string; expiresOn: string; shiftDates: string; candidateId: string }>;
+	bookedWithExpired: Array<{
+		name: string;
+		discipline: string;
+		expiresOn: string;
+		shiftDates: string;
+		candidateId: string;
+	}>;
 	expired: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string }>;
 	expiring: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string }>;
 	missing: Array<{ discipline: string; count: number }>;
@@ -1782,5 +1848,236 @@ export async function notifyLicenseGraceExpired(args: {
 		await dispatch(label, sends);
 	} catch (error) {
 		console.error(`[transactional:${label}] top-level error:`, error);
+	}
+}
+
+/**
+ * New comment on a requisition's shared thread — email the other side.
+ *
+ *   - internal (admin-only) note → nobody; it must never reach the client.
+ *   - admin author               → the client account owner, plus any client-side
+ *                                  users who have already joined the thread.
+ *   - client author              → admins with receiveEmail=true.
+ *
+ * The author is never emailed about their own comment. Never throws.
+ */
+export async function notifyRequisitionComment(commentId: string): Promise<void> {
+	const label = 'requisitionComment';
+	try {
+		const { getRequisitionCommentById, getClientCommenterEmails } = await import(
+			'$lib/server/database/queries/requisitionComments'
+		);
+		const comment = await getRequisitionCommentById(commentId);
+		if (!comment) {
+			console.warn(`[transactional:${label}] aborted: comment ${commentId} not found`);
+			return;
+		}
+		if (comment.internal) return;
+
+		const [author] = await db
+			.select({
+				firstName: userTable.firstName,
+				lastName: userTable.lastName,
+				role: userTable.role
+			})
+			.from(userTable)
+			.where(eq(userTable.id, comment.authorId))
+			.limit(1);
+
+		const [req] = await db
+			.select({
+				id: requisitionTable.id,
+				title: requisitionTable.title,
+				disciplineName: disciplineTable.name,
+				companyName: clientCompanyTable.companyName,
+				ownerUserId: userTable.id,
+				ownerEmail: userTable.email
+			})
+			.from(requisitionTable)
+			.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
+			.innerJoin(clientProfileTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
+			.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
+			.leftJoin(disciplineTable, eq(requisitionTable.disciplineId, disciplineTable.id))
+			.where(eq(requisitionTable.id, comment.requisitionId))
+			.limit(1);
+
+		if (!author || !req) {
+			console.warn(`[transactional:${label}] aborted: author or requisition missing`);
+			return;
+		}
+
+		const authorIsAdmin = author.role === USER_ROLES.SUPERADMIN;
+		const recipients = pickCommentRecipients({
+			internal: comment.internal,
+			authorId: comment.authorId,
+			authorIsAdmin,
+			owner: { userId: req.ownerUserId, email: req.ownerEmail },
+			clientCommenters: authorIsAdmin ? await getClientCommenterEmails(req.id) : [],
+			adminEmails: authorIsAdmin
+				? []
+				: (
+						await db
+							.select({ email: userTable.email })
+							.from(userTable)
+							.where(
+								and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true))
+							)
+					).map((a) => a.email)
+		});
+		if (recipients.length === 0) {
+			console.warn(`[transactional:${label}] no recipients for comment ${commentId}`);
+			return;
+		}
+
+		const details = {
+			requisitionId: req.id,
+			requisitionLabel:
+				[req.title || req.disciplineName, req.companyName].filter(Boolean).join(' · ') ||
+				`Requisition #${req.id}`,
+			authorName: `${author.firstName ?? ''} ${author.lastName ?? ''}`.trim() || 'Someone',
+			authorOrg: authorIsAdmin ? APP_NAME : (req.companyName ?? 'Client'),
+			body: comment.body
+		};
+
+		await dispatch(
+			label,
+			recipients.map((to) =>
+				safeEmail(label, to, () => emailService.sendRequisitionCommentEmail(to, details), {
+					entityType: 'REQUISITIONS',
+					entityId: String(req.id),
+					metadata: { template: 'requisitionComment', commentId }
+				})
+			)
+		);
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
+	}
+}
+
+async function loadRecommendationContext(applicationId: string) {
+	const [row] = await db
+		.select({
+			applicationId: requisitionApplicationTable.id,
+			source: requisitionApplicationTable.source,
+			note: requisitionApplicationTable.recommendationNote,
+			requisitionId: requisitionTable.id,
+			permanentPosition: requisitionTable.permanentPosition,
+			companyId: requisitionTable.companyId,
+			disciplineName: disciplineTable.name,
+			city: companyOfficeLocationTable.city,
+			state: companyOfficeLocationTable.state,
+			candidateFirstName: userTable.firstName,
+			candidateLastName: userTable.lastName,
+			candidateEmail: userTable.email
+		})
+		.from(requisitionApplicationTable)
+		.innerJoin(requisitionTable, eq(requisitionTable.id, requisitionApplicationTable.requisitionId))
+		.innerJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
+		.innerJoin(
+			companyOfficeLocationTable,
+			eq(companyOfficeLocationTable.id, requisitionTable.locationId)
+		)
+		.innerJoin(
+			candidateProfileTable,
+			eq(candidateProfileTable.id, requisitionApplicationTable.candidateId)
+		)
+		.innerJoin(userTable, eq(userTable.id, candidateProfileTable.userId))
+		.where(eq(requisitionApplicationTable.id, applicationId))
+		.limit(1);
+	if (!row || row.source !== 'ADMIN_RECOMMENDED' || !row.permanentPosition) return null;
+	return row;
+}
+
+/**
+ * Admin put a professional forward on a perm req — email the client account owner
+ * with a link straight to the application. Never throws.
+ */
+export async function notifyClientOfRecommendation(applicationId: string): Promise<void> {
+	const label = 'recommendedCandidateClient';
+	try {
+		const ctx = await loadRecommendationContext(applicationId);
+		if (!ctx) return;
+
+		const [owner] = await db
+			.select({ email: userTable.email })
+			.from(clientCompanyTable)
+			.innerJoin(clientProfileTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
+			.innerJoin(userTable, eq(userTable.id, clientProfileTable.userId))
+			.where(eq(clientCompanyTable.id, ctx.companyId))
+			.limit(1);
+
+		const details = {
+			requisitionId: ctx.requisitionId,
+			applicationId: ctx.applicationId,
+			disciplineName: ctx.disciplineName,
+			candidateName:
+				`${ctx.candidateFirstName ?? ''} ${ctx.candidateLastName ?? ''}`.trim() || 'A professional',
+			note: ctx.note
+		};
+
+		await dispatch(label, [
+			safeEmail(
+				label,
+				owner?.email,
+				() => {
+					const t = EMAIL_TEMPLATES.recommendedCandidateClientEmail(details);
+					return emailService.sendEmail({
+						to: [{ email: owner!.email as string }],
+						subject: t.subject,
+						html: t.htmlEmail,
+						text: t.textEmail
+					});
+				},
+				{
+					entityType: 'REQUISITION_APPLICATIONS',
+					entityId: ctx.applicationId,
+					metadata: { template: label, requisitionId: ctx.requisitionId }
+				}
+			)
+		]);
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
+	}
+}
+
+/**
+ * Tell the professional they were put forward. The practice is NOT named — it
+ * stays masked until approval, same as the perm board. Never throws.
+ */
+export async function notifyCandidateRecommended(applicationId: string): Promise<void> {
+	const label = 'recommendedCandidate';
+	try {
+		const ctx = await loadRecommendationContext(applicationId);
+		if (!ctx) return;
+
+		const area = [ctx.city, ctx.state].filter(Boolean).join(', ') || null;
+
+		await dispatch(label, [
+			safeEmail(
+				label,
+				ctx.candidateEmail,
+				() => {
+					const t = EMAIL_TEMPLATES.recommendedCandidateEmail({
+						firstName: ctx.candidateFirstName,
+						disciplineName: ctx.disciplineName,
+						area,
+						dashboardUrl: CANDIDATE_APP_DOMAIN
+					});
+					return emailService.sendEmail({
+						to: [{ email: ctx.candidateEmail as string }],
+						subject: t.subject,
+						html: t.htmlEmail,
+						text: t.textEmail
+					});
+				},
+				{
+					entityType: 'REQUISITION_APPLICATIONS',
+					entityId: ctx.applicationId,
+					metadata: { template: label, requisitionId: ctx.requisitionId }
+				}
+			)
+		]);
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
 	}
 }
