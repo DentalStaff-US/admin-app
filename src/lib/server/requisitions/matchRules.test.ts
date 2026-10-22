@@ -94,3 +94,19 @@ describe('recommendationBlockReason', () => {
 		).toMatch(re);
 	});
 });
+
+describe('annotateAndSortMatches — skills', () => {
+	it('defaults meetsSkillRequirements to true and sorts shortfalls last', () => {
+		const out = annotateAndSortMatches(
+			[
+				{ ...pro('missing-skills', 'BOTH', 3, '1'), meetsSkillRequirements: false },
+				{ ...pro('below-and-missing', 'BOTH', 1, '0.5'), meetsSkillRequirements: false },
+				pro('ok', 'BOTH', 3, '5')
+			],
+			2,
+			new Map()
+		);
+		expect(out.map((m) => m.candidateId)).toEqual(['ok', 'missing-skills', 'below-and-missing']);
+		expect(out[0].meetsSkillRequirements).toBe(true);
+	});
+});

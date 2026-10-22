@@ -12,7 +12,8 @@ import { logger } from '$lib/server/logger';
 import { syncCandidateOnboardingCompletion } from '$lib/server/onboarding/syncCandidateOnboarding';
 import {
 	toCredentialExpiryDate,
-	validateCredentialLink
+	validateCredentialLink,
+	validateSkillCredentialLink
 } from '$lib/server/certifications/credentialLink';
 
 const corsHeaders = {
@@ -66,7 +67,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				{ status: 400, headers: corsHeaders }
 			);
 		}
-		const { type, url, filename, filesData, disciplineId } = parsedData.data;
+		const { type, url, filename, filesData, disciplineId, skillId } = parsedData.data;
 
 		// Normalise every row first so each credential link can be validated before
 		// anything is written — a partially-inserted multi-file upload with one bad
@@ -84,7 +85,8 @@ export const POST: RequestHandler = async ({ request }) => {
 						expiryDate: toCredentialExpiryDate(file.expiryDate),
 						// Per-file link, falling back to the request-level one so a
 						// single-file upload can pass it at either level.
-						disciplineId: file.disciplineId ?? disciplineId ?? null
+						disciplineId: file.disciplineId ?? disciplineId ?? null,
+						skillId: file.skillId ?? skillId ?? null
 					}))
 				: [
 						{
@@ -92,7 +94,8 @@ export const POST: RequestHandler = async ({ request }) => {
 							uploadUrl: url as string,
 							filename,
 							expiryDate: toCredentialExpiryDate(parsedData.data.expiryDate),
-							disciplineId: disciplineId ?? null
+							disciplineId: disciplineId ?? null,
+							skillId: skillId ?? null
 						}
 					]
 		).map((r) => ({
@@ -113,6 +116,19 @@ export const POST: RequestHandler = async ({ request }) => {
 			if (!decision.ok) {
 				return json(
 					{ success: false, message: decision.message, reason: decision.reason },
+					{ status: 400, headers: corsHeaders }
+				);
+			}
+			const skillDecision = await validateSkillCredentialLink({
+				candidateId: candidateProfile.id,
+				skillId: row.skillId,
+				disciplineId: row.disciplineId,
+				type: row.type,
+				expiryDate: row.expiryDate
+			});
+			if (!skillDecision.ok) {
+				return json(
+					{ success: false, message: skillDecision.message, reason: skillDecision.reason },
 					{ status: 400, headers: corsHeaders }
 				);
 			}

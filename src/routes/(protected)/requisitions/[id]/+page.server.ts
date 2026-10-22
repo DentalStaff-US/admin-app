@@ -1,3 +1,11 @@
+import {
+	parseSkillRequirementsInput,
+	type SkillRequirementCategory
+} from '$lib/server/skills/skillRequirements';
+import {
+	getSkillRequirementsForDisplay,
+	SkillRequirementError
+} from '$lib/server/skills/requisitionSkills';
 import type { PageServerLoad, RequestEvent } from './$types';
 import {
 	changeRequisitionStatus,
@@ -136,7 +144,18 @@ const requisitionInvoiceSchema = z.object({
 	})
 });
 
-export const load: PageServerLoad = async (event: RequestEvent) => {
+/**
+ * Skill requirements ride along with every role's page data: displayed on the
+ * detail page and pre-filled in the edit form's SkillRequirementsPicker.
+ */
+export const load: PageServerLoad = async (event) => {
+	const base = await loadRequisitionPage(event as unknown as RequestEvent);
+	const idAsNum = Number(event.params.id);
+	const display = (await getSkillRequirementsForDisplay([idAsNum])).get(idAsNum) ?? [];
+	return { ...base, skillRequirements: display };
+};
+
+const loadRequisitionPage = async (event: RequestEvent) => {
 	const user = event.locals.user;
 
 	if (!user) {
@@ -979,6 +998,19 @@ export const actions = {
 		const specialInstructions = formData.get('specialInstructions') as string | null;
 		const purchaseOrderNumber = formData.get('purchaseOrderNumber') as string;
 
+		// Only rewrite requirements when the edit form actually carried the picker;
+		// absent = leave them as they are.
+		let skillRequirements: SkillRequirementCategory[] | undefined;
+		if (formData.has('skillRequirements')) {
+			try {
+				skillRequirements = parseSkillRequirementsInput(formData.get('skillRequirements'));
+			} catch {
+				const msg = 'The skill requirements could not be read. Please re-select them.';
+				setFlash({ type: 'error', message: msg }, event);
+				return fail(400, { error: msg });
+			}
+		}
+
 		try {
 			await updateRequisition(
 				idAsNum,
@@ -990,7 +1022,8 @@ export const actions = {
 					specialInstructions,
 					purchaseOrderNumber
 				},
-				user.id
+				user.id,
+				skillRequirements
 			);
 
 			await notifyRequisitionChanged(idAsNum);
@@ -998,6 +1031,10 @@ export const actions = {
 			setFlash({ type: 'success', message: 'Requisition updated successfully' }, event);
 			return { success: true };
 		} catch (err) {
+			if (err instanceof SkillRequirementError) {
+				setFlash({ type: 'error', message: err.message }, event);
+				return fail(400, { error: err.message });
+			}
 			console.error('Error updating requisition:', err);
 			setFlash({ type: 'error', message: 'Failed to update requisition' }, event);
 			return fail(500, { error: 'Failed to update requisition' });

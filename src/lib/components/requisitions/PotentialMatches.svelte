@@ -47,6 +47,7 @@
 	}
 
 	$: belowCount = matches.filter((m) => !m.meetsExperience).length;
+	$: missingSkillsCount = matches.filter((m) => !m.meetsSkillRequirements).length;
 </script>
 
 {#if matches.length === 0}
@@ -59,7 +60,9 @@
 {:else}
 	<p class="text-xs text-gray-500 mb-3">
 		{matches.length} professional{matches.length === 1 ? '' : 's'} open to permanent work, nearest
-		first{belowCount ? ` · ${belowCount} below the required experience level (listed last)` : ''}.
+		first{belowCount ? ` · ${belowCount} below the required experience level (listed last)` : ''}{missingSkillsCount
+			? ` · ${missingSkillsCount} missing required skills (listed last)`
+			: ''}.
 		Pay range isn't filtered for permanent roles.
 	</p>
 	<div class="space-y-3">
@@ -87,6 +90,11 @@
 							{#if !m.meetsExperience}
 								<span class="text-[11px] rounded-full px-2 py-0.5 bg-amber-100 text-amber-800">
 									Below required experience
+								</span>
+							{/if}
+							{#if !m.meetsSkillRequirements}
+								<span class="text-[11px] rounded-full px-2 py-0.5 bg-amber-100 text-amber-800">
+									Missing required skills
 								</span>
 							{/if}
 							{#if appLabel}
@@ -156,6 +164,11 @@
 				{#if !selected.meetsExperience}
 					<p class="text-sm rounded-md bg-amber-50 border border-amber-200 text-amber-900 px-3 py-2">
 						This professional is below the requisition's required experience level.
+					</p>
+				{/if}
+				{#if !selected.meetsSkillRequirements}
+					<p class="text-sm rounded-md bg-amber-50 border border-amber-200 text-amber-900 px-3 py-2">
+						This professional does not have every skill the requisition requires.
 					</p>
 				{/if}
 				<div>

@@ -23,6 +23,8 @@ import { logger } from '$lib/server/logger';
 import { credentialSelectFields } from '$lib/server/certifications/credentialGateSql';
 import { splitByCredentialEligibility } from '$lib/server/certifications/credentialStatus';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
+import { getSkillRequirementsForRequisitions } from '$lib/server/skills/requisitionSkills';
+import { getEffectiveSkillIdsForCandidate } from '$lib/server/skills/effectiveSkills';
 import { wantsPermanentWork, workPreferenceExclusionReason } from '$lib/server/workPreference';
 import {
 	isApplicationUnlocked,
@@ -261,6 +263,13 @@ export const GET: RequestHandler = async ({ request }) => {
 		// temp hourly and were never gated here. The certification check inside the
 		// helper is belt-and-braces — the `inArray` above already excluded lapsed
 		// disciplines — but it keeps one definition of "qualified" for all callers.
+		// Skill requirements per opening + this professional's effective skills,
+		// loaded once for the whole listing.
+		const skillRequirementsByReq = await getSkillRequirementsForRequisitions(
+			requisitions.map((req) => req.id)
+		);
+		const heldSkillIds = await getEffectiveSkillIdsForCandidate(candidate.id);
+
 		const qualified = requisitions.filter(
 			(req) =>
 				checkCandidateQualified(
@@ -268,9 +277,10 @@ export const GET: RequestHandler = async ({ request }) => {
 					{
 						disciplineId: req.disciplineId,
 						experienceLevelOrder: req.experienceLevelOrder,
-						hourlyRate: null
+						hourlyRate: null,
+						skillRequirements: skillRequirementsByReq.get(req.id)
 					},
-					{ enforceRate: false }
+					{ enforceRate: false, heldSkillIds }
 				).qualified
 		);
 

@@ -14,6 +14,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import { cn } from '$lib/utils';
 	import { tick } from 'svelte';
+	import SkillRequirementsPicker from '$lib/components/requisitions/SkillRequirementsPicker.svelte';
 
 	export let form: SuperValidated<AdminRequisitionSchema>;
 	export let drawerExpanded: boolean;
@@ -400,6 +401,11 @@
 					<option value={level.id}>{level.value}</option>
 				{/each}
 			</select>
+		</div>
+
+		<!-- Skill requirements: per category, No Preference / all / any -->
+		<div class="mb-4">
+			<SkillRequirementsPicker disciplineId={$formObj.disciplineId} />
 		</div>
 
 		<!-- Requisition Type - kept as native select -->

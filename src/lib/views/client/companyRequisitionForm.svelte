@@ -8,6 +8,7 @@
 	import { page } from '$app/stores';
 	import { Label } from '$lib/components/ui/label';
 	import { Input } from '$lib/components/ui/input';
+	import SkillRequirementsPicker from '$lib/components/requisitions/SkillRequirementsPicker.svelte';
 	import type { ClientCompanyLocationSelect } from '$lib/server/database/schemas/client';
 
 	export let form: SuperValidated<ClientRequisitionSchema>;
@@ -210,6 +211,11 @@
 					<option value={level.id}>{level.value}</option>
 				{/each}
 			</select>
+		</div>
+
+		<!-- Skill requirements: per category, No Preference / all / any -->
+		<div class="mb-4">
+			<SkillRequirementsPicker disciplineId={$formObj.disciplineId} />
 		</div>
 
 		<div class="mb-4">

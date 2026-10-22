@@ -26,6 +26,11 @@ import {
 	todayInET,
 	type DisciplineCredentials
 } from './certifications/credentialStatus';
+import {
+	checkSkillRequirements,
+	type MissingSkillRequirement,
+	type SkillRequirementCategory
+} from './skills/skillRequirements';
 
 export type CandidateDisciplineWithLevel = {
 	disciplineId: string;
@@ -50,14 +55,21 @@ export type RequisitionForQualification = {
 	/** hourly rate posted on the requisition; null falls outside any range so
 	 *  we conservatively reject (a posted shift should always have a rate). */
 	hourlyRate: number | null;
+	/**
+	 * Per-category skill requirements. Absent/[] = No Preference everywhere, which is
+	 * every requisition created before skills existed.
+	 */
+	skillRequirements?: SkillRequirementCategory[];
 };
 
 export type QualificationCheck =
 	| { qualified: true }
 	| {
 			qualified: false;
-			reason: 'discipline' | 'license' | 'certification' | 'experience' | 'rate';
+			reason: 'discipline' | 'license' | 'certification' | 'experience' | 'skills' | 'rate';
 			message: string;
+			/** Set when reason === 'skills'. */
+			missingSkills?: MissingSkillRequirement[];
 	  };
 
 export function checkCandidateQualified(
@@ -74,12 +86,16 @@ export function checkCandidateQualified(
 		enforceRate?: boolean;
 		/** 'YYYY-MM-DD' in America/New_York. Injected by tests; defaults to now. */
 		today?: string;
+		/**
+		 * Skills the candidate EFFECTIVELY holds (claimed + certificate valid where
+		 * required) — from getEffectiveSkillIds. Required whenever the requisition has
+		 * skill requirements; absent is treated as holding none.
+		 */
+		heldSkillIds?: ReadonlySet<string>;
 	} = {}
 ): QualificationCheck {
 	// 1. Discipline must match.
-	const matching = candidateDisciplines.find(
-		(d) => d.disciplineId === requisition.disciplineId
-	);
+	const matching = candidateDisciplines.find((d) => d.disciplineId === requisition.disciplineId);
 	if (!matching) {
 		return {
 			qualified: false,
@@ -122,7 +138,19 @@ export function checkCandidateQualified(
 		}
 	}
 
-	// 4. Rate must fall within the candidate's preferred range for this
+	// 4. Skill requirements — per category ALL/ANY; categories with no requirement
+	//    (No Preference) never filter. SQL twin: skillRequirementsMetSql.
+	const skills = checkSkillRequirements(requisition.skillRequirements, opts.heldSkillIds);
+	if (!skills.ok) {
+		return {
+			qualified: false,
+			reason: 'skills',
+			message: 'You do not have the skills this position requires.',
+			missingSkills: skills.missing
+		};
+	}
+
+	// 5. Rate must fall within the candidate's preferred range for this
 	//    discipline. A null rate on the requisition is malformed data —
 	//    reject conservatively rather than letting it through.
 	//

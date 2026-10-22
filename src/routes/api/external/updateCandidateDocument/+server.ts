@@ -11,7 +11,8 @@ import {
 import { assertCandidateDocumentEditable } from '$lib/server/documents/candidateDocumentGuards';
 import {
 	toCredentialExpiryDate,
-	validateCredentialLink
+	validateCredentialLink,
+	validateSkillCredentialLink
 } from '$lib/server/certifications/credentialLink';
 import { syncCandidateOnboardingCompletion } from '$lib/server/onboarding/syncCandidateOnboarding';
 import { logger } from '$lib/server/logger';
@@ -38,6 +39,8 @@ const payloadSchema = z.object({
 		.optional(),
 	// The Experience & Rates entry this credential evidences, or null to unlink.
 	disciplineId: z.string().min(1).nullable().optional(),
+	// The skill this CERTIFICATE evidences (e.g. CPR/BLS), or null to unlink.
+	skillId: z.string().min(1).nullable().optional(),
 	/**
 	 * Designating an already-uploaded file as the credential for a discipline. Lets an
 	 * approved professional set `type` (to LICENSE/CERTIFICATE only) together with the
@@ -86,9 +89,9 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		// Which fields this request actually writes — drives the approval carve-outs.
-		const touchedFields = (['type', 'filename', 'expiryDate', 'disciplineId'] as const).filter(
-			(f) => parsed.data[f] !== undefined
-		);
+		const touchedFields = (
+			['type', 'filename', 'expiryDate', 'disciplineId', 'skillId'] as const
+		).filter((f) => parsed.data[f] !== undefined);
 
 		const decision = await assertCandidateDocumentEditable({
 			documentId: parsed.data.documentId,
@@ -113,7 +116,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			.select({
 				type: candidateDocumentUploadsTable.type,
 				expiryDate: candidateDocumentUploadsTable.expiryDate,
-				disciplineId: candidateDocumentUploadsTable.disciplineId
+				disciplineId: candidateDocumentUploadsTable.disciplineId,
+				skillId: candidateDocumentUploadsTable.skillId
 			})
 			.from(candidateDocumentUploadsTable)
 			.where(eq(candidateDocumentUploadsTable.id, parsed.data.documentId))
@@ -126,6 +130,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			patch.expiryDate = toCredentialExpiryDate(parsed.data.expiryDate);
 		}
 		if (parsed.data.disciplineId !== undefined) patch.disciplineId = parsed.data.disciplineId;
+		if (parsed.data.skillId !== undefined) patch.skillId = parsed.data.skillId;
 
 		const nextType = (patch.type ?? existing?.type) as string | null;
 		const nextDisciplineId = (
@@ -144,6 +149,23 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (!linkDecision.ok) {
 			return json(
 				{ success: false, message: linkDecision.message, reason: linkDecision.reason },
+				{ status: 400, headers: corsHeaders }
+			);
+		}
+
+		const nextSkillId = (
+			parsed.data.skillId !== undefined ? parsed.data.skillId : existing?.skillId
+		) as string | null;
+		const skillLinkDecision = await validateSkillCredentialLink({
+			candidateId: candidateProfile.id,
+			skillId: nextSkillId,
+			disciplineId: nextDisciplineId,
+			type: nextType,
+			expiryDate: nextExpiry
+		});
+		if (!skillLinkDecision.ok) {
+			return json(
+				{ success: false, message: skillLinkDecision.message, reason: skillLinkDecision.reason },
 				{ status: 400, headers: corsHeaders }
 			);
 		}

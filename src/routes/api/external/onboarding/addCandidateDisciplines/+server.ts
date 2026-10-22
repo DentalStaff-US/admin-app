@@ -12,6 +12,7 @@ import { logger } from '$lib/server/logger';
 import { syncCandidateOnboardingCompletion } from '$lib/server/onboarding/syncCandidateOnboarding';
 import { replaceCandidateDisciplines } from '$lib/server/database/queries/candidateDisciplines';
 import { uniqueDisciplineIds } from '$lib/config/zod-schemas';
+import { isCandidateFrozen } from '$lib/server/documents/candidateDocumentGuards';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -88,6 +89,21 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json(
 				{ success: false, message: 'Profile not found' },
 				{ status: 404, headers: corsHeaders }
+			);
+		}
+
+		// Same lock as updateCandidateExperience. This onboarding door stays reachable
+		// with a valid JWT after approval, and disciplines now also scope which skills a
+		// professional may hold — so it must not be a way round the freeze.
+		if (isCandidateFrozen(existingProfile)) {
+			return json(
+				{
+					success: false,
+					reason: 'APPROVED',
+					message:
+						'Your profile has been approved, so your disciplines are locked. Contact support if something needs to change.'
+				},
+				{ status: 403, headers: corsHeaders }
 			);
 		}
 

@@ -1,358 +1,278 @@
 <script lang="ts">
-	import {
-		getCoreRowModel,
-		type ColumnDef,
-		getSortedRowModel,
-		getPaginationRowModel,
-		getFilteredRowModel,
-		type TableOptions,
-		createSvelteTable,
-		flexRender
-	} from '@tanstack/svelte-table';
-	import * as Form from '$lib/components/ui/form';
 	import * as Dialog from '$lib/components/ui/dialog';
-	import * as Table from '$lib/components/ui/table';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Badge } from '$lib/components/ui/badge';
 	import type { PageData } from './$types';
-	import { writable } from 'svelte/store';
-	import { onMount } from 'svelte';
-	import { newSkillSchema } from '$lib/config/zod-schemas';
+	import { enhance } from '$app/forms';
+	import { goto } from '$app/navigation';
 	import {
-		Loader2,
-		AlertCircle,
-		ArrowUpDown,
-		ArrowUp,
 		ArrowDown,
-		Search,
-		ChevronLeft,
-		ChevronRight,
-		Tags,
-		PlusIcon,
+		ArrowUp,
+		Archive,
+		ArchiveRestore,
+		Edit,
+		FileBadge,
+		Loader2,
+		Sparkles,
 		Trash
 	} from 'lucide-svelte';
-	import { goto } from '$app/navigation';
-	import { superForm } from 'sveltekit-superforms/client';
 
 	export let data: PageData;
-	const {
-		submitting,
-		enhance,
-		form: skillForm
-	} = superForm(data.form, {
-		onResult: ({ result }) => {
-			if (result.type === 'success') {
-				dialogOpen = false;
-				$skillForm = {
-					name: '',
-					categoryId: ''
-				};
-			}
-		}
-	});
 
-	type SkillData = {
-		id: string;
-		name: string;
-		categoryId: string;
-		createdAt: Date;
-		updatedAt: Date;
-		categoryName: string;
-	};
+	type SkillRow = PageData['skills'][number];
 
-	let tableData: SkillData[] = [];
-	let searchTerm = '';
+	let searchTerm = data.searchTerm ?? '';
 	let dialogOpen = false;
+	let saving = false;
+	let editing: SkillRow | null = null;
+	let formName = '';
+	let formCategoryId = '';
+	let formRequiresCertificate = false;
 
-	$: skills = (data.skills as SkillData[]) || [];
-	$: categories = data.categories || [];
+	$: skills = data.skills;
+	$: categories = data.categories;
+	$: groups = categories
+		.map((c) => ({ category: c, skills: skills.filter((s) => s.categoryId === c.id) }))
+		.filter((g) => g.skills.length > 0 || !searchTerm);
 
-	// Column definitions
-	const columns: ColumnDef<SkillData>[] = [
-		{
-			header: 'Skill Name',
-			id: 'name',
-			accessorKey: 'name',
-			enableSorting: true,
-			sortingFn: (rowA, rowB) => {
-				const nameA = rowA.original.name?.toLowerCase() || '';
-				const nameB = rowB.original.name?.toLowerCase() || '';
-				return nameA.localeCompare(nameB);
-			}
-		},
-		{
-			header: 'Category',
-			id: 'categoryName',
-			accessorKey: 'categoryName',
-			enableSorting: true,
-			sortingFn: (rowA, rowB) => {
-				const categoryA = rowA.original.categoryName?.toLowerCase() || '';
-				const categoryB = rowB.original.categoryName?.toLowerCase() || '';
-				return categoryA.localeCompare(categoryB);
-			}
-		},
-		{
-			header: 'Created',
-			id: 'createdAt',
-			accessorKey: 'createdAt',
-			enableSorting: true,
-			sortingFn: (rowA, rowB) => {
-				const dateA = new Date(rowA.original.createdAt).getTime();
-				const dateB = new Date(rowB.original.createdAt).getTime();
-				return dateA - dateB;
-			},
-			cell: ({ getValue }) => {
-				const date = getValue() as Date;
-				return new Date(date).toLocaleDateString();
-			}
-		}
-	];
-
-	// Table options
-	const options = writable<TableOptions<SkillData>>({
-		data: tableData,
-		columns,
-		getCoreRowModel: getCoreRowModel(),
-		getSortedRowModel: getSortedRowModel(),
-		getPaginationRowModel: getPaginationRowModel(),
-		initialState: {
-			pagination: {
-				pageSize: 10
-			}
-		}
-	});
-
-	// Update table data when skills change
-	$: {
-		tableData = skills;
-		options.update((o) => ({ ...o, data: tableData }));
+	function openAdd(categoryId = '') {
+		editing = null;
+		formName = '';
+		formCategoryId = categoryId || categories.find((c) => !c.archivedAt)?.id || '';
+		formRequiresCertificate = false;
+		dialogOpen = true;
 	}
 
-	onMount(() => {
-		tableData = skills;
-		options.update((o) => ({ ...o, data: tableData }));
-	});
-
-	const table = createSvelteTable(options);
-
-	function getSortingIcon(header: any) {
-		if (!header.column.getCanSort()) return null;
-
-		const sorted = header.column.getIsSorted();
-		if (sorted === 'asc') return ArrowUp;
-		if (sorted === 'desc') return ArrowDown;
-		return ArrowUpDown;
+	function openEdit(s: SkillRow) {
+		editing = s;
+		formName = s.name;
+		formCategoryId = s.categoryId;
+		formRequiresCertificate = s.requiresCertificate;
+		dialogOpen = true;
 	}
 
-	// Group skills by category for display purposes
-	$: categoryCounts = skills.reduce(
-		(acc, skill) => {
-			acc[skill.categoryName] = (acc[skill.categoryName] || 0) + 1;
-			return acc;
-		},
-		{} as Record<string, number>
-	);
+	/** The category's skill order with `id` moved one step. Sort order is per category. */
+	function movedOrder(list: SkillRow[], id: string, delta: -1 | 1): string[] {
+		const ids = list.map((s) => s.id);
+		const i = ids.indexOf(id);
+		const j = i + delta;
+		if (i < 0 || j < 0 || j >= ids.length) return ids;
+		[ids[i], ids[j]] = [ids[j], ids[i]];
+		return ids;
+	}
 
-	function handleSearch(searchTerm: string) {
-		if (!searchTerm || searchTerm.trim() === '') {
-			goto('/admin/menu/skills');
-		} else {
-			goto(`/admin/menu/skills?search=${encodeURIComponent(searchTerm.trim())}`);
-		}
+	function handleSearch() {
+		const q = searchTerm.trim();
+		goto(q ? `/admin/menu/skills?search=${encodeURIComponent(q)}` : '/admin/menu/skills');
 	}
 </script>
 
-<section class="flex flex-col h-full p-6 space-y-6">
-	<!-- Header -->
+<section class="flex flex-col h-full p-6 pb-16 space-y-6">
 	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
 		<div>
 			<h1 class="text-3xl font-bold tracking-tight">Skills</h1>
-			<p class="text-muted-foreground">Manage skills and their categories</p>
+			<p class="text-muted-foreground">
+				Skills professionals can hold and requisitions can require. Mark a skill as needing a
+				certificate (e.g. CPR/BLS) and it only counts while a valid one is on file.
+			</p>
 		</div>
-
-		<Dialog.Root bind:open={dialogOpen}>
-			<Dialog.Trigger asChild>
-				<Button on:click={() => (dialogOpen = true)} class="bg-primary hover:bg-primary/90"
-					><PlusIcon size={20} class="mr-2" />Add New Skill</Button
-				>
-			</Dialog.Trigger>
-			<Dialog.Content class="sm:max-w-[425px]">
-				<form use:enhance method="POST" action="?/addSkill">
-					<Dialog.Header>
-						<Dialog.Title>Add New Skill</Dialog.Title>
-						<Dialog.Description>
-							Add new skill name and select related skill category
-						</Dialog.Description>
-					</Dialog.Header>
-					<div class="space-y-4 py-4">
-						<Form.Field config={{ form: superForm(data.form), schema: newSkillSchema }} name="name">
-							<Form.Item>
-								<Form.Label>Skill Name</Form.Label>
-								<Form.Input required />
-								<Form.Validation />
-							</Form.Item>
-						</Form.Field>
-						<Form.Field
-							config={{ form: superForm(data.form), schema: newSkillSchema }}
-							name="categoryId"
-						>
-							<Form.Item>
-								<Form.Label>Skill Category</Form.Label>
-								<Form.Select required>
-									<Form.SelectTrigger placeholder="Select Category"></Form.SelectTrigger>
-									<Form.SelectContent class="max-h-[150px] overflow-y-scroll">
-										{#each categories as category}
-											<Form.SelectItem value={category.id} label={category.name}>
-												{category.name}
-											</Form.SelectItem>
-										{/each}
-									</Form.SelectContent>
-								</Form.Select>
-								<Form.Validation />
-							</Form.Item>
-						</Form.Field>
-					</div>
-					<Dialog.Footer>
-						<Button variant="destructiveOutline" type="button" on:click={() => (dialogOpen = false)}>
-							Cancel
-						</Button>
-						<Form.Button disabled={$submitting}>
-							{#if $submitting}
-								<Loader2 class="mr-2 h-4 w-4 animate-spin" />
-							{/if}
-							Add Skill
-						</Form.Button>
-					</Dialog.Footer>
-				</form>
-			</Dialog.Content>
-		</Dialog.Root>
+		<div class="flex gap-2">
+			<Button variant="outline" href="/admin/menu/skill-categories">Manage Categories</Button>
+			<Button class="bg-primary hover:bg-primary/90" on:click={() => openAdd()} disabled={categories.length === 0}>
+				Add New Skill
+			</Button>
+		</div>
 	</div>
 
-	<!-- Search and Stats -->
-	<form on:submit|preventDefault={() => handleSearch(searchTerm)} class="flex items-center gap-2">
-		<Input bind:value={searchTerm} placeholder="Search skills..." class="bg-white max-w-xs" />
-		<Button
-			size="sm"
-			class="bg-primary hover:bg-primary/90"
-			on:click={() => handleSearch(searchTerm)}>Search</Button
-		>
+	<form on:submit|preventDefault={handleSearch} class="flex items-center gap-2">
+		<Input bind:value={searchTerm} placeholder="Search skills or categories..." class="bg-white max-w-xs" />
+		<Button size="sm" type="submit" class="bg-primary hover:bg-primary/90">Search</Button>
 	</form>
 
-	<div class="flex flex-wrap gap-2">
-		{#each Object.entries(categoryCounts) as [categoryName, count]}
-			<Badge variant="secondary" class="text-xs" value={`${categoryName}: ${count}`}></Badge>
-		{/each}
-	</div>
+	<!-- Per-category counts; each jumps to its group below. -->
+	{#if groups.length > 0}
+		<div class="flex flex-wrap gap-2">
+			{#each groups as g (g.category.id)}
+				<Badge
+					variant="secondary"
+					class="text-xs"
+					href={`#category-${g.category.id}`}
+					value={`${g.category.name}: ${g.skills.length}`}
+				/>
+			{/each}
+		</div>
+	{/if}
 
-	<!-- Table -->
-	<div class="bg-white rounded-lg shadow-sm flex-1 flex flex-col">
-		{#if $table.getFilteredRowModel().rows.length > 0}
-			<div class="rounded-md border flex-1">
-				<Table.Root>
-					<Table.Header>
-						{#each $table.getHeaderGroups() as headerGroup}
-							<Table.Row class="bg-white">
-								{#each headerGroup.headers as header}
-									<Table.Head>
-										{#if header.column.columnDef.header}
-											<Button
-												variant="ghost"
-												on:click={() =>
-													header.column.toggleSorting(header.column.getIsSorted() === 'asc')}
-												class="hover:bg-gray-50"
-											>
-												{header.column.columnDef.header}
-												{#if header.column.getCanSort()}
-													{#if getSortingIcon(header)}
-														<svelte:component this={getSortingIcon(header)} class="ml-2 h-4 w-4" />
-													{/if}
-												{/if}
-											</Button>
-										{/if}
-									</Table.Head>
-								{/each}
-								<Table.Head></Table.Head>
-							</Table.Row>
-						{/each}
-					</Table.Header>
-					<Table.Body>
-						{#each $table.getRowModel().rows as row}
-							<Table.Row class="bg-gray-50 hover:bg-gray-100 transition-colors">
-								{#each row.getVisibleCells() as cell}
-									<Table.Cell>
-										<svelte:component
-											this={flexRender(cell.column.columnDef.cell, cell.getContext())}
-										/>
-									</Table.Cell>
-								{/each}
-								<Table.Cell>
-									<form method="POST" use:enhance action="?/deleteCategory">
-										<Button formaction="?/deleteSkill" type="submit" variant="destructive" size="sm"
-											><Trash size={16} /></Button
-										>
-										<input type="hidden" name="id" bind:value={row.original.id} />
-									</form>
-								</Table.Cell>
-							</Table.Row>
-						{/each}
-					</Table.Body>
-				</Table.Root>
-			</div>
+	{#if categories.length === 0}
+		<div class="bg-white rounded-lg border p-8 text-center">
+			<Sparkles class="mx-auto mb-3 h-8 w-8 text-gray-400" />
+			<p class="mb-4 text-sm text-muted-foreground">Create a skill category first.</p>
+			<Button href="/admin/menu/skill-categories">Go to Skill Categories</Button>
+		</div>
+	{/if}
 
-			<!-- Pagination -->
-			<div class="flex items-center justify-between space-x-2 p-4 border-t">
-				<div class="flex-1 text-sm text-muted-foreground">
-					Showing {$table.getState().pagination.pageIndex * $table.getState().pagination.pageSize +
-						1} to {Math.min(
-						($table.getState().pagination.pageIndex + 1) * $table.getState().pagination.pageSize,
-						$table.getFilteredRowModel().rows.length
-					)} of {$table.getFilteredRowModel().rows.length} skills
+	{#each groups as g (g.category.id)}
+		<div
+			id={`category-${g.category.id}`}
+			class="bg-white rounded-lg shadow-sm border scroll-mt-6"
+			class:opacity-60={!!g.category.archivedAt}
+		>
+			<div class="flex items-center justify-between border-b px-4 py-2">
+				<div class="flex items-center gap-2">
+					<h2 class="font-semibold">{g.category.name}</h2>
+					{#if g.category.archivedAt}<span class="pill pill-secondary">Archived</span>{/if}
+					<span class="text-xs text-muted-foreground">{g.skills.length} skills</span>
 				</div>
-				<div class="flex items-center space-x-2">
-					<Button
-						variant="outline"
-						size="sm"
-						on:click={() => $table.previousPage()}
-						disabled={!$table.getCanPreviousPage()}
-					>
-						<ChevronLeft class="h-4 w-4" />
-						Previous
-					</Button>
-					<div class="flex items-center space-x-1">
-						<span class="text-sm text-muted-foreground">
-							Page {$table.getState().pagination.pageIndex + 1} of {$table.getPageCount()}
-						</span>
-					</div>
-					<Button
-						variant="outline"
-						size="sm"
-						on:click={() => $table.nextPage()}
-						disabled={!$table.getCanNextPage()}
-					>
-						Next
-						<ChevronRight class="h-4 w-4" />
-					</Button>
-				</div>
-			</div>
-		{:else}
-			<!-- Empty state -->
-			<div class="flex flex-col items-center justify-center py-12 text-center flex-1">
-				<div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-					<Tags class="w-8 h-8 text-gray-400" />
-				</div>
-				<h3 class="text-lg font-medium text-gray-900 mb-2">No skills found</h3>
-				<p class="text-sm text-gray-500 mb-6">
-					{#if searchTerm}
-						Try adjusting your search terms
-					{:else}
-						Get started by creating your first skill
-					{/if}
-				</p>
-				{#if !searchTerm}
-					<Button on:click={() => (dialogOpen = true)}>Add Your First Skill</Button>
+				{#if !g.category.archivedAt}
+					<Button variant="ghost" size="sm" on:click={() => openAdd(g.category.id)}>+ Add skill</Button>
 				{/if}
 			</div>
-		{/if}
-	</div>
+			{#if g.skills.length === 0}
+				<p class="px-4 py-3 text-sm text-muted-foreground">No skills yet.</p>
+			{:else}
+				<ul class="divide-y">
+					{#each g.skills as s, i (s.id)}
+						<li class="flex flex-wrap items-center gap-3 px-4 py-2" class:opacity-60={!!s.archivedAt}>
+							<div class="flex flex-col">
+								<form method="POST" action="?/reorder" use:enhance>
+									{#each movedOrder(g.skills, s.id, -1) as id}<input type="hidden" name="orderedIds" value={id} />{/each}
+									<button type="submit" disabled={i === 0 || !!searchTerm} class="disabled:opacity-30" aria-label="Move up">
+										<ArrowUp class="h-3 w-3" />
+									</button>
+								</form>
+								<form method="POST" action="?/reorder" use:enhance>
+									{#each movedOrder(g.skills, s.id, 1) as id}<input type="hidden" name="orderedIds" value={id} />{/each}
+									<button type="submit" disabled={i === g.skills.length - 1 || !!searchTerm} class="disabled:opacity-30" aria-label="Move down">
+										<ArrowDown class="h-3 w-3" />
+									</button>
+								</form>
+							</div>
+							<div class="flex-1 min-w-[10rem] flex items-center gap-2">
+								<span>{s.name}</span>
+								{#if s.requiresCertificate}
+									<span class="pill pill-outline gap-1"><FileBadge class="h-3 w-3" /> Certificate required</span>
+								{/if}
+								{#if s.archivedAt}<span class="pill pill-secondary">Archived</span>{/if}
+							</div>
+							<div class="text-xs text-muted-foreground w-48">
+								{s.candidateCount} professional{s.candidateCount === 1 ? '' : 's'} ·
+								{s.requisitionCount} requisition{s.requisitionCount === 1 ? '' : 's'}
+							</div>
+							<div class="flex items-center gap-1">
+								<Button variant="ghost" size="sm" on:click={() => openEdit(s)} aria-label="Edit">
+									<Edit class="h-4 w-4" />
+								</Button>
+								<form method="POST" action="?/setArchived" use:enhance>
+									<input type="hidden" name="id" value={s.id} />
+									<input type="hidden" name="archived" value={s.archivedAt ? 'false' : 'true'} />
+									<Button type="submit" variant="ghost" size="sm" aria-label={s.archivedAt ? 'Restore' : 'Archive'}>
+										{#if s.archivedAt}<ArchiveRestore class="h-4 w-4" />{:else}<Archive class="h-4 w-4" />{/if}
+									</Button>
+								</form>
+								{#if s.candidateCount === 0 && s.requisitionCount === 0}
+									<form method="POST" action="?/deleteSkill" use:enhance>
+										<input type="hidden" name="id" value={s.id} />
+										<Button type="submit" variant="destructive" size="sm" aria-label="Delete">
+											<Trash size={16} />
+										</Button>
+									</form>
+								{/if}
+							</div>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+	{/each}
 </section>
+
+<Dialog.Root bind:open={dialogOpen}>
+	<Dialog.Content class="sm:max-w-[440px]">
+		<form
+			method="POST"
+			action={editing ? '?/editSkill' : '?/addSkill'}
+			use:enhance={() => {
+				saving = true;
+				return async ({ result, update }) => {
+					saving = false;
+					if (result.type === 'success') dialogOpen = false;
+					await update();
+				};
+			}}
+		>
+			<Dialog.Header>
+				<Dialog.Title>{editing ? 'Edit Skill' : 'Add New Skill'}</Dialog.Title>
+			</Dialog.Header>
+			{#if editing}<input type="hidden" name="id" value={editing.id} />{/if}
+			<div class="space-y-4 py-4">
+				<div class="space-y-1">
+					<label for="skill-name" class="text-sm font-medium">Name</label>
+					<Input id="skill-name" name="name" bind:value={formName} required maxlength={80} />
+				</div>
+				<div class="space-y-1">
+					<label for="skill-category" class="text-sm font-medium">Category</label>
+					<select
+						id="skill-category"
+						name="categoryId"
+						bind:value={formCategoryId}
+						required
+						class="w-full border rounded-md px-2 py-2 text-sm bg-white"
+					>
+						{#each categories as c (c.id)}
+							<option value={c.id} disabled={!!c.archivedAt && c.id !== editing?.categoryId}>
+								{c.name}{c.archivedAt ? ' (archived)' : ''}
+							</option>
+						{/each}
+					</select>
+				</div>
+				<label class="flex items-start gap-2 text-sm">
+					<input
+						type="checkbox"
+						name="requiresCertificate"
+						bind:checked={formRequiresCertificate}
+						class="mt-1"
+					/>
+					<span>
+						Requires a certificate
+						<span class="block text-xs text-muted-foreground">
+							The professional must upload a dated certificate linked to this skill. It stops
+							counting for matching once that certificate expires.
+						</span>
+					</span>
+				</label>
+			</div>
+			<Dialog.Footer>
+				<Button variant="destructiveOutline" type="button" on:click={() => (dialogOpen = false)}>
+					Cancel
+				</Button>
+				<Button type="submit" class="bg-primary hover:bg-primary/90" disabled={saving}>
+					{#if saving}<Loader2 class="mr-2 h-4 w-4 animate-spin" />{/if}
+					{editing ? 'Save' : 'Add Skill'}
+				</Button>
+			</Dialog.Footer>
+		</form>
+	</Dialog.Content>
+</Dialog.Root>
+
+<style>
+	.pill {
+		display: inline-flex;
+		align-items: center;
+		border-radius: 9999px;
+		border-width: 1px;
+		padding: 0 0.5rem;
+		font-size: 0.75rem;
+		line-height: 1.25rem;
+		font-weight: 500;
+	}
+	.pill-outline {
+		border-color: rgb(229 231 235);
+		color: rgb(55 65 81);
+	}
+	.pill-secondary {
+		border-color: transparent;
+		background: rgb(243 244 246);
+		color: rgb(75 85 99);
+	}
+</style>

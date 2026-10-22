@@ -7,8 +7,9 @@ export type MatchApplication = { id: string; status: string | null; source: stri
 
 /**
  * Keep professionals open to permanent work (PERMANENT, BOTH, or never answered),
- * flag whether each meets the req's experience level, attach any existing
- * application on this req, and sort qualified-first then nearest.
+ * flag whether each meets the req's experience level (and carries through whether
+ * they meet its skill requirements), attach any existing application on this req,
+ * and sort fully-qualified first, then by fewest shortfalls, then nearest.
  */
 export function annotateAndSortMatches<
 	C extends {
@@ -16,26 +17,34 @@ export function annotateAndSortMatches<
 		workPreference: string | null;
 		experienceLevelOrder: number | null;
 		distance: string | number | null;
+		/** From getQualifiedProfessionalsForRequisition; absent = no skill requirements. */
+		meetsSkillRequirements?: boolean;
 	}
 >(
 	candidates: C[],
 	requiredExperienceOrder: number | null | undefined,
 	applicationsByCandidate: Map<string, MatchApplication>
 ) {
-	return candidates
-		// Unknown values fall through to BOTH inside the helper, so the cast is safe.
-		.filter((c) => wantsPermanentWork(c.workPreference as StoredWorkPreference))
-		.map((c) => ({
-			...c,
-			meetsExperience:
-				requiredExperienceOrder == null ||
-				(c.experienceLevelOrder ?? -Infinity) >= requiredExperienceOrder,
-			application: applicationsByCandidate.get(c.candidateId) ?? null
-		}))
-		.sort((a, b) => {
-			if (a.meetsExperience !== b.meetsExperience) return a.meetsExperience ? -1 : 1;
-			return Number(a.distance ?? Infinity) - Number(b.distance ?? Infinity);
-		});
+	return (
+		candidates
+			// Unknown values fall through to BOTH inside the helper, so the cast is safe.
+			.filter((c) => wantsPermanentWork(c.workPreference as StoredWorkPreference))
+			.map((c) => ({
+				...c,
+				meetsExperience:
+					requiredExperienceOrder == null ||
+					(c.experienceLevelOrder ?? -Infinity) >= requiredExperienceOrder,
+				meetsSkillRequirements: c.meetsSkillRequirements ?? true,
+				application: applicationsByCandidate.get(c.candidateId) ?? null
+			}))
+			.sort((a, b) => {
+				const shortfalls = (m: { meetsExperience: boolean; meetsSkillRequirements: boolean }) =>
+					(m.meetsExperience ? 0 : 1) + (m.meetsSkillRequirements ? 0 : 1);
+				const diff = shortfalls(a) - shortfalls(b);
+				if (diff !== 0) return diff;
+				return Number(a.distance ?? Infinity) - Number(b.distance ?? Infinity);
+			})
+	);
 }
 
 export type RecommendationCheck = {

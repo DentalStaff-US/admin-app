@@ -12,6 +12,8 @@ import {
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { credentialSelectFields } from '$lib/server/certifications/credentialGateSql';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
+import { getSkillRequirements } from '$lib/server/skills/requisitionSkills';
+import { getEffectiveSkillIdsForCandidate } from '$lib/server/skills/effectiveSkills';
 import { wantsPermanentWork } from '$lib/server/workPreference';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { recordAction } from '$lib/server/audit/audit';
@@ -173,9 +175,13 @@ export const POST: RequestHandler = async ({ request }) => {
 				{
 					disciplineId: requisition.disciplineId,
 					experienceLevelOrder: requiredExperienceOrder,
-					hourlyRate: null
+					hourlyRate: null,
+					skillRequirements: await getSkillRequirements(requisition.id, tx)
 				},
-				{ enforceRate: false }
+				{
+					enforceRate: false,
+					heldSkillIds: await getEffectiveSkillIdsForCandidate(candidateProfile.id, tx)
+				}
 			);
 			if (!qualification.qualified) {
 				return json(
