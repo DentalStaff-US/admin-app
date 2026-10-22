@@ -155,7 +155,7 @@
 		extendedError = null;
 		try {
 			const res = await fetch(
-				`/api/requisitions/${requisition.id}/qualified-candidates?includeAllExperience=true&includeOutsidePayRange=true`
+				`/api/requisitions/${requisition.id}/qualified-candidates?includeAllExperience=true&includeOutsidePayRange=true&includeMissingSkills=true`
 			);
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const all: QualifiedPro[] = await res.json();

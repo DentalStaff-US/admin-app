@@ -22,6 +22,8 @@ import { disciplineTable, experienceLevelTable } from '$lib/server/database/sche
 import { credentialSelectFields } from '$lib/server/certifications/credentialGateSql';
 import { splitByCredentialEligibility } from '$lib/server/certifications/credentialStatus';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
+import { getSkillRequirementsForRequisitions } from '$lib/server/skills/requisitionSkills';
+import { getEffectiveSkillIdsForCandidate } from '$lib/server/skills/effectiveSkills';
 import { clientIsActiveCondition } from '$lib/server/clientStatusGuards';
 import { logger } from '$lib/server/logger';
 import { maskShiftRowForCandidate } from '$lib/server/privacy/clientIdentity';
@@ -347,13 +349,25 @@ export const GET: RequestHandler = async ({ request, url }) => {
 		// endpoint (a malformed shift with no rate would still match a
 		// candidate whose preferred minimum is 0). The apply gates use the
 		// helper without coercion and reject null rates outright.
+		// Skill requirements for every listed requisition and this professional's
+		// effective skills, loaded once rather than per shift.
+		const skillRequirementsByReq = await getSkillRequirementsForRequisitions(
+			recurrenceDays.map((shift) => shift.requisition.id)
+		);
+		const heldSkillIds = await getEffectiveSkillIdsForCandidate(candidateProfile.id);
+
 		const filteredRecurrenceDays = recurrenceDays.filter(
 			(shift) =>
-				checkCandidateQualified(eligibleDisciplines, {
-					disciplineId: shift.requisition.disciplineId,
-					experienceLevelOrder: shift.requisition.experienceLevelOrder,
-					hourlyRate: shift.requisition.hourlyRate ?? 0
-				}).qualified
+				checkCandidateQualified(
+					eligibleDisciplines,
+					{
+						disciplineId: shift.requisition.disciplineId,
+						experienceLevelOrder: shift.requisition.experienceLevelOrder,
+						hourlyRate: shift.requisition.hourlyRate ?? 0,
+						skillRequirements: skillRequirementsByReq.get(shift.requisition.id)
+					},
+					{ heldSkillIds }
+				).qualified
 		);
 
 		// Soonest date first, then nearest practice within that date.
@@ -396,7 +410,10 @@ export const GET: RequestHandler = async ({ request, url }) => {
 				considerBooked: false
 			});
 			if (result.available) return { shift, blocked: null as null | 'WEEKDAY' | 'DATE' };
-			return { shift, blocked: result.reason === 'weekday' ? ('WEEKDAY' as const) : ('DATE' as const) };
+			return {
+				shift,
+				blocked: result.reason === 'weekday' ? ('WEEKDAY' as const) : ('DATE' as const)
+			};
 		});
 
 		const hiddenByAvailability = availabilityAnnotated.filter((row) => row.blocked).length;

@@ -1,4 +1,5 @@
 import db from '$lib/server/database/drizzle';
+import { getSkillRequirementsForDisplay } from '$lib/server/skills/requisitionSkills';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import {
 	companyOfficeLocationTable,
@@ -152,9 +153,13 @@ export const GET: RequestHandler = async ({ request, params }) => {
 			metadata: { identityLocked: !unlocked, applicationId: application?.id ?? null }
 		});
 
+		// Not identifying, so shown whether or not the posting is unlocked.
+		const skillRequirements = (await getSkillRequirementsForDisplay([numId])).get(numId) ?? [];
+
 		if (!unlocked) {
 			return json({
 				...row,
+				skillRequirements,
 				title: null,
 				company: maskedCompany,
 				location: maskLocation(row.location, row.location?.id ?? `req-${row.id}`),
@@ -167,7 +172,12 @@ export const GET: RequestHandler = async ({ request, params }) => {
 			});
 		}
 
-		return json({ ...row, identityLocked: false, application: application ?? null });
+		return json({
+			...row,
+			skillRequirements,
+			identityLocked: false,
+			application: application ?? null
+		});
 	} catch (err) {
 		// Re-throw SvelteKit errors (404/400) as-is; only wrap unexpected throws.
 		if (err && typeof err === 'object' && 'status' in err && 'body' in err) throw err;

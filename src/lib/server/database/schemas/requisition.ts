@@ -25,7 +25,7 @@ import {
 	type ClientCompanySelect
 } from './client';
 import { candidateProfileTable, type CandidateProfileSelect } from './candidate';
-import { disciplineTable, experienceLevelTable } from './skill';
+import { disciplineTable, experienceLevelTable, skillCategoryTable, skillTable } from './skill';
 import { userTable } from './auth';
 import { sql } from 'drizzle-orm/sql';
 import type Stripe from 'stripe';
@@ -113,6 +113,51 @@ export const requisitionTable = pgTable('requisitions', {
 	referenceTimezone: text('reference_timezone').notNull().default('America/New_York'),
 	purchaseOrderNumber: text('purchase_order_number')
 });
+
+/**
+ * How a requisition's chosen skills in ONE category must be met:
+ *   ALL — the professional holds every chosen skill in the category (exact).
+ *   ANY — at least one of them.
+ * A category with NO row for the requisition is "No Preference" and never filters.
+ */
+export const skillMatchModeEnum = pgEnum('skill_match_mode', ['ALL', 'ANY']);
+
+export const requisitionSkillCategoryTable = pgTable(
+	'requisition_skill_categories',
+	{
+		requisitionId: integer('requisition_id')
+			.notNull()
+			.references(() => requisitionTable.id, { onDelete: 'cascade' }),
+		categoryId: text('category_id')
+			.notNull()
+			.references(() => skillCategoryTable.id, { onDelete: 'restrict' }),
+		matchMode: skillMatchModeEnum('match_mode').notNull().default('ALL')
+	},
+	(t) => ({
+		pk: primaryKey({ columns: [t.requisitionId, t.categoryId] })
+	})
+);
+
+/**
+ * The skills chosen for a requisition. Every row's skill must belong to a category
+ * that has a requisition_skill_categories row for the same requisition — enforced
+ * on write (setRequisitionSkillRequirements), not by constraint.
+ */
+export const requisitionSkillTable = pgTable(
+	'requisition_skills',
+	{
+		requisitionId: integer('requisition_id')
+			.notNull()
+			.references(() => requisitionTable.id, { onDelete: 'cascade' }),
+		skillId: text('skill_id')
+			.notNull()
+			.references(() => skillTable.id, { onDelete: 'restrict' })
+	},
+	(t) => ({
+		pk: primaryKey({ columns: [t.requisitionId, t.skillId] }),
+		skillIdx: index('requisition_skills_skill_idx').on(t.skillId)
+	})
+);
 
 export const recurrenceDayTable = pgTable(
 	'recurrence_days',
@@ -602,12 +647,8 @@ export const requisitionCommentTable = pgTable(
 	'requisition_comments',
 	{
 		id: text('id').notNull().primaryKey(),
-		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-			.notNull()
-			.defaultNow(),
-		updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
-			.notNull()
-			.defaultNow(),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
 		requisitionId: integer('requisition_id')
 			.notNull()
 			.references(() => requisitionTable.id, { onDelete: 'cascade', onUpdate: 'cascade' }),

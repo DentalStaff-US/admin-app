@@ -47,7 +47,9 @@ describe('certification gate', () => {
 		// Enforcement follows the requirement: an optional credential someone
 		// volunteered must not cost them work when it lapses. This is also the
 		// per-discipline kill switch.
-		const d = discipline({ license: { required: false, expiresOn: '2020-01-01', graceStartedOn: null } });
+		const d = discipline({
+			license: { required: false, expiresOn: '2020-01-01', graceStartedOn: null }
+		});
 		expect(checkCandidateQualified([d], requisition(), opts)).toEqual({ qualified: true });
 	});
 
@@ -64,7 +66,9 @@ describe('certification gate', () => {
 	});
 
 	it('blocks the day after expiry with reason "certification"', () => {
-		const d = discipline({ license: { required: true, expiresOn: '2026-04-29', graceStartedOn: null } });
+		const d = discipline({
+			license: { required: true, expiresOn: '2026-04-29', graceStartedOn: null }
+		});
 		const r = checkCandidateQualified([d], requisition(), opts);
 		expect(r).toMatchObject({ qualified: false, reason: 'license' });
 		expect(r).toHaveProperty('message', expect.stringContaining('expired'));
@@ -79,7 +83,11 @@ describe('certification gate', () => {
 			preferredHourlyMin: 80,
 			preferredHourlyMax: 90
 		});
-		const r = checkCandidateQualified([d], requisition({ experienceLevelOrder: 5, hourlyRate: 50 }), opts);
+		const r = checkCandidateQualified(
+			[d],
+			requisition({ experienceLevelOrder: 5, hourlyRate: 50 }),
+			opts
+		);
 		expect(r).toMatchObject({ qualified: false, reason: 'license' });
 	});
 
@@ -104,9 +112,9 @@ describe('certification gate', () => {
 describe('experience gate (regression — unchanged behaviour)', () => {
 	it('passes when the requisition has no required level', () => {
 		const d = discipline({ experienceLevelOrder: 0 });
-		expect(
-			checkCandidateQualified([d], requisition({ experienceLevelOrder: null }), opts)
-		).toEqual({ qualified: true });
+		expect(checkCandidateQualified([d], requisition({ experienceLevelOrder: null }), opts)).toEqual(
+			{ qualified: true }
+		);
 	});
 
 	it('is reductive: candidate order must be >= required', () => {
@@ -156,9 +164,55 @@ describe('enforceRate', () => {
 	});
 
 	it('still applies the certification gate when rate is skipped', () => {
-		const d = discipline({ license: { required: true, expiresOn: '2026-04-29', graceStartedOn: null } });
+		const d = discipline({
+			license: { required: true, expiresOn: '2026-04-29', graceStartedOn: null }
+		});
 		expect(
-			checkCandidateQualified([d], requisition({ hourlyRate: null }), { ...opts, enforceRate: false })
+			checkCandidateQualified([d], requisition({ hourlyRate: null }), {
+				...opts,
+				enforceRate: false
+			})
 		).toMatchObject({ qualified: false, reason: 'license' });
+	});
+});
+
+describe('skills gate', () => {
+	const reqs = [
+		{ categoryId: 'cat-software', matchMode: 'ANY' as const, skillIds: ['dentrix', 'eaglesoft'] }
+	];
+
+	it('passes a requisition with no skill requirements regardless of held skills', () => {
+		expect(checkCandidateQualified([discipline()], requisition(), opts)).toEqual({
+			qualified: true
+		});
+	});
+
+	it('passes when the candidate holds what the requisition requires', () => {
+		const r = checkCandidateQualified([discipline()], requisition({ skillRequirements: reqs }), {
+			...opts,
+			heldSkillIds: new Set(['eaglesoft'])
+		});
+		expect(r).toEqual({ qualified: true });
+	});
+
+	it('rejects with reason "skills" and the shortfall when requirements are not met', () => {
+		const r = checkCandidateQualified([discipline()], requisition({ skillRequirements: reqs }), {
+			...opts,
+			heldSkillIds: new Set()
+		});
+		expect(r).toMatchObject({
+			qualified: false,
+			reason: 'skills',
+			missingSkills: [{ categoryId: 'cat-software', matchMode: 'ANY' }]
+		});
+	});
+
+	it('is checked after experience, so the experience reason still wins', () => {
+		const r = checkCandidateQualified(
+			[discipline({ experienceLevelOrder: 1 })],
+			requisition({ experienceLevelOrder: 3, skillRequirements: reqs }),
+			opts
+		);
+		expect(r).toMatchObject({ qualified: false, reason: 'experience' });
 	});
 });

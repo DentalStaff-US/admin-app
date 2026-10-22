@@ -1,5 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
+	setRequisitionSkillRequirements,
+	SkillRequirementError
+} from '$lib/server/skills/requisitionSkills';
+import type { SkillRequirementCategory } from '$lib/server/skills/skillRequirements';
+import {
 	and,
 	asc,
 	count,
@@ -755,46 +760,89 @@ export async function getRequsitionsForLocation(locationId: string) {
 		.where(and(eq(requisitionTable.locationId, locationId), eq(requisitionTable.archived, false)));
 }
 
-export async function createRequisition(values: Requisition, userId: string) {
+/**
+ * `skillRequirements` are written in the same transaction as the requisition.
+ * Omit (or []) for No Preference everywhere. A SkillRequirementError (bad pick) is
+ * rethrown for the action to show; anything else is a 500 as before.
+ */
+export async function createRequisition(
+	values: Requisition,
+	userId: string,
+	skillRequirements: SkillRequirementCategory[] = []
+) {
 	try {
-		const [result] = await db.insert(requisitionTable).values(values).returning();
-		await writeActionHistory({
-			table: 'REQUISITIONS',
-			userId,
-			action: 'CREATE',
-			entityId: result.id.toString(),
-			afterState: result
+		return await db.transaction(async (tx) => {
+			const [result] = await tx.insert(requisitionTable).values(values).returning();
+			const skills = await setRequisitionSkillRequirements(
+				result.id,
+				result.disciplineId,
+				skillRequirements,
+				tx
+			);
+			await writeActionHistory({
+				table: 'REQUISITIONS',
+				userId,
+				action: 'CREATE',
+				entityId: result.id.toString(),
+				afterState: { ...result, skillRequirements: skills.after },
+				tx
+			});
+			return result;
 		});
-
-		return result;
 	} catch (err) {
+		if (err instanceof SkillRequirementError) throw err;
 		console.error('Error creating requisition', err);
 		return error(500, 'Error creating requisition');
 	}
 }
 
+/**
+ * `skillRequirements` undefined = leave them as they are (status-only edits and
+ * every older caller). An array replaces them — [] clears to No Preference.
+ */
 export async function updateRequisition(
 	requisitionId: number,
 	values: UpdateRequisition,
-	userId: string
+	userId: string,
+	skillRequirements?: SkillRequirementCategory[]
 ) {
 	try {
-		const [result] = await db
-			.update(requisitionTable)
-			.set({ ...values, updatedAt: new Date() })
-			.where(eq(requisitionTable.id, requisitionId))
-			.returning();
+		return await db.transaction(async (tx) => {
+			const [result] = await tx
+				.update(requisitionTable)
+				.set({ ...values, updatedAt: new Date() })
+				.where(eq(requisitionTable.id, requisitionId))
+				.returning();
 
-		await writeActionHistory({
-			table: 'REQUISITIONS',
-			userId,
-			action: 'UPDATE',
-			entityId: result.id.toString(),
-			afterState: result
+			const skills =
+				skillRequirements !== undefined
+					? await setRequisitionSkillRequirements(
+							result.id,
+							result.disciplineId,
+							skillRequirements,
+							tx
+						)
+					: null;
+
+			await writeActionHistory({
+				table: 'REQUISITIONS',
+				userId,
+				action: 'UPDATE',
+				entityId: result.id.toString(),
+				afterState: skills ? { ...result, skillRequirements: skills.after } : result,
+				...(skills
+					? {
+							beforeState: { skillRequirements: skills.before },
+							metadata: { skillRequirementsChanged: true }
+						}
+					: {}),
+				tx
+			});
+
+			return result;
 		});
-
-		return result;
 	} catch (err) {
+		if (err instanceof SkillRequirementError) throw err;
 		console.error('Error updating requisition', err);
 		return error(500, 'Error updating requisition');
 	}

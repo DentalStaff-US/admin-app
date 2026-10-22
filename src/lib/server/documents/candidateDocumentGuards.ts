@@ -37,7 +37,9 @@ export type DocumentEditDecision =
  * A wrong `disciplineId` is the same class of mistake: a certificate attached to the
  * wrong Experience & Rates entry silently proves nothing.
  */
-export const CREDENTIAL_METADATA_FIELDS = ['expiryDate', 'disciplineId'] as const;
+// `skillId` likewise: a CPR card linked to the wrong skill (or not yet linked) must be
+// fixable after approval, because skill certificates gate matching the same way.
+export const CREDENTIAL_METADATA_FIELDS = ['expiryDate', 'disciplineId', 'skillId'] as const;
 
 /** Types a DESIGNATE_CREDENTIAL intent may set. Never away from these. */
 const DESIGNATABLE_TYPES = ['LICENSE', 'CERTIFICATE'] as const;

@@ -24,6 +24,11 @@ import {
 } from '$lib/server/database/queries/requisitions';
 import { parseRequisitionListFilter } from '$lib/server/requisitions/unbilled';
 import { error, fail, redirect, type RequestEvent } from '@sveltejs/kit';
+import {
+	parseSkillRequirementsInput,
+	type SkillRequirementCategory
+} from '$lib/server/skills/skillRequirements';
+import { SkillRequirementError } from '$lib/server/skills/requisitionSkills';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { message, superValidate } from 'sveltekit-superforms/server';
 
@@ -168,7 +173,14 @@ export const actions = {
 			return message(form, msg, { status: 400 });
 		}
 
-		const newRequisition = await createRequisition(
+		const skills = await parseSkillsOrFail(event, formData, adminRequisitionSchema);
+		if (!skills.ok) return skills.response;
+
+		const newRequisition = await createSkillAwareRequisition(
+			event,
+			formData,
+			adminRequisitionSchema,
+			skills.value,
 			{
 				createdAt: new Date(),
 				updatedAt: new Date(),
@@ -187,11 +199,10 @@ export const actions = {
 			},
 			user.id
 		);
+		if (!newRequisition.ok) return newRequisition.response;
 
-		if (newRequisition) {
-			setFlash({ type: 'success', message: 'New Requisition Created.' }, event);
-			return redirect(302, `/requisitions/${newRequisition.id}`);
-		}
+		setFlash({ type: 'success', message: 'New Requisition Created.' }, event);
+		return redirect(302, `/requisitions/${newRequisition.value.id}`);
 	},
 	client: async (event: RequestEvent) => {
 		const user = event.locals.user;
@@ -253,7 +264,14 @@ export const actions = {
 		const timezone = formData.get('timezone') as string;
 		const purchaseOrderNumber = formData.get('purchaseOrderNumber') as string;
 
-		const newRequisition = await createRequisition(
+		const skills = await parseSkillsOrFail(event, formData, clientRequisitionSchema);
+		if (!skills.ok) return skills.response;
+
+		const newRequisition = await createSkillAwareRequisition(
+			event,
+			formData,
+			clientRequisitionSchema,
+			skills.value,
 			{
 				createdAt: new Date(),
 				updatedAt: new Date(),
@@ -271,10 +289,50 @@ export const actions = {
 			},
 			user.id
 		);
+		if (!newRequisition.ok) return newRequisition.response;
 
-		if (newRequisition) {
-			setFlash({ type: 'success', message: 'New Requisition Created.' }, event);
-			return redirect(302, `/requisitions/${newRequisition.id}`);
-		}
+		setFlash({ type: 'success', message: 'New Requisition Created.' }, event);
+		return redirect(302, `/requisitions/${newRequisition.value.id}`);
 	}
 };
+
+type Outcome<T> = { ok: true; value: T } | { ok: false; response: ReturnType<typeof message> };
+
+/**
+ * The `skillRequirements` field from SkillRequirementsPicker. Malformed input fails
+ * the submit rather than silently posting a requisition with no requirements —
+ * returned as a superform message, like the billing gate, so the drawer un-sticks.
+ */
+async function parseSkillsOrFail(
+	event: RequestEvent,
+	formData: FormData,
+	schema: typeof adminRequisitionSchema | typeof clientRequisitionSchema
+): Promise<Outcome<SkillRequirementCategory[]>> {
+	try {
+		return { ok: true, value: parseSkillRequirementsInput(formData.get('skillRequirements')) };
+	} catch {
+		const msg = 'The skill requirements could not be read. Please re-select them and try again.';
+		setFlash({ type: 'error', message: msg }, event);
+		const form = await superValidate(formData, schema);
+		return { ok: false, response: message(form, msg, { status: 400 }) };
+	}
+}
+
+/** createRequisition, turning a bad skill pick into a form message instead of a 500. */
+async function createSkillAwareRequisition(
+	event: RequestEvent,
+	formData: FormData,
+	schema: typeof adminRequisitionSchema | typeof clientRequisitionSchema,
+	skillRequirements: SkillRequirementCategory[],
+	values: Parameters<typeof createRequisition>[0],
+	userId: string
+): Promise<Outcome<Awaited<ReturnType<typeof createRequisition>>>> {
+	try {
+		return { ok: true, value: await createRequisition(values, userId, skillRequirements) };
+	} catch (e) {
+		if (!(e instanceof SkillRequirementError)) throw e;
+		setFlash({ type: 'error', message: e.message }, event);
+		const form = await superValidate(formData, schema);
+		return { ok: false, response: message(form, e.message, { status: 400 }) };
+	}
+}

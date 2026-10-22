@@ -149,10 +149,7 @@ export type CompanyLocationSchema = typeof clientCompanyLocationSchema;
 // jobs from everyone holding it. An unchecked checkbox submits nothing at all, which
 // arrives as undefined and takes the `false` default.
 const requiresLicense = z
-	.preprocess(
-		(v) => (typeof v === 'string' ? v === 'true' || v === 'on' : Boolean(v)),
-		z.boolean()
-	)
+	.preprocess((v) => (typeof v === 'string' ? v === 'true' || v === 'on' : Boolean(v)), z.boolean())
 	.default(false);
 
 export const newDisciplineSchema = z.object({
@@ -185,7 +182,7 @@ export const newCategorySchema = z.object({
 	name: z.string()
 });
 
-export type NewCategorySchema = typeof newSkillSchema;
+export type NewCategorySchema = typeof newCategorySchema;
 
 export const deleteCategorySchema = z.object({
 	id: z.string()
@@ -493,10 +490,7 @@ export const CANDIDATE_DOCUMENT_TYPES = [
  */
 const credentialExpiry = z
 	.string()
-	.regex(
-		/^\d{4}-\d{2}-\d{2}(T.*)?$/,
-		'Expiration date must be a calendar date (YYYY-MM-DD).'
-	)
+	.regex(/^\d{4}-\d{2}-\d{2}(T.*)?$/, 'Expiration date must be a calendar date (YYYY-MM-DD).')
 	.nullable()
 	.optional();
 
@@ -508,6 +502,9 @@ const credentialExpiry = z
  */
 const credentialDisciplineId = z.string().min(1).nullable().optional();
 
+/** The skill a CERTIFICATE evidences (e.g. CPR/BLS). See validateSkillCredentialLink. */
+const credentialSkillId = z.string().min(1).nullable().optional();
+
 export const candidateDocumentUploadSchema = z.object({
 	type: z.enum(CANDIDATE_DOCUMENT_TYPES).optional(),
 	filename: z.string().optional(),
@@ -516,6 +513,7 @@ export const candidateDocumentUploadSchema = z.object({
 	createdAt: z.date().optional(),
 	expiryDate: credentialExpiry,
 	disciplineId: credentialDisciplineId,
+	skillId: credentialSkillId,
 	filesData: z
 		.array(
 			z.object({
@@ -525,7 +523,8 @@ export const candidateDocumentUploadSchema = z.object({
 				// certificate instead of everything landing as OTHER.
 				type: z.enum(CANDIDATE_DOCUMENT_TYPES).optional(),
 				expiryDate: credentialExpiry,
-				disciplineId: credentialDisciplineId
+				disciplineId: credentialDisciplineId,
+				skillId: credentialSkillId
 			})
 		)
 		.optional()
@@ -689,6 +688,8 @@ export const documentUrlSchema = z.object({
 	// Plain optional strings, NOT `.or(z.literal(''))`: superforms cannot resolve a
 	// union when coercing form-encoded data, so the value silently never arrives.
 	documentDisciplineId: z.string().optional(),
+	/** Set when an admin files a CERTIFICATE as the evidence for a skill (e.g. CPR). */
+	documentSkillId: z.string().optional(),
 	documentExpiryDate: z
 		.string()
 		.optional()

@@ -28,4 +28,10 @@ export type ProfessionalSearchResult = {
 	 */
 	unavailableDates: Array<{ date: string; reason: 'blackout' | 'weekday' | 'booked' }>;
 	isUnavailable: boolean;
+	/**
+	 * False when the professional misses one of the requisition's skill
+	 * requirements. A WARNING, never a filter — this is the assign-anyone override.
+	 * Absent/true when the requisition has no skill requirements.
+	 */
+	meetsSkillRequirements?: boolean;
 };
