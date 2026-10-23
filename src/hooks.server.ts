@@ -9,9 +9,12 @@ import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 import { USER_ROLES } from '$lib/config/constants';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { logger } from '$lib/server/logger';
+import { installConsoleGuard } from '$lib/server/consoleGuard';
 import { isBotScanPath } from '$lib/server/noise';
 import type { AppUser } from '$lib/server/auth';
 import { captureReferralSafely } from '$lib/server/affiliate/capture';
+
+installConsoleGuard();
 
 export const handleError: HandleServerError = async ({ error, event, status }) => {
 	const errorId = crypto.randomUUID();

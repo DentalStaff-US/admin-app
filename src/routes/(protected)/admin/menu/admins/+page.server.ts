@@ -58,7 +58,6 @@ export const actions = {
 			return fail(400, { form });
 		}
 
-		console.log('Form data is valid:', form.data);
 
 		try {
 			const { email } = form.data;

@@ -127,7 +127,6 @@ export const actions = {
 			expiresAt: expiresAt
 		};
 
-		console.log({ form, data });
 	},
 	removeStaff: async (event: RequestEvent) => {
 		// TODO: Revoke any existing invites

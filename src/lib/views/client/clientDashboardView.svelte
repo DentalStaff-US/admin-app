@@ -46,7 +46,6 @@
 	}
 
 	$: clientForm = data.clientForm as SuperValidated<ClientRequisitionSchema> | null;
-	$: console.log({ data });
 	$: requisitions = data.requisitions;
 	$: newApplicationsCount = data.newApplicationsCount;
 	$: timesheetsDueCount = data.timesheetsDueCount;

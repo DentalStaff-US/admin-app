@@ -49,7 +49,6 @@
 	$: isAdmin = user?.role === USER_ROLES.SUPERADMIN;
 
 	$: {
-		console.log('Timesheets data:', timesheets);
 	}
 
 	// Helper function to validate timesheet and check for discrepancies

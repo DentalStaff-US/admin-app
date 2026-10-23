@@ -590,7 +590,6 @@ export async function getRequisitionDetailsForAdmin(id: number) {
 			.where(and(eq(recurrenceDayTable.requisitionId, id), eq(recurrenceDayTable.archived, false)))
 			.orderBy(asc(recurrenceDayTable.date));
 
-		console.log({ requisition, applications, timesheets, recurrenceDays });
 		return { requisition, applications, timesheets, recurrenceDays };
 	} catch (err) {
 		console.error(err);

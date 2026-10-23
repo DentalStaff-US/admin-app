@@ -21,7 +21,6 @@
 		resetForm: true,
 		clearOnSubmit: 'message',
 		onResult: async ({ result }) => {
-			console.log({ result });
 			if (result.type === 'success') {
 				await tick();
 				scrollToBottom();
