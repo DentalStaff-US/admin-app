@@ -95,6 +95,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (event.url.pathname === '/api/webhooks/twilio/sms') {
 		return await resolve(event, { transformPageChunk: ({ html }) => html });
 	}
+
+	// Public job board (consumed anonymously by the marketing site). No session
+	// lookup: these responses are cacheable and identical for every caller, and
+	// resolving a cookie here would only add a DB round-trip per anonymous hit.
+	// Kill switch, CORS and rate limiting live in $lib/server/publicJobs/http.
+	if (pathname.startsWith('/api/public/')) {
+		return await resolve(event);
+	}
 	const startTimer = Date.now();
 	event.locals.startTimer = startTimer;
 

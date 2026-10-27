@@ -79,6 +79,11 @@ export const recurrenceDayStatusEnum = pgEnum('workday_status_enum', [
 
 export const requisitionTable = pgTable('requisitions', {
 	id: serial('id').notNull().primaryKey(),
+	// Opaque, non-enumerable id for the public job board (/api/public/jobs/*).
+	// The serial `id` must never leave the authenticated apps — it leaks volume
+	// and lets anyone walk every posting. Existing rows are backfilled by the
+	// column DEFAULT when the migration runs.
+	publicId: uuid('public_id').notNull().defaultRandom().unique(),
 	createdAt: timestamp('created_at', {
 		withTimezone: true,
 		mode: 'date'
