@@ -13,6 +13,11 @@
 	 * presenting that to a client as though DTSS had verified it would be a liability,
 	 * so it is labelled self-declared and has no document to open.
 	 *
+	 * Skills sit below the credentials: the requisition's skill requirements (met or
+	 * missing — a professional only gets here missing one if an admin assigned them
+	 * past the filter), then every skill on their profile. A skill that needs a
+	 * certificate shows its state and, when on file, the certificate itself.
+	 *
 	 * Files open through /api/credentials/[id]/download, which re-checks that the
 	 * viewer owns this requisition and returns a 15-minute signed URL. Never link
 	 * `uploadUrl`: that is a permanent public CDN address.
@@ -45,6 +50,26 @@
 			selfDeclared: true;
 			document: { id: string; filename: string | null } | null;
 		};
+		skills?: {
+			requirements: {
+				categoryId: string;
+				categoryName: string;
+				matchMode: 'ALL' | 'ANY';
+				met: boolean;
+				skills: { id: string; name: string; held: boolean }[];
+			}[];
+			meetsRequirements: boolean;
+			held: {
+				skillId: string;
+				name: string;
+				categoryName: string;
+				requiresCertificate: boolean;
+				certState: CertState;
+				certExpiresOn: string | null;
+				effective: boolean;
+				document: { id: string; filename: string | null } | null;
+			}[];
+		};
 	} | null = null;
 
 	/** Recurrence day id — scopes the download authorisation to this workday. */
@@ -61,17 +86,31 @@
 		: null;
 	$: showLicense = credential && credential.license.state !== 'NOT_REQUIRED';
 	$: showCert = credential && credential.certification.state !== 'NOT_REQUIRED';
+	$: skills = credential?.skills ?? { requirements: [], meetsRequirements: true, held: [] };
+	$: showSkills = skills.requirements.length > 0 || skills.held.length > 0;
+	$: requiredSkillIds = new Set(skills.requirements.flatMap((r) => r.skills.map((x) => x.id)));
+	/** A required skill whose certificate has lapsed is as loud as a lapsed license. */
+	$: skillsAlarming =
+		!skills.meetsRequirements ||
+		skills.held.some((h) => requiredSkillIds.has(h.skillId) && bad(h.certState));
 	$: alarming =
-		credential && (bad(credential.license.state) || bad(credential.certification.state));
+		credential &&
+		(bad(credential.license.state) || bad(credential.certification.state) || skillsAlarming);
 
-	/** Open by default; collapsible to reclaim the space once it has been read. */
-	let expanded = true;
+	/** Closed by default — the one-line summary (and red border when something has
+	 *  lapsed) still says what matters; open it for the detail. */
+	let expanded = false;
 
 	/** One-line summary for the collapsed state, so closing it still says something. */
 	$: summary = credential
 		? [
 				showLicense ? `License/Registration: ${stateWord(credential.license.state)}` : null,
-				showCert ? `Certification: ${stateWord(credential.certification.state)}` : null
+				showCert ? `Certification: ${stateWord(credential.certification.state)}` : null,
+				skills.requirements.length > 0
+					? `Skills: ${skills.meetsRequirements ? 'meets requirements' : 'missing required skills'}`
+					: skills.held.length > 0
+						? `Skills: ${skills.held.length} on file`
+						: null
 			]
 				.filter(Boolean)
 				.join(' · ')
@@ -85,7 +124,7 @@
 	}
 </script>
 
-{#if credential && (showLicense || showCert)}
+{#if credential && (showLicense || showCert || showSkills)}
 	<div class="rounded-lg border p-4 {alarming ? 'border-red-200 bg-red-50' : 'bg-white'}">
 		<button
 			type="button"
@@ -95,7 +134,9 @@
 		>
 			<span class="min-w-0">
 				<span class="block text-sm font-medium">
-					{credential.disciplineName} ({credential.abbreviation}) credentials — {credential.candidateName}
+					{credential.disciplineName} ({credential.abbreviation}) credentials{showSkills
+						? ' & skills'
+						: ''} — {credential.candidateName}
 				</span>
 				{#if !expanded}
 					<span
@@ -229,6 +270,92 @@
 						<Download class="mr-2 h-4 w-4" />
 						View
 					</Button>
+				{/if}
+			</div>
+		{/if}
+
+		{#if showSkills}
+			<div class="mt-3 border-t pt-3 {showLicense || showCert ? '' : 'border-t-0 pt-0'}">
+				<div class="flex items-center gap-2">
+					{#if skillsAlarming}
+						<AlertCircle class="h-4 w-4 flex-shrink-0 text-red-600" />
+					{:else}
+						<CheckCircle2 class="h-4 w-4 flex-shrink-0 text-green-600" />
+					{/if}
+					<span class="text-sm font-medium">Skills</span>
+				</div>
+
+				{#if skills.requirements.length > 0}
+					<p class="mt-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+						Required for this position
+					</p>
+					<ul class="mt-1 space-y-1">
+						{#each skills.requirements as r (r.categoryId)}
+							<li class="text-sm text-gray-700">
+								<span class="font-medium">{r.categoryName}</span>
+								<span class="text-xs text-gray-500">({r.matchMode === 'ALL' ? 'all of' : 'any of'})</span>:
+								{#each r.skills as x, i (x.id)}
+									<span class={x.held ? 'text-green-700' : 'text-red-700'}
+										>{x.held ? '✓' : '✗'} {x.name}</span
+									>{i < r.skills.length - 1 ? ', ' : ''}
+								{/each}
+							</li>
+						{/each}
+					</ul>
+					{#if !skills.meetsRequirements}
+						<p class="mt-2 text-sm font-medium text-red-700">
+							This professional does not meet every skill requirement on this position.
+						</p>
+					{/if}
+				{/if}
+
+				{#if skills.held.length > 0}
+					<p class="mt-3 text-xs font-medium uppercase tracking-wide text-gray-500">On profile</p>
+					<ul class="mt-1 space-y-2">
+						{#each skills.held as h (h.skillId)}
+							<li class="flex items-start justify-between gap-4">
+								<div class="min-w-0 flex-1">
+									<p class="text-sm text-gray-700">
+										{h.name}
+										<span class="text-xs text-gray-500">· {h.categoryName}</span>
+										{#if requiredSkillIds.has(h.skillId)}
+											<span class="ml-1 rounded-full bg-blue-50 px-1.5 text-[11px] text-blue-700">required</span>
+										{/if}
+									</p>
+									{#if h.requiresCertificate}
+										<p class="text-xs {bad(h.certState) ? 'font-medium text-red-700' : 'text-gray-600'}">
+											{#if h.certState === 'MISSING'}
+												Certificate required — none on file.
+											{:else if h.certState === 'EXPIRED'}
+												Certificate expired {formatCertDate(h.certExpiresOn)}.
+											{:else}
+												Certificate valid through {formatCertDate(h.certExpiresOn)}.
+											{/if}
+										</p>
+										{#if h.document?.filename}
+											<p class="mt-0.5 flex items-center gap-1 text-xs text-gray-500">
+												<FileText class="h-3 w-3" />
+												{h.document.filename}
+											</p>
+										{/if}
+									{/if}
+								</div>
+								{#if h.document}
+									<Button
+										href={`/api/credentials/${h.document.id}/download?workdayId=${workdayId}`}
+										target="_blank"
+										rel="noopener noreferrer"
+										variant="outline"
+										size="sm"
+										class="flex-shrink-0"
+									>
+										<Download class="mr-2 h-4 w-4" />
+										View
+									</Button>
+								{/if}
+							</li>
+						{/each}
+					</ul>
 				{/if}
 			</div>
 		{/if}

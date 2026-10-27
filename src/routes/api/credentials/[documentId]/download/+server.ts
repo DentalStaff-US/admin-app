@@ -1,7 +1,10 @@
 import { error, redirect, type RequestHandler } from '@sveltejs/kit';
 import { and, eq } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
-import { candidateDocumentUploadsTable } from '$lib/server/database/schemas/candidate';
+import {
+	candidateDocumentUploadsTable,
+	candidateSkillTable
+} from '$lib/server/database/schemas/candidate';
 import {
 	recurrenceDayTable,
 	requisitionTable,
@@ -9,7 +12,10 @@ import {
 } from '$lib/server/database/schemas/requisition';
 import { USER_ROLES } from '$lib/config/constants';
 import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
-import { getClientProfilebyUserId, getClientProfileByStaffUserId } from '$lib/server/database/queries/clients';
+import {
+	getClientProfilebyUserId,
+	getClientProfileByStaffUserId
+} from '$lib/server/database/queries/clients';
 import { getClientCompanyByClientId } from '$lib/server/database/queries/clients';
 import { assertCanAccessLocation } from '$lib/server/scoping';
 import { getSignedDownloadUrl } from '$lib/server/uploads';
@@ -31,9 +37,12 @@ import { logger } from '$lib/server/logger';
  * pre-existing problem. This endpoint is careful not to widen it.)
  *
  * Authorisation, all of which must hold:
- *   - the document is a LICENSE/CERTIFICATE linked to a discipline;
+ *   - the document is EITHER a LICENSE/CERTIFICATE linked to a discipline, OR a
+ *     CERTIFICATE linked to a skill (e.g. CPR/BLS);
  *   - `workdayId` names a workday the document's owner is actually assigned to;
- *   - that workday's requisition is for the SAME discipline the document evidences;
+ *   - discipline documents: that workday's requisition is for the SAME discipline;
+ *     skill certificates: the owner still claims that skill (the workday panel
+ *     lists every skill on the assigned professional's profile);
  *   - the caller is an admin, or the client/staff who owns that requisition.
  */
 export const GET: RequestHandler = async ({ params, url, locals }) => {
@@ -49,6 +58,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 			id: candidateDocumentUploadsTable.id,
 			candidateId: candidateDocumentUploadsTable.candidateId,
 			disciplineId: candidateDocumentUploadsTable.disciplineId,
+			skillId: candidateDocumentUploadsTable.skillId,
 			type: candidateDocumentUploadsTable.type,
 			uploadUrl: candidateDocumentUploadsTable.uploadUrl,
 			filename: candidateDocumentUploadsTable.filename
@@ -59,11 +69,10 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 
 	// Same 404 for "no such document" and "not a credential", so this cannot be used
 	// to probe which document ids exist.
-	if (
-		!doc ||
-		!doc.disciplineId ||
-		!(LINKABLE_CREDENTIAL_TYPES as readonly string[]).includes(doc.type)
-	) {
+	const isDisciplineCredential =
+		!!doc?.disciplineId && (LINKABLE_CREDENTIAL_TYPES as readonly string[]).includes(doc.type);
+	const isSkillCertificate = !!doc?.skillId && doc.type === 'CERTIFICATE';
+	if (!doc || (!isDisciplineCredential && !isSkillCertificate)) {
 		throw error(404, 'Not found');
 	}
 
@@ -85,8 +94,21 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 		)
 		.limit(1);
 
-	if (!assignment || assignment.disciplineId !== doc.disciplineId) {
-		throw error(404, 'Not found');
+	if (!assignment) throw error(404, 'Not found');
+	if (isDisciplineCredential) {
+		if (assignment.disciplineId !== doc.disciplineId) throw error(404, 'Not found');
+	} else {
+		const [claimed] = await db
+			.select({ skillId: candidateSkillTable.skillId })
+			.from(candidateSkillTable)
+			.where(
+				and(
+					eq(candidateSkillTable.candidateId, doc.candidateId),
+					eq(candidateSkillTable.skillId, doc.skillId!)
+				)
+			)
+			.limit(1);
+		if (!claimed) throw error(404, 'Not found');
 	}
 
 	// Admins always; otherwise the requesting client must own this requisition.
