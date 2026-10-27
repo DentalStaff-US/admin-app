@@ -69,7 +69,6 @@
             }
 
             const data = await response.json();
-            console.log('Raw API response:', data);
 
             const results = data.features?.map((feature: any) => {
                 const props = feature.properties;
@@ -111,7 +110,6 @@
                 };
             }) || [];
 
-            console.log('Processed results:', results);
             return results;
         } catch (error) {
             console.error("Error fetching addresses:", error);
@@ -137,7 +135,6 @@
         try {
             console.log('Calling searchAddresses...');
             suggestions = await searchAddresses(searchQuery);
-            console.log('Search completed, got', suggestions.length, 'results:', suggestions);
             updateDropdownPosition();
         } catch (error) {
             console.error('Search error:', error);

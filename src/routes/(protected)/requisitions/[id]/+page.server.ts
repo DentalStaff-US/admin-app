@@ -677,7 +677,6 @@ export const actions = {
 			// Convert the day to UTC format
 			const utcDay = convertRecurrenceDayToUTC(day, requisition.requisition.referenceTimezone);
 
-			console.log('utc day data', utcDay);
 
 			const values = {
 				id: crypto.randomUUID(),

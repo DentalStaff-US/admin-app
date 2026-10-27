@@ -9,9 +9,12 @@ import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 import { USER_ROLES } from '$lib/config/constants';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { logger } from '$lib/server/logger';
+import { installConsoleGuard } from '$lib/server/consoleGuard';
 import { isBotScanPath } from '$lib/server/noise';
 import type { AppUser } from '$lib/server/auth';
 import { captureReferralSafely } from '$lib/server/affiliate/capture';
+
+installConsoleGuard();
 
 export const handleError: HandleServerError = async ({ error, event, status }) => {
 	const errorId = crypto.randomUUID();
@@ -91,6 +94,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// the form body reaches the handler untouched, like the Stripe webhook above.
 	if (event.url.pathname === '/api/webhooks/twilio/sms') {
 		return await resolve(event, { transformPageChunk: ({ html }) => html });
+	}
+
+	// Public job board (consumed anonymously by the marketing site). No session
+	// lookup: these responses are cacheable and identical for every caller, and
+	// resolving a cookie here would only add a DB round-trip per anonymous hit.
+	// Kill switch, CORS and rate limiting live in $lib/server/publicJobs/http.
+	if (pathname.startsWith('/api/public/')) {
+		return await resolve(event);
 	}
 	const startTimer = Date.now();
 	event.locals.startTimer = startTimer;

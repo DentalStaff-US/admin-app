@@ -242,7 +242,6 @@
 			}
 
 			const data = await response.json();
-			console.log('Status response:', data);
 
 			// Handle both the wrapped and direct response formats
 			if (data.type === 'success') {
@@ -273,7 +272,6 @@
 			}
 
 			const data = await response.json();
-			console.log(`${action} response:`, data);
 
 			// Handle both response formats
 			let resultData = data.type === 'success' ? data.data : data;
@@ -507,7 +505,6 @@
 							importing = true;
 							return async ({ result, update }) => {
 								importing = false;
-								console.log({ result });
 								if (result.type === 'success' && result.data) {
 									importResult = result.data;
 									// Clear the preview but keep the import result

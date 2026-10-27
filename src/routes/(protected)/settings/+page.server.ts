@@ -231,7 +231,6 @@ export const actions = {
 			if (isForUser) {
 				console.log('updating user avatar');
 				const result = await updateUser(user.id, { avatarUrl: url });
-				console.log({ result });
 			} else {
 				let clientId;
 
@@ -497,7 +496,6 @@ export const actions = {
 	sendClientStaffInvites: async (event) => {
 		// Log the raw form data first
 		const formData = await event.request.formData();
-		console.log('Raw form data:', Object.fromEntries(formData));
 
 		// Parse the invitees from the form data
 		const rawInvitees = formData.get('invitees');

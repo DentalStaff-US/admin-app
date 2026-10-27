@@ -39,7 +39,6 @@
 
 	const { form, errors, submitting, enhance } = superForm<AdminNewUserSchema>(newProfileForm, {
 		onResult: ({ result }) => {
-			console.log('Form result:', result);
 			if (result.type === 'success') {
 				addDialogOpen = false;
 				// // Optionally reload the page or refresh data

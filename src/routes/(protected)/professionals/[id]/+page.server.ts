@@ -242,7 +242,6 @@ export const actions = {
 			console.log('Form validation failed:', form.errors);
 			return fail(400, { form });
 		}
-		console.log('Form data:', form.data);
 		const { email, lastName, firstName, birthday, cellPhone, workersCompCode, workPreference } =
 			form.data;
 
