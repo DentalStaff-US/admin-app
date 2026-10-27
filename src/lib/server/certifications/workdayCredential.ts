@@ -8,6 +8,11 @@
  *
  * Scope is deliberately narrow: the ASSIGNED professional, the requisition's OWN
  * discipline, one workday. Never their whole credential wallet, never anyone else.
+ *
+ * Skills ride along (the practice chose them as requirements, so it must be able to
+ * check them): the requisition's skill requirements with met/missing per skill, the
+ * professional's other skills by name, and — for skills that need one — the
+ * certificate in force, openable through the same signed download.
  */
 
 import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm';
@@ -20,7 +25,11 @@ import {
 } from '$lib/server/database/schemas/candidate';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { userTable } from '$lib/server/database/schemas/auth';
-import { recurrenceDayTable, requisitionTable, workdayTable } from '$lib/server/database/schemas/requisition';
+import {
+	recurrenceDayTable,
+	requisitionTable,
+	workdayTable
+} from '$lib/server/database/schemas/requisition';
 import {
 	CERT_EVIDENCE_DOC_TYPES,
 	LICENSE_DOC_TYPES,
@@ -30,6 +39,36 @@ import {
 	type CertState
 } from './credentialStatus';
 import { credentialExpiryToISODate } from './credentialLink';
+import { getCandidateSkills } from '$lib/server/skills/effectiveSkills';
+import { getSkillRequirementsForDisplay } from '$lib/server/skills/requisitionSkills';
+import { checkSkillRequirements, type SkillMatchMode } from '$lib/server/skills/skillRequirements';
+
+export type WorkdaySkill = {
+	skillId: string;
+	name: string;
+	categoryName: string;
+	requiresCertificate: boolean;
+	/** NOT_REQUIRED when the skill takes no certificate. */
+	certState: CertState;
+	certExpiresOn: string | null;
+	/** Counts for matching: claimed, and certificate valid where one is required. */
+	effective: boolean;
+	document: { id: string; filename: string | null; uploadedAt: Date } | null;
+};
+
+export type WorkdaySkills = {
+	/** The requisition's requirements; empty = No Preference everywhere. */
+	requirements: {
+		categoryId: string;
+		categoryName: string;
+		matchMode: SkillMatchMode;
+		met: boolean;
+		skills: { id: string; name: string; held: boolean }[];
+	}[];
+	meetsRequirements: boolean;
+	/** Everything on the professional's profile, required or not. */
+	held: WorkdaySkill[];
+};
 
 export type WorkdayCredential = {
 	candidateId: string;
@@ -58,6 +97,7 @@ export type WorkdayCredential = {
 		selfDeclared: true;
 		document: { id: string; filename: string | null; uploadedAt: Date } | null;
 	};
+	skills: WorkdaySkills;
 };
 
 /**
@@ -71,6 +111,7 @@ export async function getWorkdayCredential(
 	const [assigned] = await db
 		.select({
 			candidateId: workdayTable.candidateId,
+			requisitionId: requisitionTable.id,
 			firstName: userTable.firstName,
 			lastName: userTable.lastName,
 			disciplineId: requisitionTable.disciplineId,
@@ -98,8 +139,19 @@ export async function getWorkdayCredential(
 		.limit(1);
 
 	if (!assigned || !assigned.disciplineId) return null;
-	// Nothing to show when neither track applies to this discipline.
-	if (!assigned.requiresLicense && !assigned.requiresCert) return null;
+
+	const skills = await getWorkdaySkills(assigned.candidateId, assigned.requisitionId);
+
+	// Nothing to show when neither track applies to this discipline and there are no
+	// skills to speak of either.
+	if (
+		!assigned.requiresLicense &&
+		!assigned.requiresCert &&
+		skills.held.length === 0 &&
+		skills.requirements.length === 0
+	) {
+		return null;
+	}
 
 	// The LICENSE in force for that discipline, matching the gate's MAX(expiry_date):
 	// the furthest-future document wins, even if an older one was uploaded more
@@ -199,6 +251,88 @@ export async function getWorkdayCredential(
 			document: certDoc
 				? { id: certDoc.id, filename: certDoc.filename, uploadedAt: certDoc.uploadedAt }
 				: null
-		}
+		},
+		skills
+	};
+}
+
+async function getWorkdaySkills(
+	candidateId: string,
+	requisitionId: number
+): Promise<WorkdaySkills> {
+	const [held, requirementsByReq] = await Promise.all([
+		getCandidateSkills(candidateId),
+		getSkillRequirementsForDisplay([requisitionId])
+	]);
+
+	// The certificate in force per skill: furthest-future dated CERTIFICATE linked to
+	// it, the same MAX rule the matching gate uses.
+	const certSkillIds = held.filter((h) => h.requiresCertificate).map((h) => h.skillId);
+	const docs = certSkillIds.length
+		? await db
+				.select({
+					id: candidateDocumentUploadsTable.id,
+					skillId: candidateDocumentUploadsTable.skillId,
+					filename: candidateDocumentUploadsTable.filename,
+					uploadedAt: candidateDocumentUploadsTable.createdAt
+				})
+				.from(candidateDocumentUploadsTable)
+				.where(
+					and(
+						eq(candidateDocumentUploadsTable.candidateId, candidateId),
+						inArray(candidateDocumentUploadsTable.skillId, certSkillIds),
+						eq(candidateDocumentUploadsTable.type, 'CERTIFICATE'),
+						isNotNull(candidateDocumentUploadsTable.expiryDate)
+					)
+				)
+				.orderBy(desc(candidateDocumentUploadsTable.expiryDate))
+		: [];
+	const docBySkill = new Map<string, (typeof docs)[number]>();
+	for (const d of docs) if (d.skillId && !docBySkill.has(d.skillId)) docBySkill.set(d.skillId, d);
+
+	const today = todayInET();
+	const heldSkills: WorkdaySkill[] = held.map((h) => {
+		const doc = docBySkill.get(h.skillId) ?? null;
+		return {
+			skillId: h.skillId,
+			name: h.name,
+			categoryName: h.categoryName,
+			requiresCertificate: h.requiresCertificate,
+			certState: credentialState(
+				{ required: h.requiresCertificate, expiresOn: h.certExpiresOn, graceStartedOn: null },
+				today
+			),
+			certExpiresOn: h.certExpiresOn,
+			effective: h.effective,
+			document: doc ? { id: doc.id, filename: doc.filename, uploadedAt: doc.uploadedAt } : null
+		};
+	});
+
+	// Met/missing via the matching rule itself, so this panel can never disagree with
+	// who was allowed to be matched.
+	const effective = new Set(heldSkills.filter((h) => h.effective).map((h) => h.skillId));
+	const display = requirementsByReq.get(requisitionId) ?? [];
+	const failing = new Set(
+		checkSkillRequirements(
+			display.map((r) => ({
+				categoryId: r.categoryId,
+				matchMode: r.matchMode,
+				skillIds: r.skills.map((x) => x.id)
+			})),
+			effective
+		).missing.map((m) => m.categoryId)
+	);
+	const requirements = display.map((r) => ({
+		categoryId: r.categoryId,
+		categoryName: r.categoryName,
+		matchMode: r.matchMode,
+		met: !failing.has(r.categoryId),
+		skills: r.skills.map((x) => ({ id: x.id, name: x.name, held: effective.has(x.id) }))
+	}));
+
+	return {
+		requirements,
+		meetsRequirements: requirements.every((r) => r.met),
+		held: heldSkills
 	};
 }
