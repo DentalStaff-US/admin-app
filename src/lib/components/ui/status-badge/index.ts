@@ -52,7 +52,12 @@ const STATUS_KIND: Record<string, StatusKind> = {
 	CANCELLED: 'neutral',
 	INACTIVE: 'neutral',
 	DRAFT: 'neutral',
-	draft: 'neutral'
+	draft: 'neutral',
+	// Compliance severities (src/lib/config/compliance.ts).
+	CRITICAL: 'negative',
+	BLOCKED: 'negative',
+	ACTION: 'warning',
+	WATCH: 'pending'
 };
 
 const KIND_CLASS: Record<StatusKind, string> = {

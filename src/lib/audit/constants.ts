@@ -29,7 +29,10 @@ export const AUDIT_ACTIONS = [
 	'SIGN_IN',
 	'SIGN_OUT',
 	'IMPERSONATE_START',
-	'IMPERSONATE_STOP'
+	'IMPERSONATE_STOP',
+	'REMIND',
+	'SNOOZE',
+	'UNSNOOZE'
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -76,7 +79,10 @@ export const ACTION_LABELS: Record<AuditAction, string> = {
 	SIGN_IN: 'signed in',
 	SIGN_OUT: 'signed out',
 	IMPERSONATE_START: 'started impersonating',
-	IMPERSONATE_STOP: 'stopped impersonating'
+	IMPERSONATE_STOP: 'stopped impersonating',
+	REMIND: 'sent a compliance reminder to',
+	SNOOZE: 'snoozed a compliance item for',
+	UNSNOOZE: 'un-snoozed a compliance item for'
 };
 
 /** Human label for an entity type, singular. */

@@ -1852,6 +1852,44 @@ export async function notifyLicenseGraceExpired(args: {
 }
 
 /**
+ * A required license is missing — sent on demand from the admin Compliance page.
+ * Email only, like the fortnightly missing-credential nudge it mirrors; the caller
+ * starts the grace clock first so `deadline` is real. Never throws.
+ */
+export async function notifyLicenseMissing(args: {
+	email: string;
+	firstName: string | null;
+	disciplineName: string;
+	abbreviation: string;
+	/** 'YYYY-MM-DD' — when the grace period ends. */
+	deadline: string;
+}): Promise<void> {
+	const label = 'licenseMissing';
+	try {
+		const uploadUrl = `${CANDIDATE_APP_DOMAIN}/settings/documents`;
+		await dispatch(label, [
+			safeEmail(label, args.email, () => {
+				const t = EMAIL_TEMPLATES.licenseMissingEmail({
+					firstName: args.firstName ?? 'there',
+					disciplineName: args.disciplineName,
+					abbreviation: args.abbreviation,
+					deadline: fmtDate(args.deadline),
+					uploadUrl
+				});
+				return emailService.sendEmail({
+					to: [{ email: args.email }],
+					subject: t.subject,
+					html: t.htmlEmail,
+					text: t.textEmail
+				});
+			})
+		]);
+	} catch (error) {
+		console.error(`[transactional:${label}] top-level error:`, error);
+	}
+}
+
+/**
  * New comment on a requisition's shared thread — email the other side.
  *
  *   - internal (admin-only) note → nobody; it must never reach the client.

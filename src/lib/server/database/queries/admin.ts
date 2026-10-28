@@ -42,6 +42,10 @@ import { error } from '@sveltejs/kit';
 import { disciplineTable } from '../schemas/skill';
 import { parseCompleteAddress } from '$lib/server/address';
 import { unbilledPlacementCondition } from '$lib/server/requisitions/unbilled';
+import { getShiftPipelineSummary } from '$lib/server/dashboard/shiftPipeline';
+import { emptyPipelineSummary, type PipelineRange } from '$lib/server/dashboard/shiftValueRule';
+import { getComplianceSummary } from '$lib/server/compliance/queries';
+import { emptyComplianceSummary } from '$lib/server/compliance/complianceRule';
 import type { DisciplineSummary } from '$lib/_helpers/professional-filters';
 
 // The ledger writer lives in $lib/server/audit; re-exported here so the
@@ -847,7 +851,10 @@ export async function getInvoicesDuePreview(limit: number): Promise<InvoiceWithR
 		company: row.clientCompany
 	}));
 }
-export async function getAdminDashboardData() {
+export async function getAdminDashboardData(
+	options: { pipelineRange?: PipelineRange } = {}
+) {
+	const pipelineRange = options.pipelineRange ?? 'month';
 	const [
 		timesheetsDueCount,
 		supportTickets,
@@ -863,7 +870,9 @@ export async function getAdminDashboardData() {
 		wagesDueTotal,
 		wagesPaidCount,
 		wagesPaidTotal,
-		unbilledPermanentPlacementsCount
+		unbilledPermanentPlacementsCount,
+		shiftPipeline,
+		compliance
 	] = await Promise.all([
 		getTimesheetsDueCount().catch((e) => {
 			console.error('❌ getTimesheetsDueCount failed:', e.message);
@@ -924,6 +933,14 @@ export async function getAdminDashboardData() {
 		getUnbilledPermanentPlacementsCount().catch((e) => {
 			console.error('❌ getUnbilledPermanentPlacementsCount failed:', e.message);
 			return 0;
+		}),
+		getShiftPipelineSummary(pipelineRange).catch((e) => {
+			console.error('❌ getShiftPipelineSummary failed:', e.message);
+			return emptyPipelineSummary();
+		}),
+		getComplianceSummary().catch((e) => {
+			console.error('❌ getComplianceSummary failed:', e.message);
+			return emptyComplianceSummary();
 		})
 	]);
 
@@ -942,7 +959,10 @@ export async function getAdminDashboardData() {
 		wagesDueTotal,
 		wagesPaidCount,
 		wagesPaidTotal,
-		unbilledPermanentPlacementsCount
+		unbilledPermanentPlacementsCount,
+		shiftPipeline,
+		pipelineRange,
+		compliance
 	};
 }
 

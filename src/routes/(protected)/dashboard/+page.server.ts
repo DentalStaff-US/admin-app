@@ -19,6 +19,7 @@ import db from '$lib/server/database/drizzle';
 import { invoiceTable, requisitionTable } from '$lib/server/database/schemas/requisition';
 import { count, and, eq, lt, ne, sum, inArray } from 'drizzle-orm';
 import { getAdminDashboardData } from '$lib/server/database/queries/admin';
+import { parsePipelineRange } from '$lib/server/dashboard/shiftValueRule';
 import { adminRequisitionSchema, clientRequisitionSchema } from '$lib/config/zod-schemas';
 import { adminNewUserSchema } from '$lib/config/zod-schemas';
 
@@ -46,8 +47,13 @@ export const load = async (event: RequestEvent) => {
 			wagesDueTotal,
 			wagesPaidCount,
 			wagesPaidTotal,
-			unbilledPermanentPlacementsCount
-		} = await getAdminDashboardData();
+			unbilledPermanentPlacementsCount,
+			shiftPipeline,
+			pipelineRange,
+			compliance
+		} = await getAdminDashboardData({
+			pipelineRange: parsePipelineRange(event.url.searchParams.get('pipeline'))
+		});
 		const form = superValidate(event, adminRequisitionSchema);
 		const newProfileForm = await superValidate(event, adminNewUserSchema);
 
@@ -68,7 +74,10 @@ export const load = async (event: RequestEvent) => {
 			wagesDueTotal,
 			wagesPaidCount,
 			wagesPaidTotal,
-			unbilledPermanentPlacementsCount
+			unbilledPermanentPlacementsCount,
+			shiftPipeline,
+			pipelineRange,
+			compliance
 		};
 	}
 

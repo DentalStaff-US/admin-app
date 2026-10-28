@@ -1374,6 +1374,55 @@ If you believe this is a mistake, reply to this email and we will sort it out.
 		};
 	},
 
+	/**
+	 * A discipline legally requires a license and none is on file. Sent on demand from
+	 * the admin Compliance page; the fortnightly nudge carries the same message as a
+	 * campaign. `deadline` is when the 30-day grace runs out.
+	 */
+	licenseMissingEmail: (details: {
+		firstName: string;
+		disciplineName: string;
+		abbreviation: string;
+		deadline: string;
+		uploadUrl: string;
+	}) => {
+		const { firstName, disciplineName, abbreviation, deadline, uploadUrl } = details;
+
+		const textEmail = `
+Hi ${firstName},
+
+${disciplineName} (${abbreviation}) legally requires a current license or registration, and we do not have one on file for you yet.
+
+Please upload it by ${deadline}. After that, ${abbreviation} shifts will be hidden from your account until we have it — your other disciplines are not affected.
+
+Upload your license: ${uploadUrl}
+
+If you have already sent it to us, no action is needed.
+
+— Dental Temps Staffing Solutions
+        `.trim();
+
+		const htmlEmail = `
+            <p>Hi ${firstName},</p>
+            <p><strong>${disciplineName} (${abbreviation})</strong> legally requires a current license or registration, and we do not have one on file for you yet.</p>
+            <p>Please upload it by <strong>${deadline}</strong>. After that, ${abbreviation} shifts will be hidden from your account until we have it — your other disciplines are not affected.</p>
+            <p style="margin:24px 0;">
+              <a href="${uploadUrl}"
+                 style="background-color:#2a93d1;color:#ffffff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600;">
+                Upload your license
+              </a>
+            </p>
+            <p>If you have already sent it to us, no action is needed.</p>
+            <p style="color:#6b7280;font-size:13px;">— Dental Temps Staffing Solutions</p>
+        `.trim();
+
+		return {
+			textEmail,
+			htmlEmail,
+			subject: `Action needed: upload your ${abbreviation} license | ${APP_NAME}`
+		};
+	},
+
 	certExpiryDigestAdminEmail: (details: {
 		bookedWithExpired: Array<{ name: string; discipline: string; expiresOn: string; shiftDates: string; candidateId: string }>;
 		expired: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string }>;
