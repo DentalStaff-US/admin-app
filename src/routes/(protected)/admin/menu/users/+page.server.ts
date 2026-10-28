@@ -2,7 +2,11 @@ import { fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, RequestEvent } from './$types';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { USER_ROLES } from '$lib/config/constants';
-import { getPaginatedUsers, deleteAdminUser } from '$lib/server/database/queries/admin';
+import {
+	getPaginatedUsers,
+	deleteAdminUser,
+	UserHasRecordsError
+} from '$lib/server/database/queries/admin';
 import { auth } from '$lib/server/auth';
 import { startImpersonation } from '$lib/server/impersonation';
 
@@ -53,6 +57,10 @@ export const actions = {
 			setFlash({ type: 'success', message: 'User deleted' }, event);
 			return { success: true };
 		} catch (err) {
+			if (err instanceof UserHasRecordsError) {
+				setFlash({ type: 'error', message: err.message }, event);
+				return fail(409, { error: err.message });
+			}
 			console.error('deleteUser failed', err);
 			setFlash(
 				{

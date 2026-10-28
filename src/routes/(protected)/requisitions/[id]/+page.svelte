@@ -321,10 +321,13 @@
 			id: 'actions',
 			cell: (info) => {
 				const day = info.row.original;
+				// A started shift is a record — the server refuses to cancel or delete
+				// it (shiftLock.ts), so don't offer either.
+				const started = new Date(day.dayStart).getTime() <= Date.now();
 				return flexRender(WorkDayActionMenu, {
 					href: `/requisitions/${requisition.id}/workday/${day.id}`,
-					canCancel: hasRequisitionRights && day.status !== 'CANCELED',
-					canDelete: isAdmin,
+					canCancel: hasRequisitionRights && day.status !== 'CANCELED' && !started,
+					canDelete: isAdmin && !started,
 					onCancel: () => requestCancelRecurrenceDay(day),
 					onDelete: () => requestDeleteRecurrenceDay(day)
 				});

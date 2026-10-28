@@ -13,6 +13,10 @@ import {
 	stripWorkdayFromTimesheet
 } from '$lib/server/cancellations';
 import { logger } from '$lib/server/logger';
+import {
+	assertRecurrenceDaysUnlocked,
+	shiftLockedErrorMessage
+} from '$lib/server/requisitions/shiftLock';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -87,6 +91,18 @@ export const POST: RequestHandler = async ({ request, params }) => {
 							{ success: false, message: 'Workday has no recurrence day attached' },
 							{ status: 409, headers: corsHeaders }
 						)
+					};
+				}
+
+				// A started shift is a record — the candidate can't give it up after the fact.
+				try {
+					await assertRecurrenceDaysUnlocked(tx, [existingWorkday.recurrenceDayId], 'cancelled');
+				} catch (err) {
+					const locked = shiftLockedErrorMessage(err);
+					if (!locked) throw err;
+					return {
+						kind: 'response',
+						response: json({ success: false, message: locked }, { status: 409, headers: corsHeaders })
 					};
 				}
 

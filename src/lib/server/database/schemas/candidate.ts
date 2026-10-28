@@ -13,7 +13,8 @@ import {
 	integer,
 	index,
 	uniqueIndex,
-	check
+	check,
+	pgSequence
 } from 'drizzle-orm/pg-core';
 import { userTable } from './auth';
 import { disciplineTable, experienceLevelTable, skillTable } from './skill';
@@ -27,6 +28,18 @@ import { sql } from 'drizzle-orm';
  * platform's two listing paths: the temp shift board (recurrence days) and the
  * permanent openings board.
  */
+// Generates candidate_profiles.puid (the human-quotable professional number).
+// Declared so `drizzle-kit push` manages it instead of trying to DROP it — an
+// undeclared sequence is treated as stale. Options mirror the live sequence.
+export const puidSeq = pgSequence('puid_seq', {
+	startWith: 5000,
+	increment: 1,
+	minValue: 1,
+	maxValue: '9223372036854775807',
+	cache: 1,
+	cycle: false
+});
+
 export const candidateWorkPreferenceEnum = pgEnum('candidate_work_preference', [
 	'TEMP',
 	'PERMANENT',

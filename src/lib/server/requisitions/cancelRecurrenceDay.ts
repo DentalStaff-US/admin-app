@@ -26,6 +26,7 @@ import {
 	type CancellationRole
 } from '$lib/server/cancellations';
 import { notifyWorkdayDeleted } from '$lib/server/notifications/transactional';
+import { assertRecurrenceDaysUnlocked } from '$lib/server/requisitions/shiftLock';
 
 export interface CancelRecurrenceDayArgs {
 	recurrenceDayId: string;
@@ -48,6 +49,10 @@ export async function cancelRecurrenceDayInTx(
 	tx: any,
 	args: CancelRecurrenceDayArgs
 ): Promise<CancelRecurrenceDaySnapshot> {
+	// A started shift is a record — cancelling it would strip its hours off a
+	// timesheet that may already be invoiced or paid.
+	await assertRecurrenceDaysUnlocked(tx, [args.recurrenceDayId], 'cancelled');
+
 	// Capture the assigned candidate (if any) and the recurrence day times
 	// BEFORE we change anything, so the candidate-side notification has the
 	// data it needs.

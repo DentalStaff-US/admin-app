@@ -477,6 +477,13 @@
       "when": 1792790369340,
       "tag": "0067_spooky_synch",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1793157581831,
+      "tag": "0068_restrict_record_fks",
+      "breakpoints": true
     }
   ]
 }

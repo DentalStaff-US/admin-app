@@ -94,6 +94,10 @@ import { checkCandidateAvailableOnDates } from '$lib/server/availability/queries
 import { getActivityForEntity } from '$lib/server/audit/queries';
 import { resolveRequisitionAccess } from '$lib/server/requisitions/access';
 import { getRequisitionBilling } from '$lib/server/requisitions/billing';
+import {
+	assertRecurrenceDaysUnlocked,
+	shiftLockedErrorMessage
+} from '$lib/server/requisitions/shiftLock';
 import { resolveCommentInternal } from '$lib/server/requisitions/commentRules';
 import { getPermPotentialMatches } from '$lib/server/requisitions/matches';
 import {
@@ -664,7 +668,7 @@ export const actions = {
 			setFlash(
 				{
 					type: 'error',
-					message: 'Failed to create recurrence days'
+					message: shiftLockedErrorMessage(error) ?? 'Failed to create recurrence days'
 				},
 				event
 			);
@@ -775,7 +779,7 @@ export const actions = {
 			setFlash(
 				{
 					type: 'error',
-					message: 'Failed to edit recurrence day'
+					message: shiftLockedErrorMessage(error) ?? 'Failed to edit recurrence day'
 				},
 				request
 			);
@@ -845,7 +849,7 @@ export const actions = {
 			setFlash(
 				{
 					type: 'error',
-					message: 'Failed to delete recurrence day'
+					message: shiftLockedErrorMessage(error) ?? 'Failed to delete recurrence day'
 				},
 				request
 			);
@@ -1151,6 +1155,11 @@ export const actions = {
 			setFlash({ type: 'success', message: 'Workday cancelled' }, request);
 			return { success: true };
 		} catch (err) {
+			const locked = shiftLockedErrorMessage(err);
+			if (locked) {
+				setFlash({ type: 'error', message: locked }, request);
+				return fail(409, { error: locked });
+			}
 			logger.error('requisition cancel recurrence day failed', {
 				error: err,
 				recurrenceDayId
@@ -1178,6 +1187,18 @@ export const actions = {
 		}
 
 		const idAsNum = Number(request.params.id);
+		// Reopening a started shift un-records who worked it; UNFULFILLED (no-show)
+		// and FILLED corrections on past days stay allowed.
+		if (status === 'OPEN') {
+			try {
+				await assertRecurrenceDaysUnlocked(db, ids, 'reopened');
+			} catch (err) {
+				const locked = shiftLockedErrorMessage(err);
+				if (!locked) throw err;
+				setFlash({ type: 'error', message: locked }, request);
+				return fail(409, { error: locked });
+			}
+		}
 		await db.transaction(async (tx) => {
 			const before = await tx
 				.select({ id: recurrenceDayTable.id, status: recurrenceDayTable.status })
@@ -1227,19 +1248,30 @@ export const actions = {
 
 		// One transaction for the whole batch: either every day cancels or none
 		// does, so we never leave half the selection audited and half not.
-		const snapshots = await db.transaction(async (tx) => {
-			const collected: CancelRecurrenceDaySnapshot[] = [];
-			for (const id of ids) {
-				collected.push(
-					await cancelRecurrenceDayInTx(tx, {
-						recurrenceDayId: id,
-						actorUserId: user.id,
-						actorRole: user.role as CancellationRole
-					})
-				);
-			}
-			return collected;
-		});
+		let snapshots: CancelRecurrenceDaySnapshot[];
+		try {
+			snapshots = await db.transaction(async (tx) => {
+				// Check the whole selection up front so the message names every
+				// started shift, not just the first one the loop trips on.
+				await assertRecurrenceDaysUnlocked(tx, ids, 'cancelled');
+				const collected: CancelRecurrenceDaySnapshot[] = [];
+				for (const id of ids) {
+					collected.push(
+						await cancelRecurrenceDayInTx(tx, {
+							recurrenceDayId: id,
+							actorUserId: user.id,
+							actorRole: user.role as CancellationRole
+						})
+					);
+				}
+				return collected;
+			});
+		} catch (err) {
+			const locked = shiftLockedErrorMessage(err);
+			if (!locked) throw err;
+			setFlash({ type: 'error', message: locked }, request);
+			return fail(409, { error: locked });
+		}
 
 		// Notifications fire after the tx commits. The dispatcher swallows its own
 		// failures, so partial delivery doesn't roll back the cancel.
@@ -1279,6 +1311,17 @@ export const actions = {
 			.from(recurrenceDayTable)
 			.leftJoin(workdayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
 			.where(inArray(recurrenceDayTable.id, ids));
+
+		// Refuse the whole batch if any selected shift has started — checked up
+		// front so nothing is half-deleted. deleteRecurrenceDay re-checks per row.
+		try {
+			await assertRecurrenceDaysUnlocked(db, ids, 'deleted');
+		} catch (err) {
+			const locked = shiftLockedErrorMessage(err);
+			if (!locked) throw err;
+			setFlash({ type: 'error', message: locked }, request);
+			return fail(409, { error: locked });
+		}
 
 		// Reuse the per-row soft-delete helper so each delete is audit-logged.
 		for (const id of ids) {

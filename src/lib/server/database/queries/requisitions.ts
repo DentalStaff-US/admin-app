@@ -89,6 +89,12 @@ import { toZonedTime } from 'date-fns-tz';
 import { voidStripeInvoice } from '$lib/server/stripe';
 import { DEFAULT_MAX_RECORD_LIMIT } from '$lib/config/constants';
 import { logger } from '$lib/server/logger';
+import {
+	assertRecurrenceDayEditable,
+	assertRecurrenceDaysUnlocked,
+	ShiftLockedError
+} from '$lib/server/requisitions/shiftLock';
+import { isShiftLocked, shiftLockedMessage } from '$lib/server/requisitions/shiftLockRule';
 import type { InvoiceLineCategory } from '$lib/server/invoices/lineCategory';
 
 /**
@@ -942,6 +948,19 @@ export async function findOrReuseRecurrenceDay(
 				existing.slice().sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
 
 			if (reusable) {
+				// Reopening wipes the day's workdays. Once the shift has started those
+				// rows are the record of who worked it, so refuse rather than delete.
+				if (isShiftLocked(reusable.dayStart)) {
+					const [priorWorkday] = await tx
+						.select({ id: workdayTable.id })
+						.from(workdayTable)
+						.where(eq(workdayTable.recurrenceDayId, reusable.id))
+						.limit(1);
+					if (priorWorkday) {
+						throw new ShiftLockedError(shiftLockedMessage([reusable.date], 'reopened'));
+					}
+				}
+
 				const [row] = await tx
 					.update(recurrenceDayTable)
 					.set({
@@ -988,6 +1007,7 @@ export async function findOrReuseRecurrenceDay(
 			return { row, outcome: 'inserted' as const };
 		});
 	} catch (err) {
+		if (err instanceof ShiftLockedError) throw err;
 		console.error('Error creating/reusing recurrence day', err);
 		return error(500, 'Error creating recurrence day');
 	}
@@ -995,6 +1015,8 @@ export async function findOrReuseRecurrenceDay(
 
 export async function editRecurrenceDay(id: string, values: UpdateRecurrenceDay, userId: string) {
 	try {
+		await assertRecurrenceDayEditable(db, id);
+
 		const [existing] = await db
 			.select()
 			.from(recurrenceDayTable)
@@ -1018,12 +1040,15 @@ export async function editRecurrenceDay(id: string, values: UpdateRecurrenceDay,
 		return result;
 	} catch (error) {
 		console.error(error);
+		throw error;
 	}
 }
 
 export async function deleteRecurrenceDay(id: string, userId: string) {
 	try {
 		return await db.transaction(async (tx) => {
+			await assertRecurrenceDaysUnlocked(tx, [id], 'deleted');
+
 			const [original] = await tx
 				.select()
 				.from(recurrenceDayTable)
@@ -1067,6 +1092,7 @@ export async function deleteRecurrenceDay(id: string, userId: string) {
 		});
 	} catch (error) {
 		console.error('Error deleting recurrence day', error);
+		throw error;
 	}
 }
 
@@ -3332,16 +3358,22 @@ export async function revertTimesheetToPending(
 }
 
 /**
- * Hard-deletes a timesheet that has NO invoice. Disconnects its workdays
- * (set timesheetId = NULL) first so they survive and can regenerate a fresh
- * timesheet via the proactive linker / cron. Throws if an invoice is linked —
- * callers must use {@link voidTimesheetWithInvoice} in that case.
+ * Retires a timesheet that has NO invoice by setting it VOID — timesheets are
+ * never hard-deleted, so the row (and its hours_raw) stays as the record of what
+ * was submitted. Disconnects its workdays (set timesheetId = NULL) so they can
+ * regenerate a fresh DRAFT via the proactive linker / cron, which skips VOID
+ * sheets. Throws if an invoice is linked — callers must use
+ * {@link voidTimesheetWithInvoice} — or if the sheet is already settled.
  */
-export async function deleteTimesheet(timesheetId: string, userId: string) {
+export async function voidUninvoicedTimesheet(
+	timesheetId: string,
+	userId: string,
+	options: { reason?: string; byCandidate?: boolean } = {}
+) {
 	try {
 		const existingInvoice = await getInvoiceByTimesheetId(timesheetId);
 		if (existingInvoice) {
-			throw error(409, 'Timesheet has an invoice — void it instead of deleting');
+			throw error(409, 'Timesheet has an invoice — void it through the invoice instead');
 		}
 
 		return await db.transaction(async (tx) => {
@@ -3353,29 +3385,45 @@ export async function deleteTimesheet(timesheetId: string, userId: string) {
 			if (!original) {
 				throw error(404, 'Timesheet not found');
 			}
+			if (original.status === 'APPROVED' || original.status === 'VOID') {
+				throw error(409, 'Approved or voided timesheets cannot be removed');
+			}
+			if (original.wagesStatus === 'WAGES_PAID') {
+				throw error(409, 'Wages have been paid on this timesheet — it cannot be removed');
+			}
 
 			await tx
 				.update(workdayTable)
 				.set({ timesheetId: null, updatedAt: new Date() })
 				.where(eq(workdayTable.timesheetId, timesheetId));
 
-			await tx.delete(timeSheetTable).where(eq(timeSheetTable.id, timesheetId));
+			const [voided] = await tx
+				.update(timeSheetTable)
+				.set({ status: 'VOID', wagesStatus: null, updatedAt: new Date() })
+				.where(eq(timeSheetTable.id, timesheetId))
+				.returning();
 
 			await writeActionHistory({
 				table: 'TIMESHEETS',
 				userId,
-				action: 'DELETE',
+				action: options.byCandidate ? 'CANCEL' : 'VOID',
 				entityId: timesheetId,
 				beforeState: original,
-				metadata: { reason: 'timesheet_deleted', disconnectedWorkdays: true },
+				afterState: voided,
+				metadata: {
+					reason: options.reason ?? 'timesheet_removed',
+					requisitionId: original.requisitionId ?? null,
+					disconnectedWorkdays: true,
+					byCandidate: options.byCandidate ?? false
+				},
 				tx
 			});
 
-			return original;
+			return voided;
 		});
 	} catch (err) {
 		if (err && typeof err === 'object' && 'status' in err) throw err;
-		throw error(500, `Error deleting timesheet: ${err}`);
+		throw error(500, `Error voiding timesheet: ${err}`);
 	}
 }
 
