@@ -1005,7 +1005,7 @@ export const actions = {
 		if (!SIGNATURE_KINDS.includes(kind)) return fail(400, { error: 'Unknown document' });
 
 		try {
-			const { created } = await requestSignature({
+			const { created, request } = await requestSignature({
 				kind,
 				subjectId: event.params.id,
 				actorUserId: user.id
@@ -1013,7 +1013,9 @@ export const actions = {
 			setFlash(
 				created
 					? { type: 'success', message: 'Sent for signature' }
-					: { type: 'error', message: 'Already awaiting a signature — resend or cancel it instead' },
+					: request.status === 'PENDING'
+						? { type: 'success', message: 'Already being sent — refresh in a moment' }
+						: { type: 'error', message: 'Already awaiting a signature — nudge or cancel it instead' },
 				event
 			);
 			return { success: created };

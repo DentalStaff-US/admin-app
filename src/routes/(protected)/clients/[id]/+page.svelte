@@ -10,6 +10,7 @@
 	import { clientDocumentDownloadUrl } from '$lib/signatures/types';
 	import FileDropzone from '$lib/components/file-upload.svelte';
 	import { enhance as nativeEnhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 
 	// ShadcnUI Components
 	import { Button } from '$lib/components/ui/button';
@@ -310,6 +311,21 @@
 	// Reactive declarations
 	$: user = data.user;
 	$: isAdmin = user?.role === USER_ROLES.SUPERADMIN;
+
+	// Which agreement action is in flight ('send:<kind>', 'resend:<id>', 'cancel:<id>').
+	// Sending is two Documenso round-trips plus an email — several seconds — so every
+	// agreement button is disabled while any one of them runs.
+	let signatureBusy: string | null = null;
+	function signatureAction(key: string, confirmText?: string): SubmitFunction {
+		return ({ cancel }) => {
+			if (signatureBusy || (confirmText && !confirm(confirmText))) return cancel();
+			signatureBusy = key;
+			return async ({ update }) => {
+				await update();
+				signatureBusy = null;
+			};
+		};
+	}
 	$: client = data.client;
 	$: locations = data.client?.locations || [];
 	$: requisitions = data.requisitions || [];
@@ -2122,11 +2138,15 @@
 								<div class="flex flex-wrap justify-end gap-2">
 									{#each data.signatureKinds ?? [] as k (k.kind)}
 										{#if !(data.signatureRequests ?? []).some((r) => r.kind === k.kind && r.open)}
-											<form method="post" action="?/sendSignatureRequest" use:nativeEnhance>
+											<form
+												method="post"
+												action="?/sendSignatureRequest"
+												use:nativeEnhance={signatureAction(`send:${k.kind}`)}
+											>
 												<input type="hidden" name="kind" value={k.kind} />
-												<Button type="submit" size="sm" class="gap-1">
+												<Button type="submit" size="sm" class="gap-1" disabled={!!signatureBusy}>
 													<FileSignature class="h-4 w-4" />
-													Send {k.title}
+													{signatureBusy === `send:${k.kind}` ? 'Sending…' : `Send ${k.title}`}
 												</Button>
 											</form>
 										{/if}
@@ -2138,22 +2158,37 @@
 									<SignatureRequestList requests={data.signatureRequests} audience="admin">
 										<svelte:fragment slot="actions" let:request>
 											{#if request.open && request.status !== 'PENDING'}
-												<form method="post" action="?/resendSignatureRequest" use:nativeEnhance>
+												<form
+													method="post"
+													action="?/resendSignatureRequest"
+													use:nativeEnhance={signatureAction(`resend:${request.id}`)}
+												>
 													<input type="hidden" name="requestId" value={request.id} />
-													<Button type="submit" size="sm" variant="outline">
-														{request.status === 'AWAITING_COUNTERSIGN' ? 'Remind countersigner' : 'Nudge now'}
+													<Button type="submit" size="sm" variant="outline" disabled={!!signatureBusy}>
+														{signatureBusy === `resend:${request.id}`
+															? 'Sending…'
+															: request.status === 'AWAITING_COUNTERSIGN'
+																? 'Remind countersigner'
+																: 'Nudge now'}
 													</Button>
 												</form>
 												<form
 													method="post"
 													action="?/cancelSignatureRequest"
-													use:nativeEnhance={({ cancel }) => {
-														if (!confirm('Cancel this agreement? The signing link will stop working.')) cancel();
-													}}
+													use:nativeEnhance={signatureAction(
+														`cancel:${request.id}`,
+														'Cancel this agreement? The signing link will stop working.'
+													)}
 												>
 													<input type="hidden" name="requestId" value={request.id} />
-													<Button type="submit" size="sm" variant="ghost" class="text-destructive">
-														Cancel
+													<Button
+														type="submit"
+														size="sm"
+														variant="ghost"
+														class="text-destructive"
+														disabled={!!signatureBusy}
+													>
+														{signatureBusy === `cancel:${request.id}` ? 'Cancelling…' : 'Cancel'}
 													</Button>
 												</form>
 											{/if}
