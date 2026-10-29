@@ -91,6 +91,15 @@ export const SMS_TEMPLATES = {
 	/** The 30-day grace on a missing license has run out. */
 	licenseGraceExpiredNotification: (vars: { firstName: string; disciplineName: string }) => ({
 		textMessage: `${vars.firstName}, we still do not have your ${vars.disciplineName} license or registration on file, so those shifts are now hidden. Upload it in your profile to restore access.`
+	}),
+	/** E-signature request and its nudges. The link is the signer's personal Documenso link. */
+	signatureRequestNotification: (vars: {
+		firstName: string | null;
+		documentTitle: string;
+		signingUrl: string;
+		reminder: boolean;
+	}) => ({
+		textMessage: `${vars.firstName ? `${vars.firstName}, ` : ''}${vars.reminder ? 'reminder: ' : ''}your ${vars.documentTitle} from DTSS is ${vars.reminder ? 'still waiting for' : 'ready for'} your signature: ${vars.signingUrl}`
 	})
 } as const;
 

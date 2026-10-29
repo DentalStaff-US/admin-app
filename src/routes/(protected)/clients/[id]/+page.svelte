@@ -5,7 +5,9 @@
 	import ImpersonateButton from '$lib/components/admin/ImpersonateButton.svelte';
 	import type { PageData } from './$types';
 	import convertNameToInitials from '$lib/_helpers/convertNameToInitials';
-	import { Download, Lock, Unlock, MoreHorizontal, Trash } from 'lucide-svelte';
+	import { Download, Lock, Unlock, MoreHorizontal, Trash, FileSignature } from 'lucide-svelte';
+	import SignatureRequestList from '$lib/components/signatures/SignatureRequestList.svelte';
+	import { clientDocumentDownloadUrl } from '$lib/signatures/types';
 	import FileDropzone from '$lib/components/file-upload.svelte';
 	import { enhance as nativeEnhance } from '$app/forms';
 
@@ -2107,7 +2109,62 @@
 					</Card>
 				</TabsContent>
 				<!-- Documents Tab -->
-				<TabsContent value="documents" class="mt-6">
+				<TabsContent value="documents" class="mt-6 space-y-6">
+					{#if isAdmin}
+						<Card class="w-full max-w-none">
+							<CardHeader class="flex flex-row items-center justify-between gap-4">
+								<div>
+									<CardTitle>Agreements</CardTitle>
+									<p class="mt-1 text-sm text-muted-foreground">
+										Sent and tracked through Documenso. Signed copies are filed under Documents.
+									</p>
+								</div>
+								<div class="flex flex-wrap justify-end gap-2">
+									{#each data.signatureKinds ?? [] as k (k.kind)}
+										{#if !(data.signatureRequests ?? []).some((r) => r.kind === k.kind && r.open)}
+											<form method="post" action="?/sendSignatureRequest" use:nativeEnhance>
+												<input type="hidden" name="kind" value={k.kind} />
+												<Button type="submit" size="sm" class="gap-1">
+													<FileSignature class="h-4 w-4" />
+													Send {k.title}
+												</Button>
+											</form>
+										{/if}
+									{/each}
+								</div>
+							</CardHeader>
+							<CardContent>
+								{#if (data.signatureRequests ?? []).length > 0}
+									<SignatureRequestList requests={data.signatureRequests} audience="admin">
+										<svelte:fragment slot="actions" let:request>
+											{#if request.open && request.status !== 'PENDING'}
+												<form method="post" action="?/resendSignatureRequest" use:nativeEnhance>
+													<input type="hidden" name="requestId" value={request.id} />
+													<Button type="submit" size="sm" variant="outline">
+														{request.status === 'AWAITING_COUNTERSIGN' ? 'Remind countersigner' : 'Nudge now'}
+													</Button>
+												</form>
+												<form
+													method="post"
+													action="?/cancelSignatureRequest"
+													use:nativeEnhance={({ cancel }) => {
+														if (!confirm('Cancel this agreement? The signing link will stop working.')) cancel();
+													}}
+												>
+													<input type="hidden" name="requestId" value={request.id} />
+													<Button type="submit" size="sm" variant="ghost" class="text-destructive">
+														Cancel
+													</Button>
+												</form>
+											{/if}
+										</svelte:fragment>
+									</SignatureRequestList>
+								{:else}
+									<p class="text-sm text-muted-foreground">No agreements sent yet.</p>
+								{/if}
+							</CardContent>
+						</Card>
+					{/if}
 					<Card class="w-full max-w-none">
 						<CardHeader class="flex flex-row items-center justify-between">
 							<CardTitle>Documents</CardTitle>
@@ -2199,9 +2256,7 @@
 															<DropdownMenuItem>
 																<a
 																	class="flex items-center w-full"
-																	href={doc.uploadUrl}
-																	target="_blank"
-																	rel="noopener noreferrer"
+																	href={clientDocumentDownloadUrl(doc.id)}
 																>
 																	<Download class="h-4 w-4 mr-2" />
 																	Download

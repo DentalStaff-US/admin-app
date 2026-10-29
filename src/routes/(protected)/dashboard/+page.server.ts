@@ -1,3 +1,4 @@
+import { getClientSignatureViews } from '$lib/server/signatures/view';
 import {
 	clientCanCreateRequisitions,
 	USER_ROLES,
@@ -87,6 +88,10 @@ export const load = async (event: RequestEvent) => {
 		}
 
 		const client = await getClientProfilebyUserId(user.id);
+		// Agreements still waiting on this client's signature, for the banner.
+		const pendingSignatures = (
+			await getClientSignatureViews(client?.id, { userId: user.id, isAdmin: false })
+		).filter((r) => r.signingUrl);
 		const {
 			requisitions,
 			supportTickets,
@@ -172,7 +177,8 @@ export const load = async (event: RequestEvent) => {
 			wagesDueCount: 0,
 			clientStatus,
 			canCreateRequisitions: clientCanCreateRequisitions(clientStatus),
-			hasBillingSetup: hasBillingSetup(subscription ?? null)
+			hasBillingSetup: hasBillingSetup(subscription ?? null),
+			pendingSignatures
 		};
 	}
 

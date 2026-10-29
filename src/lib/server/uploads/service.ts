@@ -15,6 +15,15 @@ export type FileType = {
 // anything after `#` to the server, so a download link breaks silently.
 const sanitizeFileName = (name: string) => name.replace(/[#?&%]/g, '_');
 
+/**
+ * The CDN-style URL for a storage key. For a PRIVATE object this URL is not
+ * openable — it is only a stable handle that `uploadUrlToKey` turns back into the
+ * key, so private files can live in the same `upload_url` columns as public ones
+ * and be served through a signed-URL download route.
+ */
+export const storageUrlForKey = (key: string) =>
+	`https://dentalstaffusdocs.nyc3.cdn.digitaloceanspaces.com/${key}`;
+
 export const uploadFile = async ({ file, location }: { file: FileType; location?: string }) => {
 	const safeName = sanitizeFileName(file.fileName);
 	const key = `${location ? `${location}/` : ''}${safeName}`;
@@ -28,7 +37,7 @@ export const uploadFile = async ({ file, location }: { file: FileType; location?
 
 	try {
 		await s3Client.send(new PutObjectCommand(uploadParams));
-		return `https://dentalstaffusdocs.nyc3.cdn.digitaloceanspaces.com/${key}`;
+		return storageUrlForKey(key);
 	} catch (err) {
 		logger.error('uploads.uploadFile failed', { error: err, key, mimetype: file.mimetype });
 		throw err;

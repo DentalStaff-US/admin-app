@@ -484,6 +484,13 @@
       "when": 1793157581831,
       "tag": "0068_restrict_record_fks",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1793251419830,
+      "tag": "0069_modern_karnak",
+      "breakpoints": true
     }
   ]
 }

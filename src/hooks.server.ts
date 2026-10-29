@@ -96,6 +96,11 @@ export const handle: Handle = async ({ event, resolve }) => {
 		return await resolve(event, { transformPageChunk: ({ html }) => html });
 	}
 
+	// Documenso e-signature webhook — no session; authenticated by its shared secret.
+	if (event.url.pathname === '/api/webhooks/documenso') {
+		return await resolve(event, { transformPageChunk: ({ html }) => html });
+	}
+
 	// Public job board (consumed anonymously by the marketing site). No session
 	// lookup: these responses are cacheable and identical for every caller, and
 	// resolving a cookie here would only add a DB round-trip per anonymous hit.

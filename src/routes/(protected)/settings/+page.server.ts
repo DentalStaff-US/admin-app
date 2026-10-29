@@ -1,6 +1,7 @@
 import { PARTNER_PORTAL_URL } from '$lib/config/portal';
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { getAffiliateSettingsStatus } from '$lib/server/affiliate/status';
+import { getClientSignatureViews, latestPerKind } from '$lib/server/signatures/view';
 import { setError, superValidate, message } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { auth } from '$lib/server/auth';
@@ -146,6 +147,13 @@ export async function load(event) {
 		const billingContactForm = await superValidate(event, billingContactSchema);
 
 		const documents = await getClientDocuments(clientProfile?.id);
+		// Agreements are signed by the client owner, so only they see the panel.
+		const signatureRequests =
+			user.role === USER_ROLES.CLIENT
+				? latestPerKind(
+						await getClientSignatureViews(clientProfile?.id, { userId: user.id, isAdmin: false })
+					)
+				: [];
 
 		userProfileForm.data = {
 			firstName: user.firstName,
@@ -201,7 +209,8 @@ export async function load(event) {
 			pendingInvites,
 			inviteForm,
 			avatarForm,
-			documents: documents || []
+			documents: documents || [],
+			signatureRequests
 		};
 	}
 }
