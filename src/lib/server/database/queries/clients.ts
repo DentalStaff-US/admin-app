@@ -358,7 +358,8 @@ export async function getAllClientProfiles(filters: ClientFilters = {}) {
 			},
 			company: {
 				id: clientCompanyTable.id,
-				companyName: clientCompanyTable.companyName
+				companyName: clientCompanyTable.companyName,
+				companyLogo: clientCompanyTable.companyLogo
 			},
 			// Distinct city/state per client, rendered as pills. The left join means
 			// clients with no office still appear.

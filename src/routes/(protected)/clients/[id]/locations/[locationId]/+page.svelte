@@ -204,7 +204,7 @@
 				<div class="flex flex-col md:flex-row gap-6">
 					<!-- Company logo and basic info -->
 					<div class="flex items-start gap-4">
-						<div class="h-16 w-16 flex-shrink-0 rounded-lg overflow-hidden border bg-white">
+						<div class="h-16 w-16 flex-shrink-0 rounded-full overflow-hidden border bg-white">
 							{#if client.company.companyLogo}
 								<img
 									src={client.company.companyLogo}

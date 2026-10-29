@@ -513,7 +513,7 @@
 			<div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
 				<div class="flex items-center gap-4">
 					<div
-						class="h-14 w-14 flex-shrink-0 rounded-lg overflow-hidden border bg-gray-50 flex items-center justify-center"
+						class="h-14 w-14 flex-shrink-0 rounded-full overflow-hidden border bg-gray-50 flex items-center justify-center"
 					>
 						{#if company?.companyLogo}
 							<img

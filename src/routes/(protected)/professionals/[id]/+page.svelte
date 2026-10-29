@@ -550,11 +550,11 @@
 			<div class="py-4">
 				<div class="flex items-center justify-between">
 					<div class="flex gap-4 items-center">
-						<Avatar.Root class="bg-gray-300 rounded-lg w-16 h-16">
+						<Avatar.Root class="bg-gray-300 w-16 h-16">
 							<Avatar.Fallback class="bg-transparent text-xl font-semibold">
 								{initials}
 							</Avatar.Fallback>
-							<Avatar.Image src={candidate.user.avatarUrl} />
+							<Avatar.Image src={candidate.user.avatarUrl} class="object-cover" />
 						</Avatar.Root>
 						<div>
 							<h1 class="text-2xl font-bold">

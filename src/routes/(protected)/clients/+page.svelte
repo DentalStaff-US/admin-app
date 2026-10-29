@@ -25,6 +25,7 @@
 	import FilterBar from '$lib/components/filters/FilterBar.svelte';
 	import type { FilterDimension } from '$lib/components/filters/types';
 	import LocationCell from '$lib/components/tables/LocationCell.svelte';
+	import AvatarNameCell from '$lib/components/tables/AvatarNameCell.svelte';
 	import {
 		buildClientFiltersHref,
 		type ClientFilterChanges,
@@ -62,6 +63,7 @@
 		company: {
 			id: string;
 			companyName: string;
+			companyLogo: string | null;
 		};
 		locations: LocationSummary[];
 	};
@@ -131,7 +133,14 @@
 			header: 'Company Name',
 			id: 'companyName',
 			accessorFn: (row) => row.company.companyName || 'No Company',
-			enableSorting: true
+			enableSorting: true,
+			// Logo + company initial, like the dashboard's New Clients card.
+			cell: ({ row, getValue }) =>
+				flexRender(AvatarNameCell, {
+					name: getValue() as string,
+					imageUrl: row.original.company.companyLogo,
+					initials: (row.original.company.companyName?.[0] ?? '').toUpperCase()
+				})
 		},
 		{
 			header: 'Email',

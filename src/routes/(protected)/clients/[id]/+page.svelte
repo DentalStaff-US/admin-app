@@ -678,10 +678,10 @@
 							<img
 								src={client.user.avatarUrl}
 								alt={`${client.user.firstName} ${client.user.lastName}`}
-								class="rounded-lg h-full w-full object-cover"
+								class="rounded-full h-full w-full object-cover"
 							/>
 						{:else}
-							<div class="bg-gray-300 rounded-lg h-full w-full flex items-center justify-center">
+							<div class="bg-gray-300 rounded-full h-full w-full flex items-center justify-center">
 								<span class="text-4xl md:text-5xl font-semibold">{initials}</span>
 							</div>
 						{/if}
