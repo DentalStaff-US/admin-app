@@ -7,7 +7,7 @@ import { and, eq } from 'drizzle-orm';
 import { timeSheetTable } from '$lib/server/database/schemas/requisition';
 import db from '$lib/server/database/drizzle';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
-import { writeActionHistory } from '$lib/server/database/queries/admin';
+import { voidUninvoicedTimesheet } from '$lib/server/database/queries/requisitions';
 import { getCandidateProfileByUserId } from '$lib/server/database/queries/candidates';
 import { logger } from '$lib/server/logger';
 
@@ -92,25 +92,11 @@ export const POST: RequestHandler = async ({ request, params }) => {
 				{ status: 404, headers: corsHeaders }
 			);
 		}
-		// Update timesheet status
-		const [result] = await db
-			.delete(timeSheetTable)
-			.where(
-				and(
-					eq(timeSheetTable.id, id),
-					eq(timeSheetTable.associatedCandidateId, candidateProfile.id)
-				)
-			)
-			.returning();
-
-		await writeActionHistory({
-			action: 'CANCEL',
-			userId: user.id,
-			entityId: timesheet.id,
-			table: 'TIMESHEETS',
-			beforeState: timesheet,
-			afterState: result,
-			metadata: { requisitionId: timesheet.requisitionId ?? null, byCandidate: true }
+		// Never hard-delete: VOID the sheet (kept as a record) and release its
+		// workdays to regenerate. Refuses approved, invoiced or paid-out sheets.
+		const result = await voidUninvoicedTimesheet(timesheet.id, user.id, {
+			reason: 'candidate_cancelled',
+			byCandidate: true
 		});
 
 		return json(
@@ -118,7 +104,7 @@ export const POST: RequestHandler = async ({ request, params }) => {
 			{ headers: corsHeaders }
 		);
 	} catch (err) {
-		if (err instanceof Error && 'status' in err && 'body' in err) {
+		if (err && typeof err === 'object' && 'status' in err && 'body' in err) {
 			return json(
 				{ success: false, message: (err as any).body.message },
 				{

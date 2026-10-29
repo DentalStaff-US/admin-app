@@ -16,10 +16,9 @@
  * computed in integer cents inside the pure functions in src/lib/server/affiliate/
  * and rounded ROUND_HALF_UP exactly once, at event creation.
  *
- * ⚠️ MIGRATION PREREQUISITE — run BEFORE the first push of this file:
- *      CREATE SEQUENCE IF NOT EXISTS affiliate_pid_seq;
- *    Drizzle's sql`nextval(...)` default does not create the sequence (same trap
- *    as candidate_profiles.puid / puid_seq).
+ * `affiliate_pid_seq` (behind affiliate_profiles.pid) is declared below with
+ * pgSequence so `drizzle-kit push` creates and keeps it — an undeclared sequence
+ * is treated as stale and push tries to DROP it.
  */
 import {
 	pgTable,
@@ -33,7 +32,8 @@ import {
 	date,
 	uuid,
 	index,
-	uniqueIndex
+	uniqueIndex,
+	pgSequence
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { userTable } from './auth';
@@ -110,6 +110,16 @@ export const affiliatePayoutStatusEnum = pgEnum('affiliate_payout_status', [
 /* affiliate_profiles                                                         */
 /* -------------------------------------------------------------------------- */
 
+// Options mirror the live sequence so push doesn't try to ALTER it.
+export const affiliatePidSeq = pgSequence('affiliate_pid_seq', {
+	startWith: 1,
+	increment: 1,
+	minValue: 1,
+	maxValue: '9223372036854775807',
+	cache: 1,
+	cycle: false
+});
+
 export const affiliateProfileTable = pgTable(
 	'affiliate_profiles',
 	{
@@ -127,7 +137,7 @@ export const affiliateProfileTable = pgTable(
 
 		// Short, human-quotable public id for support ("affiliate #1042").
 		// Distinct from both the referral code and the uuid.
-		// ⚠️ Requires `CREATE SEQUENCE affiliate_pid_seq;` — see file header.
+		// Backed by affiliatePidSeq above.
 		pid: integer('pid')
 			.notNull()
 			.unique()
@@ -333,7 +343,7 @@ export const affiliatePayoutTable = pgTable(
 		id: text('id').notNull().primaryKey(),
 		affiliateId: text('affiliate_id')
 			.notNull()
-			.references(() => affiliateProfileTable.id, { onDelete: 'cascade' }),
+			.references(() => affiliateProfileTable.id, { onDelete: 'restrict' }),
 		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
 			.notNull()
 			.defaultNow(),
@@ -373,7 +383,7 @@ export const affiliateCommissionEventTable = pgTable(
 		id: text('id').notNull().primaryKey(),
 		affiliateId: text('affiliate_id')
 			.notNull()
-			.references(() => affiliateProfileTable.id, { onDelete: 'cascade' }),
+			.references(() => affiliateProfileTable.id, { onDelete: 'restrict' }),
 		referralId: text('referral_id').references(() => affiliateReferralTable.id, {
 			onDelete: 'set null'
 		}),

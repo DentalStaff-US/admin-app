@@ -168,40 +168,118 @@ export const dentalStaffDisciplines = [
 
 export const experienceLevels = ['0-2 Years', '2-5 Years', '5-7 Years', '7-10 Years', '10+ years'];
 
-export const skillsByCategory = {
-	'Administrative Skills': [
-		'Bookkeeping',
-		'Data Entry',
-		'Scheduling',
-		'Appointment Setting',
-		'Inventory Management',
-		'Filing',
-		'Record Keeping',
-		'Insurance Billing',
-		'Claims Processing',
-		'Medical Transcription'
-	],
-	'Clinical Skills': [
-		'Patient Care',
-		'Sterilization Techniques',
-		'X-Ray Operation',
-		'HIPAA Compliance',
-		'Patient Education',
-		'Phlebotomy',
-		'Medical Terminology',
-		'Anesthesia Monitoring',
-		'Infection Control'
-	],
-	'Technical Skills': [
-		'Dental Software Proficiency',
-		'Computer Skills',
-		'Technical Skills',
-		'Electronic Health Records (EHR)'
-	],
-	'Customer Service Skills': ['Communication Skills', 'Customer Service', 'Active Listening'],
-	'Office Management Skills': ['Problem-Solving Skills', 'Teamwork Skills', 'Leadership Skills'],
-	'Emergency Response Skills': ['Emergency Response', 'CPR Certification', 'First Aid']
+/**
+ * Starter skill taxonomy — a PROPOSAL for the client to confirm, not a final list.
+ * Loaded by src/lib/server/database/seed-skills.ts (idempotent; matches on
+ * case-insensitive name). `disciplines` are discipline abbreviations the category
+ * is scoped to; omit for "all disciplines". `cert: true` = the skill only counts
+ * while a linked, dated CERTIFICATE is valid.
+ *
+ * The admin skill pages are the source of truth once loaded — edit there, not here.
+ */
+export type SkillSeedCategory = {
+	name: string;
+	description?: string;
+	disciplines?: string[];
+	skills: { name: string; cert?: boolean }[];
 };
+
+export const skillsByCategory: SkillSeedCategory[] = [
+	{
+		name: 'Practice Management Software',
+		skills: [
+			{ name: 'Dentrix' },
+			{ name: 'Dentrix Ascend' },
+			{ name: 'Eaglesoft' },
+			{ name: 'Open Dental' },
+			{ name: 'Curve Dental' },
+			{ name: 'Denticon' },
+			{ name: 'SoftDent' }
+		]
+	},
+	{
+		name: 'Imaging & Radiography',
+		disciplines: ['DDS', 'RDH', 'DA'],
+		skills: [
+			{ name: 'Digital Radiographs (Sensors)' },
+			{ name: 'Panoramic' },
+			{ name: 'CBCT' },
+			{ name: 'Intraoral Camera' },
+			{ name: 'Intraoral Scanner (iTero / CEREC)' }
+		]
+	},
+	{
+		name: 'Hygiene Procedures',
+		disciplines: ['RDH'],
+		skills: [
+			{ name: 'Scaling & Root Planing' },
+			{ name: 'Periodontal Charting' },
+			{ name: 'Adult Prophylaxis' },
+			{ name: 'Child Prophylaxis' },
+			{ name: 'Sealants' },
+			{ name: 'Fluoride Varnish' },
+			{ name: 'Local Antimicrobials (e.g. Arestin)' },
+			{ name: 'Laser-Assisted Periodontal Therapy', cert: true }
+		]
+	},
+	{
+		name: 'Assisting Procedures',
+		disciplines: ['DA'],
+		skills: [
+			{ name: 'Four-Handed Chairside Assisting' },
+			{ name: 'Alginate Impressions' },
+			{ name: 'Temporary Crowns' },
+			{ name: 'Sterilization & Infection Control' },
+			{ name: 'Coronal Polishing', cert: true },
+			{ name: 'Expanded Functions (EFDA)', cert: true },
+			{ name: 'Radiography Certification', cert: true }
+		]
+	},
+	{
+		name: 'Anesthesia & Sedation',
+		disciplines: ['DDS', 'RDH', 'DA', 'OS', 'Pedi', 'Perio'],
+		skills: [
+			{ name: 'Local Anesthesia Administration', cert: true },
+			{ name: 'Nitrous Oxide Monitoring', cert: true },
+			{ name: 'IV / Oral Sedation Assisting' }
+		]
+	},
+	{
+		name: 'Specialty Experience',
+		skills: [
+			{ name: 'General Dentistry' },
+			{ name: 'Orthodontics' },
+			{ name: 'Pediatrics' },
+			{ name: 'Periodontics' },
+			{ name: 'Endodontics' },
+			{ name: 'Oral Surgery' },
+			{ name: 'Implants' },
+			{ name: 'Prosthodontics' },
+			{ name: 'Cosmetic' }
+		]
+	},
+	{
+		name: 'Life Support Certifications',
+		skills: [
+			{ name: 'CPR / BLS', cert: true },
+			{ name: 'ACLS', cert: true },
+			{ name: 'PALS', cert: true }
+		]
+	},
+	{
+		name: 'Languages',
+		skills: [
+			{ name: 'Spanish' },
+			{ name: 'Portuguese' },
+			{ name: 'Vietnamese' },
+			{ name: 'Mandarin' },
+			{ name: 'Korean' },
+			{ name: 'Arabic' },
+			{ name: 'Russian' },
+			{ name: 'American Sign Language' }
+		]
+	}
+];
 
 export const notificationEntityIds: { id: string; entity: string; action: string }[] = [];
 

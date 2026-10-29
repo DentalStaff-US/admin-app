@@ -468,7 +468,6 @@ export const actions = {
 			redirect(302, '/auth/sign-in');
 		}
 		const form = await superValidate(event, OperatingHoursSchema);
-		console.log('Operating hours form data:', form, form.data);
 
 		if (!form.valid) {
 			return fail(400, { form });

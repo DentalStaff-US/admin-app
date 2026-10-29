@@ -13,10 +13,11 @@ import {
 	integer,
 	index,
 	uniqueIndex,
-	check
+	check,
+	pgSequence
 } from 'drizzle-orm/pg-core';
 import { userTable } from './auth';
-import { disciplineTable, experienceLevelTable } from './skill';
+import { disciplineTable, experienceLevelTable, skillTable } from './skill';
 import { clientCompanyTable } from './client';
 import { sql } from 'drizzle-orm';
 
@@ -27,6 +28,18 @@ import { sql } from 'drizzle-orm';
  * platform's two listing paths: the temp shift board (recurrence days) and the
  * permanent openings board.
  */
+// Generates candidate_profiles.puid (the human-quotable professional number).
+// Declared so `drizzle-kit push` manages it instead of trying to DROP it — an
+// undeclared sequence is treated as stale. Options mirror the live sequence.
+export const puidSeq = pgSequence('puid_seq', {
+	startWith: 5000,
+	increment: 1,
+	minValue: 1,
+	maxValue: '9223372036854775807',
+	cache: 1,
+	cycle: false
+});
+
 export const candidateWorkPreferenceEnum = pgEnum('candidate_work_preference', [
 	'TEMP',
 	'PERMANENT',
@@ -248,9 +261,7 @@ export const candidateUnavailableDateTable = pgTable(
 		note: text('note'),
 		/** Which door wrote the row — see available_days_source above. */
 		source: text('source').$type<'CANDIDATE' | 'ADMIN'>().notNull().default('CANDIDATE'),
-		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-			.notNull()
-			.defaultNow(),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
 		/**
 		 * Nullable + SET NULL: a row must survive the deletion of the admin who
 		 * entered it, and imported/system rows have no actor at all — a NOT NULL FK
@@ -333,6 +344,42 @@ export const candidateDisciplineExperienceTable = pgTable(
 	})
 );
 
+/**
+ * Skills a professional claims. Per professional, not per discipline — one CPR
+ * row covers every discipline they hold. Editable by the professional only while
+ * PENDING; once approved only an admin may change it (assertCandidateSkillsEditable).
+ *
+ * A row here is a CLAIM. Whether it counts toward a requisition's requirements
+ * also depends on skills.requires_certificate + a linked, unexpired CERTIFICATE —
+ * see candidateHoldsSkillSql.
+ */
+export const candidateSkillTable = pgTable(
+	'candidate_skills',
+	{
+		createdAt: timestamp('created_at', {
+			withTimezone: true,
+			mode: 'date'
+		})
+			.notNull()
+			.defaultNow(),
+		candidateId: text('candidate_id')
+			.notNull()
+			.references(() => candidateProfileTable.id, { onDelete: 'cascade' }),
+		skillId: text('skill_id')
+			.notNull()
+			.references(() => skillTable.id, { onDelete: 'restrict' }),
+		createdByUserId: text('created_by_user_id').references(() => userTable.id, {
+			onDelete: 'set null'
+		})
+	},
+	(t) => ({
+		pk: primaryKey({ columns: [t.candidateId, t.skillId] }),
+		skillIdx: index('candidate_skills_skill_idx').on(t.skillId)
+	})
+);
+
+export type CandidateSkill = typeof candidateSkillTable.$inferInsert;
+
 export const candidateDocumentTypeEnum = pgEnum('candidate_document_type', [
 	'RESUME',
 	'LICENSE',
@@ -391,6 +438,14 @@ export const candidateDocumentUploadsTable = pgTable(
 		// See src/lib/server/certifications/.
 		disciplineId: text('discipline_id').references(() => disciplineTable.id, {
 			onDelete: 'set null'
+		}),
+		// The skill this CERTIFICATE evidences (e.g. CPR/BLS), for skills with
+		// skills.requires_certificate. Same shape as disciplineId: names a
+		// candidate_skills row together with candidateId, enforced on write. A
+		// document evidences a discipline OR a skill, never both.
+		// See src/lib/server/skills/skillCredentialSql.ts.
+		skillId: text('skill_id').references(() => skillTable.id, {
+			onDelete: 'set null'
 		})
 	},
 	(t) => ({
@@ -399,6 +454,11 @@ export const candidateDocumentUploadsTable = pgTable(
 		credentialIdx: index('candidate_document_uploads_credential_idx').on(
 			t.candidateId,
 			t.disciplineId,
+			t.expiryDate
+		),
+		skillCredentialIdx: index('candidate_document_uploads_skill_credential_idx').on(
+			t.candidateId,
+			t.skillId,
 			t.expiryDate
 		),
 		expiryIdx: index('candidate_document_uploads_expiry_idx').on(t.expiryDate)

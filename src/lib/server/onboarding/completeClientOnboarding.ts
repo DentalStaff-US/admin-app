@@ -1,6 +1,8 @@
 import { getUserById, updateUser } from '$lib/server/database/queries/users';
 import { getClientProfilebyUserId } from '$lib/server/database/queries/clients';
 import { notifyAdminsOfNewClient } from '$lib/server/notifications/transactional';
+import { requestSignature } from '$lib/server/signatures/service';
+import { logger } from '$lib/server/logger';
 
 /**
  * Marks a client's onboarding complete and alerts admins that a new business is
@@ -36,4 +38,17 @@ export async function completeClientOnboarding(userId: string): Promise<void> {
 	// Fire-and-forget: the dispatcher swallows its own errors, and onboarding
 	// must not fail because an email did.
 	await notifyAdminsOfNewClient(clientProfile.id);
+
+	// Send the client agreement for signature. A Documenso failure is recorded on a
+	// FAILED request and alerted to admins inside requestSignature; it must not
+	// block the client from finishing onboarding — or slow it down, since it is two
+	// Documenso round-trips, so it is not awaited.
+	void requestSignature({ kind: 'CLIENT_AGREEMENT', subjectId: clientProfile.id }).catch(
+		(error) => {
+			logger.error('[completeClientOnboarding] client agreement not sent', {
+				error,
+				clientId: clientProfile.id
+			});
+		}
+	);
 }

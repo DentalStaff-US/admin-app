@@ -25,7 +25,7 @@ import {
 	type ClientCompanySelect
 } from './client';
 import { candidateProfileTable, type CandidateProfileSelect } from './candidate';
-import { disciplineTable, experienceLevelTable } from './skill';
+import { disciplineTable, experienceLevelTable, skillCategoryTable, skillTable } from './skill';
 import { userTable } from './auth';
 import { sql } from 'drizzle-orm/sql';
 import type Stripe from 'stripe';
@@ -79,6 +79,11 @@ export const recurrenceDayStatusEnum = pgEnum('workday_status_enum', [
 
 export const requisitionTable = pgTable('requisitions', {
 	id: serial('id').notNull().primaryKey(),
+	// Opaque, non-enumerable id for the public job board (/api/public/jobs/*).
+	// The serial `id` must never leave the authenticated apps — it leaks volume
+	// and lets anyone walk every posting. Existing rows are backfilled by the
+	// column DEFAULT when the migration runs.
+	publicId: uuid('public_id').notNull().defaultRandom().unique(),
 	createdAt: timestamp('created_at', {
 		withTimezone: true,
 		mode: 'date'
@@ -89,12 +94,16 @@ export const requisitionTable = pgTable('requisitions', {
 	}).notNull(),
 	status: requisitionStatusEnum('status').default('PENDING').notNull(),
 	title: text('name'),
+	// RESTRICT, not cascade: requisitions, their shifts, timesheets and invoices
+	// are the archive of record. A company/location (or the user owning it) with
+	// requisitions can't be deleted out from under them — see
+	// findUsersWithBusinessRecords.
 	companyId: text('client_id')
 		.notNull()
-		.references(() => clientCompanyTable.id, { onDelete: 'cascade' }),
+		.references(() => clientCompanyTable.id, { onDelete: 'restrict' }),
 	locationId: text('location_id')
 		.notNull()
-		.references(() => companyOfficeLocationTable.id, { onDelete: 'cascade' }),
+		.references(() => companyOfficeLocationTable.id, { onDelete: 'restrict' }),
 	disciplineId: text('discipline_id')
 		.notNull()
 		.references(() => disciplineTable.id),
@@ -113,6 +122,51 @@ export const requisitionTable = pgTable('requisitions', {
 	referenceTimezone: text('reference_timezone').notNull().default('America/New_York'),
 	purchaseOrderNumber: text('purchase_order_number')
 });
+
+/**
+ * How a requisition's chosen skills in ONE category must be met:
+ *   ALL — the professional holds every chosen skill in the category (exact).
+ *   ANY — at least one of them.
+ * A category with NO row for the requisition is "No Preference" and never filters.
+ */
+export const skillMatchModeEnum = pgEnum('skill_match_mode', ['ALL', 'ANY']);
+
+export const requisitionSkillCategoryTable = pgTable(
+	'requisition_skill_categories',
+	{
+		requisitionId: integer('requisition_id')
+			.notNull()
+			.references(() => requisitionTable.id, { onDelete: 'cascade' }),
+		categoryId: text('category_id')
+			.notNull()
+			.references(() => skillCategoryTable.id, { onDelete: 'restrict' }),
+		matchMode: skillMatchModeEnum('match_mode').notNull().default('ALL')
+	},
+	(t) => ({
+		pk: primaryKey({ columns: [t.requisitionId, t.categoryId] })
+	})
+);
+
+/**
+ * The skills chosen for a requisition. Every row's skill must belong to a category
+ * that has a requisition_skill_categories row for the same requisition — enforced
+ * on write (setRequisitionSkillRequirements), not by constraint.
+ */
+export const requisitionSkillTable = pgTable(
+	'requisition_skills',
+	{
+		requisitionId: integer('requisition_id')
+			.notNull()
+			.references(() => requisitionTable.id, { onDelete: 'cascade' }),
+		skillId: text('skill_id')
+			.notNull()
+			.references(() => skillTable.id, { onDelete: 'restrict' })
+	},
+	(t) => ({
+		pk: primaryKey({ columns: [t.requisitionId, t.skillId] }),
+		skillIdx: index('requisition_skills_skill_idx').on(t.skillId)
+	})
+);
 
 export const recurrenceDayTable = pgTable(
 	'recurrence_days',
@@ -133,7 +187,7 @@ export const recurrenceDayTable = pgTable(
 		lunchStart: timestamp('lunch_start_time', { withTimezone: true }),
 		lunchEnd: timestamp('lunch_end_time', { withTimezone: true }),
 		requisitionId: integer('requisition_id').references(() => requisitionTable.id, {
-			onDelete: 'cascade',
+			onDelete: 'restrict',
 			onUpdate: 'cascade'
 		}),
 		archived: boolean('archived').default(false),
@@ -174,7 +228,7 @@ export const invoiceTable = pgTable(
 	'invoices',
 	{
 		// Core fields
-		id: uuid('id').notNull().unique().defaultRandom().primaryKey(),
+		id: uuid('id').notNull().defaultRandom().primaryKey(),
 		createdAt: timestamp('created_at', {
 			withTimezone: true,
 			mode: 'date'
@@ -222,10 +276,10 @@ export const invoiceTable = pgTable(
 		// atomically alongside status by voidInvoiceAndNotify; surfaced in the UI.
 		voidReason: text('void_reason'),
 
-		// Customer information. Cascade so user deletion (which cascades to
-		// client_profiles) doesn't block on invoice FKs.
+		// Customer information. RESTRICT: an invoice is a financial record, so a
+		// client (or its user) with invoices can't be deleted — ban them instead.
 		clientId: text('client_id')
-			.references(() => clientProfileTable.id, { onDelete: 'cascade' })
+			.references(() => clientProfileTable.id, { onDelete: 'restrict' })
 			.notNull(),
 		customerEmail: text('customer_email'),
 		customerName: text('customer_name'),
@@ -309,7 +363,7 @@ export const paperInvoiceTransactionTypeEnum = pgEnum('paper_invoice_transaction
 export const paperInvoiceTransactionTable = pgTable(
 	'paper_invoice_transactions',
 	{
-		id: uuid('id').notNull().unique().defaultRandom().primaryKey(),
+		id: uuid('id').notNull().defaultRandom().primaryKey(),
 		createdAt: timestamp('created_at', {
 			withTimezone: true,
 			mode: 'date'
@@ -323,7 +377,7 @@ export const paperInvoiceTransactionTable = pgTable(
 			.notNull()
 			.defaultNow(),
 		invoiceId: uuid('invoice_id')
-			.references(() => invoiceTable.id, { onDelete: 'cascade' })
+			.references(() => invoiceTable.id, { onDelete: 'restrict' })
 			.notNull(),
 		timesheetId: text('timesheet_id').references(() => timeSheetTable.id, { onDelete: 'set null' }),
 
@@ -361,15 +415,15 @@ export const workdayTable = pgTable('workdays', {
 	}).notNull(),
 	candidateId: text('candidate_id')
 		.notNull()
-		.references(() => candidateProfileTable.id, { onDelete: 'cascade', onUpdate: 'cascade' }),
+		.references(() => candidateProfileTable.id, { onDelete: 'restrict', onUpdate: 'cascade' }),
 	requisitionId: integer('requisition_id')
 		.notNull()
 		.references(() => requisitionTable.id, {
-			onDelete: 'cascade',
+			onDelete: 'restrict',
 			onUpdate: 'cascade'
 		}),
 	recurrenceDayId: text('recurrence_day_id').references(() => recurrenceDayTable.id, {
-		onDelete: 'cascade',
+		onDelete: 'restrict',
 		onUpdate: 'cascade'
 	}),
 	timesheetId: text('timesheet_id').references(() => timeSheetTable.id, { onDelete: 'set null' }),
@@ -399,10 +453,10 @@ export const recurrenceDayCancellationTable = pgTable(
 		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull(),
 		recurrenceDayId: text('recurrence_day_id')
 			.notNull()
-			.references(() => recurrenceDayTable.id, { onDelete: 'cascade' }),
+			.references(() => recurrenceDayTable.id, { onDelete: 'restrict' }),
 		requisitionId: integer('requisition_id')
 			.notNull()
-			.references(() => requisitionTable.id, { onDelete: 'cascade' }),
+			.references(() => requisitionTable.id, { onDelete: 'restrict' }),
 		// Who pressed the cancel button.
 		cancelledByUserId: text('cancelled_by_user_id').notNull(),
 		cancelledByRole: recurrenceDayCancellationByRoleEnum('cancelled_by_role').notNull(),
@@ -450,11 +504,13 @@ export const timeSheetTable = pgTable(
 			withTimezone: true,
 			mode: 'date'
 		}).notNull(),
+		// RESTRICT: timesheets are never deleted (retired via VOID), and neither
+		// party can be deleted out from under one.
 		associatedClientId: text('associated_client_id')
-			.references(() => clientProfileTable.id, { onDelete: 'cascade' })
+			.references(() => clientProfileTable.id, { onDelete: 'restrict' })
 			.notNull(),
 		associatedCandidateId: text('associated_candidate_id')
-			.references(() => candidateProfileTable.id, { onDelete: 'cascade' })
+			.references(() => candidateProfileTable.id, { onDelete: 'restrict' })
 			.notNull(),
 		validated: boolean('validated').default(false),
 		totalHoursWorked: decimal('total_hours_worked'),
@@ -526,10 +582,10 @@ export const timesheetExpenseTable = pgTable(
 			mode: 'date'
 		}).notNull(),
 		timesheetId: text('timesheet_id')
-			.references(() => timeSheetTable.id, { onDelete: 'cascade' })
+			.references(() => timeSheetTable.id, { onDelete: 'restrict' })
 			.notNull(),
 		candidateId: text('candidate_id')
-			.references(() => candidateProfileTable.id, { onDelete: 'cascade' })
+			.references(() => candidateProfileTable.id, { onDelete: 'restrict' })
 			.notNull(),
 		description: text('description').notNull(),
 		amountCents: integer('amount_cents').notNull(),
@@ -602,12 +658,8 @@ export const requisitionCommentTable = pgTable(
 	'requisition_comments',
 	{
 		id: text('id').notNull().primaryKey(),
-		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-			.notNull()
-			.defaultNow(),
-		updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' })
-			.notNull()
-			.defaultNow(),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+		updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
 		requisitionId: integer('requisition_id')
 			.notNull()
 			.references(() => requisitionTable.id, { onDelete: 'cascade', onUpdate: 'cascade' }),

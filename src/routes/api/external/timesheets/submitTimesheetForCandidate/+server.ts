@@ -95,7 +95,6 @@ export const POST: RequestHandler = async ({ request }) => {
 			);
 		}
 
-		console.log('Parsed body:', parsedBody.data);
 		const { userId, companyId, weekStartDate, entries, timesheetId } = parsedBody.data;
 
 		const candidateProfile = await getCandidateProfileByUserId(userId);

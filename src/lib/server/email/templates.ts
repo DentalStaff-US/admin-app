@@ -1374,6 +1374,55 @@ If you believe this is a mistake, reply to this email and we will sort it out.
 		};
 	},
 
+	/**
+	 * A discipline legally requires a license and none is on file. Sent on demand from
+	 * the admin Compliance page; the fortnightly nudge carries the same message as a
+	 * campaign. `deadline` is when the 30-day grace runs out.
+	 */
+	licenseMissingEmail: (details: {
+		firstName: string;
+		disciplineName: string;
+		abbreviation: string;
+		deadline: string;
+		uploadUrl: string;
+	}) => {
+		const { firstName, disciplineName, abbreviation, deadline, uploadUrl } = details;
+
+		const textEmail = `
+Hi ${firstName},
+
+${disciplineName} (${abbreviation}) legally requires a current license or registration, and we do not have one on file for you yet.
+
+Please upload it by ${deadline}. After that, ${abbreviation} shifts will be hidden from your account until we have it — your other disciplines are not affected.
+
+Upload your license: ${uploadUrl}
+
+If you have already sent it to us, no action is needed.
+
+— Dental Temps Staffing Solutions
+        `.trim();
+
+		const htmlEmail = `
+            <p>Hi ${firstName},</p>
+            <p><strong>${disciplineName} (${abbreviation})</strong> legally requires a current license or registration, and we do not have one on file for you yet.</p>
+            <p>Please upload it by <strong>${deadline}</strong>. After that, ${abbreviation} shifts will be hidden from your account until we have it — your other disciplines are not affected.</p>
+            <p style="margin:24px 0;">
+              <a href="${uploadUrl}"
+                 style="background-color:#2a93d1;color:#ffffff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600;">
+                Upload your license
+              </a>
+            </p>
+            <p>If you have already sent it to us, no action is needed.</p>
+            <p style="color:#6b7280;font-size:13px;">— Dental Temps Staffing Solutions</p>
+        `.trim();
+
+		return {
+			textEmail,
+			htmlEmail,
+			subject: `Action needed: upload your ${abbreviation} license | ${APP_NAME}`
+		};
+	},
+
 	certExpiryDigestAdminEmail: (details: {
 		bookedWithExpired: Array<{ name: string; discipline: string; expiresOn: string; shiftDates: string; candidateId: string }>;
 		expired: Array<{ name: string; discipline: string; expiresOn: string; candidateId: string }>;
@@ -1459,6 +1508,197 @@ If you believe this is a mistake, reply to this email and we will sort it out.
 		].join('\n');
 
 		return { textEmail, htmlEmail, subject: `Certification digest | ${APP_NAME}` };
-	}
+	},
 
+	// --- E-signature (Documenso) -------------------------------------------
+	// The signing link is the recipient's personal Documenso link; we deliver it
+	// ourselves because envelopes are sent with distribution NONE.
+
+	signatureRequestEmail: (details: {
+		firstName: string | null;
+		documentTitle: string;
+		organisationName: string;
+		signingUrl: string;
+		portalUrl: string;
+	}) => {
+		const hello = details.firstName ? `Hello ${details.firstName},` : 'Hello,';
+		const contact = contactClause('this agreement');
+		const textEmail = [
+			hello,
+			'',
+			`Your ${details.documentTitle} for ${details.organisationName} is ready for your signature.`,
+			'',
+			`Review and sign: ${details.signingUrl}`,
+			'',
+			`You can also find it any time under Settings → Documents: ${details.portalUrl}`,
+			'',
+			contact.text,
+			'',
+			'Thank you,',
+			'Dental Temps Staffing Solutions'
+		].join('\n');
+		const htmlEmail = signatureEmailHtml({
+			hello,
+			lines: [
+				`Your <strong>${escapeHtml(details.documentTitle)}</strong> for ${escapeHtml(details.organisationName)} is ready for your signature.`
+			],
+			ctaLabel: 'Review & Sign',
+			ctaUrl: details.signingUrl,
+			after: `You can also find it any time under <a href="${details.portalUrl}">Settings → Documents</a>.`,
+			contactHtml: contact.html
+		});
+		return {
+			textEmail,
+			htmlEmail,
+			subject: `Please sign your ${details.documentTitle} | ${APP_NAME}`
+		};
+	},
+
+	signatureReminderEmail: (details: {
+		firstName: string | null;
+		documentTitle: string;
+		organisationName: string;
+		signingUrl: string;
+		daysOutstanding: number;
+		finalNotice: boolean;
+	}) => {
+		const hello = details.firstName ? `Hello ${details.firstName},` : 'Hello,';
+		const contact = contactClause('this agreement');
+		const lead = details.finalNotice
+			? `This is a final reminder: your ${details.documentTitle} for ${details.organisationName} still needs your signature.`
+			: `A friendly reminder that your ${details.documentTitle} for ${details.organisationName} is still waiting for your signature (sent ${details.daysOutstanding} days ago).`;
+		const textEmail = [
+			hello,
+			'',
+			lead,
+			'',
+			`Review and sign: ${details.signingUrl}`,
+			'',
+			'It only takes a couple of minutes.',
+			'',
+			contact.text,
+			'',
+			'Thank you,',
+			'Dental Temps Staffing Solutions'
+		].join('\n');
+		const htmlEmail = signatureEmailHtml({
+			hello,
+			lines: [escapeHtml(lead), 'It only takes a couple of minutes.'],
+			ctaLabel: 'Review & Sign',
+			ctaUrl: details.signingUrl,
+			contactHtml: contact.html
+		});
+		return {
+			textEmail,
+			htmlEmail,
+			subject: `${details.finalNotice ? 'Final reminder' : 'Reminder'}: please sign your ${details.documentTitle} | ${APP_NAME}`
+		};
+	},
+
+	signatureCountersignEmail: (details: {
+		name: string;
+		documentTitle: string;
+		organisationName: string;
+		signingUrl: string;
+		reminder: boolean;
+	}) => {
+		const lead = details.reminder
+			? `${details.organisationName} signed their ${details.documentTitle} and it is still waiting for your countersignature.`
+			: `${details.organisationName} has signed their ${details.documentTitle}. It now needs your countersignature to be complete.`;
+		const textEmail = [`Hello ${details.name},`, '', lead, '', `Countersign: ${details.signingUrl}`].join(
+			'\n'
+		);
+		const htmlEmail = signatureEmailHtml({
+			hello: `Hello ${escapeHtml(details.name)},`,
+			lines: [escapeHtml(lead)],
+			ctaLabel: 'Countersign',
+			ctaUrl: details.signingUrl
+		});
+		return {
+			textEmail,
+			htmlEmail,
+			subject: `${details.reminder ? 'Reminder: ' : ''}Countersign ${details.documentTitle} — ${details.organisationName}`
+		};
+	},
+
+	signatureCompletedEmail: (details: {
+		firstName: string | null;
+		documentTitle: string;
+		organisationName: string;
+		portalUrl: string;
+	}) => {
+		const hello = details.firstName ? `Hello ${details.firstName},` : 'Hello,';
+		const textEmail = [
+			hello,
+			'',
+			`Your ${details.documentTitle} for ${details.organisationName} is fully signed. Thank you!`,
+			'',
+			`A copy is saved under Settings → Documents: ${details.portalUrl}`,
+			'',
+			'Thank you,',
+			'Dental Temps Staffing Solutions'
+		].join('\n');
+		const htmlEmail = signatureEmailHtml({
+			hello,
+			lines: [
+				`Your <strong>${escapeHtml(details.documentTitle)}</strong> for ${escapeHtml(details.organisationName)} is fully signed. Thank you!`
+			],
+			ctaLabel: 'View Your Documents',
+			ctaUrl: details.portalUrl
+		});
+		return { textEmail, htmlEmail, subject: `${details.documentTitle} signed | ${APP_NAME}` };
+	},
+
+	signatureAdminAlertEmail: (details: {
+		organisationName: string;
+		documentTitle: string;
+		headline: string;
+		detail: string;
+		adminUrl: string;
+	}) => {
+		const textEmail = [
+			details.headline,
+			'',
+			`${details.documentTitle} — ${details.organisationName}`,
+			details.detail,
+			'',
+			details.adminUrl
+		].join('\n');
+		const htmlEmail = signatureEmailHtml({
+			hello: `<strong>${escapeHtml(details.headline)}</strong>`,
+			lines: [
+				`${escapeHtml(details.documentTitle)} — ${escapeHtml(details.organisationName)}`,
+				escapeHtml(details.detail)
+			],
+			ctaLabel: 'Open Client',
+			ctaUrl: details.adminUrl
+		});
+		return {
+			textEmail,
+			htmlEmail,
+			subject: `${details.headline}: ${details.organisationName} | ${APP_NAME}`
+		};
+	}
 };
+
+function signatureEmailHtml(opts: {
+	hello: string;
+	lines: string[];
+	ctaLabel: string;
+	ctaUrl: string;
+	after?: string;
+	contactHtml?: string;
+}): string {
+	return `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <p>${opts.hello}</p>
+                ${opts.lines.map((l) => `<p>${l}</p>`).join('\n')}
+                <p style="margin: 24px 0;">
+                    <a href="${opts.ctaUrl}" style="display:inline-block;padding:12px 20px;background:#1e40af;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;">${opts.ctaLabel}</a>
+                </p>
+                <p style="color:#6B7280;font-size:13px;">Or copy and paste this link into your browser:<br /><a href="${opts.ctaUrl}">${opts.ctaUrl}</a></p>
+                ${opts.after ? `<p>${opts.after}</p>` : ''}
+                ${opts.contactHtml ?? ''}
+                <p>Thank you,<br />Dental Temps Staffing Solutions</p>
+            </div>`.trim();
+}

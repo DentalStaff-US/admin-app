@@ -21,9 +21,12 @@ export async function getPermPotentialMatches(
 ) {
 	if (!requisition?.permanentPosition || !location) return [];
 
+	// Skills are annotated like experience (`missingSkills`, sorted last) so an admin
+	// can still vet a near-miss for the client.
 	const candidates = await getQualifiedProfessionalsForRequisition(requisition, location, {
 		includeAllExperience: true,
-		includeOutsidePayRange: true
+		includeOutsidePayRange: true,
+		includeMissingSkills: true
 	});
 	if (candidates.length === 0) return [];
 

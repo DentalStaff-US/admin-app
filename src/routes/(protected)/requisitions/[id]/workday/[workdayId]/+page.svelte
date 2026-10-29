@@ -159,6 +159,11 @@
 		return flag === false;
 	}
 
+	/** Only set by the relaxed ("Show more") search; the default list already filters. */
+	function missingSkillsFor(professional: unknown): boolean {
+		return (professional as { meetsSkillRequirements?: boolean })?.meetsSkillRequirements === false;
+	}
+
 	function unavailableFor(professional: unknown): false | 'WEEKDAY' | 'DATE' {
 		const blocked = (professional as { unavailableDates?: Array<{ reason?: string }> })
 			?.unavailableDates;
@@ -185,7 +190,7 @@
 		try {
 			const requisitionId = data.requisition?.requisition?.id;
 			const res = await fetch(
-				`/api/requisitions/${requisitionId}/qualified-candidates?includeAllExperience=true&includeOutsidePayRange=true`
+				`/api/requisitions/${requisitionId}/qualified-candidates?includeAllExperience=true&includeOutsidePayRange=true&includeMissingSkills=true`
 			);
 			if (!res.ok) throw new Error(`HTTP ${res.status}`);
 			const all = await res.json();
@@ -791,6 +796,13 @@
 							: 'Unavailable this day'}
 					</span>
 				{/if}
+					{#if missingSkillsFor(professional)}
+						<span
+							class="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200"
+						>
+							Missing required skills
+						</span>
+					{/if}
 					{#if wrongWorkTypeFor(professional)}
 						<span
 							class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 ring-1 ring-slate-300"
@@ -894,7 +906,14 @@
 												: 'Unavailable this day'}
 										</span>
 									{/if}
-									{#if wrongWorkTypeFor(professional)}
+									{#if missingSkillsFor(professional)}
+						<span
+							class="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200"
+						>
+							Missing required skills
+						</span>
+					{/if}
+					{#if wrongWorkTypeFor(professional)}
 										<span
 											class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 ring-1 ring-slate-300"
 										>
@@ -1028,6 +1047,13 @@
 							: 'Unavailable this day'}
 					</span>
 				{/if}
+					{#if missingSkillsFor(professional)}
+						<span
+							class="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200"
+						>
+							Missing required skills
+						</span>
+					{/if}
 					{#if wrongWorkTypeFor(professional)}
 						<span
 							class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 ring-1 ring-slate-300"

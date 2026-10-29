@@ -10,6 +10,7 @@
 		SquareUser,
 		MessageCircle,
 		Shield,
+		ShieldCheck,
 		Users,
 		ScrollText,
 		MessageCircleQuestion,
@@ -164,6 +165,21 @@
 						<Tooltip.Root openDelay={100}>
 							<Tooltip.Trigger asChild let:builder>
 								<a
+									href="/admin/compliance"
+									use:builder.action
+									{...builder}
+									class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
+								>
+									<ShieldCheck size={20} class="shrink-0" />
+								</a>
+							</Tooltip.Trigger>
+							<Tooltip.Content side="right" class="bg-gray-900 text-white border-gray-700">
+								<p>Compliance</p>
+							</Tooltip.Content>
+						</Tooltip.Root>
+						<Tooltip.Root openDelay={100}>
+							<Tooltip.Trigger asChild let:builder>
+								<a
 									href="/admin/menu"
 									use:builder.action
 									{...builder}
@@ -224,6 +240,12 @@
 							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
 						>
 							<ScrollText size={20} class="shrink-0" />
+						</a>
+						<a
+							href="/admin/compliance"
+							class="flex items-center justify-center w-10 h-10 rounded-lg mx-auto hover:bg-white transition-colors duration-200 text-white hover:text-primary"
+						>
+							<ShieldCheck size={20} class="shrink-0" />
 						</a>
 						<a
 							href="/admin/menu"

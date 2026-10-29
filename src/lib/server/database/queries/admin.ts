@@ -42,6 +42,10 @@ import { error } from '@sveltejs/kit';
 import { disciplineTable } from '../schemas/skill';
 import { parseCompleteAddress } from '$lib/server/address';
 import { unbilledPlacementCondition } from '$lib/server/requisitions/unbilled';
+import { getShiftPipelineSummary } from '$lib/server/dashboard/shiftPipeline';
+import { emptyPipelineSummary, type PipelineRange } from '$lib/server/dashboard/shiftValueRule';
+import { getComplianceSummary } from '$lib/server/compliance/queries';
+import { emptyComplianceSummary } from '$lib/server/compliance/complianceRule';
 import type { DisciplineSummary } from '$lib/_helpers/professional-filters';
 
 // The ledger writer lives in $lib/server/audit; re-exported here so the
@@ -304,8 +308,98 @@ export async function updateAdminUserProfile(id: string, values: UpdateUser) {
 	return result;
 }
 
+/**
+ * Thrown when a user delete would take records of business with it. The schema
+ * FKs on those tables are RESTRICT, so the database refuses too; this check runs
+ * first so the admin gets a readable reason instead of a constraint error.
+ */
+export class UserHasRecordsError extends Error {
+	constructor(public emails: string[]) {
+		super(
+			`${emails.join(', ')} ${emails.length === 1 ? 'has' : 'have'} shifts, timesheets, invoices, requisitions or payouts on record and can't be deleted. Ban the account instead.`
+		);
+		this.name = 'UserHasRecordsError';
+	}
+}
+
+/**
+ * The subset of `userIds` that own records of business, through either profile:
+ * as a candidate (workdays, timesheets, applications), as a client (requisitions
+ * on their companies, timesheets, invoices) or as an affiliate (payouts,
+ * commissions). Staff, admins and junk signups own none, so they stay deletable.
+ */
+export async function findUsersWithBusinessRecords(
+	userIds: string[],
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	exec: any = db
+): Promise<{ id: string; email: string }[]> {
+	if (userIds.length === 0) return [];
+	return exec
+		.select({ id: userTable.id, email: userTable.email })
+		.from(userTable)
+		.where(
+			and(
+				inArray(userTable.id, userIds),
+				sql`(
+					exists (
+						select 1 from candidate_profiles cp
+						where cp.user_id = ${userTable.id} and (
+							exists (select 1 from workdays w where w.candidate_id = cp.id)
+							or exists (select 1 from timesheets t where t.associated_candidate_id = cp.id)
+							or exists (select 1 from requisition_application ra where ra.candidate_id = cp.id)
+						)
+					)
+					or exists (
+						select 1 from client_profiles clp
+						where clp.user_id = ${userTable.id} and (
+							exists (select 1 from invoices i where i.client_id = clp.id)
+							or exists (select 1 from timesheets t where t.associated_client_id = clp.id)
+							or exists (
+								select 1 from requisitions r
+								join client_companies cc on cc.id = r.client_id
+								where cc.client_id = clp.id
+							)
+						)
+					)
+					or exists (
+						select 1 from affiliate_profiles ap
+						where ap.user_id = ${userTable.id} and (
+							exists (select 1 from affiliate_payouts p where p.affiliate_id = ap.id)
+							or exists (select 1 from affiliate_commission_events e where e.affiliate_id = ap.id)
+						)
+					)
+				)`
+			)
+		);
+}
+
+/**
+ * Hard-deletes users that own no records of business. Throws UserHasRecordsError
+ * (deleting nothing) if any of them do — see {@link findUsersWithBusinessRecords}.
+ */
+export async function deleteUsersWithoutRecords(
+	where: { ids: string[] } | { emails: string[] }
+): Promise<number> {
+	return db.transaction(async (tx) => {
+		const targets: { id: string }[] = await tx
+			.select({ id: userTable.id })
+			.from(userTable)
+			.where('ids' in where ? inArray(userTable.id, where.ids) : inArray(userTable.email, where.emails));
+		const ids = targets.map((t) => t.id);
+		if (ids.length === 0) return 0;
+
+		const blocked = await findUsersWithBusinessRecords(ids, tx);
+		if (blocked.length > 0) throw new UserHasRecordsError(blocked.map((b) => b.email));
+
+		const deleted = await tx.delete(userTable).where(inArray(userTable.id, ids)).returning({
+			id: userTable.id
+		});
+		return deleted.length;
+	});
+}
+
 export async function deleteAdminUser(id: string) {
-	return await db.delete(userTable).where(eq(userTable.id, id));
+	return deleteUsersWithoutRecords({ ids: [id] });
 }
 
 export async function getCalendarEventsForAdmin(userId: string) {
@@ -757,7 +851,10 @@ export async function getInvoicesDuePreview(limit: number): Promise<InvoiceWithR
 		company: row.clientCompany
 	}));
 }
-export async function getAdminDashboardData() {
+export async function getAdminDashboardData(
+	options: { pipelineRange?: PipelineRange } = {}
+) {
+	const pipelineRange = options.pipelineRange ?? 'month';
 	const [
 		timesheetsDueCount,
 		supportTickets,
@@ -773,7 +870,9 @@ export async function getAdminDashboardData() {
 		wagesDueTotal,
 		wagesPaidCount,
 		wagesPaidTotal,
-		unbilledPermanentPlacementsCount
+		unbilledPermanentPlacementsCount,
+		shiftPipeline,
+		compliance
 	] = await Promise.all([
 		getTimesheetsDueCount().catch((e) => {
 			console.error('❌ getTimesheetsDueCount failed:', e.message);
@@ -834,6 +933,14 @@ export async function getAdminDashboardData() {
 		getUnbilledPermanentPlacementsCount().catch((e) => {
 			console.error('❌ getUnbilledPermanentPlacementsCount failed:', e.message);
 			return 0;
+		}),
+		getShiftPipelineSummary(pipelineRange).catch((e) => {
+			console.error('❌ getShiftPipelineSummary failed:', e.message);
+			return emptyPipelineSummary();
+		}),
+		getComplianceSummary().catch((e) => {
+			console.error('❌ getComplianceSummary failed:', e.message);
+			return emptyComplianceSummary();
 		})
 	]);
 
@@ -852,7 +959,10 @@ export async function getAdminDashboardData() {
 		wagesDueTotal,
 		wagesPaidCount,
 		wagesPaidTotal,
-		unbilledPermanentPlacementsCount
+		unbilledPermanentPlacementsCount,
+		shiftPipeline,
+		pipelineRange,
+		compliance
 	};
 }
 

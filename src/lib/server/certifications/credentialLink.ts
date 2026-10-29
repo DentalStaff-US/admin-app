@@ -14,7 +14,11 @@
 
 import { and, eq } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
-import { candidateDisciplineExperienceTable } from '$lib/server/database/schemas/candidate';
+import {
+	candidateDisciplineExperienceTable,
+	candidateSkillTable
+} from '$lib/server/database/schemas/candidate';
+import { skillTable } from '$lib/server/database/schemas/skill';
 import { LINKABLE_CREDENTIAL_TYPES } from './credentialStatus';
 
 export type CredentialLinkDecision =
@@ -94,6 +98,92 @@ export async function validateCredentialLink(
 		};
 	}
 
+	return { ok: true };
+}
+
+export type SkillCredentialLinkDecision =
+	| { ok: true }
+	| {
+			ok: false;
+			reason: 'NOT_HELD' | 'NOT_A_CERTIFICATE' | 'NO_CERT_REQUIRED' | 'BOTH_LINKS' | 'NO_EXPIRY';
+			message: string;
+	  };
+
+/**
+ * Rules for linking a document to a SKILL (e.g. a CPR card to "CPR/BLS"):
+ *   1. a document evidences a discipline OR a skill, never both;
+ *   2. only a CERTIFICATE;
+ *   3. only a skill that requires one (skills.requires_certificate);
+ *   4. only a skill the professional has claimed;
+ *   5. an expiry date is REQUIRED — unlike a dental license, every skill
+ *      certificate we gate on (CPR/BLS, nitrous, anesthesia) lapses, and a dateless
+ *      one would let an expired card hide behind it. See candidateHoldsSkillSql.
+ */
+export async function validateSkillCredentialLink(
+	opts: {
+		candidateId: string;
+		skillId: string | null | undefined;
+		disciplineId: string | null | undefined;
+		type: string | null | undefined;
+		expiryDate: string | Date | null | undefined;
+	},
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	tx: any = db
+): Promise<SkillCredentialLinkDecision> {
+	if (!opts.skillId) return { ok: true };
+
+	if (opts.disciplineId) {
+		return {
+			ok: false,
+			reason: 'BOTH_LINKS',
+			message: 'A document can be linked to a discipline or a skill, not both.'
+		};
+	}
+	if (opts.type !== 'CERTIFICATE') {
+		return {
+			ok: false,
+			reason: 'NOT_A_CERTIFICATE',
+			message: 'Only a Certification can be linked to a skill.'
+		};
+	}
+
+	const [row] = await tx
+		.select({
+			requiresCertificate: skillTable.requiresCertificate,
+			held: candidateSkillTable.skillId
+		})
+		.from(skillTable)
+		.leftJoin(
+			candidateSkillTable,
+			and(
+				eq(candidateSkillTable.skillId, skillTable.id),
+				eq(candidateSkillTable.candidateId, opts.candidateId)
+			)
+		)
+		.where(eq(skillTable.id, opts.skillId))
+		.limit(1);
+
+	if (!row?.held) {
+		return {
+			ok: false,
+			reason: 'NOT_HELD',
+			message: 'You do not have that skill on your profile.'
+		};
+	}
+	if (!row.requiresCertificate) {
+		return {
+			ok: false,
+			reason: 'NO_CERT_REQUIRED',
+			message: 'That skill does not take a certificate.'
+		};
+	}
+	if (!toCredentialExpiryDate(opts.expiryDate ?? null)) {
+		return {
+			ok: false,
+			reason: 'NO_EXPIRY',
+			message: 'Enter the expiration date shown on the certificate.'
+		};
+	}
 	return { ok: true };
 }
 

@@ -1,3 +1,11 @@
+import {
+	parseSkillRequirementsInput,
+	type SkillRequirementCategory
+} from '$lib/server/skills/skillRequirements';
+import {
+	getSkillRequirementsForDisplay,
+	SkillRequirementError
+} from '$lib/server/skills/requisitionSkills';
 import type { PageServerLoad, RequestEvent } from './$types';
 import {
 	changeRequisitionStatus,
@@ -86,6 +94,10 @@ import { checkCandidateAvailableOnDates } from '$lib/server/availability/queries
 import { getActivityForEntity } from '$lib/server/audit/queries';
 import { resolveRequisitionAccess } from '$lib/server/requisitions/access';
 import { getRequisitionBilling } from '$lib/server/requisitions/billing';
+import {
+	assertRecurrenceDaysUnlocked,
+	shiftLockedErrorMessage
+} from '$lib/server/requisitions/shiftLock';
 import { resolveCommentInternal } from '$lib/server/requisitions/commentRules';
 import { getPermPotentialMatches } from '$lib/server/requisitions/matches';
 import {
@@ -136,7 +148,18 @@ const requisitionInvoiceSchema = z.object({
 	})
 });
 
-export const load: PageServerLoad = async (event: RequestEvent) => {
+/**
+ * Skill requirements ride along with every role's page data: displayed on the
+ * detail page and pre-filled in the edit form's SkillRequirementsPicker.
+ */
+export const load: PageServerLoad = async (event) => {
+	const base = await loadRequisitionPage(event as unknown as RequestEvent);
+	const idAsNum = Number(event.params.id);
+	const display = (await getSkillRequirementsForDisplay([idAsNum])).get(idAsNum) ?? [];
+	return { ...base, skillRequirements: display };
+};
+
+const loadRequisitionPage = async (event: RequestEvent) => {
 	const user = event.locals.user;
 
 	if (!user) {
@@ -645,7 +668,7 @@ export const actions = {
 			setFlash(
 				{
 					type: 'error',
-					message: 'Failed to create recurrence days'
+					message: shiftLockedErrorMessage(error) ?? 'Failed to create recurrence days'
 				},
 				event
 			);
@@ -658,7 +681,6 @@ export const actions = {
 			// Convert the day to UTC format
 			const utcDay = convertRecurrenceDayToUTC(day, requisition.requisition.referenceTimezone);
 
-			console.log('utc day data', utcDay);
 
 			const values = {
 				id: crypto.randomUUID(),
@@ -757,7 +779,7 @@ export const actions = {
 			setFlash(
 				{
 					type: 'error',
-					message: 'Failed to edit recurrence day'
+					message: shiftLockedErrorMessage(error) ?? 'Failed to edit recurrence day'
 				},
 				request
 			);
@@ -827,7 +849,7 @@ export const actions = {
 			setFlash(
 				{
 					type: 'error',
-					message: 'Failed to delete recurrence day'
+					message: shiftLockedErrorMessage(error) ?? 'Failed to delete recurrence day'
 				},
 				request
 			);
@@ -979,6 +1001,19 @@ export const actions = {
 		const specialInstructions = formData.get('specialInstructions') as string | null;
 		const purchaseOrderNumber = formData.get('purchaseOrderNumber') as string;
 
+		// Only rewrite requirements when the edit form actually carried the picker;
+		// absent = leave them as they are.
+		let skillRequirements: SkillRequirementCategory[] | undefined;
+		if (formData.has('skillRequirements')) {
+			try {
+				skillRequirements = parseSkillRequirementsInput(formData.get('skillRequirements'));
+			} catch {
+				const msg = 'The skill requirements could not be read. Please re-select them.';
+				setFlash({ type: 'error', message: msg }, event);
+				return fail(400, { error: msg });
+			}
+		}
+
 		try {
 			await updateRequisition(
 				idAsNum,
@@ -990,7 +1025,8 @@ export const actions = {
 					specialInstructions,
 					purchaseOrderNumber
 				},
-				user.id
+				user.id,
+				skillRequirements
 			);
 
 			await notifyRequisitionChanged(idAsNum);
@@ -998,6 +1034,10 @@ export const actions = {
 			setFlash({ type: 'success', message: 'Requisition updated successfully' }, event);
 			return { success: true };
 		} catch (err) {
+			if (err instanceof SkillRequirementError) {
+				setFlash({ type: 'error', message: err.message }, event);
+				return fail(400, { error: err.message });
+			}
 			console.error('Error updating requisition:', err);
 			setFlash({ type: 'error', message: 'Failed to update requisition' }, event);
 			return fail(500, { error: 'Failed to update requisition' });
@@ -1115,6 +1155,11 @@ export const actions = {
 			setFlash({ type: 'success', message: 'Workday cancelled' }, request);
 			return { success: true };
 		} catch (err) {
+			const locked = shiftLockedErrorMessage(err);
+			if (locked) {
+				setFlash({ type: 'error', message: locked }, request);
+				return fail(409, { error: locked });
+			}
 			logger.error('requisition cancel recurrence day failed', {
 				error: err,
 				recurrenceDayId
@@ -1142,6 +1187,18 @@ export const actions = {
 		}
 
 		const idAsNum = Number(request.params.id);
+		// Reopening a started shift un-records who worked it; UNFULFILLED (no-show)
+		// and FILLED corrections on past days stay allowed.
+		if (status === 'OPEN') {
+			try {
+				await assertRecurrenceDaysUnlocked(db, ids, 'reopened');
+			} catch (err) {
+				const locked = shiftLockedErrorMessage(err);
+				if (!locked) throw err;
+				setFlash({ type: 'error', message: locked }, request);
+				return fail(409, { error: locked });
+			}
+		}
 		await db.transaction(async (tx) => {
 			const before = await tx
 				.select({ id: recurrenceDayTable.id, status: recurrenceDayTable.status })
@@ -1191,19 +1248,30 @@ export const actions = {
 
 		// One transaction for the whole batch: either every day cancels or none
 		// does, so we never leave half the selection audited and half not.
-		const snapshots = await db.transaction(async (tx) => {
-			const collected: CancelRecurrenceDaySnapshot[] = [];
-			for (const id of ids) {
-				collected.push(
-					await cancelRecurrenceDayInTx(tx, {
-						recurrenceDayId: id,
-						actorUserId: user.id,
-						actorRole: user.role as CancellationRole
-					})
-				);
-			}
-			return collected;
-		});
+		let snapshots: CancelRecurrenceDaySnapshot[];
+		try {
+			snapshots = await db.transaction(async (tx) => {
+				// Check the whole selection up front so the message names every
+				// started shift, not just the first one the loop trips on.
+				await assertRecurrenceDaysUnlocked(tx, ids, 'cancelled');
+				const collected: CancelRecurrenceDaySnapshot[] = [];
+				for (const id of ids) {
+					collected.push(
+						await cancelRecurrenceDayInTx(tx, {
+							recurrenceDayId: id,
+							actorUserId: user.id,
+							actorRole: user.role as CancellationRole
+						})
+					);
+				}
+				return collected;
+			});
+		} catch (err) {
+			const locked = shiftLockedErrorMessage(err);
+			if (!locked) throw err;
+			setFlash({ type: 'error', message: locked }, request);
+			return fail(409, { error: locked });
+		}
 
 		// Notifications fire after the tx commits. The dispatcher swallows its own
 		// failures, so partial delivery doesn't roll back the cancel.
@@ -1243,6 +1311,17 @@ export const actions = {
 			.from(recurrenceDayTable)
 			.leftJoin(workdayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
 			.where(inArray(recurrenceDayTable.id, ids));
+
+		// Refuse the whole batch if any selected shift has started — checked up
+		// front so nothing is half-deleted. deleteRecurrenceDay re-checks per row.
+		try {
+			await assertRecurrenceDaysUnlocked(db, ids, 'deleted');
+		} catch (err) {
+			const locked = shiftLockedErrorMessage(err);
+			if (!locked) throw err;
+			setFlash({ type: 'error', message: locked }, request);
+			return fail(409, { error: locked });
+		}
 
 		// Reuse the per-row soft-delete helper so each delete is audit-logged.
 		for (const id of ids) {

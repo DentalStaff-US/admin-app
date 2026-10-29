@@ -9,13 +9,14 @@
  * Also handles the empty-timesheet cleanup: when a cancellation lands on
  * Sunday (the last day of the Mon→Sun work week) and leaves a timesheet
  * with zero remaining active workdays, the now-orphaned DRAFT timesheet is
- * removed. Mid-week cancellations leave the timesheet in place — more days
- * may still be added before the week closes out.
+ * voided (timesheets are never hard-deleted). Mid-week cancellations leave the
+ * timesheet in place — more days may still be added before the week closes out.
  */
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, notInArray } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import {
+	invoiceTable,
 	recurrenceDayCancellationTable,
 	recurrenceDayTable,
 	timeSheetTable,
@@ -112,7 +113,7 @@ interface MaybeCleanupArgs {
 /**
  * If the cancelled date is the last day of its work week (Sunday in Mon→Sun)
  * and the timesheet has no remaining non-cancelled workdays linked to it,
- * delete the DRAFT timesheet so we don't leave an orphan around.
+ * void the DRAFT timesheet so we don't leave an orphan around.
  *
  * Mid-week cancellations are a no-op even if they leave the timesheet
  * temporarily empty — more workdays may attach before week's end.
@@ -142,12 +143,55 @@ export async function maybeCleanupOrphanTimesheet(
 		return false;
 	}
 
-	const deleted = await tx
-		.delete(timeSheetTable)
-		.where(and(eq(timeSheetTable.id, args.timesheetId), eq(timeSheetTable.status, 'DRAFT')))
+	return voidEmptyTimesheet(tx, args.timesheetId, ['DRAFT']);
+}
+
+/**
+ * Retire a timesheet that has been left with no workdays. Sets it VOID instead of
+ * deleting it, so the row stays as a record. Only touches sheets in `statuses`,
+ * with no invoice and no wages paid — a settled sheet is never retired this way.
+ * Returns true if the sheet was voided.
+ */
+export async function voidEmptyTimesheet(
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	tx: any,
+	timesheetId: string,
+	statuses: Array<'DRAFT' | 'PENDING' | 'DISCREPANCY' | 'REJECTED'> = [
+		'DRAFT',
+		'PENDING',
+		'DISCREPANCY'
+	]
+): Promise<boolean> {
+	const voided = await tx
+		.update(timeSheetTable)
+		.set({ status: 'VOID', updatedAt: new Date() })
+		.where(
+			and(
+				eq(timeSheetTable.id, timesheetId),
+				inArray(timeSheetTable.status, statuses),
+				isNull(timeSheetTable.wagesStatus),
+				notInArray(
+					timeSheetTable.id,
+					tx
+						.select({ id: invoiceTable.timesheetId })
+						.from(invoiceTable)
+						.where(eq(invoiceTable.timesheetId, timesheetId))
+				)
+			)
+		)
 		.returning({ id: timeSheetTable.id });
 
-	return deleted.length > 0;
+	if (voided.length > 0) {
+		await recordAction({
+			tx,
+			entityType: 'TIMESHEETS',
+			entityId: timesheetId,
+			action: 'VOID',
+			after: { status: 'VOID' },
+			metadata: { reason: 'EMPTY_AFTER_WORKDAY_REMOVAL' }
+		});
+	}
+	return voided.length > 0;
 }
 
 /**

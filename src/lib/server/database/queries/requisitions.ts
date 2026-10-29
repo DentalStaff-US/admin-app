@@ -1,5 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
+	setRequisitionSkillRequirements,
+	SkillRequirementError
+} from '$lib/server/skills/requisitionSkills';
+import type { SkillRequirementCategory } from '$lib/server/skills/skillRequirements';
+import {
 	and,
 	asc,
 	count,
@@ -84,6 +89,12 @@ import { toZonedTime } from 'date-fns-tz';
 import { voidStripeInvoice } from '$lib/server/stripe';
 import { DEFAULT_MAX_RECORD_LIMIT } from '$lib/config/constants';
 import { logger } from '$lib/server/logger';
+import {
+	assertRecurrenceDayEditable,
+	assertRecurrenceDaysUnlocked,
+	ShiftLockedError
+} from '$lib/server/requisitions/shiftLock';
+import { isShiftLocked, shiftLockedMessage } from '$lib/server/requisitions/shiftLockRule';
 import type { InvoiceLineCategory } from '$lib/server/invoices/lineCategory';
 
 /**
@@ -585,7 +596,6 @@ export async function getRequisitionDetailsForAdmin(id: number) {
 			.where(and(eq(recurrenceDayTable.requisitionId, id), eq(recurrenceDayTable.archived, false)))
 			.orderBy(asc(recurrenceDayTable.date));
 
-		console.log({ requisition, applications, timesheets, recurrenceDays });
 		return { requisition, applications, timesheets, recurrenceDays };
 	} catch (err) {
 		console.error(err);
@@ -755,46 +765,89 @@ export async function getRequsitionsForLocation(locationId: string) {
 		.where(and(eq(requisitionTable.locationId, locationId), eq(requisitionTable.archived, false)));
 }
 
-export async function createRequisition(values: Requisition, userId: string) {
+/**
+ * `skillRequirements` are written in the same transaction as the requisition.
+ * Omit (or []) for No Preference everywhere. A SkillRequirementError (bad pick) is
+ * rethrown for the action to show; anything else is a 500 as before.
+ */
+export async function createRequisition(
+	values: Requisition,
+	userId: string,
+	skillRequirements: SkillRequirementCategory[] = []
+) {
 	try {
-		const [result] = await db.insert(requisitionTable).values(values).returning();
-		await writeActionHistory({
-			table: 'REQUISITIONS',
-			userId,
-			action: 'CREATE',
-			entityId: result.id.toString(),
-			afterState: result
+		return await db.transaction(async (tx) => {
+			const [result] = await tx.insert(requisitionTable).values(values).returning();
+			const skills = await setRequisitionSkillRequirements(
+				result.id,
+				result.disciplineId,
+				skillRequirements,
+				tx
+			);
+			await writeActionHistory({
+				table: 'REQUISITIONS',
+				userId,
+				action: 'CREATE',
+				entityId: result.id.toString(),
+				afterState: { ...result, skillRequirements: skills.after },
+				tx
+			});
+			return result;
 		});
-
-		return result;
 	} catch (err) {
+		if (err instanceof SkillRequirementError) throw err;
 		console.error('Error creating requisition', err);
 		return error(500, 'Error creating requisition');
 	}
 }
 
+/**
+ * `skillRequirements` undefined = leave them as they are (status-only edits and
+ * every older caller). An array replaces them — [] clears to No Preference.
+ */
 export async function updateRequisition(
 	requisitionId: number,
 	values: UpdateRequisition,
-	userId: string
+	userId: string,
+	skillRequirements?: SkillRequirementCategory[]
 ) {
 	try {
-		const [result] = await db
-			.update(requisitionTable)
-			.set({ ...values, updatedAt: new Date() })
-			.where(eq(requisitionTable.id, requisitionId))
-			.returning();
+		return await db.transaction(async (tx) => {
+			const [result] = await tx
+				.update(requisitionTable)
+				.set({ ...values, updatedAt: new Date() })
+				.where(eq(requisitionTable.id, requisitionId))
+				.returning();
 
-		await writeActionHistory({
-			table: 'REQUISITIONS',
-			userId,
-			action: 'UPDATE',
-			entityId: result.id.toString(),
-			afterState: result
+			const skills =
+				skillRequirements !== undefined
+					? await setRequisitionSkillRequirements(
+							result.id,
+							result.disciplineId,
+							skillRequirements,
+							tx
+						)
+					: null;
+
+			await writeActionHistory({
+				table: 'REQUISITIONS',
+				userId,
+				action: 'UPDATE',
+				entityId: result.id.toString(),
+				afterState: skills ? { ...result, skillRequirements: skills.after } : result,
+				...(skills
+					? {
+							beforeState: { skillRequirements: skills.before },
+							metadata: { skillRequirementsChanged: true }
+						}
+					: {}),
+				tx
+			});
+
+			return result;
 		});
-
-		return result;
 	} catch (err) {
+		if (err instanceof SkillRequirementError) throw err;
 		console.error('Error updating requisition', err);
 		return error(500, 'Error updating requisition');
 	}
@@ -895,6 +948,19 @@ export async function findOrReuseRecurrenceDay(
 				existing.slice().sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
 
 			if (reusable) {
+				// Reopening wipes the day's workdays. Once the shift has started those
+				// rows are the record of who worked it, so refuse rather than delete.
+				if (isShiftLocked(reusable.dayStart)) {
+					const [priorWorkday] = await tx
+						.select({ id: workdayTable.id })
+						.from(workdayTable)
+						.where(eq(workdayTable.recurrenceDayId, reusable.id))
+						.limit(1);
+					if (priorWorkday) {
+						throw new ShiftLockedError(shiftLockedMessage([reusable.date], 'reopened'));
+					}
+				}
+
 				const [row] = await tx
 					.update(recurrenceDayTable)
 					.set({
@@ -941,6 +1007,7 @@ export async function findOrReuseRecurrenceDay(
 			return { row, outcome: 'inserted' as const };
 		});
 	} catch (err) {
+		if (err instanceof ShiftLockedError) throw err;
 		console.error('Error creating/reusing recurrence day', err);
 		return error(500, 'Error creating recurrence day');
 	}
@@ -948,6 +1015,8 @@ export async function findOrReuseRecurrenceDay(
 
 export async function editRecurrenceDay(id: string, values: UpdateRecurrenceDay, userId: string) {
 	try {
+		await assertRecurrenceDayEditable(db, id);
+
 		const [existing] = await db
 			.select()
 			.from(recurrenceDayTable)
@@ -971,12 +1040,15 @@ export async function editRecurrenceDay(id: string, values: UpdateRecurrenceDay,
 		return result;
 	} catch (error) {
 		console.error(error);
+		throw error;
 	}
 }
 
 export async function deleteRecurrenceDay(id: string, userId: string) {
 	try {
 		return await db.transaction(async (tx) => {
+			await assertRecurrenceDaysUnlocked(tx, [id], 'deleted');
+
 			const [original] = await tx
 				.select()
 				.from(recurrenceDayTable)
@@ -1020,6 +1092,7 @@ export async function deleteRecurrenceDay(id: string, userId: string) {
 		});
 	} catch (error) {
 		console.error('Error deleting recurrence day', error);
+		throw error;
 	}
 }
 
@@ -3285,16 +3358,22 @@ export async function revertTimesheetToPending(
 }
 
 /**
- * Hard-deletes a timesheet that has NO invoice. Disconnects its workdays
- * (set timesheetId = NULL) first so they survive and can regenerate a fresh
- * timesheet via the proactive linker / cron. Throws if an invoice is linked —
- * callers must use {@link voidTimesheetWithInvoice} in that case.
+ * Retires a timesheet that has NO invoice by setting it VOID — timesheets are
+ * never hard-deleted, so the row (and its hours_raw) stays as the record of what
+ * was submitted. Disconnects its workdays (set timesheetId = NULL) so they can
+ * regenerate a fresh DRAFT via the proactive linker / cron, which skips VOID
+ * sheets. Throws if an invoice is linked — callers must use
+ * {@link voidTimesheetWithInvoice} — or if the sheet is already settled.
  */
-export async function deleteTimesheet(timesheetId: string, userId: string) {
+export async function voidUninvoicedTimesheet(
+	timesheetId: string,
+	userId: string,
+	options: { reason?: string; byCandidate?: boolean } = {}
+) {
 	try {
 		const existingInvoice = await getInvoiceByTimesheetId(timesheetId);
 		if (existingInvoice) {
-			throw error(409, 'Timesheet has an invoice — void it instead of deleting');
+			throw error(409, 'Timesheet has an invoice — void it through the invoice instead');
 		}
 
 		return await db.transaction(async (tx) => {
@@ -3306,29 +3385,45 @@ export async function deleteTimesheet(timesheetId: string, userId: string) {
 			if (!original) {
 				throw error(404, 'Timesheet not found');
 			}
+			if (original.status === 'APPROVED' || original.status === 'VOID') {
+				throw error(409, 'Approved or voided timesheets cannot be removed');
+			}
+			if (original.wagesStatus === 'WAGES_PAID') {
+				throw error(409, 'Wages have been paid on this timesheet — it cannot be removed');
+			}
 
 			await tx
 				.update(workdayTable)
 				.set({ timesheetId: null, updatedAt: new Date() })
 				.where(eq(workdayTable.timesheetId, timesheetId));
 
-			await tx.delete(timeSheetTable).where(eq(timeSheetTable.id, timesheetId));
+			const [voided] = await tx
+				.update(timeSheetTable)
+				.set({ status: 'VOID', wagesStatus: null, updatedAt: new Date() })
+				.where(eq(timeSheetTable.id, timesheetId))
+				.returning();
 
 			await writeActionHistory({
 				table: 'TIMESHEETS',
 				userId,
-				action: 'DELETE',
+				action: options.byCandidate ? 'CANCEL' : 'VOID',
 				entityId: timesheetId,
 				beforeState: original,
-				metadata: { reason: 'timesheet_deleted', disconnectedWorkdays: true },
+				afterState: voided,
+				metadata: {
+					reason: options.reason ?? 'timesheet_removed',
+					requisitionId: original.requisitionId ?? null,
+					disconnectedWorkdays: true,
+					byCandidate: options.byCandidate ?? false
+				},
 				tx
 			});
 
-			return original;
+			return voided;
 		});
 	} catch (err) {
 		if (err && typeof err === 'object' && 'status' in err) throw err;
-		throw error(500, `Error deleting timesheet: ${err}`);
+		throw error(500, `Error voiding timesheet: ${err}`);
 	}
 }
 

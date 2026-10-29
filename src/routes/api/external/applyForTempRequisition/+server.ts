@@ -19,6 +19,8 @@ import { and, eq } from 'drizzle-orm';
 import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import { notifyWorkdayClaimed } from '$lib/server/notifications/transactional';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
+import { getSkillRequirements } from '$lib/server/skills/requisitionSkills';
+import { getEffectiveSkillIdsForCandidate } from '$lib/server/skills/effectiveSkills';
 import { checkCandidateAvailableOnDates } from '$lib/server/availability/queries';
 import { wantsTempWork } from '$lib/server/workPreference';
 import { linkWorkdayToOpenTimesheet } from '$lib/server/database/queries/requisitions';
@@ -229,11 +231,16 @@ export const POST: RequestHandler = async ({ request }) => {
 					)
 					.where(eq(candidateDisciplineExperienceTable.candidateId, candidateProfile.id));
 
-				const qualification = checkCandidateQualified(disciplines, {
-					disciplineId: recurrenceDay.requisition.disciplineId,
-					experienceLevelOrder: recurrenceDay.experienceLevelOrder,
-					hourlyRate: recurrenceDay.requisition.hourlyRate
-				});
+				const qualification = checkCandidateQualified(
+					disciplines,
+					{
+						disciplineId: recurrenceDay.requisition.disciplineId,
+						experienceLevelOrder: recurrenceDay.experienceLevelOrder,
+						hourlyRate: recurrenceDay.requisition.hourlyRate,
+						skillRequirements: await getSkillRequirements(recurrenceDay.requisition.id, tx)
+					},
+					{ heldSkillIds: await getEffectiveSkillIdsForCandidate(candidateProfile.id, tx) }
+				);
 				if (!qualification.qualified) {
 					return {
 						kind: 'response',

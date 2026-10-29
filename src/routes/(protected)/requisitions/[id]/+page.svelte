@@ -1,4 +1,6 @@
 <script lang="ts">
+	import SkillRequirementsPicker from '$lib/components/requisitions/SkillRequirementsPicker.svelte';
+	import SkillRequirementsSummary from '$lib/components/requisitions/SkillRequirementsSummary.svelte';
 	import { superForm } from 'sveltekit-superforms/client';
 	import { Card } from 'flowbite-svelte';
 	import Button from '$lib/components/ui/button/button.svelte';
@@ -163,6 +165,11 @@
 
 	// Edit panel state
 	let editPanelOpen = false;
+	/** Tracks the edit form's discipline so the skill picker re-scopes on change. */
+	let editDisciplineId: string | null = null;
+	$: if (editPanelOpen && editDisciplineId === null) editDisciplineId = requisition.disciplineId;
+	$: if (!editPanelOpen) editDisciplineId = null;
+	$: skillRequirements = data.skillRequirements ?? [];
 	let editSaving = false;
 	let applicationTableData: ApplicationResults[] = [];
 	let recurrenceDaysTableData: RecurrenceDayResults[] = [];
@@ -314,10 +321,13 @@
 			id: 'actions',
 			cell: (info) => {
 				const day = info.row.original;
+				// A started shift is a record — the server refuses to cancel or delete
+				// it (shiftLock.ts), so don't offer either.
+				const started = new Date(day.dayStart).getTime() <= Date.now();
 				return flexRender(WorkDayActionMenu, {
 					href: `/requisitions/${requisition.id}/workday/${day.id}`,
-					canCancel: hasRequisitionRights && day.status !== 'CANCELED',
-					canDelete: isAdmin,
+					canCancel: hasRequisitionRights && day.status !== 'CANCELED' && !started,
+					canDelete: isAdmin && !started,
 					onCancel: () => requestCancelRecurrenceDay(day),
 					onDelete: () => requestDeleteRecurrenceDay(day)
 				});
@@ -503,7 +513,7 @@
 			<div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
 				<div class="flex items-center gap-4">
 					<div
-						class="h-14 w-14 flex-shrink-0 rounded-lg overflow-hidden border bg-gray-50 flex items-center justify-center"
+						class="h-14 w-14 flex-shrink-0 rounded-full overflow-hidden border bg-gray-50 flex items-center justify-center"
 					>
 						{#if company?.companyLogo}
 							<img
@@ -908,6 +918,7 @@
 											id="edit-discipline"
 											name="disciplineId"
 											class="mt-1 w-full p-2 border rounded text-sm"
+											on:change={(e) => (editDisciplineId = e.currentTarget.value)}
 										>
 											{#each disciplines as d}
 												<option value={d.id} selected={d.id === requisition.disciplineId}
@@ -963,6 +974,9 @@
 										class="mt-1 text-sm min-h-[100px]"
 									/>
 								</div>
+								<div class="mb-4 rounded-md border bg-gray-50 p-3">
+									<SkillRequirementsPicker disciplineId={editDisciplineId} initial={skillRequirements} />
+								</div>
 								<div class="mb-5">
 									<Label for="edit-si" class="text-xs text-gray-600">Special instructions</Label>
 									<Textarea
@@ -1017,6 +1031,10 @@
 										</p>
 									</div>
 								{/if}
+								<div class="border-t pt-5">
+									<p class="text-xs text-gray-500 mb-2 uppercase tracking-wide">Skill requirements</p>
+									<SkillRequirementsSummary requirements={skillRequirements} />
+								</div>
 								<div>
 									<p class="text-xs text-gray-500 mb-2 uppercase tracking-wide">Purchase Order #</p>
 									<p class="text-sm text-gray-900 whitespace-pre-wrap leading-relaxed">

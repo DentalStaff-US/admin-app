@@ -100,6 +100,7 @@ function sourceForPath(pathname: string): AuditSource {
 	if (pathname.startsWith('/api/external')) return 'CANDIDATE_APP';
 	if (pathname.startsWith('/api/jobs')) return 'CRON';
 	if (pathname.startsWith('/api/webhooks/stripe')) return 'STRIPE';
+	if (pathname.startsWith('/api/webhooks/documenso')) return 'DOCUMENSO';
 	return 'ADMIN_APP';
 }
 

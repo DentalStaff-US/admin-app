@@ -29,7 +29,10 @@ export const AUDIT_ACTIONS = [
 	'SIGN_IN',
 	'SIGN_OUT',
 	'IMPERSONATE_START',
-	'IMPERSONATE_STOP'
+	'IMPERSONATE_STOP',
+	'REMIND',
+	'SNOOZE',
+	'UNSNOOZE'
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -41,11 +44,19 @@ export const AUDIT_ENTITY_TYPES = [
 	'INVOICES',
 	'SUPPORT_TICKETS',
 	'CANDIDATES',
-	'USERS'
+	'USERS',
+	'SIGNATURE_REQUESTS'
 ] as const;
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
 
-export const AUDIT_SOURCES = ['ADMIN_APP', 'CANDIDATE_APP', 'CRON', 'STRIPE', 'SYSTEM'] as const;
+export const AUDIT_SOURCES = [
+	'ADMIN_APP',
+	'CANDIDATE_APP',
+	'CRON',
+	'STRIPE',
+	'DOCUMENSO',
+	'SYSTEM'
+] as const;
 export type AuditSource = (typeof AUDIT_SOURCES)[number];
 
 /** Past-tense verb for "{actor} {label} {entity}". */
@@ -76,7 +87,10 @@ export const ACTION_LABELS: Record<AuditAction, string> = {
 	SIGN_IN: 'signed in',
 	SIGN_OUT: 'signed out',
 	IMPERSONATE_START: 'started impersonating',
-	IMPERSONATE_STOP: 'stopped impersonating'
+	IMPERSONATE_STOP: 'stopped impersonating',
+	REMIND: 'sent a compliance reminder to',
+	SNOOZE: 'snoozed a compliance item for',
+	UNSNOOZE: 'un-snoozed a compliance item for'
 };
 
 /** Human label for an entity type, singular. */
@@ -88,7 +102,8 @@ export const ENTITY_LABELS: Record<AuditEntityType, string> = {
 	INVOICES: 'invoice',
 	SUPPORT_TICKETS: 'support ticket',
 	CANDIDATES: 'professional',
-	USERS: 'user'
+	USERS: 'user',
+	SIGNATURE_REQUESTS: 'signature request'
 };
 
 export const SOURCE_LABELS: Record<AuditSource, string> = {
@@ -96,6 +111,7 @@ export const SOURCE_LABELS: Record<AuditSource, string> = {
 	CANDIDATE_APP: 'Professional app',
 	CRON: 'Scheduled job',
 	STRIPE: 'Stripe',
+	DOCUMENSO: 'Documenso',
 	SYSTEM: 'System'
 };
 

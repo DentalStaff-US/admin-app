@@ -463,6 +463,34 @@
       "when": 1792018246162,
       "tag": "0065_closed_black_bolt",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1792619821943,
+      "tag": "0066_skills_on_profiles_and_reqs",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1792790369340,
+      "tag": "0067_spooky_synch",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1793157581831,
+      "tag": "0068_restrict_record_fks",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1793251419830,
+      "tag": "0069_modern_karnak",
+      "breakpoints": true
     }
   ]
 }

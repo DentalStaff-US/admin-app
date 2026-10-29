@@ -1,108 +1,149 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { createNewSkillCategory, getAllSkillGategories } from '$lib/server/database/queries/skills';
-import { message, setError, superValidate } from 'sveltekit-superforms/server';
-import { newCategorySchema, deleteCategorySchema } from '$lib/config/zod-schemas';
+import { z } from 'zod';
 import { setFlash } from 'sveltekit-flash-message/server';
-import db from '$lib/server/database/drizzle';
-import { skillCategoryTable } from '$lib/server/database/schemas/skill';
-import { eq } from 'drizzle-orm';
+import {
+	createNewSkillCategory,
+	deleteSkillCategoryIfUnused,
+	getAllSkillCategories,
+	getAllDisciplines,
+	isUniqueViolation,
+	reorderSkillCategories,
+	updateSkillCategory
+} from '$lib/server/database/queries/skills';
+import { USER_ROLES } from '$lib/config/constants';
+
+/**
+ * Skill categories: name, description, which disciplines they apply to (none =
+ * all), order, and archive. Archive, don't delete — a category in use by a
+ * requisition can only be archived (deleteSkillCategoryIfUnused refuses otherwise).
+ */
+
+function requireSuperadmin(event: RequestEvent) {
+	const user = event.locals.user;
+	if (!user) redirect(302, '/auth/sign-in');
+	return user.role === USER_ROLES.SUPERADMIN;
+}
+
+const categoryFields = z.object({
+	name: z.string().trim().min(1, 'Name is required').max(80),
+	description: z.string().trim().max(300).optional().default('')
+});
 
 export const load: PageServerLoad = async (event) => {
+	if (!requireSuperadmin(event)) redirect(302, '/dashboard');
 	const searchTerm = event.url.searchParams.get('search') || '';
-	const user = event.locals.user;
-	if (!user) {
-		redirect(302, '/auth/sign-in');
-	}
-
-	const form = await superValidate(event, newCategorySchema);
-	const categories = await getAllSkillGategories(searchTerm);
-
-	return {
-		form,
-		categories: categories || []
-	};
+	const [categories, disciplines] = await Promise.all([
+		getAllSkillCategories(searchTerm),
+		getAllDisciplines()
+	]);
+	return { categories, disciplines, searchTerm };
 };
 
 export const actions = {
 	addCategory: async (event) => {
-		const user = event.locals.user;
-
-		if (!user) {
-			redirect(302, '/auth/sign-in');
+		if (!requireSuperadmin(event)) return fail(403, { message: 'Not permitted.' });
+		const fd = await event.request.formData();
+		const parsed = categoryFields.safeParse({
+			name: fd.get('name'),
+			description: fd.get('description') ?? ''
+		});
+		if (!parsed.success) {
+			return fail(400, { message: parsed.error.issues[0]?.message ?? 'Invalid category.' });
 		}
-		if (user.role !== 'SUPERADMIN') {
-			fail(403, { message: 'You do not have permission to delete categories.' });
-		}
-
-		const form = await superValidate(event, newCategorySchema);
-
-		if (!form.valid) {
-			return fail(400, {
-				form
-			});
-		}
+		const disciplineIds = fd.getAll('disciplineIds').map(String).filter(Boolean);
 
 		try {
-			const categoryId = crypto.randomUUID();
-
-			await createNewSkillCategory({
-				id: categoryId,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-				name: form.data.name
-			});
-
-			setFlash(
+			await createNewSkillCategory(
 				{
-					type: 'success',
-					message: 'Category created successfully.'
+					id: crypto.randomUUID(),
+					name: parsed.data.name,
+					description: parsed.data.description || null
 				},
-				event
+				disciplineIds
 			);
 		} catch (e) {
-			console.error(e);
-			setFlash({ type: 'error', message: 'Category was not able to be created.' }, event);
-			return setError(form, 'Error creating Category.');
+			const message = isUniqueViolation(e)
+				? `A category named "${parsed.data.name}" already exists.`
+				: 'Category was not able to be created.';
+			if (!isUniqueViolation(e)) console.error(e);
+			setFlash({ type: 'error', message }, event);
+			return fail(400, { message });
 		}
-		console.log('Category added successfully');
-		return message(form, 'Category added successfully.');
+		setFlash({ type: 'success', message: 'Category created.' }, event);
+		return { success: true };
 	},
-	deleteCategory: async (event) => {
-		const user = event.locals.user;
 
-		if (!user) {
-			redirect(302, '/auth/sign-in');
-		}
-		if (user.role !== 'SUPERADMIN') {
-			fail(403, { message: 'You do not have permission to delete categories.' });
-		}
-
-		const form = await superValidate(event, deleteCategorySchema);
-
-		if (!form.valid) {
+	editCategory: async (event) => {
+		if (!requireSuperadmin(event)) return fail(403, { message: 'Not permitted.' });
+		const fd = await event.request.formData();
+		const id = String(fd.get('id') ?? '');
+		const parsed = categoryFields.safeParse({
+			name: fd.get('name'),
+			description: fd.get('description') ?? ''
+		});
+		if (!id || !parsed.success) {
 			return fail(400, {
-				form
+				message: parsed.success ? 'Missing category.' : parsed.error.issues[0]?.message
 			});
 		}
+		const disciplineIds = fd.getAll('disciplineIds').map(String).filter(Boolean);
 
 		try {
-			const categoryId = form.data.id;
-
-			await db.delete(skillCategoryTable).where(eq(skillCategoryTable.id, categoryId));
-			setFlash(
-				{
-					type: 'success',
-					message: 'Category deleted successfully.'
-				},
-				event
+			await updateSkillCategory(
+				id,
+				{ name: parsed.data.name, description: parsed.data.description || null },
+				disciplineIds
 			);
 		} catch (e) {
-			console.error(e);
-			setFlash({ type: 'error', message: 'Category was not able to be deleted.' }, event);
-			return setError(form, 'Error deleting Category.');
+			const message = isUniqueViolation(e)
+				? `A category named "${parsed.data.name}" already exists.`
+				: 'Category was not able to be updated.';
+			if (!isUniqueViolation(e)) console.error(e);
+			setFlash({ type: 'error', message }, event);
+			return fail(400, { message });
 		}
-		console.log('Category deleted successfully');
-		return message(form, 'Category deleted successfully.');
+		setFlash({ type: 'success', message: 'Category updated.' }, event);
+		return { success: true };
+	},
+
+	setArchived: async (event) => {
+		if (!requireSuperadmin(event)) return fail(403, { message: 'Not permitted.' });
+		const fd = await event.request.formData();
+		const id = String(fd.get('id') ?? '');
+		const archived = fd.get('archived') === 'true';
+		if (!id) return fail(400, { message: 'Missing category.' });
+		await updateSkillCategory(id, { archivedAt: archived ? new Date() : null });
+		setFlash(
+			{ type: 'success', message: archived ? 'Category archived.' : 'Category restored.' },
+			event
+		);
+		return { success: true };
+	},
+
+	reorder: async (event) => {
+		if (!requireSuperadmin(event)) return fail(403, { message: 'Not permitted.' });
+		const fd = await event.request.formData();
+		const orderedIds = fd.getAll('orderedIds').map(String).filter(Boolean);
+		if (orderedIds.length === 0) return fail(400, { message: 'Nothing to reorder.' });
+		await reorderSkillCategories(orderedIds);
+		return { success: true };
+	},
+
+	deleteCategory: async (event) => {
+		if (!requireSuperadmin(event)) return fail(403, { message: 'Not permitted.' });
+		const fd = await event.request.formData();
+		const id = String(fd.get('id') ?? '');
+		if (!id) return fail(400, { message: 'Missing category.' });
+
+		const outcome = await deleteSkillCategoryIfUnused(id);
+		if (outcome === 'IN_USE') {
+			const message =
+				'This category still has skills or is used by a requisition. Archive it instead.';
+			setFlash({ type: 'error', message }, event);
+			return fail(409, { message });
+		}
+		setFlash({ type: 'success', message: 'Category deleted.' }, event);
+		return { success: true };
 	}
 };

@@ -19,6 +19,7 @@
 	import { writable } from 'svelte/store';
 	import ViewLink from '$lib/components/tables/ViewLink.svelte';
 	import DisciplineCell from '$lib/components/tables/DisciplineCell.svelte';
+	import AvatarNameCell from '$lib/components/tables/AvatarNameCell.svelte';
 	import FilterBar from '$lib/components/filters/FilterBar.svelte';
 	import type { FilterDimension } from '$lib/components/filters/types';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -39,7 +40,6 @@
 
 	const { form, errors, submitting, enhance } = superForm<AdminNewUserSchema>(newProfileForm, {
 		onResult: ({ result }) => {
-			console.log('Form result:', result);
 			if (result.type === 'success') {
 				addDialogOpen = false;
 				// // Optionally reload the page or refresh data
@@ -118,7 +118,13 @@
 				const nameB =
 					`${rowB.original.user.lastName}, ${rowB.original.user.firstName}`.toLowerCase();
 				return nameA.localeCompare(nameB);
-			}
+			},
+			cell: ({ row, getValue }) =>
+				flexRender(AvatarNameCell, {
+					name: getValue() as string,
+					imageUrl: row.original.user.avatarUrl,
+					initials: `${row.original.user.firstName?.[0] ?? ''}${row.original.user.lastName?.[0] ?? ''}`
+				})
 		},
 		{
 			header: 'Discipline',

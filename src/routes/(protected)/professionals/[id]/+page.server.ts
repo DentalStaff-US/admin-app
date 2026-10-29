@@ -18,7 +18,8 @@ import type { RequestEvent } from './$types';
 import { setFlash } from 'sveltekit-flash-message/server';
 import {
 	toCredentialExpiryDate,
-	validateCredentialLink
+	validateCredentialLink,
+	validateSkillCredentialLink
 } from '$lib/server/certifications/credentialLink';
 import {
 	getCandidateDisciplineSnapshot,
@@ -44,6 +45,12 @@ import { geocodingQueue } from '$lib/server/geocode-queue';
 import { candidateDisciplineExperienceTable } from '$lib/server/database/schemas/candidate';
 import { disciplineTable, experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { eq } from 'drizzle-orm';
+import { getSkillCatalog } from '$lib/server/database/queries/skills';
+import {
+	getCandidateSkills,
+	replaceCandidateSkills,
+	SkillWriteError
+} from '$lib/server/skills/candidateSkills';
 import {
 	addComment,
 	deleteComment,
@@ -89,6 +96,14 @@ export const load: PageServerLoad = async (event) => {
 	const documents = await getCandidateDocuments(id);
 	const comments = await getCommentsForCandidate(id);
 
+	// Skills: what they hold, plus the catalog scoped to their disciplines (keeping
+	// anything already held, even if archived or out of scope, so it can be removed).
+	const candidateSkills = await getCandidateSkills(id);
+	const skillCatalog = await getSkillCatalog({
+		disciplineIds: candidateResult.disciplines?.map((d) => d.discipline.id) ?? [],
+		keepSkillIds: candidateSkills.map((s) => s.skillId)
+	});
+
 	// Fetch all available disciplines for the dropdown
 	const allDisciplinesData = await db.select().from(disciplineTable);
 
@@ -113,7 +128,9 @@ export const load: PageServerLoad = async (event) => {
 				disciplinesForm,
 				comments,
 				availability,
-				availabilityWindow: { from: availabilityFrom, to: availabilityTo }
+				availabilityWindow: { from: availabilityFrom, to: availabilityTo },
+				candidateSkills,
+				skillCatalog
 			}
 		: {
 				user,
@@ -129,7 +146,9 @@ export const load: PageServerLoad = async (event) => {
 				disciplinesForm,
 				comments: [],
 				availability,
-				availabilityWindow: { from: availabilityFrom, to: availabilityTo }
+				availabilityWindow: { from: availabilityFrom, to: availabilityTo },
+				candidateSkills: [],
+				skillCatalog: []
 			};
 };
 
@@ -156,7 +175,9 @@ export const actions = {
 		// only — the same gate as the rest of this page's write actions and the same
 		// gate as the Work History tab.
 		if (user.role !== USER_ROLES.SUPERADMIN) {
-			return fail(403, { message: "You do not have permission to update a professional's availability" });
+			return fail(403, {
+				message: "You do not have permission to update a professional's availability"
+			});
 		}
 
 		const fd = await request.formData();
@@ -221,7 +242,6 @@ export const actions = {
 			console.log('Form validation failed:', form.errors);
 			return fail(400, { form });
 		}
-		console.log('Form data:', form.data);
 		const { email, lastName, firstName, birthday, cellPhone, workersCompCode, workPreference } =
 			form.data;
 
@@ -354,6 +374,33 @@ export const actions = {
 	},
 
 	/**
+	 * Replace the professional's skill set. Admins are exempt from the approval lock
+	 * (canEditCandidateSkills) — this is the only door once a professional is ACTIVE.
+	 * Audited inside replaceCandidateSkills.
+	 */
+	updateSkills: async (event) => {
+		const { id } = event.params;
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { message: 'You do not have permission to update skills' });
+		}
+
+		const fd = await event.request.formData();
+		const skillIds = fd.getAll('skillIds').map(String).filter(Boolean);
+
+		try {
+			await replaceCandidateSkills(id, skillIds, { actor: user });
+			setFlash({ type: 'success', message: 'Skills updated' }, event);
+			return { success: true };
+		} catch (e) {
+			const message = e instanceof SkillWriteError ? e.message : 'Failed to update skills';
+			if (!(e instanceof SkillWriteError)) console.error('Error updating skills:', e);
+			setFlash({ type: 'error', message }, event);
+			return fail(400, { message });
+		}
+	},
+
+	/**
 	 * Admin edit of ONE Experience & Rates row's certification.
 	 *
 	 * Deliberately NOT part of updateDisciplines. That action is a delete-and-upsert
@@ -417,7 +464,9 @@ export const actions = {
 				{ type: result.reason === 'NO_CHANGE' ? 'success' : 'error', message: result.message },
 				event
 			);
-			return result.reason === 'NO_CHANGE' ? { success: true } : fail(400, { message: result.message });
+			return result.reason === 'NO_CHANGE'
+				? { success: true }
+				: fail(400, { message: result.message });
 		}
 
 		setFlash({ type: 'success', message: 'Certification updated' }, event);
@@ -504,8 +553,23 @@ export const actions = {
 			// link against the professional's Experience & Rates entries first — the same
 			// rule the external endpoints enforce, so a stray link cannot be created here.
 			const disciplineId = form.data.documentDisciplineId || null;
+			const skillId = form.data.documentSkillId || null;
 			const expiryDate = toCredentialExpiryDate(form.data.documentExpiryDate || null);
 			const type = form.data.documentType ?? form.data.type ?? 'OTHER';
+
+			if (skillId) {
+				const decision = await validateSkillCredentialLink({
+					candidateId,
+					skillId,
+					disciplineId,
+					type,
+					expiryDate
+				});
+				if (!decision.ok) {
+					setFlash({ type: 'error', message: decision.message }, event);
+					return setError(form, decision.message);
+				}
+			}
 
 			if (disciplineId) {
 				const decision = await validateCredentialLink({
@@ -520,7 +584,12 @@ export const actions = {
 				}
 			}
 
-			await uploadCandidateDocuments(fileData, candidateId, { type, disciplineId, expiryDate });
+			await uploadCandidateDocuments(fileData, candidateId, {
+				type,
+				disciplineId,
+				skillId,
+				expiryDate
+			});
 
 			setFlash({ type: 'success', message: 'Documents uploaded successfully' }, event);
 			return message(
@@ -556,6 +625,7 @@ export const actions = {
 		const fd = await event.request.formData();
 		const documentId = String(fd.get('documentId') ?? '');
 		const rawDiscipline = fd.get('disciplineId');
+		const rawSkill = fd.get('skillId');
 		const rawExpiry = fd.get('expiryDate');
 		const rawType = fd.get('type');
 
@@ -565,7 +635,8 @@ export const actions = {
 			.select({
 				type: candidateDocumentUploadsTable.type,
 				expiryDate: candidateDocumentUploadsTable.expiryDate,
-				disciplineId: candidateDocumentUploadsTable.disciplineId
+				disciplineId: candidateDocumentUploadsTable.disciplineId,
+				skillId: candidateDocumentUploadsTable.skillId
 			})
 			.from(candidateDocumentUploadsTable)
 			.where(eq(candidateDocumentUploadsTable.id, documentId));
@@ -574,16 +645,33 @@ export const actions = {
 
 		const patch: Record<string, unknown> = { updatedAt: new Date() };
 		if (rawType !== null) patch.type = String(rawType);
-		if (rawDiscipline !== null) patch.disciplineId = rawDiscipline === '' ? null : String(rawDiscipline);
+		if (rawDiscipline !== null)
+			patch.disciplineId = rawDiscipline === '' ? null : String(rawDiscipline);
+		if (rawSkill !== null) patch.skillId = rawSkill === '' ? null : String(rawSkill);
+		// The documents table posts one combined "applies to" select, since a
+		// document evidences a discipline OR a skill: 'discipline:<id>' | 'skill:<id>' | ''.
+		const rawAppliesTo = fd.get('appliesTo');
+		if (rawAppliesTo !== null) {
+			const v = String(rawAppliesTo);
+			patch.disciplineId = v.startsWith('discipline:') ? v.slice('discipline:'.length) : null;
+			patch.skillId = v.startsWith('skill:') ? v.slice('skill:'.length) : null;
+		}
 		if (rawExpiry !== null) {
 			patch.expiryDate = rawExpiry === '' ? null : toCredentialExpiryDate(String(rawExpiry));
 		}
 
 		const nextType = (patch.type ?? existing.type) as string;
+		// Retyping a skill certificate to anything else drops the skill link rather
+		// than refusing the retype — the link would prove nothing either way.
+		if (nextType !== 'CERTIFICATE' && !('skillId' in patch) && existing.skillId) {
+			patch.skillId = null;
+		}
 		const nextDisciplineId = (
 			'disciplineId' in patch ? patch.disciplineId : existing.disciplineId
 		) as string | null;
-		const nextExpiry = ('expiryDate' in patch ? patch.expiryDate : existing.expiryDate) as Date | null;
+		const nextExpiry = (
+			'expiryDate' in patch ? patch.expiryDate : existing.expiryDate
+		) as Date | null;
 
 		const decision = await validateCredentialLink({
 			candidateId,
@@ -594,6 +682,18 @@ export const actions = {
 		if (!decision.ok) {
 			setFlash({ type: 'error', message: decision.message }, event);
 			return fail(400, { message: decision.message });
+		}
+
+		const skillDecision = await validateSkillCredentialLink({
+			candidateId,
+			skillId: ('skillId' in patch ? patch.skillId : existing.skillId) as string | null,
+			disciplineId: nextDisciplineId,
+			type: nextType,
+			expiryDate: nextExpiry
+		});
+		if (!skillDecision.ok) {
+			setFlash({ type: 'error', message: skillDecision.message }, event);
+			return fail(400, { message: skillDecision.message });
 		}
 
 		await db

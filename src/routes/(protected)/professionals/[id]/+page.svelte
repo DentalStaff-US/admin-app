@@ -34,8 +34,10 @@
 		Delete,
 		Trash,
 		Lock,
-		Unlock
+		Unlock,
+		Sparkles
 	} from 'lucide-svelte';
+	import CandidateSkillsEditor from '$lib/components/skills/CandidateSkillsEditor.svelte';
 	import { superForm } from 'sveltekit-superforms/client';
 	import { format } from 'date-fns';
 	import { CardHeader, CardTitle, CardContent } from '$lib/components/ui/card';
@@ -74,12 +76,29 @@
 
 	/** Upload-form state for filing a document as a discipline's credential. */
 	let uploadDocType = 'OTHER';
-	let uploadDisciplineId = '';
+	/** '' | 'discipline:<id>' | 'skill:<id>' — a document evidences one or the other. */
+	let uploadAppliesTo = '';
 	let uploadExpiry = '';
 	$: uploadIsCredential = CREDENTIAL_TYPES.includes(uploadDocType);
 	$: if (!uploadIsCredential) {
-		uploadDisciplineId = '';
+		uploadAppliesTo = '';
 		uploadExpiry = '';
+	}
+	$: if (uploadDocType !== 'CERTIFICATE' && uploadAppliesTo.startsWith('skill:')) {
+		uploadAppliesTo = '';
+	}
+	$: uploadDisciplineId = uploadAppliesTo.startsWith('discipline:')
+		? uploadAppliesTo.slice('discipline:'.length)
+		: '';
+	$: uploadSkillId = uploadAppliesTo.startsWith('skill:') ? uploadAppliesTo.slice('skill:'.length) : '';
+
+	/** Held skills that take a certificate — the only skills a document can evidence. */
+	$: certSkills = (data.candidateSkills ?? []).filter((s) => s.requiresCertificate);
+
+	function docAppliesTo(doc: any) {
+		if (doc.skillId) return `skill:${doc.skillId}`;
+		if (doc.disciplineId) return `discipline:${doc.disciplineId}`;
+		return '';
 	}
 
 	/** 'YYYY-MM-DD' for a date input, from however the row carried the expiry. */
@@ -531,11 +550,11 @@
 			<div class="py-4">
 				<div class="flex items-center justify-between">
 					<div class="flex gap-4 items-center">
-						<Avatar.Root class="bg-gray-300 rounded-lg w-16 h-16">
+						<Avatar.Root class="bg-gray-300 w-16 h-16">
 							<Avatar.Fallback class="bg-transparent text-xl font-semibold">
 								{initials}
 							</Avatar.Fallback>
-							<Avatar.Image src={candidate.user.avatarUrl} />
+							<Avatar.Image src={candidate.user.avatarUrl} class="object-cover" />
 						</Avatar.Root>
 						<div>
 							<h1 class="text-2xl font-bold">
@@ -1353,6 +1372,23 @@
 								{/if}
 							</CardContent>
 						</Card>
+
+						<!-- Skills Card -->
+						<Card class="w-full max-w-none">
+							<CardHeader class="pb-3">
+								<CardTitle class="text-blue-600 flex items-center gap-2 text-lg">
+									<Sparkles class="h-4 w-4" />
+									Skills
+								</CardTitle>
+							</CardHeader>
+							<CardContent class="pt-0">
+								<CandidateSkillsEditor
+									catalog={data.skillCatalog}
+									held={data.candidateSkills}
+									editable={isAdmin}
+								/>
+							</CardContent>
+						</Card>
 						{#if isAdmin}
 							<Card class="w-full max-w-none">
 								<CardHeader class="pb-3">
@@ -1516,27 +1552,39 @@
 												<!-- Filing a licence/certificate as the credential for one of this
 												     professional's disciplines. The server rejects a link to a
 												     discipline they do not hold, or one without an expiry. -->
-												{#if uploadIsCredential && disciplines.length > 0}
+												{#if uploadIsCredential && (disciplines.length > 0 || (uploadDocType === 'CERTIFICATE' && certSkills.length > 0))}
 													<div class="space-y-2 rounded-md border bg-gray-50 p-3">
 														<div class="space-y-1">
 															<label class="text-xs font-medium" for="admin-doc-discipline">
-																Credential for discipline (optional)
+																Credential for (optional)
 															</label>
+															<input type="hidden" name="documentDisciplineId" value={uploadDisciplineId} />
+															<input type="hidden" name="documentSkillId" value={uploadSkillId} />
 															<select
 																id="admin-doc-discipline"
-																name="documentDisciplineId"
-																bind:value={uploadDisciplineId}
+																bind:value={uploadAppliesTo}
 																class="w-full border rounded-md px-2 py-1 text-sm bg-white"
 															>
 																<option value="">Not a credential</option>
-																{#each disciplines as d}
-																	<option value={d.discipline.id}>
-																		{d.discipline.name} ({d.discipline.abbreviation})
-																	</option>
-																{/each}
+																{#if disciplines.length > 0}
+																	<optgroup label="Discipline">
+																		{#each disciplines as d}
+																			<option value={`discipline:${d.discipline.id}`}>
+																				{d.discipline.name} ({d.discipline.abbreviation})
+																			</option>
+																		{/each}
+																	</optgroup>
+																{/if}
+																{#if uploadDocType === 'CERTIFICATE' && certSkills.length > 0}
+																	<optgroup label="Skill">
+																		{#each certSkills as sk}
+																			<option value={`skill:${sk.skillId}`}>{sk.name}</option>
+																		{/each}
+																	</optgroup>
+																{/if}
 															</select>
 														</div>
-														{#if uploadDisciplineId}
+														{#if uploadAppliesTo}
 															<div class="space-y-1">
 																<label class="text-xs font-medium" for="admin-doc-expiry">
 																	Expires on
@@ -1674,17 +1722,22 @@
 												<form action="?/updateDocumentCredential" method="POST" use:enhance>
 													<input type="hidden" name="documentId" value={doc.id} />
 													<select
-														name="disciplineId"
+														name="appliesTo"
 														class="border rounded-md px-2 py-1 text-sm bg-white"
-														value={doc.disciplineId ?? ''}
+														value={docAppliesTo(doc)}
 														on:change={(e) => e.currentTarget.form?.requestSubmit()}
 													>
 														<option value="">—</option>
 														{#each disciplines as d}
-															<option value={d.discipline.id}>
+															<option value={`discipline:${d.discipline.id}`}>
 																{d.discipline.abbreviation}
 															</option>
 														{/each}
+														{#if doc.type === 'CERTIFICATE'}
+															{#each certSkills as sk}
+																<option value={`skill:${sk.skillId}`}>{sk.name}</option>
+															{/each}
+														{/if}
 													</select>
 												</form>
 											{/if}

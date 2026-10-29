@@ -14,6 +14,10 @@ import {
 	isNotNull,
 	type SQLWrapper
 } from 'drizzle-orm';
+import { getSkillRequirements } from '$lib/server/skills/requisitionSkills';
+import { getEffectiveSkillIds } from '$lib/server/skills/effectiveSkills';
+import { skillRequirementsMetSql } from '$lib/server/skills/skillCredentialSql';
+import { checkSkillRequirements, hasSkillRequirements } from '$lib/server/skills/skillRequirements';
 import { alias } from 'drizzle-orm/pg-core';
 import {
 	credentialNotExpiredSql,
@@ -620,6 +624,7 @@ export async function uploadCandidateDocuments(
 	defaults: {
 		type?: 'RESUME' | 'LICENSE' | 'CERTIFICATE' | 'AGREEMENT' | 'OTHER';
 		disciplineId?: string | null;
+		skillId?: string | null;
 		/** 'YYYY-MM-DD' — see toCredentialExpiryDate. */
 		expiryDate?: string | null;
 	} = {}
@@ -651,6 +656,7 @@ export async function uploadCandidateDocuments(
 				id: crypto.randomUUID(),
 				filename: file.filename,
 				disciplineId: file.disciplineId ?? defaults.disciplineId ?? null,
+				skillId: defaults.skillId ?? null,
 				expiryDate: file.expiryDate
 					? toCredentialExpiryDate(file.expiryDate)
 					: (defaults.expiryDate ?? null)
@@ -687,6 +693,13 @@ export async function getQualifiedProfessionalsForRequisition(
 		 * existing callers are behaviourally identical until each is updated.
 		 */
 		dates?: string[];
+		/**
+		 * Keep professionals who do not meet the requisition's skill requirements,
+		 * annotated with `missingSkills` (the "Show more" relax, like experience and
+		 * pay). Skills are a client PREFERENCE, so unlike a lapsed license they may be
+		 * relaxed — a lapsed skill certificate simply shows up as missing.
+		 */
+		includeMissingSkills?: boolean;
 	} = {}
 ) {
 	try {
@@ -733,6 +746,14 @@ export async function getQualifiedProfessionalsForRequisition(
 		const requisitionRate: number | null =
 			typeof requisition.hourlyRate === 'number' ? requisition.hourlyRate : null;
 		const applyPayFilter = requisitionRate !== null && !options.includeOutsidePayRange;
+
+		// Skill requirements (per category ALL/ANY). None = No Preference = no filter,
+		// which is every requisition created before skills existed.
+		const requisitionId: number | null = typeof requisition.id === 'number' ? requisition.id : null;
+		const skillRequirements =
+			requisitionId !== null ? await getSkillRequirements(requisitionId) : [];
+		const filtersOnSkills = hasSkillRequirements(skillRequirements);
+		const applySkillFilter = filtersOnSkills && !options.includeMissingSkills;
 
 		// Query candidates using PostGIS ST_DWithin and ST_Distance
 		const candidates = await db
@@ -822,6 +843,11 @@ export async function getQualifiedProfessionalsForRequisition(
 					applyPayFilter
 						? sql`${requisitionRate} >= ${candidateDisciplineExperienceTable.preferredHourlyMin} AND ${requisitionRate} <= ${candidateDisciplineExperienceTable.preferredHourlyMax}`
 						: undefined,
+					// Skill requirements. SQL twin of checkSkillRequirements; also governs
+					// the new-workday blast. Relaxed only by `includeMissingSkills`.
+					applySkillFilter
+						? skillRequirementsMetSql(requisitionId!, candidateProfileTable.id)
+						: undefined,
 					// Must be approved/active. `approved` is kept in sync with status
 					// via updateStatus, so checking status alone is the source of truth.
 					eq(candidateProfileTable.status, 'ACTIVE'),
@@ -860,10 +886,21 @@ export async function getQualifiedProfessionalsForRequisition(
 				)
 			: new Map<string, Array<{ date: string; reason: string }>>();
 
+		// Which requirements each professional misses — empty for everyone when the
+		// SQL filter ran, populated for the relaxed ("Show more") search.
+		const heldSkills = filtersOnSkills
+			? await getEffectiveSkillIds([...new Set(candidates.map((c) => c.candidateId as string))])
+			: new Map<string, Set<string>>();
+
 		return candidates.map((c) => {
 			const blocked = unavailability.get(c.candidateId as string) ?? [];
+			const missingSkills = filtersOnSkills
+				? checkSkillRequirements(skillRequirements, heldSkills.get(c.candidateId as string)).missing
+				: [];
 			return {
 				...c,
+				missingSkills,
+				meetsSkillRequirements: missingSkills.length === 0,
 				distance: Number(c.distance).toFixed(1), // Format distance to 1 decimal
 				unavailableDates: blocked,
 				isUnavailable: blocked.length > 0,
@@ -907,7 +944,7 @@ export type { ProfessionalSearchResult };
  * they sort last rather than appearing to be the closest match.
  */
 export async function searchProfessionalsForRequisition(
-	requisition: { companyId: string },
+	requisition: { companyId: string; id?: number },
 	location: { lat?: string | null; lon?: string | null },
 	options: {
 		search: string;
@@ -980,10 +1017,7 @@ export async function searchProfessionalsForRequisition(
 							-- pre-0060 UTC cast against what is now a date column, which is
 							-- correct only while the session timezone happens to be UTC. The
 							-- shared helper is the single definition.
-							'certBlocked', NOT (${credentialNotExpiredSql(
-								candidateDisciplineExperienceTable,
-								disciplineTable
-							)})
+							'certBlocked', NOT (${credentialNotExpiredSql(candidateDisciplineExperienceTable, disciplineTable)})
 						)) filter (where ${disciplineTable.id} is not null),
 						'[]'::jsonb
 					)`.as('disciplines'),
@@ -1034,10 +1068,21 @@ export async function searchProfessionalsForRequisition(
 				)
 			: new Map<string, Array<{ date: string; reason: AvailabilityBlockReason }>>();
 
+		// Skill shortfall as an annotation — this override never filters on skills.
+		const skillRequirements =
+			typeof requisition.id === 'number' ? await getSkillRequirements(requisition.id) : [];
+		const filtersOnSkills = hasSkillRequirements(skillRequirements);
+		const heldSkills = filtersOnSkills
+			? await getEffectiveSkillIds([...new Set(rows.map((r) => r.candidateId as string))])
+			: new Map<string, Set<string>>();
+
 		return rows.map((row) => {
 			const blocked = unavailability.get(row.candidateId as string) ?? [];
 			return {
 				...row,
+				meetsSkillRequirements: filtersOnSkills
+					? checkSkillRequirements(skillRequirements, heldSkills.get(row.candidateId as string)).ok
+					: true,
 				disciplines: (row.disciplines ?? [])
 					.slice()
 					.sort((a, b) =>

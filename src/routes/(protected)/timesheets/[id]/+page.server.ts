@@ -13,7 +13,7 @@ import {
 	createInvoiceRecord,
 	createTimesheetExpense,
 	getApprovedBilledHoursForWeek,
-	deleteTimesheet,
+	voidUninvoicedTimesheet,
 	deleteTimesheetExpense,
 	getInvoiceByTimesheetId,
 	getRecurrenceDaysForTimesheet,
@@ -960,8 +960,8 @@ export const actions = {
 		}
 	},
 
-	// Delete a timesheet that has NO invoice: removes the row and disconnects its
-	// workdays (nulls timesheetId) so they regenerate a fresh timesheet.
+	// Retire a timesheet that has NO invoice: sets it VOID (never hard-deleted) and
+	// disconnects its workdays (nulls timesheetId) so they regenerate a fresh timesheet.
 	deleteTimesheet: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
@@ -984,10 +984,10 @@ export const actions = {
 		}
 
 		try {
-			await deleteTimesheet(id, user.id);
-			setFlash({ type: 'success', message: 'Timesheet deleted' }, event);
+			await voidUninvoicedTimesheet(id, user.id, { reason: 'admin_voided_uninvoiced' });
+			setFlash({ type: 'success', message: 'Timesheet voided' }, event);
 		} catch (err) {
-			logger.error('timesheet delete failed', {
+			logger.error('timesheet void failed', {
 				error: err,
 				timesheetId: event.params.id,
 				distinctId: user.id
@@ -996,11 +996,10 @@ export const actions = {
 				err && typeof err === 'object' && 'body' in err
 					? (err as { body?: { message?: string } }).body?.message
 					: undefined;
-			setFlash({ type: 'error', message: message || 'Error deleting timesheet' }, event);
-			return fail(500, { error: 'Failed to delete timesheet' });
+			setFlash({ type: 'error', message: message || 'Error voiding timesheet' }, event);
+			return fail(500, { error: 'Failed to void timesheet' });
 		}
-		// Deleted — nothing to return to; send the admin back to the list.
-		redirect(303, '/timesheets');
+		redirect(303, `/timesheets/${id}`);
 	},
 
 	adminOverrideTimesheet: async (event: RequestEvent) => {

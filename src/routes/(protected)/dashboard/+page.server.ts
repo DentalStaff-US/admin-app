@@ -1,3 +1,4 @@
+import { getClientSignatureViews } from '$lib/server/signatures/view';
 import {
 	clientCanCreateRequisitions,
 	USER_ROLES,
@@ -19,6 +20,7 @@ import db from '$lib/server/database/drizzle';
 import { invoiceTable, requisitionTable } from '$lib/server/database/schemas/requisition';
 import { count, and, eq, lt, ne, sum, inArray } from 'drizzle-orm';
 import { getAdminDashboardData } from '$lib/server/database/queries/admin';
+import { parsePipelineRange } from '$lib/server/dashboard/shiftValueRule';
 import { adminRequisitionSchema, clientRequisitionSchema } from '$lib/config/zod-schemas';
 import { adminNewUserSchema } from '$lib/config/zod-schemas';
 
@@ -46,8 +48,13 @@ export const load = async (event: RequestEvent) => {
 			wagesDueTotal,
 			wagesPaidCount,
 			wagesPaidTotal,
-			unbilledPermanentPlacementsCount
-		} = await getAdminDashboardData();
+			unbilledPermanentPlacementsCount,
+			shiftPipeline,
+			pipelineRange,
+			compliance
+		} = await getAdminDashboardData({
+			pipelineRange: parsePipelineRange(event.url.searchParams.get('pipeline'))
+		});
 		const form = superValidate(event, adminRequisitionSchema);
 		const newProfileForm = await superValidate(event, adminNewUserSchema);
 
@@ -68,7 +75,10 @@ export const load = async (event: RequestEvent) => {
 			wagesDueTotal,
 			wagesPaidCount,
 			wagesPaidTotal,
-			unbilledPermanentPlacementsCount
+			unbilledPermanentPlacementsCount,
+			shiftPipeline,
+			pipelineRange,
+			compliance
 		};
 	}
 
@@ -78,6 +88,10 @@ export const load = async (event: RequestEvent) => {
 		}
 
 		const client = await getClientProfilebyUserId(user.id);
+		// Agreements still waiting on this client's signature, for the banner.
+		const pendingSignatures = (
+			await getClientSignatureViews(client?.id, { userId: user.id, isAdmin: false })
+		).filter((r) => r.signingUrl);
 		const {
 			requisitions,
 			supportTickets,
@@ -163,7 +177,8 @@ export const load = async (event: RequestEvent) => {
 			wagesDueCount: 0,
 			clientStatus,
 			canCreateRequisitions: clientCanCreateRequisitions(clientStatus),
-			hasBillingSetup: hasBillingSetup(subscription ?? null)
+			hasBillingSetup: hasBillingSetup(subscription ?? null),
+			pendingSignatures
 		};
 	}
 

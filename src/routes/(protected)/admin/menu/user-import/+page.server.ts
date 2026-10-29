@@ -15,6 +15,7 @@ import {
 	type BulkCreateResult
 } from '$lib/server/database/queries/admin';
 import { geocodingQueue } from '$lib/server/geocode-queue';
+import { deleteUsersWithoutRecords } from '$lib/server/database/queries/admin';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 
@@ -262,11 +263,9 @@ export const actions: Actions = {
 		}
 
 		try {
-			await db.transaction(async (tx) => {
-				// Delete related records first to avoid foreign key constraints
-				// Then delete users
-				await tx.delete(userTable).where(inArray(userTable.email, emails));
-			});
+			// Refuses the whole batch if any imported user already owns records of
+			// business (shifts, timesheets, invoices…) — those must be banned instead.
+			await deleteUsersWithoutRecords({ emails });
 
 			setFlash(
 				{
@@ -282,7 +281,7 @@ export const actions: Actions = {
 			setFlash(
 				{
 					type: 'error',
-					message: 'Failed to delete users'
+					message: error instanceof Error ? error.message : 'Failed to delete users'
 				},
 				event
 			);

@@ -1507,8 +1507,8 @@
 										class="w-full border-red-200 text-red-700 hover:bg-red-50 gap-2"
 										on:click={() => (deleteDialogOpen = true)}
 									>
-										<Trash2 class="h-4 w-4" />
-										<span>Delete Timesheet</span>
+										<Ban class="h-4 w-4" />
+										<span>Void Timesheet</span>
 									</Button>
 								{/if}
 							{/if}
@@ -2131,10 +2131,11 @@
 <Dialog bind:open={deleteDialogOpen}>
 	<DialogContent>
 		<DialogHeader>
-			<DialogTitle>Delete Timesheet</DialogTitle>
+			<DialogTitle>Void Timesheet</DialogTitle>
 			<DialogDescription>
-				This permanently deletes the timesheet and releases its workdays (no invoice is attached).
-				A fresh timesheet will regenerate from the released workdays. This cannot be undone.
+				This voids the timesheet and releases its workdays (no invoice is attached). The voided
+				sheet is kept as a record, and a fresh timesheet will regenerate from the released
+				workdays. This cannot be undone.
 			</DialogDescription>
 		</DialogHeader>
 		<DialogFooter class="mt-4">
@@ -2148,7 +2149,7 @@
 					class="bg-destructive hover:bg-destructive/90 text-white"
 					on:click={() => (deleteDialogOpen = false)}
 				>
-					Delete Timesheet
+					Void Timesheet
 				</Button>
 			</form>
 		</DialogFooter>

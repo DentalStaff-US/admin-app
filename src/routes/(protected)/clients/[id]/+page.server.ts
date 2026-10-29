@@ -49,6 +49,13 @@ import { logger } from '$lib/server/logger';
 import { z } from 'zod';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
+import { getClientSignatureViews } from '$lib/server/signatures/view';
+import {
+	cancelSignatureRequest,
+	requestSignature,
+	resendSigningInvite
+} from '$lib/server/signatures/service';
+import { SIGNATURE_KINDS, listSignatureKinds } from '$lib/server/signatures/kinds';
 import {
 	adminRequisitionSchema,
 	newClientCompanyLocationSchema,
@@ -170,6 +177,10 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	const requisitionForm = await superValidate(adminRequisitionSchema);
 	const locationForm = await superValidate(newClientCompanyLocationSchema);
 	const documents = await getClientDocuments(result.profile.id);
+	const signatureRequests = await getClientSignatureViews(result.profile.id, {
+		userId: user.id,
+		isAdmin: true
+	});
 
 	const updateClientForm = await superValidate(
 		{
@@ -264,6 +275,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				statusForm,
 				comments,
 				documents,
+				signatureRequests,
+				signatureKinds: listSignatureKinds('CLIENT'),
 				blacklistedCandidates,
 				billingMismatchMessage,
 				permanentRequisitions
@@ -284,6 +297,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				statusForm,
 				comments: [],
 				documents: [],
+				signatureRequests: [],
+				signatureKinds: [],
 				billingMismatchMessage,
 				permanentRequisitions
 			};
@@ -977,6 +992,74 @@ export const actions = {
 			console.error(err);
 			setFlash({ type: 'error', message: 'Failed to update document' }, event);
 			return fail(500, { error: 'Failed to update document' });
+		}
+	},
+
+	// --- E-signature (Documenso) ---------------------------------------------
+	// Manual send covers clients that never pass completeClientOnboarding
+	// (admin-created, bulk-imported) and re-sending after a cancel/decline/expiry.
+	sendSignatureRequest: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		const kind = String((await event.request.formData()).get('kind') ?? '');
+		if (!SIGNATURE_KINDS.includes(kind)) return fail(400, { error: 'Unknown document' });
+
+		try {
+			const { created, request } = await requestSignature({
+				kind,
+				subjectId: event.params.id,
+				actorUserId: user.id
+			});
+			setFlash(
+				created
+					? { type: 'success', message: 'Sent for signature' }
+					: request.status === 'PENDING'
+						? { type: 'success', message: 'Already being sent — refresh in a moment' }
+						: { type: 'error', message: 'Already awaiting a signature — nudge or cancel it instead' },
+				event
+			);
+			return { success: created };
+		} catch (err) {
+			console.error(err);
+			setFlash({ type: 'error', message: 'Could not send — see the Agreements panel' }, event);
+			return fail(502, { error: 'Send failed' });
+		}
+	},
+
+	resendSignatureRequest: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		const requestId = String((await event.request.formData()).get('requestId') ?? '');
+		try {
+			await resendSigningInvite(requestId, user.id);
+			setFlash({ type: 'success', message: 'Reminder sent' }, event);
+			return { success: true };
+		} catch (err) {
+			console.error(err);
+			setFlash({ type: 'error', message: 'Could not send a reminder' }, event);
+			return fail(400, { error: 'Resend failed' });
+		}
+	},
+
+	cancelSignatureRequest: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		const formData = await event.request.formData();
+		const requestId = String(formData.get('requestId') ?? '');
+		const reason = String(formData.get('reason') ?? '').trim() || undefined;
+		try {
+			const after = await cancelSignatureRequest({ requestId, actorUserId: user.id, reason });
+			setFlash(
+				after.status === 'CANCELLED'
+					? { type: 'success', message: 'Cancelled — the signing link no longer works' }
+					: { type: 'error', message: `Not cancelled: it is ${after.status.toLowerCase()}` },
+				event
+			);
+			return { success: after.status === 'CANCELLED' };
+		} catch (err) {
+			console.error(err);
+			setFlash({ type: 'error', message: 'Could not cancel' }, event);
+			return fail(500, { error: 'Cancel failed' });
 		}
 	},
 

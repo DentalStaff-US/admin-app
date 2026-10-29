@@ -160,10 +160,8 @@ export async function updateClientProfile(clientId: string, values: UpdateClient
 		.returning();
 
 	if (result.length === 0) {
-		console.log('El result fue nulitoo', result);
 		return null;
 	} else {
-		console.log('el resultado', result[0]);
 		return result[0];
 	}
 }
@@ -360,7 +358,8 @@ export async function getAllClientProfiles(filters: ClientFilters = {}) {
 			},
 			company: {
 				id: clientCompanyTable.id,
-				companyName: clientCompanyTable.companyName
+				companyName: clientCompanyTable.companyName,
+				companyLogo: clientCompanyTable.companyLogo
 			},
 			// Distinct city/state per client, rendered as pills. The left join means
 			// clients with no office still appear.

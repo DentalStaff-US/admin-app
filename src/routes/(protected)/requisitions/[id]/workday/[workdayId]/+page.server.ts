@@ -46,7 +46,15 @@ import {
 	workdayTable,
 	timeSheetTable as timesheetTable
 } from '$lib/server/database/schemas/requisition';
-import { stripWorkdayFromTimesheet, type CancellationRole } from '$lib/server/cancellations';
+import {
+	stripWorkdayFromTimesheet,
+	voidEmptyTimesheet,
+	type CancellationRole
+} from '$lib/server/cancellations';
+import {
+	assertRecurrenceDaysUnlocked,
+	shiftLockedErrorMessage
+} from '$lib/server/requisitions/shiftLock';
 import { cancelRecurrenceDayAsActor } from '$lib/server/requisitions/cancelRecurrenceDay';
 import { and, eq, inArray } from 'drizzle-orm';
 import { recordAction, recordView } from '$lib/server/audit/audit';
@@ -356,7 +364,10 @@ export const actions = {
 			return message(form, 'Schedule updated');
 		} catch (error) {
 			console.error('Error editing recurrence day:', error);
-			setFlash({ type: 'error', message: 'Failed to update schedule' }, event);
+			setFlash(
+				{ type: 'error', message: shiftLockedErrorMessage(error) ?? 'Failed to update schedule' },
+				event
+			);
 			return setError(form, 'Something went wrong');
 		}
 	},
@@ -564,6 +575,8 @@ export const actions = {
 
 		try {
 			const snapshot = await db.transaction(async (tx) => {
+				await assertRecurrenceDaysUnlocked(tx, [recurrenceDayId], 'unassigned');
+
 				// Find the workday for this recurrence day
 				const workday = await tx
 					.select()
@@ -594,8 +607,8 @@ export const actions = {
 						.where(eq(workdayTable.timesheetId, timesheetId))
 						.limit(1);
 					if (remaining.length === 0) {
-						// Genuinely empty now — drop the orphan sheet.
-						await tx.delete(timesheetTable).where(eq(timesheetTable.id, timesheetId));
+						// Genuinely empty now — retire the orphan sheet (VOID, kept as a record).
+						await voidEmptyTimesheet(tx, timesheetId);
 					} else {
 						// Other days remain — keep the sheet, strip this day's hours.
 						await stripWorkdayFromTimesheet(tx, {
@@ -661,6 +674,11 @@ export const actions = {
 			setFlash({ type: 'success', message: 'Professional successfully unassigned' }, event);
 			return { success: true };
 		} catch (error) {
+			const locked = shiftLockedErrorMessage(error);
+			if (locked) {
+				setFlash({ type: 'error', message: locked }, event);
+				return fail(409, { error: locked });
+			}
 			console.error('Error unassigning candidate:', error);
 			setFlash({ type: 'error', message: 'Failed to unassign professional' }, event);
 			return fail(500, { error: error instanceof Error ? error.message : 'Unknown error' });
@@ -694,6 +712,8 @@ export const actions = {
 
 		try {
 			const reassignSnapshot = await db.transaction(async (tx) => {
+				await assertRecurrenceDaysUnlocked(tx, [recurrenceDayId], 'reassigned');
+
 				// Find existing workday
 				const existingWorkday = await tx
 					.select()
@@ -717,8 +737,8 @@ export const actions = {
 						.where(eq(workdayTable.timesheetId, oldTimesheetId))
 						.limit(1);
 					if (remaining.length === 0) {
-						// Genuinely empty now — drop the orphan sheet.
-						await tx.delete(timesheetTable).where(eq(timesheetTable.id, oldTimesheetId));
+						// Genuinely empty now — retire the orphan sheet (VOID, kept as a record).
+						await voidEmptyTimesheet(tx, oldTimesheetId);
 					} else {
 						// Other days remain — keep the sheet, just strip this day's hours
 						// so they don't linger (and don't bill) on the old candidate's sheet.
@@ -889,6 +909,11 @@ export const actions = {
 					error: error.blocked[0]?.message ?? 'This professional is unavailable on that date.'
 				});
 			}
+			const locked = shiftLockedErrorMessage(error);
+			if (locked) {
+				setFlash({ type: 'error', message: locked }, event);
+				return fail(409, { error: locked });
+			}
 			console.error('Error reassigning candidate:', error);
 			setFlash({ type: 'error', message: 'Failed to reassign professional' }, event);
 			return fail(500, { error: error instanceof Error ? error.message : 'Unknown error' });
@@ -927,6 +952,11 @@ export const actions = {
 			setFlash({ type: 'success', message: 'Workday successfully cancelled' }, event);
 			return { success: true };
 		} catch (error) {
+			const locked = shiftLockedErrorMessage(error);
+			if (locked) {
+				setFlash({ type: 'error', message: locked }, event);
+				return fail(409, { error: locked });
+			}
 			console.error('Error cancelling workday:', error);
 			setFlash({ type: 'error', message: 'Failed to cancel workday' }, event);
 			return fail(500, { error: error instanceof Error ? error.message : 'Unknown error' });
@@ -1093,7 +1123,10 @@ export const actions = {
 			// SvelteKit redirects throw — let those bubble up.
 			if (err && typeof err === 'object' && 'status' in err && 'location' in err) throw err;
 			console.error(err);
-			setFlash({ type: 'error', message: 'Failed to delete workday' }, request);
+			setFlash(
+				{ type: 'error', message: shiftLockedErrorMessage(err) ?? 'Failed to delete workday' },
+				request
+			);
 			return fail(500, { error: 'Failed to delete workday' });
 		}
 	}

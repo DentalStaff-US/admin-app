@@ -46,7 +46,6 @@
 	}
 
 	$: clientForm = data.clientForm as SuperValidated<ClientRequisitionSchema> | null;
-	$: console.log({ data });
 	$: requisitions = data.requisitions;
 	$: newApplicationsCount = data.newApplicationsCount;
 	$: timesheetsDueCount = data.timesheetsDueCount;
@@ -109,6 +108,22 @@
 					to reactivate.
 				{/if}
 			</div>
+		{/if}
+
+		{#if user?.role === USER_ROLES.CLIENT}
+			{#each data.pendingSignatures ?? [] as sig (sig.id)}
+				<div
+					class="rounded-md border bg-muted px-4 py-3 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+				>
+					<div>
+						<strong>Your {sig.title} is waiting for your signature.</strong> It only takes a couple
+						of minutes.
+					</div>
+					<a href={sig.signingUrl} target="_blank" rel="noopener noreferrer">
+						<Button type="button" size="sm">Review & sign</Button>
+					</a>
+				</div>
+			{/each}
 		{/if}
 
 		{#if user?.role === USER_ROLES.CLIENT && data.hasBillingSetup === false}

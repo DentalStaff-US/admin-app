@@ -1852,6 +1852,44 @@ export async function notifyLicenseGraceExpired(args: {
 }
 
 /**
+ * A required license is missing — sent on demand from the admin Compliance page.
+ * Email only, like the fortnightly missing-credential nudge it mirrors; the caller
+ * starts the grace clock first so `deadline` is real. Never throws.
+ */
+export async function notifyLicenseMissing(args: {
+	email: string;
+	firstName: string | null;
+	disciplineName: string;
+	abbreviation: string;
+	/** 'YYYY-MM-DD' — when the grace period ends. */
+	deadline: string;
+}): Promise<void> {
+	const label = 'licenseMissing';
+	try {
+		const uploadUrl = `${CANDIDATE_APP_DOMAIN}/settings/documents`;
+		await dispatch(label, [
+			safeEmail(label, args.email, () => {
+				const t = EMAIL_TEMPLATES.licenseMissingEmail({
+					firstName: args.firstName ?? 'there',
+					disciplineName: args.disciplineName,
+					abbreviation: args.abbreviation,
+					deadline: fmtDate(args.deadline),
+					uploadUrl
+				});
+				return emailService.sendEmail({
+					to: [{ email: args.email }],
+					subject: t.subject,
+					html: t.htmlEmail,
+					text: t.textEmail
+				});
+			})
+		]);
+	} catch (error) {
+		console.error(`[transactional:${label}] top-level error:`, error);
+	}
+}
+
+/**
  * New comment on a requisition's shared thread — email the other side.
  *
  *   - internal (admin-only) note → nobody; it must never reach the client.
@@ -2077,6 +2115,226 @@ export async function notifyCandidateRecommended(applicationId: string): Promise
 				}
 			)
 		]);
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
+	}
+}
+
+// ---------- e-signature (Documenso) ----------
+//
+// Contract mail is transactional: the signing request and its nudges go out by
+// email regardless of `receiveEmail` (which governs notifications, not a contract
+// the client has to sign to work with us). SMS still honours `receiveSms`, which
+// is also how a STOP reply is recorded.
+
+type SignatureNotifySubject = {
+	email: string;
+	firstName: string | null;
+	phone: string | null;
+	receiveSms: boolean;
+	displayName: string;
+};
+
+export async function notifySignatureRequested(args: {
+	subject: SignatureNotifySubject;
+	documentTitle: string;
+	signingUrl: string;
+	portalUrl: string;
+	auditEntityId: string;
+}): Promise<void> {
+	const label = 'signatureRequested';
+	const { subject } = args;
+	const t = EMAIL_TEMPLATES.signatureRequestEmail({
+		firstName: subject.firstName,
+		documentTitle: args.documentTitle,
+		organisationName: subject.displayName,
+		signingUrl: args.signingUrl,
+		portalUrl: args.portalUrl
+	});
+	await dispatch(label, [
+		safeEmail(
+			label,
+			subject.email,
+			() =>
+				emailService.sendEmail({
+					to: [{ email: subject.email }],
+					subject: t.subject,
+					html: t.htmlEmail,
+					text: t.textEmail
+				}),
+			{ entityType: 'SIGNATURE_REQUESTS', entityId: args.auditEntityId }
+		),
+		...(subject.receiveSms
+			? [
+					safeSms(label, subject.phone, (phone) =>
+						sms.sendTemplated(phone, 'signatureRequestNotification', {
+							firstName: subject.firstName,
+							documentTitle: args.documentTitle,
+							signingUrl: args.signingUrl,
+							reminder: false
+						})
+					)
+				]
+			: [])
+	]);
+}
+
+export async function notifySignatureReminder(args: {
+	subject: SignatureNotifySubject;
+	documentTitle: string;
+	signingUrl: string;
+	daysOutstanding: number;
+	finalNotice: boolean;
+	channels: ('EMAIL' | 'SMS')[];
+	auditEntityId: string;
+}): Promise<void> {
+	const label = 'signatureReminder';
+	const { subject } = args;
+	const sends: Promise<boolean>[] = [];
+	if (args.channels.includes('EMAIL')) {
+		const t = EMAIL_TEMPLATES.signatureReminderEmail({
+			firstName: subject.firstName,
+			documentTitle: args.documentTitle,
+			organisationName: subject.displayName,
+			signingUrl: args.signingUrl,
+			daysOutstanding: args.daysOutstanding,
+			finalNotice: args.finalNotice
+		});
+		sends.push(
+			safeEmail(
+				label,
+				subject.email,
+				() =>
+					emailService.sendEmail({
+						to: [{ email: subject.email }],
+						subject: t.subject,
+						html: t.htmlEmail,
+						text: t.textEmail
+					}),
+				{
+					entityType: 'SIGNATURE_REQUESTS',
+					entityId: args.auditEntityId,
+					metadata: { daysOutstanding: args.daysOutstanding }
+				}
+			)
+		);
+	}
+	if (args.channels.includes('SMS')) {
+		sends.push(
+			safeSms(label, subject.phone, (phone) =>
+				sms.sendTemplated(phone, 'signatureRequestNotification', {
+					firstName: subject.firstName,
+					documentTitle: args.documentTitle,
+					signingUrl: args.signingUrl,
+					reminder: true
+				})
+			)
+		);
+	}
+	await dispatch(label, sends);
+}
+
+export async function notifySignatureCountersign(args: {
+	countersigners: { name: string; email: string; signingUrl: string }[];
+	documentTitle: string;
+	organisationName: string;
+	reminder: boolean;
+	auditEntityId: string;
+}): Promise<void> {
+	const label = args.reminder ? 'signatureCountersignReminder' : 'signatureCountersign';
+	await dispatch(
+		label,
+		args.countersigners.map((c) => {
+			const t = EMAIL_TEMPLATES.signatureCountersignEmail({
+				name: c.name,
+				documentTitle: args.documentTitle,
+				organisationName: args.organisationName,
+				signingUrl: c.signingUrl,
+				reminder: args.reminder
+			});
+			return safeEmail(
+				label,
+				c.email,
+				() =>
+					emailService.sendEmail({
+						to: [{ email: c.email }],
+						subject: t.subject,
+						html: t.htmlEmail,
+						text: t.textEmail
+					}),
+				{ entityType: 'SIGNATURE_REQUESTS', entityId: args.auditEntityId }
+			);
+		})
+	);
+}
+
+export async function notifySignatureCompleted(args: {
+	subject: Pick<SignatureNotifySubject, 'email' | 'firstName' | 'displayName'>;
+	documentTitle: string;
+	portalUrl: string;
+	auditEntityId: string;
+}): Promise<void> {
+	const label = 'signatureCompleted';
+	const t = EMAIL_TEMPLATES.signatureCompletedEmail({
+		firstName: args.subject.firstName,
+		documentTitle: args.documentTitle,
+		organisationName: args.subject.displayName,
+		portalUrl: args.portalUrl
+	});
+	await dispatch(label, [
+		safeEmail(
+			label,
+			args.subject.email,
+			() =>
+				emailService.sendEmail({
+					to: [{ email: args.subject.email }],
+					subject: t.subject,
+					html: t.htmlEmail,
+					text: t.textEmail
+				}),
+			{ entityType: 'SIGNATURE_REQUESTS', entityId: args.auditEntityId }
+		)
+	]);
+}
+
+/** Internal heads-up: rejected, failed to send, or unsigned after the nudge series. */
+export async function notifyAdminsSignatureAlert(args: {
+	clientId: string | null;
+	organisationName: string;
+	documentTitle: string;
+	headline: string;
+	detail: string;
+}): Promise<void> {
+	const label = 'signatureAdminAlert';
+	try {
+		const admins = await db
+			.select({ email: userTable.email })
+			.from(userTable)
+			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+		if (admins.length === 0) {
+			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
+			return;
+		}
+		const t = EMAIL_TEMPLATES.signatureAdminAlertEmail({
+			organisationName: args.organisationName,
+			documentTitle: args.documentTitle,
+			headline: args.headline,
+			detail: args.detail,
+			adminUrl: args.clientId ? `${BASE_URL}/clients/${args.clientId}` : `${BASE_URL}/clients`
+		});
+		await dispatch(
+			label,
+			admins.map((a) =>
+				safeEmail(label, a.email, () =>
+					emailService.sendEmail({
+						to: [{ email: a.email }],
+						subject: t.subject,
+						html: t.htmlEmail,
+						text: t.textEmail
+					})
+				)
+			)
+		);
 	} catch (e) {
 		console.error(`[transactional:${label}] top-level error:`, e);
 	}

@@ -6,12 +6,14 @@ import { resolveRequisitionAccess } from '$lib/server/requisitions/access';
 export const GET: RequestHandler = async ({ locals, params, url }) => {
 	const includeAllExperience = url.searchParams.get('includeAllExperience') === 'true';
 	const includeOutsidePayRange = url.searchParams.get('includeOutsidePayRange') === 'true';
+	const includeMissingSkills = url.searchParams.get('includeMissingSkills') === 'true';
 
 	const { requisition, location } = await resolveRequisitionAccess(locals.user, Number(params.id));
 
 	const candidates = await getQualifiedProfessionalsForRequisition(requisition, location, {
 		includeAllExperience,
-		includeOutsidePayRange
+		includeOutsidePayRange,
+		includeMissingSkills
 	});
 
 	return json(candidates);

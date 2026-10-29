@@ -1,13 +1,15 @@
 import { sql } from 'drizzle-orm';
 import {
 	boolean,
+	date,
 	index,
 	jsonb,
 	pgEnum,
 	pgTable,
 	serial,
 	text,
-	timestamp
+	timestamp,
+	uniqueIndex
 } from 'drizzle-orm/pg-core';
 import { userTable } from './auth';
 import { candidateProfileTable } from './candidate';
@@ -201,6 +203,32 @@ export const actionHistoryTable = pgTable(
 		index('action_history_meta_requisition_idx').on(sql`(${table.metadata}->>'requisitionId')`)
 	]
 );
+
+// An admin's "acknowledged — look again on <date>" on one compliance item. Keyed by
+// text (subject type + id + rule) rather than an FK so client-agreement rules can
+// reuse it. Re-snoozing the same item upserts. Never applies to CRITICAL items
+// (enforced in src/lib/server/compliance/actions.ts).
+export const complianceSnoozeTable = pgTable(
+	'compliance_snoozes',
+	{
+		id: text('id').notNull().primaryKey(),
+		subjectType: text('subject_type').$type<'PROFESSIONAL' | 'CLIENT'>().notNull(),
+		subjectId: text('subject_id').notNull(),
+		// e.g. 'LICENSE:<disciplineId>' | 'CERTIFICATION:<disciplineId>'
+		ruleKey: text('rule_key').notNull(),
+		snoozedUntil: date('snoozed_until').notNull(),
+		note: text('note'),
+		createdByUserId: text('created_by_user_id').references(() => userTable.id, {
+			onDelete: 'set null'
+		}),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow()
+	},
+	(table) => [
+		uniqueIndex('compliance_snoozes_item_uidx').on(table.subjectType, table.subjectId, table.ruleKey)
+	]
+);
+
+export type ComplianceSnoozeSelect = typeof complianceSnoozeTable.$inferSelect;
 
 export type AdminNote = typeof adminNoteTable.$inferInsert;
 export type UpdateAdminNote = Partial<typeof adminNoteTable.$inferInsert>;

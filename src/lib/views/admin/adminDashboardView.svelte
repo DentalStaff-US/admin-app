@@ -28,6 +28,8 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Input } from '$lib/components/ui/input';
 	import { formatInTimeZone } from 'date-fns-tz';
+	import RequisitionPipelineCard from '$lib/components/dashboard/admin/RequisitionPipelineCard.svelte';
+	import ComplianceCard from '$lib/components/dashboard/admin/ComplianceCard.svelte';
 
 	export let user;
 	export let data;
@@ -114,7 +116,6 @@
 
 	const { form, errors, submitting, enhance } = superForm<AdminNewUserSchema>(newProfileForm, {
 		onResult: ({ result }) => {
-			console.log('Form result:', result);
 			if (result.type === 'success') {
 				addDialogOpen = false;
 				// // Optionally reload the page or refresh data
@@ -136,8 +137,14 @@
 			</p>
 		</div>
 
-		<!-- Stat cards row -->
-		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
+		<!-- Stat cards row. The requisition summary takes the first column across
+		     two rows; the six stat cards fill the remaining 3×2. -->
+		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+			{#if data.shiftPipeline}
+				<div class="md:col-span-2 lg:col-span-1 lg:row-span-2">
+					<RequisitionPipelineCard summary={data.shiftPipeline} range={data.pipelineRange} />
+				</div>
+			{/if}
 			<!-- Timesheets due -->
 			<Card.Root>
 				<Card.Content class="p-6">
@@ -359,6 +366,12 @@
 				</Card.Root>
 			{/if}
 		</div>
+
+		{#if data.compliance}
+			<div class="mb-8">
+				<ComplianceCard summary={data.compliance} />
+			</div>
+		{/if}
 
 		<!-- Main grid -->
 		<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
