@@ -61,6 +61,8 @@
 	import { invalidateAll } from '$app/navigation';
 	import { tick } from 'svelte';
 	import { format } from 'date-fns';
+	import SignatureRequestList from '$lib/components/signatures/SignatureRequestList.svelte';
+	import { clientDocumentDownloadUrl, type SignatureRequestView } from '$lib/signatures/types';
 
 	type StaffProfileData = {
 		profile: {
@@ -99,6 +101,7 @@
 	export let handleAvatarUpdated;
 	export let company;
 	export let documents;
+	export let signatureRequests: SignatureRequestView[] = [];
 	export let companyLocations: Array<{ id: string; name: string | null }> = [];
 	export let pendingInvites: Array<{
 		id: string;
@@ -1319,6 +1322,16 @@
 		{#if selectedTab === SETTINGS_MENU_OPTIONS.CLIENT.DOCUMENTS}
 			<h2 class="text-3xl font-semibold">Documents</h2>
 
+			{#if signatureRequests.length > 0}
+				<div class="space-y-2">
+					<h3 class="text-lg font-medium">Agreements</h3>
+					<p class="text-sm text-muted-foreground">
+						Documents we've sent you to sign. Signed copies are saved below.
+					</p>
+					<SignatureRequestList requests={signatureRequests} audience="client" />
+				</div>
+			{/if}
+
 			<div class="flex justify-between items-center">
 				<p class="text-gray-500 text-sm">Upload and manage your company documents.</p>
 				<Button
@@ -1388,7 +1401,7 @@
 								<td class="py-3 px-4 text-sm text-gray-600">{format(doc.createdAt, 'PP')}</td>
 								<td class="py-3 px-4 text-right">
 									<div class="flex justify-end gap-2">
-										<a href={doc.uploadUrl} target="_blank" rel="noopener noreferrer">
+										<a href={clientDocumentDownloadUrl(doc.id)}>
 											<Button variant="ghost" size="icon" class="h-8 w-8">
 												<Download class="h-4 w-4" />
 											</Button>

@@ -84,6 +84,7 @@
 				pendingInvites={data.pendingInvites ?? []}
 				{handleAvatarUpdated}
 				documents={data.documents ?? []}
+				signatureRequests={data.signatureRequests ?? []}
 				affiliateStatus={data.affiliateStatus ?? null}
 				partnerPortalUrl={data.partnerPortalUrl ?? '/affiliate-portal'}
 			/>

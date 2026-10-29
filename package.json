@@ -17,6 +17,7 @@
 		"seed-dev": "npx tsx src/lib/server/database/seed-dev.ts",
 		"cron": "tsx src/cron/index.ts",
 		"cron:dev": "tsx watch src/cron/index.ts",
+		"job": "tsx src/cron/run-once.ts",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:ui": "vitest --ui"

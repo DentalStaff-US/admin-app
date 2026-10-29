@@ -151,5 +151,15 @@ export const jobs: JobDefinition[] = [
 		endpoint: '/jobs/onboarding/processPendingApprovalTouchpoint',
 		schedule: 'monthly, 1st at 10:30 AM ET',
 		rule: () => ny({ date: 1, hour: 10, minute: 30, second: 0 })
+	},
+	// --- E-signature (Documenso) -------------------------------------------
+	// Reconciles open requests with Documenso (missed webhooks, unfiled signed
+	// copies), then sends the 30-day nudge series. Nudges can send SMS, so 11:30 ET
+	// — past 8am local everywhere in the US and off the 11:00/11:15 cert ticks.
+	{
+		name: 'processSignatureRequests',
+		endpoint: '/jobs/signatures/processSignatureRequests',
+		schedule: 'daily at 11:30 AM ET',
+		rule: () => ny({ hour: 11, minute: 30, second: 0 })
 	}
 ];

@@ -264,6 +264,7 @@ npm run seed-dev
 | `processDocumentsMissingNudge`     | weekly, Tue 10:00 AM ET  |
 | `processStalledOnboarding`         | daily 10:15 AM ET        |
 | `processPendingApprovalTouchpoint` | monthly, 1st 10:30 AM ET |
+| `processSignatureRequests`         | daily 11:30 AM ET        |
 
 The three onboarding jobs only _enqueue_ a `mass_campaigns` row; the
 every-minute `processCampaignQueue` sends it. That's what gives automated
@@ -278,6 +279,12 @@ retuned without a migration. **Opt-out is enforced when the audience is built**
 new audience query must filter `users.receive_email` itself.
 
 Definitions live in `src/lib/server/jobs/registry.ts`. Job endpoints are thin shells — verify → lock → call a named service → return JSON; the domain logic belongs in `src/lib/server/<domain>/`.
+
+To trigger a single job once (local testing, one-off ops), with the web app running:
+
+```bash
+npm run job -- processSignatureRequests   # no argument lists the jobs
+```
 
 ⚠️ **Do not run more than one cron process per environment** — jobs would double-fire.
 
