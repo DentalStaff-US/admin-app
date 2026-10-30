@@ -1500,8 +1500,8 @@
 										<Ban class="h-4 w-4" />
 										<span>Void Timesheet &amp; Invoice</span>
 									</Button>
-								{:else if !isApproved && !isVoid}
-									<!-- Pre-approval only: an error/corrupt sheet that should regenerate. -->
+								{:else if !isVoid && !(isApproved && wagesStatus === 'WAGES_PAID')}
+									<!-- Anything not paid out can be voided and regenerate from its workdays. -->
 									<Button
 										variant="outline"
 										class="w-full border-red-200 text-red-700 hover:bg-red-50 gap-2"

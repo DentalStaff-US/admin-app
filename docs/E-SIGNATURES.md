@@ -7,8 +7,10 @@ document type**. Code lives in [`src/lib/server/signatures/`](../src/lib/server/
 
 ## 0. How it works, in one paragraph
 
-Documenso is the signing engine. It is self-hosted on Railway, with its own
-Postgres, and is never modified. Our app talks to it only through its v2 API and
+Documenso is the signing engine. It is self-hosted on Railway (Railway env
+`internal`), with its own Postgres, and is never modified. **One Documenso
+instance serves both staging and production.** The environments are kept apart
+by Documenso *teams*, not separate instances. Our app talks to it only through its v2 API and
 webhooks. Every document we send is a row in `signature_requests`.
 
 1. **Send.** `requestSignature()` creates an envelope from a Documenso template,
@@ -54,8 +56,8 @@ webhooks, nudges, filing and the client/admin panels need no changes.
 
 ### 1.1 Build the template in Documenso
 
-Under the team (staging: `dtss-documents-staging`) → **Templates**, upload the
-PDF. If you start from a document, use **Save as Template** — never send the
+Under the team for the environment → **Templates**, upload the PDF. Staging's
+team is `dtss-documents-staging`. If you start from a document, use **Save as Template** — never send the
 draft.
 
 **Rules the code relies on:**
@@ -73,9 +75,9 @@ You don't need to change the template's email settings. Every send overrides the
 
 ### 1.2 Configure the template ID
 
-The template ID is the `envelope_…` part of the template's URL. It is
-**different in every environment**: staging and production have separate
-Documenso instances, so you create the template twice.
+The template ID is the `envelope_…` part of the template's URL. If staging and
+production use separate Documenso teams, each team has its own copy of the
+template, and so its own ID. Use **Duplicate Template** and move the copy across.
 
 Add an env var named `DOCUMENSO_TEMPLATE_<KIND>` in:
 - your local `.env`
@@ -222,7 +224,12 @@ Only `subjectType: 'CLIENT'` exists today. For the first candidate document:
 ### Webhook
 
 In Documenso: Team settings → Webhooks →
-`https://<admin app>/api/webhooks/documenso`, using the same secret. Subscribe to:
+`https://<admin app>/api/webhooks/documenso`, using the same secret.
+
+Add **one webhook per admin app** (staging and production), each with its own
+secret. Every app receives every event for the team, and each one ignores
+envelopes that aren't in its own database. That's how one shared instance serves
+both environments safely. Subscribe to:
 - DOCUMENT_SENT
 - DOCUMENT_OPENED
 - DOCUMENT_SIGNED

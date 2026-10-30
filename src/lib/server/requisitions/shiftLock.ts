@@ -1,14 +1,14 @@
 /**
  * Database-backed guards for the shift-lock rule (see `shiftLockRule.ts`).
  *
- * Every removal of a recurrence day or its workday — delete, cancel, unassign,
- * reassign, reopen-to-OPEN, candidate cancel — calls `assertRecurrenceDaysUnlocked`
- * before writing, inside the same transaction, so no route can strand a past
- * shift's timesheet, invoice or payout.
+ * Every change to a recurrence day or its workday — edit, delete, cancel,
+ * unassign, reassign, reopen, candidate cancel — calls one of these before
+ * writing, inside the same transaction where there is one, so no route can
+ * rewrite a shift that has been paid out or is on a live invoice.
  */
 
 import db from '$lib/server/database/drizzle';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 import {
 	invoiceTable,
 	recurrenceDayTable,
@@ -16,8 +16,7 @@ import {
 	workdayTable
 } from '$lib/server/database/schemas/requisition';
 import {
-	canEditShift,
-	isShiftLocked,
+	shiftLockReason,
 	shiftLockedMessage,
 	ShiftLockedError
 } from '$lib/server/requisitions/shiftLockRule';
@@ -25,7 +24,9 @@ import {
 export { ShiftLockedError, shiftLockedErrorMessage } from '$lib/server/requisitions/shiftLockRule';
 
 /**
- * Throws ShiftLockedError if any of the given recurrence days has started.
+ * Throws ShiftLockedError if any of the given recurrence days has started and has a
+ * workday on an APPROVED, WAGES_PAID timesheet or on a timesheet with a live
+ * invoice. Cancelled workdays count too: their hours may still be on the sheet.
  * `verb` completes "can't be ___" in the message (e.g. 'deleted', 'cancelled').
  */
 export async function assertRecurrenceDaysUnlocked(
@@ -35,27 +36,13 @@ export async function assertRecurrenceDaysUnlocked(
 	verb: string
 ): Promise<void> {
 	if (recurrenceDayIds.length === 0) return;
-	const rows: { date: string; dayStart: Date | null }[] = await (exec ?? db)
-		.select({ date: recurrenceDayTable.date, dayStart: recurrenceDayTable.dayStart })
-		.from(recurrenceDayTable)
-		.where(inArray(recurrenceDayTable.id, recurrenceDayIds));
-
-	const locked = rows.filter((r) => isShiftLocked(r.dayStart)).map((r) => r.date);
-	if (locked.length > 0) {
-		throw new ShiftLockedError(shiftLockedMessage(locked.sort(), verb));
-	}
-}
-
-/**
- * Throws ShiftLockedError if a past shift's times can no longer be edited because
- * the timesheet its hours landed on is settled, invoiced or paid out.
- */
-export async function assertRecurrenceDayEditable(
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	exec: any,
-	recurrenceDayId: string
-): Promise<void> {
-	const [row] = await (exec ?? db)
+	const rows: {
+		date: string;
+		dayStart: Date | null;
+		timesheetStatus: string | null;
+		wagesStatus: string | null;
+		invoiceId: string | null;
+	}[] = await (exec ?? db)
 		.select({
 			date: recurrenceDayTable.date,
 			dayStart: recurrenceDayTable.dayStart,
@@ -64,25 +51,35 @@ export async function assertRecurrenceDayEditable(
 			invoiceId: invoiceTable.id
 		})
 		.from(recurrenceDayTable)
+		.innerJoin(workdayTable, eq(workdayTable.recurrenceDayId, recurrenceDayTable.id))
+		.innerJoin(timeSheetTable, eq(timeSheetTable.id, workdayTable.timesheetId))
 		.leftJoin(
-			workdayTable,
-			and(eq(workdayTable.recurrenceDayId, recurrenceDayTable.id), isNull(workdayTable.cancelledAt))
+			invoiceTable,
+			and(eq(invoiceTable.timesheetId, timeSheetTable.id), ne(invoiceTable.status, 'void'))
 		)
-		.leftJoin(timeSheetTable, eq(timeSheetTable.id, workdayTable.timesheetId))
-		.leftJoin(invoiceTable, eq(invoiceTable.timesheetId, timeSheetTable.id))
-		.where(eq(recurrenceDayTable.id, recurrenceDayId))
-		.limit(1);
+		.where(inArray(recurrenceDayTable.id, recurrenceDayIds));
 
-	if (!row) return;
-	const editable = canEditShift({
-		dayStart: row.dayStart,
-		timesheetStatus: row.timesheetStatus,
-		wagesStatus: row.wagesStatus,
-		invoiced: !!row.invoiceId
-	});
-	if (!editable) {
-		throw new ShiftLockedError(
-			`The shift on ${row.date} has already been approved, invoiced or paid and can't be edited. Correct it on the timesheet instead.`
-		);
+	const paid = new Set<string>();
+	const invoiced = new Set<string>();
+	for (const r of rows) {
+		const reason = shiftLockReason({ ...r, invoiced: r.invoiceId !== null });
+		if (reason === 'PAID') paid.add(r.date);
+		else if (reason === 'INVOICED') invoiced.add(r.date);
 	}
+	// Paid is final, so report it first; invoiced shifts can be unlocked by voiding.
+	if (paid.size > 0) {
+		throw new ShiftLockedError(shiftLockedMessage([...paid].sort(), verb, 'PAID'));
+	}
+	if (invoiced.size > 0) {
+		throw new ShiftLockedError(shiftLockedMessage([...invoiced].sort(), verb, 'INVOICED'));
+	}
+}
+
+/** Same rule for editing a shift's times. */
+export async function assertRecurrenceDayEditable(
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	exec: any,
+	recurrenceDayId: string
+): Promise<void> {
+	await assertRecurrenceDaysUnlocked(exec, [recurrenceDayId], 'edited');
 }

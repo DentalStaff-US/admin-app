@@ -1116,18 +1116,16 @@ export const actions = {
 				});
 			}
 
-			setFlash({ type: 'success', message: 'Workday deleted' }, request);
+			setFlash({ type: 'success', message: 'Workday deleted' }, event);
 			// Redirect back to the requisition page since this workday no longer exists.
 			throw redirect(303, `/requisitions/${params.id}`);
 		} catch (err) {
 			// SvelteKit redirects throw — let those bubble up.
 			if (err && typeof err === 'object' && 'status' in err && 'location' in err) throw err;
-			console.error(err);
-			setFlash(
-				{ type: 'error', message: shiftLockedErrorMessage(err) ?? 'Failed to delete workday' },
-				request
-			);
-			return fail(500, { error: 'Failed to delete workday' });
+			const locked = shiftLockedErrorMessage(err);
+			if (!locked) console.error(err);
+			setFlash({ type: 'error', message: locked ?? 'Failed to delete workday' }, event);
+			return fail(locked ? 409 : 500, { error: locked ?? 'Failed to delete workday' });
 		}
 	}
 };
