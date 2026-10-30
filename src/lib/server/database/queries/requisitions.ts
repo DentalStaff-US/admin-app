@@ -94,7 +94,7 @@ import {
 	assertRecurrenceDaysUnlocked,
 	ShiftLockedError
 } from '$lib/server/requisitions/shiftLock';
-import { isShiftLocked, shiftLockedMessage } from '$lib/server/requisitions/shiftLockRule';
+import { isTimesheetPaidOut } from '$lib/server/requisitions/shiftLockRule';
 import type { InvoiceLineCategory } from '$lib/server/invoices/lineCategory';
 
 /**
@@ -948,18 +948,8 @@ export async function findOrReuseRecurrenceDay(
 				existing.slice().sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
 
 			if (reusable) {
-				// Reopening wipes the day's workdays. Once the shift has started those
-				// rows are the record of who worked it, so refuse rather than delete.
-				if (isShiftLocked(reusable.dayStart)) {
-					const [priorWorkday] = await tx
-						.select({ id: workdayTable.id })
-						.from(workdayTable)
-						.where(eq(workdayTable.recurrenceDayId, reusable.id))
-						.limit(1);
-					if (priorWorkday) {
-						throw new ShiftLockedError(shiftLockedMessage([reusable.date], 'reopened'));
-					}
-				}
+				// Reopening wipes the day's workdays; refuse if one is on a paid-out timesheet.
+				await assertRecurrenceDaysUnlocked(tx, [reusable.id], 'reopened');
 
 				const [row] = await tx
 					.update(recurrenceDayTable)
@@ -3385,11 +3375,11 @@ export async function voidUninvoicedTimesheet(
 			if (!original) {
 				throw error(404, 'Timesheet not found');
 			}
-			if (original.status === 'APPROVED' || original.status === 'VOID') {
-				throw error(409, 'Approved or voided timesheets cannot be removed');
+			if (original.status === 'VOID') {
+				throw error(409, 'This timesheet is already void');
 			}
-			if (original.wagesStatus === 'WAGES_PAID') {
-				throw error(409, 'Wages have been paid on this timesheet — it cannot be removed');
+			if (isTimesheetPaidOut(original)) {
+				throw error(409, 'This timesheet is approved and wages have been paid — it cannot be removed');
 			}
 
 			await tx

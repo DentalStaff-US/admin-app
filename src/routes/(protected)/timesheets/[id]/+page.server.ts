@@ -56,6 +56,7 @@ import { getDisciplineById } from '$lib/server/database/queries/disciplines';
 import type { TimesheetExpenseSelect } from '$lib/server/database/schemas/requisition';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from './$types';
+import { isTimesheetPaidOut } from '$lib/server/requisitions/shiftLockRule';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { createStripeInvoice, withCardProcessingFee } from '$lib/server/stripe';
 import { logger } from '$lib/server/logger';
@@ -969,18 +970,21 @@ export const actions = {
 		}
 		const { id } = event.params;
 
-		// Delete is only for pre-approval sheets (generated in error / corrupt data
-		// that should regenerate). Once approved it must be VOIDed, not deleted.
+		// Voids (never deletes) any sheet that isn't paid out, releasing its workdays
+		// to regenerate. Invoiced sheets go through "Void Timesheet & Invoice".
 		const existing = await getTimesheetById(id);
 		if (!existing) {
 			return fail(404, { error: 'Timesheet not found' });
 		}
-		if (existing.status === 'APPROVED' || existing.status === 'VOID') {
+		if (existing.status === 'VOID' || isTimesheetPaidOut(existing)) {
 			setFlash(
-				{ type: 'error', message: 'Approved timesheets must be voided, not deleted.' },
+				{
+					type: 'error',
+					message: 'This timesheet is already void, or approved with wages paid, and can’t be voided.'
+				},
 				event
 			);
-			return fail(400, { error: 'Cannot delete an approved or voided timesheet' });
+			return fail(409, { error: 'Timesheet is void or paid out' });
 		}
 
 		try {
