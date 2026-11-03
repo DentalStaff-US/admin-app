@@ -1,4 +1,9 @@
-import { normalizeState, normalizeZip, type AddressComponents } from '$lib/server/address';
+import {
+	normalizeState,
+	normalizeZip,
+	parseCompleteAddress,
+	type AddressComponents
+} from '$lib/server/address';
 
 /**
  * Mapbox geocoding, with the access token passed in rather than imported.
@@ -98,6 +103,91 @@ function extractComponents(props: MapboxV6Feature['properties']): AddressCompone
 	return { street, city, state, zipcode };
 }
 
+/**
+ * Street directionals Mapbox often disagrees with us on ("721 S Maple St" vs
+ * its "721 Maple Avenue"). Abbreviations only — "West End Ave" is a real
+ * street name, and the spelled-out forms are too often part of one. A
+ * directional followed by a suffix is the street name itself ("1200 N St NW").
+ */
+const DIRECTIONAL = '(?:N|S|E|W|NE|NW|SE|SW)\\.?';
+const STREET_SUFFIX = '(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Dr|Drive|Ln|Lane|Ct|Way|Pl)\\b';
+const LEADING_DIRECTIONAL = new RegExp(
+	`^(\\d+[A-Za-z]?)\\s+${DIRECTIONAL}\\s+(?!${STREET_SUFFIX})(?=\\S)`,
+	'i'
+);
+const TRAILING_DIRECTIONAL = new RegExp(`\\s+${DIRECTIONAL}$`, 'i');
+
+/**
+ * The queries to try, in order: the address as given, then (if it differs)
+ * the same address with directionals stripped from the street line. The
+ * fallback is only safe because every result is checked by `featureMatches`.
+ */
+export function addressQueryVariants(address: string): string[] {
+	const trimmed = address.trim();
+	const [streetLine, ...rest] = trimmed.split(',');
+	const stripped = streetLine
+		.trim()
+		.replace(LEADING_DIRECTIONAL, '$1 ')
+		.replace(TRAILING_DIRECTIONAL, '');
+
+	const variants = [trimmed];
+	if (stripped !== streetLine.trim()) {
+		variants.push([stripped, ...rest].join(','));
+	}
+	return variants;
+}
+
+/**
+ * Rejects a result that lands somewhere other than where the input says.
+ * Mapbox happily returns its best guess anywhere in the country —
+ * "721 S Maple Ave, La Conner, WA 98257" comes back as Los Angeles — and
+ * taking that silently is far worse than failing: it writes wrong coordinates,
+ * timezone and city that radius matching and filters then trust.
+ *
+ * State must match. Then ZIP or city must match, since ZIP boundaries don't
+ * always agree between sources but a same-state wrong city is still wrong.
+ * Anything the input doesn't tell us is not checked.
+ */
+export function featureMatches(
+	found: AddressComponents,
+	expected: AddressComponents | null
+): boolean {
+	if (!expected) return true;
+
+	if (expected.state && found.state !== expected.state) return false;
+
+	const zipKnown = Boolean(expected.zipcode);
+	const cityKnown = Boolean(expected.city);
+	if (!zipKnown && !cityKnown) return true;
+
+	const zipMatches = zipKnown && found.zipcode === expected.zipcode;
+	const cityMatches =
+		cityKnown && found.city?.trim().toLowerCase() === expected.city?.trim().toLowerCase();
+	return zipMatches || cityMatches;
+}
+
+async function fetchFeatures(query: string, accessToken: string): Promise<MapboxV6Feature[]> {
+	const params = new URLSearchParams({
+		q: query,
+		access_token: accessToken,
+		limit: '5',
+		country: 'us',
+		types: 'address,secondary_address'
+	});
+
+	const url = `https://api.mapbox.com/search/geocode/v6/forward?${params}`;
+
+	const response = await fetch(url);
+
+	if (!response.ok) {
+		console.error('Mapbox v6 geocoding failed:', response.statusText);
+		return [];
+	}
+
+	const data: MapboxV6GeocodeResponse = await response.json();
+	return data.features ?? [];
+}
+
 export async function geocodeAddressWithToken(
 	address: string,
 	accessToken: string
@@ -111,31 +201,26 @@ export async function geocodeAddressWithToken(
 	}
 
 	try {
-		const params = new URLSearchParams({
-			q: address,
-			access_token: accessToken,
-			limit: '1',
-			country: 'us',
-			types: 'address,secondary_address'
-		});
+		const expected = parseCompleteAddress(address);
+		let feature: MapboxV6Feature | undefined;
 
-		const url = `https://api.mapbox.com/search/geocode/v6/forward?${params}`;
+		for (const query of addressQueryVariants(address)) {
+			const features = await fetchFeatures(query, accessToken);
+			feature = features.find((f) => featureMatches(extractComponents(f.properties), expected));
+			if (feature) break;
 
-		const response = await fetch(url);
-
-		if (!response.ok) {
-			console.error('Mapbox v6 geocoding failed:', response.statusText);
-			return null;
+			for (const rejected of features) {
+				console.warn(
+					`Rejected Mapbox result for "${query}": ${rejected.properties.full_address ?? rejected.properties.name}`
+				);
+			}
 		}
 
-		const data: MapboxV6GeocodeResponse = await response.json();
-
-		if (!data.features || data.features.length === 0) {
+		if (!feature) {
 			console.error('No results found for address:', address);
 			return null;
 		}
 
-		const feature = data.features[0];
 		const [lon, lat] = feature.geometry.coordinates;
 		const props = feature.properties;
 		const context = props.context;
