@@ -10,7 +10,7 @@
  * MISSING nudge below has none of those needs, so it DOES use the campaign path.
  */
 
-import { and, asc, desc, eq, gte, isNotNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNotNull, lte, sql } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import { userTable } from '$lib/server/database/schemas/auth';
 import {
@@ -58,8 +58,6 @@ export type CertRow = {
 	lastName: string | null;
 	email: string;
 	phone: string | null;
-	receiveEmail: boolean;
-	receiveSms: boolean;
 	disciplineId: string;
 	disciplineName: string;
 	abbreviation: string;
@@ -109,12 +107,10 @@ export function selectCertRemindersToSend(
 		const stage = stageFor(daysUntil);
 		if (!stage) continue;
 
-		// Opt-out is applied HERE, at audience-build time. This codebase never filters
-		// it at send time, so a missing check mails people who opted out.
-		const channels: ('EMAIL' | 'SMS')[] = [];
-		if (row.receiveEmail) channels.push('EMAIL');
-		if (row.receiveSms && SMS_STAGES.has(stage) && row.phone) channels.push('SMS');
-		if (channels.length === 0) continue;
+		// Reminders are platform messages: the opt-out only governs admin-composed
+		// campaigns, so it is deliberately not checked here.
+		const channels: ('EMAIL' | 'SMS')[] = ['EMAIL'];
+		if (SMS_STAGES.has(stage) && row.phone) channels.push('SMS');
 
 		plans.push({ row, stage, daysUntil, channels });
 	}
@@ -154,12 +150,11 @@ export async function runCertExpiryReminders(): Promise<{
 				eq(disciplineTable.id, candidateDisciplineExperienceTable.disciplineId)
 			);
 
-	// Shared audience rules. Opt-out is filtered HERE, at audience-build time: this
-	// codebase never filters it when the queue drains.
+	// Shared audience rules. The opt-out flags are deliberately absent: they only
+	// govern admin-composed campaigns.
 	const audience = [
 		eq(candidateProfileTable.status, CANDIDATE_STATUS.ACTIVE),
-		sql`coalesce(${userTable.blacklisted}, false) = false`,
-		or(eq(userTable.receiveEmail, true), eq(userTable.receiveSms, true))
+		sql`coalesce(${userTable.blacklisted}, false) = false`
 	];
 
 	const selectFor = (expiry: ReturnType<typeof effectiveLicenseExpirySql>) => ({
@@ -169,8 +164,6 @@ export async function runCertExpiryReminders(): Promise<{
 		lastName: userTable.lastName,
 		email: userTable.email,
 		phone: candidateProfileTable.cellPhone,
-		receiveEmail: userTable.receiveEmail,
-		receiveSms: userTable.receiveSms,
 		disciplineId: candidateDisciplineExperienceTable.disciplineId,
 		disciplineName: disciplineTable.name,
 		abbreviation: disciplineTable.abbreviation,
@@ -276,7 +269,7 @@ export async function runCertExpiryReminders(): Promise<{
  * file. This is the MISSING state — chased, never blocked.
  *
  * Uses `enqueueAutoCampaign` because the copy needs no per-person data, which buys
- * batching, throttling, the unsubscribe footer and last_contacted_at stamping. The
+ * batching, throttling and last_contacted_at stamping. The
  * fortnightly suppression reflects that this is a backlog being worked through by
  * staff, not an emergency.
  */
@@ -345,7 +338,6 @@ export async function runMissingCredentialNudge(opts?: { dryRun?: boolean }): Pr
 			phone: candidateProfileTable.cellPhone,
 			firstName: userTable.firstName,
 			lastName: userTable.lastName,
-			receiveSms: userTable.receiveSms,
 			notifiedAt: sql<string | null>`to_char(
 				(SELECT (g.notified_at AT TIME ZONE 'UTC')::date
 				 FROM candidate_license_grace g
@@ -439,8 +431,7 @@ export async function runMissingCredentialNudge(opts?: { dryRun?: boolean }): Pr
 			phone: row.phone,
 			firstName: row.firstName,
 			disciplineName: row.disciplineName,
-			abbreviation: row.abbreviation,
-			receiveSms: row.receiveSms
+			abbreviation: row.abbreviation
 		});
 		blocked++;
 	}

@@ -27,7 +27,6 @@ export type SignatureSubject = {
 	name: string;
 	firstName: string | null;
 	phone: string | null;
-	receiveSms: boolean;
 	blacklisted?: boolean;
 	/** The organisation the document is for, e.g. the practice name. */
 	displayName: string;
@@ -71,7 +70,6 @@ async function resolveClientSubject(clientId: string): Promise<SignatureSubject 
 		name: name || result.user.email,
 		firstName: result.user.firstName ?? null,
 		phone: result.profile.cellPhone ?? null,
-		receiveSms: result.user.receiveSms ?? false,
 		displayName: (result.company?.companyName as string | null) || name || 'Your practice',
 		clientId,
 		nudgeable: result.profile.status !== 'DENIED' && result.profile.status !== 'INACTIVE'

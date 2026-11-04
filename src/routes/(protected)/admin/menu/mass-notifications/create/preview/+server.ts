@@ -3,11 +3,12 @@ import { USER_ROLES } from '$lib/config/constants';
 import {
 	getCampaignAudienceBreakdown,
 	recipientKey,
-	toCampaignFilters
+	toCampaignFilters,
+	type CampaignRecipient
 } from '$lib/server/database/queries/campaigns';
 
-// Recipient preview for the builder. Returns the eligible count, why others were
-// excluded (opted out / no contact info), and the full deliverable list so the
+// Recipient preview for the builder. Returns the eligible count, who was excluded
+// and why (opted out / no contact info), and the full deliverable list so the
 // admin can select/deselect individuals before queueing — without sending
 // anything. SUPERADMIN only.
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -22,11 +23,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const filters = toCampaignFilters(payload);
 
 	const breakdown = await getCampaignAudienceBreakdown(audience, channel, filters);
-	const recipients = breakdown.recipients.map((r) => ({
+	const toRow = (r: CampaignRecipient) => ({
 		key: recipientKey(r, channel),
 		name: [r.firstName, r.lastName].filter(Boolean).join(' ') || '(no name)',
 		to: channel === 'SMS' ? r.phone : r.email
-	}));
+	});
 
 	return json({
 		count: breakdown.eligible,
@@ -34,6 +35,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		optedOut: breakdown.optedOut,
 		noContact: breakdown.noContact,
 		channel,
-		recipients
+		recipients: breakdown.recipients.map(toRow),
+		optedOutRecipients: breakdown.optedOutRecipients.map(toRow),
+		noContactRecipients: breakdown.noContactRecipients.map(toRow)
 	});
 };

@@ -25,8 +25,6 @@ function row(over: Partial<CertRow> = {}): CertRow {
 		lastName: 'Doe',
 		email: 'jane@example.com',
 		phone: '+15555550123',
-		receiveEmail: true,
-		receiveSms: true,
 		disciplineId: 'disc-rdh',
 		disciplineName: 'Dental Hygienist',
 		abbreviation: 'RDH',
@@ -100,25 +98,13 @@ describe('selectCertRemindersToSend', () => {
 		expect([...SMS_STAGES].sort()).toEqual(['D0', 'D7', 'EXPIRED']);
 	});
 
-	it('honours per-channel opt-out at audience-build time', () => {
-		// Opt-out is never filtered at send time in this codebase, so it has to hold here.
-		const emailOff = selectCertRemindersToSend(
-			[row({ effectiveExpiry: dateIn(7), receiveEmail: false })],
+	it('sends reminders regardless of campaign opt-out', () => {
+		// Opt-out only governs admin-composed campaigns; the plan can't even see the flags.
+		const plan = selectCertRemindersToSend(
+			[{ ...row({ effectiveExpiry: dateIn(7) }), receiveEmail: false, receiveSms: false } as never],
 			TODAY
 		);
-		expect(emailOff[0].channels).toEqual(['SMS']);
-
-		const smsOff = selectCertRemindersToSend(
-			[row({ effectiveExpiry: dateIn(7), receiveSms: false })],
-			TODAY
-		);
-		expect(smsOff[0].channels).toEqual(['EMAIL']);
-
-		const bothOff = selectCertRemindersToSend(
-			[row({ effectiveExpiry: dateIn(7), receiveEmail: false, receiveSms: false })],
-			TODAY
-		);
-		expect(bothOff).toHaveLength(0);
+		expect(plan[0].channels).toEqual(['EMAIL', 'SMS']);
 	});
 
 	it('does not plan SMS without a phone number', () => {

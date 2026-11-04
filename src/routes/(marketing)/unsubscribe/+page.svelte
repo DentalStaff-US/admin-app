@@ -10,7 +10,7 @@
 	{#if form?.done}
 		<h1 class="text-2xl font-bold">You're unsubscribed</h1>
 		<p class="mt-2 text-gray-600">
-			You won't receive further mass emails from us. You'll still get essential account emails.
+			You won't receive further campaign emails from us. You'll still get shift, reminder and account emails.
 		</p>
 	{:else if !data.valid}
 		<h1 class="text-2xl font-bold">Invalid link</h1>
@@ -18,7 +18,7 @@
 	{:else}
 		<h1 class="text-2xl font-bold">Unsubscribe from emails?</h1>
 		<p class="mt-2 text-gray-600">
-			Confirm below to stop receiving mass emails. Essential account emails will still be sent.
+			Confirm below to stop receiving campaign emails. Shift, reminder and account emails will still be sent.
 		</p>
 		<form method="POST" use:enhance class="mt-6">
 			<input type="hidden" name="u" value={data.userId} />

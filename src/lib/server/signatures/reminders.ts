@@ -155,7 +155,7 @@ export async function runSignatureReminders(now: Date = new Date()): Promise<{
 				continue;
 			}
 			const channels: ('EMAIL' | 'SMS')[] = ['EMAIL'];
-			if (plan.sms && subject.receiveSms && subject.phone) channels.push('SMS');
+			if (plan.sms && subject.phone) channels.push('SMS');
 
 			if (!(await claim(row.id, plan.stage, channels.join('+')))) {
 				suppressed++;

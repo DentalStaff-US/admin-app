@@ -32,7 +32,8 @@ export const load: PageServerLoad = async (event) => {
 		candidateStatuses: Object.values(CANDIDATE_STATUS),
 		clientStatuses: Object.values(CLIENT_STATUS),
 		defaultRadiusMiles: radius.miles,
-		testDefaults: { email: user.email }
+		testDefaults: { email: user.email },
+		draftOwnerId: user.id
 	};
 };
 

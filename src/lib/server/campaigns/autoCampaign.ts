@@ -36,8 +36,9 @@ export type AutoCampaignKey = (typeof AUTO_CAMPAIGN_KEYS)[keyof typeof AUTO_CAMP
 /**
  * Enqueue a system-generated campaign. Returns immediately after writing rows —
  * the existing every-minute `processCampaignQueue` cron does the actual sending,
- * which is what gives these automated nudges the same batching, throttling,
- * per-recipient delivery tracking and unsubscribe footer as an admin blast.
+ * which is what gives these automated nudges the same batching, throttling and
+ * per-recipient delivery tracking as an admin blast. They ignore the campaign
+ * opt-out, so `filters.automated` also keeps the unsubscribe footer off them.
  *
  * Suppression: anyone who was already SENT this same `key` within
  * `suppressWithinDays` is dropped. Derived from campaign history rather than a

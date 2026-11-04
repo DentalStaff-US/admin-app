@@ -66,6 +66,8 @@ export type AudienceBreakdown = {
 	optedOut: number; // excluded: opted out of this channel
 	noContact: number; // excluded: no phone (SMS) / no email (EMAIL)
 	recipients: CampaignRecipient[]; // the eligible ones only
+	optedOutRecipients: CampaignRecipient[]; // who the optedOut count refers to
+	noContactRecipients: CampaignRecipient[]; // who the noContact count refers to
 };
 
 function likeParam(value: string) {
@@ -121,33 +123,36 @@ async function resolveRadiusMeters(filters: CampaignFilters): Promise<number | n
  * (receive_sms / receive_email) and contactability are enforced — kept out of
  * SQL so the preview can report *why* people were excluded.
  */
-function classifySegment(rows: SegmentRow[], channel: CampaignChannel): AudienceBreakdown {
+export function classifySegment(rows: SegmentRow[], channel: CampaignChannel): AudienceBreakdown {
 	const recipients: CampaignRecipient[] = [];
-	let optedOut = 0;
-	let noContact = 0;
+	const optedOutRecipients: CampaignRecipient[] = [];
+	const noContactRecipients: CampaignRecipient[] = [];
 
 	for (const r of rows) {
 		const optedIn = channel === 'SMS' ? r.receiveSms : r.receiveEmail;
 		const contact = channel === 'SMS' ? r.phone : r.email;
-		if (!optedIn) {
-			optedOut++;
-			continue;
-		}
-		if (!contact) {
-			noContact++;
-			continue;
-		}
-		recipients.push({
+		const recipient: CampaignRecipient = {
 			userId: r.userId,
 			profileId: r.profileId,
 			firstName: r.firstName,
 			lastName: r.lastName,
 			email: r.email,
 			phone: r.phone
-		});
+		};
+		if (!optedIn) optedOutRecipients.push(recipient);
+		else if (!contact) noContactRecipients.push(recipient);
+		else recipients.push(recipient);
 	}
 
-	return { total: rows.length, eligible: recipients.length, optedOut, noContact, recipients };
+	return {
+		total: rows.length,
+		eligible: recipients.length,
+		optedOut: optedOutRecipients.length,
+		noContact: noContactRecipients.length,
+		recipients,
+		optedOutRecipients,
+		noContactRecipients
+	};
 }
 
 /**

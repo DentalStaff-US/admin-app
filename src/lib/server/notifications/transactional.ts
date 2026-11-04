@@ -1416,10 +1416,6 @@ export async function notifyClientStatusChange(
 			console.warn(`[transactional:${label}] aborted: no user/email for client ${clientId}`);
 			return;
 		}
-		if (!result.user.receiveEmail) {
-			console.log(`[transactional:${label}] skipped: client opted out of email`);
-			return;
-		}
 
 		const details = {
 			firstName: result.user.firstName ?? '',
@@ -1810,7 +1806,6 @@ export async function notifyLicenseGraceExpired(args: {
 	firstName: string | null;
 	disciplineName: string;
 	abbreviation: string;
-	receiveSms: boolean;
 }): Promise<void> {
 	const label = 'licenseGraceExpired';
 	try {
@@ -1834,7 +1829,7 @@ export async function notifyLicenseGraceExpired(args: {
 			})
 		];
 
-		if (args.receiveSms && args.phone) {
+		if (args.phone) {
 			sends.push(
 				safeSms(label, args.phone, (phone) =>
 					sms.sendTemplated(phone, 'licenseGraceExpiredNotification', {
@@ -2122,16 +2117,14 @@ export async function notifyCandidateRecommended(applicationId: string): Promise
 
 // ---------- e-signature (Documenso) ----------
 //
-// Contract mail is transactional: the signing request and its nudges go out by
-// email regardless of `receiveEmail` (which governs notifications, not a contract
-// the client has to sign to work with us). SMS still honours `receiveSms`, which
-// is also how a STOP reply is recorded.
+// Contract mail is a platform message: the signing request and its nudges go out
+// regardless of `receiveEmail` / `receiveSms`, which only govern admin-composed
+// campaigns.
 
 type SignatureNotifySubject = {
 	email: string;
 	firstName: string | null;
 	phone: string | null;
-	receiveSms: boolean;
 	displayName: string;
 };
 
@@ -2164,18 +2157,14 @@ export async function notifySignatureRequested(args: {
 				}),
 			{ entityType: 'SIGNATURE_REQUESTS', entityId: args.auditEntityId }
 		),
-		...(subject.receiveSms
-			? [
-					safeSms(label, subject.phone, (phone) =>
-						sms.sendTemplated(phone, 'signatureRequestNotification', {
-							firstName: subject.firstName,
-							documentTitle: args.documentTitle,
-							signingUrl: args.signingUrl,
-							reminder: false
-						})
-					)
-				]
-			: [])
+		safeSms(label, subject.phone, (phone) =>
+			sms.sendTemplated(phone, 'signatureRequestNotification', {
+				firstName: subject.firstName,
+				documentTitle: args.documentTitle,
+				signingUrl: args.signingUrl,
+				reminder: false
+			})
+		)
 	]);
 }
 

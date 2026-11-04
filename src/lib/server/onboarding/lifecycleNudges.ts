@@ -15,16 +15,14 @@ import { logger } from '$lib/server/logger';
 export const STALLED_ONBOARDING_DAYS = 7;
 
 /**
- * Shared audience shape. `receive_email` is filtered here on purpose: opt-out is
- * enforced at audience-build time in this codebase (see `classifySegment` in
- * queries/campaigns.ts), NOT when the queue drains — so every audience query
- * must apply it itself or opted-out people get mailed.
+ * Shared audience shape. `receive_email` is deliberately not filtered: these are
+ * platform reminders, and the opt-out only governs admin-composed campaigns (see
+ * `classifySegment` in queries/campaigns.ts).
  *
  * Blacklisted and unverified users are excluded too: neither should be chased.
  */
 const baseCandidateConditions = [
 	eq(userTable.role, USER_ROLES.CANDIDATE),
-	eq(userTable.receiveEmail, true),
 	sql`coalesce(${userTable.blacklisted}, false) = false`
 ];
 

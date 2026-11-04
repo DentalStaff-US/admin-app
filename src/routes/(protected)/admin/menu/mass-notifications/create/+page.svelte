@@ -1,24 +1,161 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import { superForm } from 'sveltekit-superforms/client';
+	import { onDestroy, onMount } from 'svelte';
+	import { AlertCircle, Check, Loader2 } from 'lucide-svelte';
 	import AddressSearchAutocomplete from '$lib/components/AddressSearchAutocomplete.svelte';
+	import type { AddressResult } from '$lib/types';
+	import {
+		clearDraft,
+		draftStorageKey,
+		loadDraft,
+		pickDraftFields,
+		saveDraft
+	} from '$lib/_helpers/massNotificationDraft';
 
 	export let data: PageData;
 
+	const DRAFT_SAVE_DELAY_MS = 500;
+	const draftKey = draftStorageKey(data.draftOwnerId);
+	const blankForm = JSON.parse(JSON.stringify(data.form.data)) as typeof data.form.data;
+	const blankDraft = JSON.stringify(pickDraftFields(blankForm));
+
 	const { form, errors, allErrors, enhance, submitting } = superForm(data.form, {
 		dataType: 'json',
-		taintedMessage: null
+		taintedMessage: null,
+		// The action only redirects once the campaign is queued; a validation or
+		// "no recipients" failure keeps the draft.
+		onResult({ result }) {
+			if (result.type === 'redirect') finishDraft();
+		}
 	});
 
-	let previewLoading = false;
-	let previewResult: {
+	// Autosave only starts after any stored draft is restored, so the blank initial
+	// form can't overwrite it.
+	let draftReady = false;
+	let draftFinished = false;
+	let draftTimer: ReturnType<typeof setTimeout> | undefined;
+	let lastSavedDraft = blankDraft;
+	let draftDirty = false;
+	let draftSaveFailed = false;
+	let draftSavedAt: number | null = null;
+	let draftRestoredAt: number | null = null;
+	let restoredLocation: AddressResult | null = null;
+	// Bumped on discard to remount the address search with an empty input.
+	let addressSearchKey = 0;
+
+	function writeDraft() {
+		clearTimeout(draftTimer);
+		if (!draftReady || draftFinished) return;
+		const fields = pickDraftFields($form);
+		const serialized = JSON.stringify(fields);
+		draftDirty = false;
+		if (serialized === lastSavedDraft) return;
+		if (serialized === blankDraft) {
+			clearDraft(draftKey);
+			resetDraftStatus();
+			lastSavedDraft = serialized;
+			return;
+		}
+		const savedAt = Date.now();
+		draftSaveFailed = !saveDraft(draftKey, fields, savedAt);
+		if (!draftSaveFailed) {
+			draftSavedAt = savedAt;
+			lastSavedDraft = serialized;
+		}
+	}
+
+	function queueDraftSave(current: Record<string, unknown>) {
+		clearTimeout(draftTimer);
+		const serialized = JSON.stringify(pickDraftFields(current));
+		if (serialized === lastSavedDraft) {
+			draftDirty = false;
+			draftSaveFailed = false;
+			return;
+		}
+		// Back to an untouched form: drop the draft now, so a refresh can't restore it.
+		if (serialized === blankDraft) {
+			writeDraft();
+			return;
+		}
+		draftDirty = true;
+		draftTimer = setTimeout(writeDraft, DRAFT_SAVE_DELAY_MS);
+	}
+
+	function resetDraftStatus() {
+		draftDirty = false;
+		draftSaveFailed = false;
+		draftSavedAt = null;
+		draftRestoredAt = null;
+	}
+
+	function finishDraft() {
+		clearTimeout(draftTimer);
+		draftFinished = true;
+		clearDraft(draftKey);
+		resetDraftStatus();
+	}
+
+	function discardDraft() {
+		if (!confirm('Discard this draft? The campaign details will be cleared.')) return;
+		clearTimeout(draftTimer);
+		clearDraft(draftKey);
+		$form = JSON.parse(JSON.stringify(blankForm));
+		invalidatePreview();
+		lastSavedDraft = blankDraft;
+		resetDraftStatus();
+		restoredLocation = null;
+		addressSearchKey += 1;
+	}
+
+	onMount(() => {
+		const draft = loadDraft(draftKey);
+		if (draft) {
+			$form = { ...$form, ...draft.fields } as typeof $form;
+			lastSavedDraft = JSON.stringify(pickDraftFields($form));
+			draftSavedAt = draft.savedAt;
+			draftRestoredAt = draft.savedAt;
+			if ($form.locationLat != null && $form.locationLon != null) {
+				const label = $form.locationLabel || 'Saved location';
+				restoredLocation = {
+					place_name: label,
+					formatted_address: label,
+					coordinates: { lat: $form.locationLat, lng: $form.locationLon }
+				} as AddressResult;
+			}
+		} else {
+			// Corrupt, or holding no real content: don't leave it behind.
+			clearDraft(draftKey);
+		}
+		draftReady = true;
+	});
+
+	// Catches an in-app navigation inside the save delay.
+	onDestroy(writeDraft);
+
+	$: if (draftReady && !draftFinished) queueDraftSave($form);
+	$: draftStatus = draftSaveFailed
+		? 'failed'
+		: draftDirty
+			? 'saving'
+			: draftSavedAt
+				? 'saved'
+				: 'idle';
+
+	type PreviewRecipient = { key: string; name: string; to: string | null };
+	type PreviewResult = {
 		count: number;
 		total: number;
 		optedOut: number;
 		noContact: number;
 		channel: string;
-		recipients: { key: string; name: string; to: string | null }[];
-	} | null = null;
+		recipients: PreviewRecipient[];
+		optedOutRecipients: PreviewRecipient[];
+		noContactRecipients: PreviewRecipient[];
+	};
+
+	let previewLoading = false;
+	let previewResult: PreviewResult | null = null;
 	let previewError = '';
 	// The filter signature captured when the current preview ran. If the admin
 	// edits any filter afterwards, the preview (and its selection) goes stale and
@@ -67,15 +204,7 @@
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify(filterPayload())
 			});
-			const json = (await res.json()) as {
-				error?: string;
-				count: number;
-				total: number;
-				optedOut: number;
-				noContact: number;
-				channel: string;
-				recipients: { key: string; name: string; to: string | null }[];
-			};
+			const json = (await res.json()) as PreviewResult & { error?: string };
 			if (json.error) {
 				previewError = json.error;
 			} else {
@@ -155,14 +284,62 @@
 	const inputCls =
 		'w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none';
 	const labelCls = 'block text-sm font-medium text-gray-700 mb-1';
+
+	const formatDraftTime = (ms: number) =>
+		new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+	const formatDraftClock = (ms: number) =>
+		new Date(ms).toLocaleTimeString([], { timeStyle: 'short' });
 </script>
 
+<svelte:window on:pagehide={writeDraft} />
+
 <section class="grow h-screen overflow-y-auto container mx-auto px-4 py-6">
+	<div class="fixed bottom-6 right-6 z-50" role="status" aria-live="polite">
+		{#if draftStatus !== 'idle'}
+			<div
+				class="flex items-center gap-2.5 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-lg"
+			>
+				{#if draftStatus === 'saving'}
+					<Loader2 class="h-4 w-4 animate-spin text-gray-400" aria-hidden="true" />
+					<span>Saving draft…</span>
+				{:else if draftStatus === 'failed'}
+					<AlertCircle class="h-4 w-4 text-red-600" aria-hidden="true" />
+					<span>Couldn't save draft in this browser</span>
+				{:else if draftSavedAt}
+					<Check class="h-4 w-4 text-green-600" aria-hidden="true" />
+					<span title="Saved in this browser on {formatDraftTime(draftSavedAt)}">
+						Draft saved · {formatDraftClock(draftSavedAt)}
+					</span>
+					<span class="h-4 w-px bg-gray-200" aria-hidden="true"></span>
+					<button
+						type="button"
+						on:click={discardDraft}
+						class="font-medium text-gray-500 hover:text-gray-900"
+					>
+						Discard
+					</button>
+				{/if}
+			</div>
+		{/if}
+	</div>
+
 	<div class="p-6">
 		<a href="/admin/menu/mass-notifications" class="text-sm text-blue-600 hover:underline">
 			← Back to mass notifications
 		</a>
 		<h1 class="mt-2 text-3xl font-extrabold tracking-tighter md:text-4xl">New Mass Notification Campaign</h1>
+		{#if draftRestoredAt}
+			<div class="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+				<p>
+					Restored your unsent draft from {formatDraftTime(draftRestoredAt)}.
+					<strong>Recipient selections aren't saved</strong> — run “Preview &amp; select recipients”
+					again if you want to send to only some of them.
+				</p>
+				<button type="button" on:click={discardDraft} class="mt-1 font-semibold underline">
+					Discard draft
+				</button>
+			</div>
+		{/if}
 	</div>
 
 	<form method="POST" action="?/queue" use:enhance class="px-6 pb-16 grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -300,13 +477,16 @@
 
 				<div>
 					<label class={labelCls} for="location">Location (within radius)</label>
-					<AddressSearchAutocomplete
-						country="us"
-						types="place,locality,region,district,postcode,neighborhood,address"
-						placeholder="Search a city or address…"
-						on:select={onAddressSelect}
-						on:clear={onAddressClear}
-					/>
+					{#key addressSearchKey}
+						<AddressSearchAutocomplete
+							country="us"
+							types="place,locality,region,district,postcode,neighborhood,address"
+							placeholder="Search a city or address…"
+							selected={restoredLocation}
+							on:select={onAddressSelect}
+							on:clear={onAddressClear}
+						/>
+					{/key}
 					<div class="mt-2 flex items-center gap-2">
 						<span class="text-xs text-gray-500">{$form.locationLabel || 'No location set'}</span>
 						{#if $form.locationLat != null}
@@ -363,6 +543,27 @@
 								</li>
 							{/if}
 						</ul>
+						{#each [{ label: 'opted out', list: previewResult.optedOutRecipients }, { label: 'with no contact info', list: previewResult.noContactRecipients }] as group}
+							{#if group.list.length}
+								<details class="mt-2">
+									<summary class="cursor-pointer text-xs font-medium text-amber-700">
+										View the {group.list.length}
+										{group.label} (won't receive this)
+									</summary>
+									<div class="mt-1 max-h-48 overflow-y-auto rounded-md border divide-y">
+										{#each group.list as r}
+											<div class="flex items-center gap-2 px-3 py-1.5 text-xs">
+												<span class="font-medium text-gray-700">{r.name}</span>
+												{#if r.to}
+													<span class="text-gray-400">—</span>
+													<span class="text-gray-500 truncate">{r.to}</span>
+												{/if}
+											</div>
+										{/each}
+									</div>
+								</details>
+							{/if}
+						{/each}
 					{/if}
 
 					{#if previewResult.recipients.length}

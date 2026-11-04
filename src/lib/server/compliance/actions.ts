@@ -73,7 +73,6 @@ export async function sendComplianceReminder(args: {
 		.select({
 			email: userTable.email,
 			firstName: userTable.firstName,
-			receiveSms: userTable.receiveSms,
 			phone: candidateProfileTable.cellPhone
 		})
 		.from(candidateProfileTable)
@@ -93,10 +92,10 @@ export async function sendComplianceReminder(args: {
 	if (cred.expiresOn) {
 		kind = 'EXPIRY';
 		stage = stageFor(daysUntil(cred.expiresOn, today)) ?? 'D60';
-		if (SMS_STAGES.has(stage) && contact.receiveSms && contact.phone) channels = ['EMAIL', 'SMS'];
+		if (SMS_STAGES.has(stage) && contact.phone) channels = ['EMAIL', 'SMS'];
 	} else if (cred.state === 'EXPIRED') {
 		kind = 'GRACE_EXPIRED';
-		if (contact.receiveSms && contact.phone) channels = ['EMAIL', 'SMS'];
+		if (contact.phone) channels = ['EMAIL', 'SMS'];
 	} else {
 		kind = 'MISSING';
 	}
@@ -163,8 +162,7 @@ export async function sendComplianceReminder(args: {
 			phone: contact.phone,
 			firstName: contact.firstName,
 			disciplineName,
-			abbreviation,
-			receiveSms: contact.receiveSms ?? false
+			abbreviation
 		});
 	} else {
 		// Start the clock if it isn't running. ON CONFLICT DO NOTHING: a reminder must

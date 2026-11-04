@@ -42,6 +42,20 @@ function smsBody(body: string): string {
 	return /\bstop\b/i.test(body) ? body : `${body}\n\nReply STOP to opt out.`;
 }
 
+// The opt-out only governs admin-composed campaigns; automated reminders still send
+// to people who opted out, so offering them an unsubscribe link would be false.
+// Uses the filters flag rather than createdBy, which is also nulled when the admin
+// who composed a campaign is deleted.
+export function emailFooter(
+	campaign: Pick<MassCampaign, 'filters'>,
+	userId: string
+): { html: string; text: string } {
+	if ((campaign.filters as { automated?: boolean } | null)?.automated === true) {
+		return { html: '', text: '' };
+	}
+	return { html: emailFooterHtml(userId), text: emailFooterText(userId) };
+}
+
 type Outcome = {
 	id: string;
 	profileId: string | null;
@@ -102,11 +116,12 @@ export async function processCampaignQueue(): Promise<Record<string, unknown>> {
 	if (campaign.channel === 'EMAIL') {
 		const emails = pending.map((r) => {
 			const body = renderTokens(campaign.body, r);
+			const footer = emailFooter(campaign, r.userId);
 			return {
 				to: [{ email: r.toAddress }],
 				subject: campaign.subject || '',
-				html: `${textToHtml(body)}${emailFooterHtml(r.userId)}`,
-				text: `${body}${emailFooterText(r.userId)}`
+				html: `${textToHtml(body)}${footer.html}`,
+				text: `${body}${footer.text}`
 			};
 		});
 

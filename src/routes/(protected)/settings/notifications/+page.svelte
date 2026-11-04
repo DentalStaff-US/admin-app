@@ -14,8 +14,8 @@
 	<a href="/settings" class="text-sm text-blue-600 hover:underline">← Back to settings</a>
 	<h1 class="mt-2 text-2xl font-bold">Notification Preferences</h1>
 	<p class="mt-1 text-sm text-gray-500">
-		Choose how we can reach you with updates about work opportunities and announcements. These do
-		not affect essential account messages (security, billing, verification).
+		Choose whether we can send you campaigns and announcements. These do not affect platform
+		messages such as shift updates, reminders, billing and account notices.
 	</p>
 
 	<form method="POST" use:enhance class="mt-6 space-y-4">
@@ -23,7 +23,7 @@
 			<input type="checkbox" name="receiveEmail" bind:checked={receiveEmail} class="mt-1" />
 			<span>
 				<span class="block font-medium">Email</span>
-				<span class="block text-sm text-gray-500">Receive announcements and opportunities by email.</span>
+				<span class="block text-sm text-gray-500">Receive campaigns and announcements by email.</span>
 			</span>
 		</label>
 
@@ -32,7 +32,7 @@
 			<span>
 				<span class="block font-medium">Text messages (SMS)</span>
 				<span class="block text-sm text-gray-500">
-					Receive announcements and opportunities by text. You can also reply STOP to any message to
+					Receive campaigns and announcements by text. You can also reply STOP to any message to
 					opt out.
 				</span>
 			</span>

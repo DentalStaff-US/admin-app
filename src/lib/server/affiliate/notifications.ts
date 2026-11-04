@@ -6,7 +6,8 @@
  * NEVER throws — a notification failure must not fail a payout run, a webhook,
  * or a signup. Every send is logged with its outcome.
  *
- * Recipients opt out via users.receive_email, same as every other email.
+ * Platform messages, so users.receive_email (campaign opt-out) doesn't apply to
+ * affiliates. Admin alerts below still use it to choose which admins are alerted.
  */
 import { and, eq, inArray } from 'drizzle-orm';
 import { format } from 'date-fns';
@@ -55,14 +56,13 @@ async function affiliateRecipient(affiliateId: string) {
 		.select({
 			email: userTable.email,
 			firstName: userTable.firstName,
-			receiveEmail: userTable.receiveEmail,
 			contactEmail: affiliateProfileTable.contactEmail
 		})
 		.from(affiliateProfileTable)
 		.innerJoin(userTable, eq(affiliateProfileTable.userId, userTable.id))
 		.where(eq(affiliateProfileTable.id, affiliateId))
 		.limit(1);
-	if (!row || row.receiveEmail === false) return null;
+	if (!row) return null;
 	return { email: row.contactEmail || row.email, firstName: row.firstName ?? 'there' };
 }
 
