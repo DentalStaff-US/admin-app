@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { getUserById } from '$lib/server/database/queries/users';
 
 export const load: PageServerLoad = async (event) => {
+	event.depends('inbox:conversation');
 	const { chatId } = event.params;
 	const user = event.locals.user;
 

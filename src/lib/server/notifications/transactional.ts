@@ -9,7 +9,7 @@
 
 import { format, parseISO } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, count, eq, gt, inArray, lt, ne } from 'drizzle-orm';
 import { BASE_URL, CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import db from '$lib/server/database/drizzle';
 import { sms } from '$lib/server/sms/smsService';
@@ -29,6 +29,11 @@ import {
 	getLocationContactDestinations
 } from '$lib/server/database/queries/clients';
 import { logger } from '$lib/server/logger';
+import { inboxAlertPlan } from '$lib/server/inbox/alerts';
+import {
+	conversationParticipantsTable,
+	messageTable
+} from '$lib/server/database/schemas/messages';
 import {
 	getCandidateUserById,
 	getQualifiedProfessionalsForRequisition
@@ -634,6 +639,96 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
  * email + SMS — instead of blasting every qualified candidate. The day(s)
  * are already FILLED with workday rows by the caller.
  */
+// A new inbox message: email anyone caught up on the conversation, plus a text when it
+// starts a conversation. See inboxAlertPlan.
+export async function notifyNewInboxMessage(args: {
+	conversationId: string;
+	messageId: number;
+	senderId: string;
+}): Promise<void> {
+	const label = 'newInboxMessage';
+	try {
+		const { conversationId, messageId, senderId } = args;
+		const [{ value: messageCount }] = await db
+			.select({ value: count() })
+			.from(messageTable)
+			.where(
+				and(eq(messageTable.conversationId, conversationId), eq(messageTable.isSystemMessage, false))
+			);
+
+		const recipients = await db
+			.select({
+				userId: userTable.id,
+				email: userTable.email,
+				firstName: userTable.firstName,
+				role: userTable.role,
+				lastRead: conversationParticipantsTable.latestMessageId,
+				candidatePhone: candidateProfileTable.cellPhone,
+				clientPhone: clientProfileTable.cellPhone
+			})
+			.from(conversationParticipantsTable)
+			.innerJoin(userTable, eq(userTable.id, conversationParticipantsTable.userId))
+			.leftJoin(candidateProfileTable, eq(candidateProfileTable.userId, userTable.id))
+			.leftJoin(clientProfileTable, eq(clientProfileTable.userId, userTable.id))
+			.where(
+				and(
+					eq(conversationParticipantsTable.conversationId, conversationId),
+					eq(conversationParticipantsTable.isActive, true),
+					ne(conversationParticipantsTable.userId, senderId)
+				)
+			);
+
+		await dispatch(
+			label,
+			(
+				await Promise.all(
+					recipients.map(async (recipient) => {
+						const [{ value: unreadBefore }] = await db
+							.select({ value: count() })
+							.from(messageTable)
+							.where(
+								and(
+									eq(messageTable.conversationId, conversationId),
+									gt(messageTable.id, recipient.lastRead ?? 0),
+									lt(messageTable.id, messageId),
+									ne(messageTable.senderId, recipient.userId),
+									eq(messageTable.isSystemMessage, false)
+								)
+							);
+						const plan = inboxAlertPlan({ unreadBefore, isFirstMessage: messageCount === 1 });
+						const base = recipient.role === USER_ROLES.CANDIDATE ? CANDIDATE_APP_DOMAIN : BASE_URL;
+						const url = `${base.replace(/\/$/, '')}/inbox/${conversationId}`;
+						const phone = recipient.candidatePhone ?? recipient.clientPhone;
+						return [
+							...(plan.email
+								? [
+										safeEmail(label, recipient.email, () => {
+											const t = EMAIL_TEMPLATES.newInboxMessageEmail(
+												{ firstName: recipient.firstName },
+												{ url }
+											);
+											return emailService.sendEmail({
+												to: [{ email: recipient.email as string }],
+												subject: t.subject,
+												html: t.htmlEmail,
+												text: t.textEmail
+											});
+										})
+									]
+								: []),
+							...(plan.sms && phone
+								? [safeSms(label, phone, (p) => sms.sendTemplated(p, 'newConversationNotification', { url }))]
+								: [])
+						];
+					})
+				)
+			).flat()
+		);
+	} catch (e) {
+		console.error('[transactional:newInboxMessage] top-level error:', e);
+	}
+}
+
 export async function notifyCandidateAssignedToWorkdays(args: {
 	candidateId: string;
 	requisitionId: number;

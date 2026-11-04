@@ -12,9 +12,12 @@
 	import type { LayoutData } from './$types';
 	import { PenBox, Search, ArrowLeft, MessageCircle, Users, X } from 'lucide-svelte';
 	import { onMount } from 'svelte';
+	import { connectInboxSocket } from '$lib/inboxSocket';
 	import { superForm } from 'sveltekit-superforms/client';
 
 	export let data: LayoutData;
+
+	onMount(() => connectInboxSocket());
 
 	let searchTerm: string = '';
 	let isMobile = false;

@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { defineConfig } from 'vitest/config';
@@ -10,6 +11,8 @@ import { defineConfig } from 'vitest/config';
 // reactivity & lifecycle hooks actually fire during component tests — without
 // it, components mount in SSR mode and on:click etc. silently no-op.
 export default defineConfig({
+	// The Svelte test setup prefers browser builds, and ws's is only a stub.
+	resolve: { alias: { ws: resolve('node_modules/ws/wrapper.mjs') } },
 	plugins: [sveltekit(), svelteTesting()],
 	test: {
 		environment: 'jsdom',

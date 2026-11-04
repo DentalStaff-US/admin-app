@@ -933,6 +933,26 @@ ${daysText}
 			subject: `New Requisition Available | ${APP_NAME}`
 		};
 	},
+	// The message itself stays in the app: it may name a practice, and emails get
+	// forwarded. See the identity masking notes in the design docs' appendix.
+	newInboxMessageEmail: (recipient: { firstName: string | null }, details: { url: string }) => {
+		const name = recipient.firstName ?? 'there';
+		return {
+			subject: `You have a new message | ${APP_NAME}`,
+			textEmail: `
+            Hello ${name},
+
+            You have a new message on ${APP_NAME}.
+
+            Read it and reply here: ${details.url}
+            `,
+			htmlEmail: `
+            <p>Hello ${name},</p>
+            <p>You have a new message on ${APP_NAME}.</p>
+            <p><a href="${details.url}">Read it and reply</a></p>
+            `
+		};
+	},
 	candidateAssignedNotificationEmail: (
 		candidateDetails: { firstName: string | null },
 		details: {

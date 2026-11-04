@@ -9,7 +9,7 @@ import {
 	getClientProfileByStaffUserId,
 	getClientProfilebyUserId
 } from '$lib/server/database/queries/clients.js';
-import type { RequestEvent } from './$types.js';
+import type { LayoutServerLoadEvent, RequestEvent } from './$types.js';
 import { asc, eq, or } from 'drizzle-orm';
 import { superValidate } from 'sveltekit-superforms/server';
 import { z } from 'zod';
@@ -21,7 +21,8 @@ import {
 } from '$lib/server/database/schemas/requisition';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 
-export const load = async (event: RequestEvent) => {
+export const load = async (event: LayoutServerLoadEvent) => {
+	event.depends('inbox:list');
 	const user = event.locals.user;
 
 	if (!user) {
