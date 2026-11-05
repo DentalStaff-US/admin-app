@@ -291,6 +291,9 @@ export class InboxService {
 			})
 			.where(eq(conversationTable.id, conversationId));
 
+		// Replying means they've seen the thread, so nothing in it should alert them later.
+		if (!isSystemMessage) await this.markAsRead(conversationId, senderId, message.id);
+
 		await this.announceMessage(conversationId, message.id, senderId, isSystemMessage);
 
 		return message.id;

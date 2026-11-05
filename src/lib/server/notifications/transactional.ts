@@ -9,7 +9,7 @@
 
 import { format, parseISO } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
-import { and, count, eq, gt, inArray, lt, ne } from 'drizzle-orm';
+import { and, count, eq, inArray, ne } from 'drizzle-orm';
 import { BASE_URL, CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import db from '$lib/server/database/drizzle';
 import { sms } from '$lib/server/sms/smsService';
@@ -29,7 +29,6 @@ import {
 	getLocationContactDestinations
 } from '$lib/server/database/queries/clients';
 import { logger } from '$lib/server/logger';
-import { inboxAlertPlan } from '$lib/server/inbox/alerts';
 import {
 	conversationParticipantsTable,
 	messageTable
@@ -639,8 +638,8 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
  * email + SMS — instead of blasting every qualified candidate. The day(s)
  * are already FILLED with workday rows by the caller.
  */
-// A new inbox message: email anyone caught up on the conversation, plus a text when it
-// starts a conversation. See inboxAlertPlan.
+// The first message of a conversation: email and text the other participants now.
+// Replies don't alert when sent. See inbox/alerts.ts.
 export async function notifyNewInboxMessage(args: {
 	conversationId: string;
 	messageId: number;
@@ -655,6 +654,7 @@ export async function notifyNewInboxMessage(args: {
 			.where(
 				and(eq(messageTable.conversationId, conversationId), eq(messageTable.isSystemMessage, false))
 			);
+		if (messageCount !== 1) return;
 
 		const recipients = await db
 			.select({
@@ -662,7 +662,6 @@ export async function notifyNewInboxMessage(args: {
 				email: userTable.email,
 				firstName: userTable.firstName,
 				role: userTable.role,
-				lastRead: conversationParticipantsTable.latestMessageId,
 				candidatePhone: candidateProfileTable.cellPhone,
 				clientPhone: clientProfileTable.cellPhone
 			})
@@ -678,55 +677,101 @@ export async function notifyNewInboxMessage(args: {
 				)
 			);
 
+		// So the unread alert doesn't repeat this before they've opened it.
+		await db
+			.update(conversationParticipantsTable)
+			.set({ lastAlertedMessageId: messageId })
+			.where(
+				and(
+					eq(conversationParticipantsTable.conversationId, conversationId),
+					ne(conversationParticipantsTable.userId, senderId)
+				)
+			);
+
 		await dispatch(
 			label,
-			(
-				await Promise.all(
-					recipients.map(async (recipient) => {
-						const [{ value: unreadBefore }] = await db
-							.select({ value: count() })
-							.from(messageTable)
-							.where(
-								and(
-									eq(messageTable.conversationId, conversationId),
-									gt(messageTable.id, recipient.lastRead ?? 0),
-									lt(messageTable.id, messageId),
-									ne(messageTable.senderId, recipient.userId),
-									eq(messageTable.isSystemMessage, false)
-								)
-							);
-						const plan = inboxAlertPlan({ unreadBefore, isFirstMessage: messageCount === 1 });
-						const base = recipient.role === USER_ROLES.CANDIDATE ? CANDIDATE_APP_DOMAIN : BASE_URL;
-						const url = `${base.replace(/\/$/, '')}/inbox/${conversationId}`;
-						const phone = recipient.candidatePhone ?? recipient.clientPhone;
-						return [
-							...(plan.email
-								? [
-										safeEmail(label, recipient.email, () => {
-											const t = EMAIL_TEMPLATES.newInboxMessageEmail(
-												{ firstName: recipient.firstName },
-												{ url }
-											);
-											return emailService.sendEmail({
-												to: [{ email: recipient.email as string }],
-												subject: t.subject,
-												html: t.htmlEmail,
-												text: t.textEmail
-											});
-										})
-									]
-								: []),
-							...(plan.sms && phone
-								? [safeSms(label, phone, (p) => sms.sendTemplated(p, 'newConversationNotification', { url }))]
-								: [])
-						];
-					})
-				)
-			).flat()
+			recipients.flatMap((recipient) => {
+				const url = `${inboxUrl(recipient.role)}/${conversationId}`;
+				const phone = recipient.candidatePhone ?? recipient.clientPhone;
+				return [
+					safeEmail(label, recipient.email, () => {
+						const t = EMAIL_TEMPLATES.newConversationEmail({ firstName: recipient.firstName }, { url });
+						return emailService.sendEmail({
+							to: [{ email: recipient.email as string }],
+							subject: t.subject,
+							html: t.htmlEmail,
+							text: t.textEmail
+						});
+					}),
+					...(phone
+						? [safeSms(label, phone, (p) => sms.sendTemplated(p, 'newConversationNotification', { url }))]
+						: [])
+				];
+			})
 		);
 	} catch (e) {
 		console.error('[transactional:newInboxMessage] top-level error:', e);
 	}
+}
+
+// Replies still unread after the delay: one email per person, however many
+// conversations it covers. Marked as alerted first, so a failed send is never repeated
+// to everyone else in the run on the next tick.
+export async function notifyUnreadInboxMessages(
+	byRecipient: Map<string, { conversationId: string; newestMessageId: number }[]>
+): Promise<void> {
+	const label = 'unreadInboxMessages';
+	if (!byRecipient.size) return;
+
+	const recipients = await db
+		.select({
+			userId: userTable.id,
+			email: userTable.email,
+			firstName: userTable.firstName,
+			role: userTable.role
+		})
+		.from(userTable)
+		.where(inArray(userTable.id, [...byRecipient.keys()]));
+
+	for (const [userId, alerts] of byRecipient) {
+		for (const { conversationId, newestMessageId } of alerts) {
+			await db
+				.update(conversationParticipantsTable)
+				.set({ lastAlertedMessageId: newestMessageId })
+				.where(
+					and(
+						eq(conversationParticipantsTable.conversationId, conversationId),
+						eq(conversationParticipantsTable.userId, userId)
+					)
+				);
+		}
+	}
+
+	await dispatch(
+		label,
+		recipients.map((recipient) => {
+			const alerts = byRecipient.get(recipient.userId) ?? [];
+			const inbox = inboxUrl(recipient.role);
+			const url = alerts.length === 1 ? `${inbox}/${alerts[0].conversationId}` : inbox;
+			return safeEmail(label, recipient.email, () => {
+				const t = EMAIL_TEMPLATES.unreadMessagesEmail(
+					{ firstName: recipient.firstName },
+					{ conversationCount: alerts.length, url }
+				);
+				return emailService.sendEmail({
+					to: [{ email: recipient.email as string }],
+					subject: t.subject,
+					html: t.htmlEmail,
+					text: t.textEmail
+				});
+			});
+		})
+	);
+}
+
+function inboxUrl(role: string | null): string {
+	const base = role === USER_ROLES.CANDIDATE ? CANDIDATE_APP_DOMAIN : BASE_URL;
+	return `${base.replace(/\/$/, '')}/inbox`;
 }
 
 export async function notifyCandidateAssignedToWorkdays(args: {

@@ -935,21 +935,46 @@ ${daysText}
 	},
 	// The message itself stays in the app: it may name a practice, and emails get
 	// forwarded. See the identity masking notes in the design docs' appendix.
-	newInboxMessageEmail: (recipient: { firstName: string | null }, details: { url: string }) => {
+	newConversationEmail: (recipient: { firstName: string | null }, details: { url: string }) => {
 		const name = recipient.firstName ?? 'there';
 		return {
-			subject: `You have a new message | ${APP_NAME}`,
+			subject: `You have a new conversation | ${APP_NAME}`,
 			textEmail: `
             Hello ${name},
 
-            You have a new message on ${APP_NAME}.
+            Someone started a conversation with you on ${APP_NAME}.
 
             Read it and reply here: ${details.url}
             `,
 			htmlEmail: `
             <p>Hello ${name},</p>
-            <p>You have a new message on ${APP_NAME}.</p>
+            <p>Someone started a conversation with you on ${APP_NAME}.</p>
             <p><a href="${details.url}">Read it and reply</a></p>
+            `
+		};
+	},
+	unreadMessagesEmail: (
+		recipient: { firstName: string | null },
+		details: { conversationCount: number; url: string }
+	) => {
+		const name = recipient.firstName ?? 'there';
+		const what =
+			details.conversationCount === 1
+				? 'an unread message'
+				: `unread messages in ${details.conversationCount} conversations`;
+		return {
+			subject: `You have unread messages | ${APP_NAME}`,
+			textEmail: `
+            Hello ${name},
+
+            You have ${what} on ${APP_NAME}.
+
+            Read and reply here: ${details.url}
+            `,
+			htmlEmail: `
+            <p>Hello ${name},</p>
+            <p>You have ${what} on ${APP_NAME}.</p>
+            <p><a href="${details.url}">Read and reply</a></p>
             `
 		};
 	},

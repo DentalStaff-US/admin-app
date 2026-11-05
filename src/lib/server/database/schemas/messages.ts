@@ -104,7 +104,9 @@ export const conversationParticipantsTable = pgTable(
 		joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
 		leftAt: timestamp('left_at', { withTimezone: true }),
 		isActive: boolean('is_active').notNull().default(true),
-		latestMessageId: integer('last_read_message_id').references(() => messageTable.id)
+		latestMessageId: integer('last_read_message_id').references(() => messageTable.id),
+		// The newest message an email or text has told them about. See inbox/alerts.ts.
+		lastAlertedMessageId: integer('last_alerted_message_id')
 	},
 	(table) => ({
 		pk: primaryKey({ columns: [table.conversationId, table.userId] }),
