@@ -9,6 +9,7 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { z } from 'zod';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { USER_ROLES } from '$lib/config/constants';
+import { assertTicketAccess } from '$features/support/server/access';
 
 const newSupportTicketCommentSchema = z.object({
 	body: z.string().min(1, 'Comment cannot be empty')
@@ -20,6 +21,8 @@ export async function load(event: RequestEvent) {
 	if (!user) {
 		redirect(302, '/auth/sign-in');
 	}
+
+	await assertTicketAccess(user, id);
 
 	// The query throws when the id doesn't exist; that's a 404, not a 500.
 	const supportTicket = await getSupportTicketDetails(id).catch(() => null);
@@ -37,6 +40,7 @@ export const actions = {
 		if (!user) {
 			return redirect(302, '/auth/sign-in');
 		}
+		await assertTicketAccess(user, params.id);
 		try {
 			await updateSupportTicket(
 				params.id,
@@ -62,6 +66,7 @@ export const actions = {
 		if (!user) {
 			return redirect(302, '/auth/sign-in');
 		}
+		await assertTicketAccess(user, params.id);
 		try {
 			await updateSupportTicket(
 				params.id,
@@ -88,6 +93,7 @@ export const actions = {
 		if (!user) {
 			return fail(403);
 		}
+		await assertTicketAccess(user, params.id);
 
 		const form = await superValidate(request, newSupportTicketCommentSchema);
 
