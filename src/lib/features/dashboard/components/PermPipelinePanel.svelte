@@ -13,15 +13,15 @@
 	// The per-stage applicant page (/requisitions/permanent, 06) doesn't exist yet,
 	// so every stage links to the requests list until it does.
 	const STAGES = [
-		{ key: 'open', label: 'Open requests', hint: 'Permanent requests posted and taking applicants.', tone: 'info', href: '/requisitions?tab=permanent' },
-		{ key: 'interested', label: 'Interested', hint: 'Professionals who saved an open permanent request.', tone: 'neutral', href: '/requisitions/permanent' },
+		{ key: 'open', label: 'Open requisitions', hint: 'Permanent requisitions posted and taking applicants.', tone: 'info', href: '/requisitions?tab=permanent' },
+		{ key: 'interested', label: 'Interested', hint: 'Professionals who saved an open permanent requisition.', tone: 'neutral', href: '/requisitions/permanent' },
 		{ key: 'applied', label: 'Applied', hint: 'Applications waiting for the practice to decide.', tone: 'pending', href: '/requisitions/permanent' },
 		{ key: 'recommended', label: 'Recommended', hint: 'Professionals DTSS put forward, waiting for the practice.', tone: 'pending', href: '/requisitions/permanent' },
 		{ key: 'hired', label: 'Hired, fee due', hint: 'Placements approved and awaiting the placement fee.', tone: 'positive', href: '/requisitions/permanent' }
 	] as const;
 </script>
 
-<Section title={METRICS.permPipeline.label} description="Open permanent requests by stage, right now">
+<Section title={METRICS.permPipeline.label} description="Open permanent requisitions by stage, right now">
 	{#if pipeline.ok}
 		{@const p = pipeline.value}
 		{@const max = Math.max(1, ...STAGES.map((s) => p[s.key]))}

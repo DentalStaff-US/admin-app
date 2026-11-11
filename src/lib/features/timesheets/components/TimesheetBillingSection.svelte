@@ -157,7 +157,7 @@
 </Section>
 
 {#if admin}
-	<FormDialog bind:open={rateOpen} title="Adjust the hourly rate" description="Bill this timesheet at a different rate than the request's {usd(Number(baseRate ?? 0))}/h. Leave it blank to use the request's rate." action="?/setAdjustedHourlyRate" submitLabel="Save rate">
+	<FormDialog bind:open={rateOpen} title="Adjust the hourly rate" description="Bill this timesheet at a different rate than the requisition's {usd(Number(baseRate ?? 0))}/h. Leave it blank to use the requisition's rate." action="?/setAdjustedHourlyRate" submitLabel="Save rate">
 		<div class="space-y-2">
 			<Label for="adjusted-rate">Hourly rate ($)</Label>
 			<Input id="adjusted-rate" name="adjustedHourlyRate" type="number" min="0" inputmode="decimal" placeholder={String(baseRate ?? '')} bind:value={rateValue} />

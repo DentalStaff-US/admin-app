@@ -47,7 +47,7 @@
 	     them, so the copy must not promise more. -->
 	<Notice tone="info" title="Account and work messages always reach you">
 		These switches only cover announcements our team sends by hand. Messages about your account and
-		your work — shift and request updates, reminders, timesheets, invoices, security and other
+		your work — shift and requisition updates, reminders, timesheets, invoices, security and other
 		automatic messages — are sent whatever you choose here.
 	</Notice>
 

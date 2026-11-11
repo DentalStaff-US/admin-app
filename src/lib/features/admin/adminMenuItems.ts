@@ -42,7 +42,7 @@ export const ADMIN_MENU_ITEMS: AdminMenuItem<typeof Shield>[] = [
 	{ area: 'Communication', label: 'Support tickets', href: '/support', icon: LifeBuoy, description: 'Questions and problems raised by users.' },
 
 	// Data
-	{ area: 'Data', label: 'Requisitions', href: '/requisitions', icon: Briefcase, description: 'Every temp and permanent request.' },
+	{ area: 'Data', label: 'Requisitions', href: '/requisitions', icon: Briefcase, description: 'Every temp and permanent requisition.' },
 	{ area: 'Data', label: 'Compliance', href: '/admin/compliance', icon: ShieldCheck, description: 'Licenses and certifications that need attention.' },
 	{ area: 'Data', label: 'Documents', href: '/admin/menu/documents', icon: FileText, description: 'Uploaded credentials and files, with expiry.' },
 	{ area: 'Data', label: 'Record history', href: '/admin/menu/record-history', icon: History, description: 'Who changed or viewed what, and when.' },
@@ -50,7 +50,7 @@ export const ADMIN_MENU_ITEMS: AdminMenuItem<typeof Shield>[] = [
 
 	// System
 	{ area: 'System', label: 'Disciplines', href: '/admin/menu/disciplines', icon: GraduationCap, description: 'Roles professionals work in, and license rules.' },
-	{ area: 'System', label: 'Experience levels', href: '/admin/menu/experience-levels', icon: Award, description: 'Experience bands used on requests and profiles.' },
+	{ area: 'System', label: 'Experience levels', href: '/admin/menu/experience-levels', icon: Award, description: 'Experience bands used on requisitions and profiles.' },
 	{ area: 'System', label: 'Skill categories', href: '/admin/menu/skill-categories', icon: Tags, description: 'How skills are grouped and matched.' },
-	{ area: 'System', label: 'Skills', href: '/admin/menu/skills', icon: Sparkles, description: 'Skills professionals list and requests require.' }
+	{ area: 'System', label: 'Skills', href: '/admin/menu/skills', icon: Sparkles, description: 'Skills professionals list and requisitions require.' }
 ];

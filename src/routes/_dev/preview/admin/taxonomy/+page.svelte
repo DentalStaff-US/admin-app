@@ -143,7 +143,7 @@
 		</Page>
 	{:else if view === 'skills'}
 		<Page>
-			<PageHeader title="Skills" description="Skills professionals can hold and requests can require.">
+			<PageHeader title="Skills" description="Skills professionals can hold and requisitions can require.">
 				{#snippet actions()}<Button variant="outline">Manage categories</Button><Button>Add skill</Button>{/snippet}
 			</PageHeader>
 			{#each categories.slice(0, 2) as category (category.id)}

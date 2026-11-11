@@ -212,14 +212,14 @@
 						<p class="mt-2 flex items-start gap-2 text-sm text-muted-foreground">
 							<Bookmark class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
 							{#if view.count === 0}
-								No one has saved this request yet.
+								No one has saved this requisition yet.
 							{:else}
-								{view.count} professional{view.count === 1 ? ' has' : 's have'} saved this request but not applied. Saving isn't consent
+								{view.count} professional{view.count === 1 ? ' has' : 's have'} saved this requisition but not applied. Saving isn't consent
 								to be contacted, so we don't share who; our team may recommend them to you.
 							{/if}
 						</p>
 					{:else if view.people.length === 0}
-						<p class="mt-2 text-sm text-muted-foreground">No one has saved this request without applying.</p>
+						<p class="mt-2 text-sm text-muted-foreground">No one has saved this requisition without applying.</p>
 					{:else}
 						<ul class="mt-2 divide-y">
 							{#each view.people as p (p.candidateId)}
@@ -265,7 +265,7 @@
 	bind:open={approveOpen}
 	title={`Hire ${targetName}?`}
 	description={audience === 'admin'
-		? `${targetName} is approved for this position and notified. Other pending applicants are declined and notified, and the request moves to payment required for the placement fee.`
+		? `${targetName} is approved for this position and notified. Other pending applicants are declined and notified, and the requisition moves to payment required for the placement fee.`
 		: `${targetName} is approved and notified. Other pending applicants are declined, and we'll invoice the placement fee.`}
 >
 	{#snippet confirm()}

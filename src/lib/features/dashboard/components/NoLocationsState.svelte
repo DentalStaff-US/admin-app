@@ -10,7 +10,7 @@
 <EmptyState
 	icon={MapPin}
 	title="You're not assigned to a location yet"
-	description="Ask {ownerName ?? 'your practice owner'} to add you to one. Shifts, timesheets and requests for it will show up here."
+	description="Ask {ownerName ?? 'your practice owner'} to add you to one. Shifts, timesheets and requisitions for it will show up here."
 >
 	{#if ownerEmail}
 		<Button href="mailto:{ownerEmail}?subject={encodeURIComponent('Please add me to a location')}">Email {ownerName?.split(' ')[0] ?? 'the owner'}</Button>

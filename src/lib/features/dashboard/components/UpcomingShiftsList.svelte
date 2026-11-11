@@ -35,7 +35,7 @@
 		<div class="p-5 sm:p-6"><FailedLine what="your upcoming shifts" /></div>
 	{:else if days.length === 0}
 		<div class="p-5 sm:p-6">
-			<EmptyState icon={CalendarPlus} title="No shifts in the next 14 days" description="Post a request and we'll find a professional for it.">
+			<EmptyState icon={CalendarPlus} title="No shifts in the next 14 days" description="Post a requisition and we'll find a professional for it.">
 				{#if empty}{@render empty()}{/if}
 			</EmptyState>
 		</div>

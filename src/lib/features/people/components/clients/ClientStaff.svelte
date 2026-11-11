@@ -63,7 +63,7 @@
 {/snippet}
 
 {#snippet empty()}
-	<EmptyState icon={Users} title="No staff yet" description="Invite the practice's team so they can post requests and approve timesheets." />
+	<EmptyState icon={Users} title="No staff yet" description="Invite the practice's team so they can post requisitions and approve timesheets." />
 {/snippet}
 
 <div class="space-y-6">

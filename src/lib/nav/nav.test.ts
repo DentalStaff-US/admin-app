@@ -67,13 +67,13 @@ describe('navFor', () => {
 		expect(navFor({ role: undefined })).toEqual([]);
 	});
 
-	it('calls requests "Requisitions" for admins and "Requests" for practices', () => {
+	it('calls them "Requisitions" for admins and practices alike', () => {
 		const label = (role: string) =>
 			navFor({ role })
 				.flatMap((g) => g.items)
 				.find((i) => i.href === '/requisitions')?.label;
 		expect(label('SUPERADMIN')).toBe('Requisitions');
-		expect(label('CLIENT')).toBe('Requests');
+		expect(label('CLIENT')).toBe('Requisitions');
 	});
 });
 
@@ -131,7 +131,7 @@ describe('breadcrumbs', () => {
 			{ label: '#1042' }
 		]);
 		expect(breadcrumbs('/requisitions/1042', client, 'Requisitions')).toEqual([
-			{ label: 'Requests', href: '/requisitions' },
+			{ label: 'Requisitions', href: '/requisitions' },
 			{ label: '#1042' }
 		]);
 		expect(

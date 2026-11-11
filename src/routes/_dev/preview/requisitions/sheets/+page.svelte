@@ -96,12 +96,12 @@
 
 <AdminShell pathname="/requisitions/1042" nav={{ role: admin ? 'SUPERADMIN' : 'CLIENT' }} bind:sidebar name="Shannon Carter" initials="SC">
 	<Page>
-		<PageHeader title="Sheets preview" description="Add days (dates → times → review) and the new-request sheet.">
+		<PageHeader title="Sheets preview" description="Add days (dates → times → review) and the new-requisition sheet.">
 			{#snippet actions()}
-				<Button variant="outline" on:click={() => (requestOpen = true)}>{admin ? 'New requisition' : 'New request'}</Button>
+				<Button variant="outline" on:click={() => (requestOpen = true)}>New requisition</Button>
 			{/snippet}
 		</PageHeader>
-		<Section title="Schedule" description="The Add days trigger as it sits on a temp request.">
+		<Section title="Schedule" description="The Add days trigger as it sits on a temp requisition.">
 			{#snippet actions()}
 				<RecurrenceDaysSheet
 					{requisition}

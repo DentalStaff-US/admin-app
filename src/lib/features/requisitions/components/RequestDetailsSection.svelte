@@ -115,7 +115,7 @@
 </Section>
 
 {#if canEdit}
-	<FormSheet bind:open={editOpen} {dirty} title="Edit request" description="Changes are saved to the request and the assigned professionals are notified.">
+	<FormSheet bind:open={editOpen} {dirty} title="Edit requisition" description="Changes are saved to the requisition and the assigned professionals are notified.">
 		<form
 			id="edit-request-form"
 			method="POST"

@@ -51,7 +51,7 @@
 	const columns = $derived<DataColumn<TimesheetListRow>[]>([
 		{ id: 'professional', header: 'Professional', value: (r) => r.professional, sortable: true },
 		...(isAdmin ? [{ id: 'practice', header: 'Practice', value: (r: TimesheetListRow) => r.practice ?? '—', sortable: true }] : []),
-		{ id: 'request', header: 'Request', cell: requestCell },
+		{ id: 'request', header: 'Requisition', cell: requestCell },
 		{ id: 'week', header: 'Week', value: (r) => r.weekLabel, sortable: true, class: 'whitespace-nowrap' },
 		{ id: 'hours', header: 'Hours', value: (r) => hoursText(r.hours), numeric: true, sortable: true },
 		{ id: 'status', header: 'Status', cell: statusCell, sortable: true }
@@ -91,7 +91,7 @@
 {/snippet}
 
 {#snippet toolbar()}
-	<ListToolbar {url} {search} placeholder="Search professional, practice or request" {dimensions} />
+	<ListToolbar {url} {search} placeholder="Search professional, practice or requisition" {dimensions} />
 {/snippet}
 
 {#snippet empty()}
@@ -102,7 +102,7 @@
 	{:else if query.tab === 'review' || query.tab === 'discrepancies'}
 		<EmptyState icon={PartyPopper} title="You're all caught up" description={query.tab === 'review' ? 'No timesheets are waiting for review.' : 'No timesheets have open discrepancies.'} />
 	{:else}
-		<EmptyState icon={FileClock} title="No timesheets here yet" description="Timesheets appear once professionals log hours against a request's shifts." />
+		<EmptyState icon={FileClock} title="No timesheets here yet" description="Timesheets appear once professionals log hours against a requisition's shifts." />
 	{/if}
 {/snippet}
 

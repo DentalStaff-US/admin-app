@@ -39,7 +39,7 @@
 							{#if audience === 'admin' && s.status === 'OPEN'}
 								<Button size="sm" href="/requisitions/{s.requisitionId}">Assign</Button>
 							{:else}
-								<Button size="sm" variant="ghost" href="/requisitions/{s.requisitionId}">View request</Button>
+								<Button size="sm" variant="ghost" href="/requisitions/{s.requisitionId}">View requisition</Button>
 							{/if}
 						</div>
 					</li>

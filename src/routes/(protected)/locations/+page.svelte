@@ -24,7 +24,7 @@
 </script>
 
 {#snippet empty()}
-	<EmptyState icon={MapPin} title="No locations yet" description="Add your first office so you can post requests and invite staff to it." />
+	<EmptyState icon={MapPin} title="No locations yet" description="Add your first office so you can post requisitions and invite staff to it." />
 {/snippet}
 
 <Page>

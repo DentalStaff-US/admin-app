@@ -69,13 +69,13 @@
 <Command.Dialog bind:open shouldFilter={false} loop>
 	<Command.Input
 		bind:value={query}
-		placeholder={canSearch ? 'Search people, practices, requisitions or pages…' : 'Go to a page or request number…'}
+		placeholder={canSearch ? 'Search people, practices, requisitions or pages…' : 'Go to a page or requisition number…'}
 	/>
 	<Command.List class="max-h-[60vh]">
 		{#if requestNumber && hasRequests}
 			<Command.Group heading="Jump to">
 				<Command.Item value={`req-${requestNumber}`} onSelect={() => go(`/requisitions/${requestNumber}`)}>
-					<Hash class="mr-2 size-4" aria-hidden="true" /> Request #{requestNumber}
+					<Hash class="mr-2 size-4" aria-hidden="true" /> Requisition #{requestNumber}
 				</Command.Item>
 			</Command.Group>
 		{/if}

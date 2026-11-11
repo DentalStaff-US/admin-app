@@ -112,7 +112,7 @@
 		icon={CreditCard}
 		title="No invoices yet"
 		description={permanentPosition
-			? 'Nothing has been billed against this request.'
+			? 'Nothing has been billed against this requisition.'
 			: 'Invoices appear here once timesheets are approved.'}
 	/>
 {/snippet}
@@ -120,7 +120,7 @@
 <Section
 	title={permanentPosition ? 'Invoices and payments' : 'Invoices'}
 	description={isAdmin
-		? 'Every invoice raised against this request and the payments recorded on them.'
+		? 'Every invoice raised against this requisition and the payments recorded on them.'
 		: "Your placement fee invoices and the payments we've received."}
 >
 	<div class="space-y-6">
@@ -130,7 +130,7 @@
 					{ label: 'Placement fee billed', value: money(summary.totalBilled) },
 					{ label: 'Paid', value: money(summary.totalPaid) },
 					{ label: 'Outstanding', value: money(summary.outstanding) },
-					{ label: 'Request status', cell: reqStatus }
+					{ label: 'Requisition status', cell: reqStatus }
 				]}
 			/>
 		{/if}
@@ -163,7 +163,7 @@
 				rows={invoices}
 				columns={invoiceColumns}
 				key={(i) => i.id}
-				caption="Invoices on this request"
+				caption="Invoices on this requisition"
 				mobile={invoiceMobile}
 				empty={noInvoices}
 				class="shadow-none"
@@ -182,7 +182,7 @@
 						rows={payments}
 						columns={paymentColumns}
 						key={(p) => p.id}
-						caption="Payments on this request"
+						caption="Payments on this requisition"
 						mobile={paymentMobile}
 						class="shadow-none"
 					/>

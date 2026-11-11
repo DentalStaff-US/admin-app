@@ -59,8 +59,8 @@
 {#snippet statusCell(r: Req)}<StatusBadge status={r.status} />{/snippet}
 
 {#snippet empty()}
-	<EmptyState icon={ClipboardList} title="No requisitions yet" description="Requests this practice posts, or you post for them, show up here.">
-		{#if isAdmin && onNew}<Button on:click={onNew}>Post the first request</Button>{/if}
+	<EmptyState icon={ClipboardList} title="No requisitions yet" description="Requisitions this practice posts, or you post for them, show up here.">
+		{#if isAdmin && onNew}<Button on:click={onNew}>Post the first requisition</Button>{/if}
 	</EmptyState>
 {/snippet}
 

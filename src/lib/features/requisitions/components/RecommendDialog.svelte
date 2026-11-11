@@ -59,10 +59,10 @@
 				<input type="hidden" name="candidateId" value={target.candidateId} />
 				<input type="hidden" name="consent" value={consent ? 'true' : ''} />
 				{#if target.belowExperience}
-					<Notice tone="warning">Below the request's required experience level.</Notice>
+					<Notice tone="warning">Below the requisition's required experience level.</Notice>
 				{/if}
 				{#if target.missingSkills}
-					<Notice tone="warning">Doesn't have every skill the request requires.</Notice>
+					<Notice tone="warning">Doesn't have every skill the requisition requires.</Notice>
 				{/if}
 				<div class="space-y-1.5">
 					<Label for="recommend-note" class="font-semibold">

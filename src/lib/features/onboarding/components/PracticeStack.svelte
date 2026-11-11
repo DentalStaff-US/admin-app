@@ -9,7 +9,7 @@
 	<div class="relative space-y-4">
 		<div class="rounded-2xl border bg-card p-5 shadow-float">
 			<div class="flex items-center justify-between gap-3">
-				<p class="text-overline uppercase text-muted-foreground">New request</p>
+				<p class="text-overline uppercase text-muted-foreground">New requisition</p>
 				<span class="rounded-full bg-primary-soft px-2.5 py-0.5 text-xs font-bold text-primary-dark">Posted 7:02am</span>
 			</div>
 			<p class="mt-2 text-lg font-extrabold">Dental Hygienist</p>

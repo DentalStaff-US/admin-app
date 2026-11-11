@@ -66,7 +66,7 @@
 
 {#snippet usage(r: SkillRow)}
 	<span class="whitespace-nowrap text-sm text-muted-foreground">
-		{plural(r.candidateCount, 'professional')} · {plural(r.requisitionCount, 'request')}
+		{plural(r.candidateCount, 'professional')} · {plural(r.requisitionCount, 'requisition')}
 	</span>
 {/snippet}
 

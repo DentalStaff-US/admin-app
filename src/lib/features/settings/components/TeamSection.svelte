@@ -110,7 +110,7 @@
 {/snippet}
 {#snippet empty()}
 	{#if members.length === 0}
-		<EmptyState icon={Users} title="No team members yet" description="Invite the people who post requests, approve timesheets or check schedules.">
+		<EmptyState icon={Users} title="No team members yet" description="Invite the people who post requisitions, approve timesheets or check schedules.">
 			<Button on:click={() => (inviteOpen = true)}><UserPlus class="mr-2 size-4" aria-hidden="true" /> Invite staff</Button>
 		</EmptyState>
 	{:else}

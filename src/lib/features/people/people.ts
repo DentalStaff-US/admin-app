@@ -70,7 +70,7 @@ export function statusChangeCopy(
 				description:
 					kind === 'professional'
 						? `${name} can sign in to the professional app and be matched to shifts.`
-						: `${name} can post requests and be billed.${notify}`,
+						: `${name} can post requisitions and be billed.${notify}`,
 				confirmLabel: 'Approve',
 				tone: 'success'
 			};

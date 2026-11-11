@@ -1225,7 +1225,7 @@ export const actions = {
 		if (ids.length === 0) return fail(400, { error: 'No workdays selected' });
 		await resolveRequisitionAccess(user, Number(request.params.id));
 		if (!(await recurrenceDaysBelongTo(ids, Number(request.params.id)))) {
-			return fail(404, { error: 'Some selected workdays are not on this request' });
+			return fail(404, { error: 'Some selected workdays are not on this requisition' });
 		}
 		if (status !== 'OPEN' && status !== 'FILLED' && status !== 'UNFULFILLED') {
 			return fail(400, { error: 'Invalid status for bulk update' });
@@ -1292,7 +1292,7 @@ export const actions = {
 		if (ids.length === 0) return fail(400, { error: 'No workdays selected' });
 		await resolveRequisitionAccess(user, Number(request.params.id));
 		if (!(await recurrenceDaysBelongTo(ids, Number(request.params.id)))) {
-			return fail(404, { error: 'Some selected workdays are not on this request' });
+			return fail(404, { error: 'Some selected workdays are not on this requisition' });
 		}
 
 		// One transaction for the whole batch: either every day cancels or none
@@ -1349,7 +1349,7 @@ export const actions = {
 		if (ids.length === 0) return fail(400, { error: 'No workdays selected' });
 		await resolveRequisitionAccess(user, Number(request.params.id));
 		if (!(await recurrenceDaysBelongTo(ids, Number(request.params.id)))) {
-			return fail(404, { error: 'Some selected workdays are not on this request' });
+			return fail(404, { error: 'Some selected workdays are not on this requisition' });
 		}
 
 		const snapshots = await db

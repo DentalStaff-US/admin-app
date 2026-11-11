@@ -35,7 +35,7 @@
 		facets,
 		isAdmin,
 		searchTerm = '',
-		noun = 'request'
+		noun = 'requisition'
 	}: {
 		url: URL;
 		rows: ListRow[];
@@ -48,7 +48,7 @@
 		facets: Record<'location' | 'discipline' | 'practice' | 'status' | 'type', FacetOption[]>;
 		isAdmin: boolean;
 		searchTerm?: string;
-		/** "request" for practices, "requisition" for admins. */
+		/** The word for a posting in user-facing copy. */
 		noun?: string;
 	} = $props();
 
@@ -136,7 +136,7 @@
 	const titleOf = (row: ListRow) => row.title || row.disciplineName;
 
 	const columns = $derived<DataColumn<ListRow>[]>([
-		{ id: 'request', header: noun === 'request' ? 'Request' : 'Requisition', cell: requestCell, sortable: true },
+		{ id: 'request', header: 'Requisition', cell: requestCell, sortable: true },
 		{ id: 'location', header: 'Location', value: (r) => r.locationName, sortable: true },
 		{ id: 'dates', header: 'Dates', value: dates, sortable: true, class: 'whitespace-nowrap' },
 		{ id: 'rate', header: 'Rate', value: rate, numeric: true, sortable: true },
@@ -200,7 +200,7 @@
 {/snippet}
 
 {#snippet tabsSnippet()}
-	<TabsWithCounts label="{noun === 'request' ? 'Request' : 'Requisition'} views" active={tab} {tabs} />
+	<TabsWithCounts label="Requisition views" active={tab} {tabs} />
 {/snippet}
 
 {#snippet toolbar()}
@@ -265,7 +265,7 @@
 	{sort}
 	sortHref={(c) => sortHrefFor(url, sort, c)}
 	pagination={{ page, pageSize, total, href: (p) => pageHrefFor(url, p) }}
-	caption="{noun === 'request' ? 'Requests' : 'Requisitions'}"
+	caption="Requisitions"
 	tabs={tabsSnippet}
 	{toolbar}
 	{empty}

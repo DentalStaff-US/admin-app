@@ -87,7 +87,7 @@
 		</div>
 		{#if about.contextHref}
 			<Button href={about.contextHref} variant="outline" size="sm" class="shrink-0">
-				<ExternalLink class="mr-2 size-4" aria-hidden="true" />View request
+				<ExternalLink class="mr-2 size-4" aria-hidden="true" />View requisition
 			</Button>
 		{/if}
 	</header>

@@ -36,7 +36,7 @@
 	const user = $derived(data.user);
 	const isAdmin = $derived(user?.role === USER_ROLES.SUPERADMIN);
 	const audience = $derived(isAdmin ? ('admin' as const) : ('practice' as const));
-	const noun = $derived(isAdmin ? 'requisition' : 'request');
+	const noun = 'requisition';
 	const req = $derived(data.requisition);
 	const company = $derived(data.company);
 	const permanent = $derived(!!req?.permanentPosition);
@@ -117,7 +117,7 @@
 	);
 
 	let invoiceOpen = $state(false);
-	const title = $derived(req ? req.title || req.discipline?.name || `Request #${req.id}` : '');
+	const title = $derived(req ? req.title || req.discipline?.name || `Requisition #${req.id}` : '');
 </script>
 
 {#snippet locationFact()}
@@ -142,8 +142,8 @@
 
 {#if !req}
 	<Page width="narrow">
-		<EmptyState icon={AlertCircle} title="Request not found" description="It may have been removed, or the link is wrong.">
-			<Button href="/requisitions">Back to {isAdmin ? 'requisitions' : 'requests'}</Button>
+		<EmptyState icon={AlertCircle} title="Requisition not found" description="It may have been removed, or the link is wrong.">
+			<Button href="/requisitions">Back to requisitions</Button>
 		</EmptyState>
 	</Page>
 {:else}
@@ -283,7 +283,7 @@
 			{/if}
 			{#if isAdmin}
 				<Tabs.Content value="history" class="mt-4">
-					<Section title="History" description="Every view and action on this request, its days and applications: who, when and from where.">
+					<Section title="History" description="Every view and action on this requisition, its days and applications: who, when and from where.">
 						<ActivityLog entries={data.activity ?? []} showEntity />
 					</Section>
 				</Tabs.Content>

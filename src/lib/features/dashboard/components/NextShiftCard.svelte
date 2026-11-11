@@ -35,7 +35,7 @@
 	<div class="rounded-2xl border bg-card p-5 shadow-card">
 		<GhostStack />
 		<p class="mt-4 text-center font-bold">Nothing booked yet</p>
-		<p class="mt-1 text-center text-sm text-muted-foreground">Post a request and your confirmed professionals show up here.</p>
+		<p class="mt-1 text-center text-sm text-muted-foreground">Post a requisition and your confirmed professionals show up here.</p>
 		{#if cta}<div class="mt-4 flex justify-center">{@render cta()}</div>{/if}
 	</div>
 {/if}

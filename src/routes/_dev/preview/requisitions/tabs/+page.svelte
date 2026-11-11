@@ -92,7 +92,7 @@
 
 <AdminShell pathname="/requisitions/1042" nav={{ role: admin ? 'SUPERADMIN' : 'CLIENT' }} bind:sidebar name="Shannon Carter" initials="SC">
 	<Page>
-		<PageHeader title="Request tabs preview" description="Details · Billing · Matches · Comments · Create invoice" />
+		<PageHeader title="Requisition tabs preview" description="Details · Billing · Matches · Comments · Create invoice" />
 		<RequestDetailsSection {requisition} skillRequirements={empty ? [] : skillRequirements} {disciplines} {experienceLevels} canEdit />
 		<RequestBillingSection
 			billing={empty ? emptyBilling : billing}

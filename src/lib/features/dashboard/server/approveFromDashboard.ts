@@ -22,7 +22,7 @@ const REASONS: Record<string, string> = {
 	UNFINISHED_WORKDAYS: "Some shifts this week haven't ended yet, so the hours can't be approved.",
 	ZERO_AMOUNT: 'The invoice amount would be $0. Open the timesheet to check the hours and rate.',
 	NO_STRIPE_CUSTOMER: "This practice's billing isn't set up yet. Open the timesheet for details.",
-	NO_REQUISITION: 'The request this timesheet belongs to no longer exists.',
+	NO_REQUISITION: 'The requisition this timesheet belongs to no longer exists.',
 	NOT_FOUND: 'Timesheet not found.',
 	NOT_PENDING: 'This timesheet is no longer waiting for approval.'
 };

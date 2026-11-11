@@ -79,7 +79,7 @@
 
 {#snippet usage(r: SkillCategoryRow)}
 	<span class="whitespace-nowrap text-sm text-muted-foreground">
-		{plural(r.skillCount, 'skill')} · {plural(r.requisitionCount, 'request')}
+		{plural(r.skillCount, 'skill')} · {plural(r.requisitionCount, 'requisition')}
 	</span>
 {/snippet}
 
@@ -112,7 +112,7 @@
 	{#if search}
 		<EmptyState icon={FolderOpen} title="No results for “{search}”" description="Try a different category name." />
 	{:else}
-		<EmptyState icon={FolderOpen} title="No skill categories yet" description="Categories group skills, and practices set a requirement per category on each request.">
+		<EmptyState icon={FolderOpen} title="No skill categories yet" description="Categories group skills, and practices set a requirement per category on each requisition.">
 			<Button on:click={onAdd}><Plus class="mr-2 size-4" aria-hidden="true" />Add category</Button>
 		</EmptyState>
 	{/if}

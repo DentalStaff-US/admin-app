@@ -54,7 +54,7 @@ export function timesheetView(data: TimesheetPageData, billableHours?: number) {
 	const priorWeekHours = data.priorWeekHours ?? 0;
 	const scheduledDates: string[] = (data.workdays ?? []).map((w) => w?.recurrenceDay?.date).filter(Boolean);
 	const name = `${t.candidate?.firstName ?? ''} ${t.candidate?.lastName ?? ''}`.trim() || 'Professional';
-	const discipline: string = data.requisition?.discipline?.name ?? data.requisition?.title ?? 'Request';
+	const discipline: string = data.requisition?.discipline?.name ?? data.requisition?.title ?? 'Requisition';
 
 	return {
 		status,

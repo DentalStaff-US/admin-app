@@ -61,7 +61,7 @@
 			<span class="inline-flex items-center gap-1"><Clock class="size-4" aria-hidden="true" />{v.timeZoneLabel} time</span>
 		{/snippet}
 		{#snippet actions()}
-			{#if v.requisitionId}<Button variant="outline" href="/requisitions/{v.requisitionId}">View request</Button>{/if}
+			{#if v.requisitionId}<Button variant="outline" href="/requisitions/{v.requisitionId}">View requisition</Button>{/if}
 			{#if data.invoice}<Button variant="outline" href="/invoices/{data.invoice.id}">View invoice</Button>{/if}
 			{#if v.isPending}
 				<div class="hidden gap-2 md:flex">{@render reviewActions(false)}</div>

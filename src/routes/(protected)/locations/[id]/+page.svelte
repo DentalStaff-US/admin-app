@@ -186,7 +186,7 @@
                 action="?/updateStaffOnLocation"
                 fields={{ staffId: member.profile.id, action: 'remove' }}
                 title="Remove {member.user.firstName} {member.user.lastName} from {location?.name}?"
-                description="They lose access to this location's requests and timesheets. Their other locations are unchanged."
+                description="They lose access to this location's requisitions and timesheets. Their other locations are unchanged."
                 confirmLabel="Remove from location"
                 label="Remove {member.user.firstName} from this location"
                 icon={UserMinus}
@@ -197,7 +197,7 @@
 {/snippet}
 
 {#snippet emptyStaff()}
-    <EmptyState icon={Users} title="No staff assigned" description="Add your team to this location so they can see its requests and timesheets."/>
+    <EmptyState icon={Users} title="No staff assigned" description="Add your team to this location so they can see its requisitions and timesheets."/>
 {/snippet}
 
 {#if location}
@@ -211,7 +211,7 @@
         </DetailHeader>
 
         {#if user?.role !== USER_ROLES.SUPERADMIN && data.clientStatus && !data.canCreateRequisitions}
-            <Notice tone="pending">Your account is {String(data.clientStatus ?? 'PENDING').toLowerCase()}, so posting requests is paused until it's approved.</Notice>
+            <Notice tone="pending">Your account is {String(data.clientStatus ?? 'PENDING').toLowerCase()}, so posting requisitions is paused until it's approved.</Notice>
         {/if}
 
         <DetailTabs {tabs} bind:value={tab} label="Location sections">
@@ -371,9 +371,9 @@
                     </div>
                 {:else if active === 'requisitions'}
                     {#snippet emptyReqs()}
-                        <EmptyState icon={ClipboardList} title="No requisitions yet" description="Requests posted for this location show up here.">
+                        <EmptyState icon={ClipboardList} title="No requisitions yet" description="Requisitions posted for this location show up here.">
                             {#if user?.role !== USER_ROLES.SUPERADMIN && data.canCreateRequisitions}
-                                <Button on:click={() => (drawerExpanded = true)}>Post the first request</Button>
+                                <Button on:click={() => (drawerExpanded = true)}>Post the first requisition</Button>
                             {/if}
                         </EmptyState>
                     {/snippet}

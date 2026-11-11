@@ -51,8 +51,7 @@
 	const showProfessional = $derived((hasActiveWorkday || showAssignmentHistory) && !!candidate);
 	const proName = $derived(candidate ? `${candidate.firstName ?? ''} ${candidate.lastName ?? ''}`.trim() : '');
 
-	// Admins call it a requisition, practices a request.
-	const noun = $derived(isAdmin ? 'Requisition' : 'Request');
+	const noun = 'Requisition';
 
 	const fmtTime = (at: Date | string | null | undefined) => (at ? formatInTimeZone(at, tz, 'h:mmaaa') : '—');
 	const dateLabel = $derived(
@@ -328,7 +327,7 @@
 	<Dialog.Content class="max-w-lg">
 		<Dialog.Header>
 			<Dialog.Title class="text-h2">Edit schedule</Dialog.Title>
-			<Dialog.Description>Times are in the request's timezone ({tz}). The professional is notified of changes.</Dialog.Description>
+			<Dialog.Description>Times are in the requisition's timezone ({tz}). The professional is notified of changes.</Dialog.Description>
 		</Dialog.Header>
 		<form method="POST" action="?/editRecurrenceDay" use:scheduleEnhance class="space-y-4">
 			<div class="space-y-1.5">
