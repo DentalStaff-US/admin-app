@@ -11,7 +11,8 @@
 		sortHref,
 		pagination,
 		empty,
-		caption = 'Office locations'
+		caption = 'Office locations',
+		class: className
 	}: {
 		rows: LocationRow[];
 		hrefFor: (row: LocationRow) => string;
@@ -20,6 +21,7 @@
 		pagination?: Pagination;
 		empty?: Snippet;
 		caption?: string;
+		class?: string;
 	} = $props();
 
 	const columns: DataColumn<LocationRow>[] = [
@@ -40,4 +42,5 @@
 	{sortHref}
 	{pagination}
 	{empty}
+	class={className}
 />

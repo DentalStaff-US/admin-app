@@ -11,6 +11,7 @@
 	import PendingInvitesTable from '$lib/components/PendingInvitesTable.svelte';
 	import {
 		AddPersonDialog,
+		ClientDetailPage,
 		ClientsTable,
 		ListSearch,
 		LocationsTable,
@@ -30,7 +31,7 @@
 	let staffOpen = $state(false);
 	let staffMember = $state<(typeof fx.staff)[number] | null>(null);
 	const path = $derived(
-		({ pro: '/professionals/p1', pros: '/professionals', clients: '/clients', staff: '/staff', locations: '/locations' } as Record<string, string>)[screen] ?? '/professionals'
+		({ client: '/clients/c1', pro: '/professionals/p1', pros: '/professionals', clients: '/clients', staff: '/staff', locations: '/locations' } as Record<string, string>)[screen] ?? '/professionals'
 	);
 </script>
 
@@ -105,6 +106,8 @@
 		/>
 	{:else if screen === 'pro'}
 		<ProfessionalDetailPage data={fx.professionalData({ admin: q.get('role') !== 'client', empty })} />
+	{:else if screen === 'client'}
+		<ClientDetailPage data={fx.clientData({ empty, paper: q.get('paper') === '1' })} />
 	{:else if screen === 'clients'}
 		<Page>
 			<PageHeader title="Clients" description="Practices and their owners, by status.">

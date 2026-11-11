@@ -19,7 +19,8 @@
 		tabs,
 		toolbar,
 		empty,
-		actions
+		actions,
+		class: className
 	}: {
 		rows: StaffRow[];
 		sort?: SortState;
@@ -30,6 +31,7 @@
 		empty?: Snippet;
 		/** Optional trailing cell (row menu). */
 		actions?: Snippet<[StaffRow]>;
+		class?: string;
 	} = $props();
 
 	const lastFirst = (r: StaffRow) => `${r.user.lastName ?? ''}, ${r.user.firstName ?? ''}`;
@@ -80,4 +82,4 @@
 	</div>
 {/snippet}
 
-<DataTable {rows} {columns} key={(r) => r.profile.id} caption="Practice staff" {sort} {sortHref} {tabs} {toolbar} {empty} {mobile} />
+<DataTable {rows} {columns} key={(r) => r.profile.id} caption="Practice staff" {sort} {sortHref} {tabs} {toolbar} {empty} {mobile} class={className} />

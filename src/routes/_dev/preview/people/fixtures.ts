@@ -142,3 +142,49 @@ export function professionalData(opts: { admin?: boolean; empty?: boolean } = {}
 		skillCatalog: [{ id: 'c1', name: 'Clinical', description: null, skills: [{ id: 'sk1', name: 'Nitrous monitoring', requiresCertificate: true, archivedAt: null }, { id: 'sk2', name: 'Local anesthesia', requiresCertificate: true, archivedAt: null }] }]
 	};
 }
+
+export function clientData(opts: { empty?: boolean; paper?: boolean } = {}) {
+	const empty = opts.empty ?? false;
+	const updateData = {
+		firstName: 'Sandra', lastName: 'Keene', email: 'owner@brightsmiles.test', billingEmail: 'ap@brightsmiles.test',
+		billingContactName: 'Accounts Payable', billingStreetOne: '1201 W Platt St', billingStreetTwo: 'Suite 200',
+		billingCity: 'Tampa', billingState: 'FL', billingZipcode: '33606', companyName: 'Bright Smiles Dental',
+		baseLocation: 'Tampa, FL', website: 'https://brightsmiles.test', cellPhone: '8135550100', invoiceMethod: opts.paper ? 'PAPER' : 'STRIPE'
+	};
+	return {
+		user: { id: 'me', role: 'SUPERADMIN' },
+		client: {
+			profile: { id: 'c1', status: 'ACTIVE', cellPhone: '8135550100', clientInvoiceMethod: opts.paper ? 'PAPER' : 'STRIPE' },
+			user: { id: 'u1', firstName: 'Sandra', lastName: 'Keene', email: 'owner@brightsmiles.test', avatarUrl: null, receiveEmail: false, receiveSms: true },
+			company: { id: 'co1', companyName: 'Bright Smiles Dental', companyLogo: null, baseLocation: 'Tampa, FL', website: 'https://brightsmiles.test', billingEmail: 'ap@brightsmiles.test', billingContactName: 'Accounts Payable', billingStreetOne: '1201 W Platt St', billingStreetTwo: 'Suite 200', billingCity: 'Tampa', billingState: 'FL', billingZipcode: '33606' },
+			locations: empty ? [] : locations.map((l) => ({ id: l.id, name: l.location_name, completeAddress: l.complete_address, companyPhone: l.company_phone })),
+			subscription: { stripeCustomerId: 'cus_x', stripeCustomerSetupPending: false }
+		},
+		requisitions: empty ? [] : [
+			{ id: 1042, disciplineName: 'Dental Hygienist', locationName: 'Tampa – Platt St', status: 'OPEN', permanentPosition: false, hourlyRate: 48 },
+			{ id: 1031, disciplineName: 'Office Manager', locationName: 'Brandon', status: 'PAYMENT_REQUIRED', permanentPosition: true, hourlyRate: 0 },
+			{ id: 1007, disciplineName: 'Dental Assistant', locationName: 'Wesley Chapel', status: 'FILLED', permanentPosition: false, hourlyRate: 29 }
+		],
+		recurrenceDays: [],
+		supportTickets: empty ? [] : [{ id: 't1', title: 'Timesheet shows wrong lunch break', status: 'NEW', createdAt: d('2026-11-04') }],
+		staff: empty ? [] : staff.map((s, i) => ({ ...s, primaryLocation: { name: locations[i % 3].location_name }, locationAssignments: [{ locationId: locations[i % 3].id, isPrimary: true }] })),
+		pendingInvites: empty ? [] : pendingInvites,
+		invoices: empty ? [] : [
+			{ invoice: { id: 'inv1', invoiceNumber: 'DTSS-2026-0412', amountDue: '1248.00', total: '1248.00', status: 'open', dueDate: d('2026-11-20'), createdAt: d('2026-11-06') } },
+			{ invoice: { id: 'inv2', invoiceNumber: 'DTSS-2026-0388', amountDue: '0', total: '2310.50', status: 'paid', dueDate: d('2026-10-30'), createdAt: d('2026-10-16') } }
+		],
+		invoiceForm: fakeSuperValidated({ amount: 0, dueDate: '', description: '', invoiceMethod: 'STRIPE', items: '[]' }),
+		requisitionForm: fakeSuperValidated({}),
+		locationForm: fakeSuperValidated({}),
+		updateClientForm: fakeSuperValidated(updateData),
+		statusForm: fakeSuperValidated({ status: 'ACTIVE' }),
+		comments: empty ? [] : comments,
+		activity: empty ? [] : [{ id: 'x1', createdAt: d('2026-11-08T13:00:00Z'), action: 'SIGN_IN', entityType: 'USERS', actorName: 'Sandra Keene', metadata: null }],
+		documents: empty ? [] : [{ id: 'cd1', filename: 'Staffing-agreement-signed.pdf', type: 'AGREEMENT', adminOnly: false, createdAt: d('2026-01-10') }],
+		signatureRequests: [],
+		signatureKinds: [{ kind: 'CLIENT_AGREEMENT', title: 'staffing agreement' }],
+		blacklistedCandidates: empty ? [] : [{ candidateId: 'p9', firstName: 'Kyle', lastName: 'Barnes', email: 'kyle.b@example.com', avatarUrl: null, createdAt: d('2026-06-02') }],
+		billingMismatchMessage: opts.paper ? 'This practice invoices on paper but has a Stripe customer on file. Every invoice, approved timesheets included, bills as paper until this changes.' : null,
+		permanentRequisitions: [{ id: 1031, title: 'Office Manager', status: 'PAYMENT_REQUIRED' }]
+	};
+}

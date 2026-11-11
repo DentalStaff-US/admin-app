@@ -29,13 +29,16 @@
 		resendAction,
 		revokeAction,
 		showLocation = true,
-		canManage = true
+		canManage = true,
+		embedded = false
 	}: {
-		invites: Invite[];
+		invites?: Invite[];
 		resendAction: string;
 		revokeAction: string;
 		showLocation?: boolean;
 		canManage?: boolean;
+		/** Inside a section card already: drop the table's own border (no nested cards). */
+		embedded?: boolean;
 	} = $props();
 
 	const isExpired = (expiresAt: Date | string) => new Date(expiresAt).getTime() <= Date.now();
@@ -43,7 +46,7 @@
 </script>
 
 {#if invites.length > 0}
-	<div class="overflow-x-auto rounded-lg border">
+	<div class={embedded ? 'overflow-x-auto' : 'overflow-x-auto rounded-lg border'}>
 		<table class="w-full text-sm">
 			<caption class="sr-only">Pending invites</caption>
 			<thead class="bg-muted/50 text-left">
@@ -131,5 +134,5 @@
 		</table>
 	</div>
 {:else}
-	<p class="py-4 text-sm text-muted-foreground">No pending invites.</p>
+	<p class={embedded ? 'px-5 py-4 text-sm text-muted-foreground sm:px-6' : 'py-4 text-sm text-muted-foreground'}>No pending invites.</p>
 {/if}

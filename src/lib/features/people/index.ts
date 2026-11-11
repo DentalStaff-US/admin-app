@@ -22,6 +22,7 @@ export { default as FormPhoneInput } from './components/FormPhoneInput.svelte';
 export { default as ProfessionalsTable } from './components/professionals/ProfessionalsTable.svelte';
 export { default as ProfessionalDetailPage } from './components/professionals/ProfessionalDetailPage.svelte';
 export { default as ClientsTable } from './components/clients/ClientsTable.svelte';
+export { default as ClientDetailPage } from './components/clients/ClientDetailPage.svelte';
 export { default as StaffTable } from './components/staff/StaffTable.svelte';
 export { default as LocationsTable } from './components/locations/LocationsTable.svelte';
 export { default as StaffDetailsDialog } from './components/staff/StaffDetailsDialog.svelte';
