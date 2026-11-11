@@ -505,6 +505,13 @@
       "when": 1794356341740,
       "tag": "0071_wealthy_pandemic",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1794372565039,
+      "tag": "0072_daffy_ken_ellis",
+      "breakpoints": true
     }
   ]
 }
