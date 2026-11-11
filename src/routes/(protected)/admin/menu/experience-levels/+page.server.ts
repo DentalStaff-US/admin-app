@@ -12,6 +12,7 @@ import db from '$lib/server/database/drizzle';
 import { experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { eq, max } from 'drizzle-orm';
 import { z } from 'zod';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
 
 const experienceLevelSchema = newExperienceLevelSchema.pick({
 	value: true
@@ -110,12 +111,18 @@ export const actions = {
 			return fail(403, { message: 'You do not have permission to delete experience levels.' });
 		}
 
-		const form = await superValidate(event, z.object({ id: z.string().min(1) }));
+		const formData = await event.request.formData();
+		const form = await superValidate(formData, z.object({ id: z.string().min(1) }));
 
 		if (!form.valid) {
 			return fail(400, {
 				form
 			});
+		}
+
+		// Hard delete: the dialog posts the typed word (03 › ConfirmDialog).
+		if (!hasTypedConfirmation(formData)) {
+			return fail(400, { form, message: 'Type DELETE to confirm.' });
 		}
 
 		const experienceLevelId = form.data.id;

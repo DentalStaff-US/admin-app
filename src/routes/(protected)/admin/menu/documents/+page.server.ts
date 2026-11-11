@@ -10,6 +10,7 @@ import { eq, ilike, or, desc } from 'drizzle-orm';
 import { z } from 'zod';
 import { superValidate, message, setError } from 'sveltekit-superforms/server';
 import { userTable } from '$lib/server/database/schemas/auth';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
 
 export const load: PageServerLoad = async (event) => {
 	const searchTerm = event.url.searchParams.get('search') || '';
@@ -89,12 +90,18 @@ export const actions = {
 			return fail(403, { message: 'You do not have permission to delete documents.' });
 		}
 
-		const form = await superValidate(event, z.object({ id: z.string().uuid() }));
+		const formData = await event.request.formData();
+		const form = await superValidate(formData, z.object({ id: z.string().uuid() }));
 
 		if (!form.valid) {
 			return fail(400, {
 				form
 			});
+		}
+
+		// Hard delete: the dialog posts the typed word (03 › ConfirmDialog).
+		if (!hasTypedConfirmation(formData)) {
+			return fail(400, { form, message: 'Type DELETE to confirm.' });
 		}
 
 		const documentId = form.data.id;
