@@ -19,12 +19,22 @@ import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing
 import { getPostHogClient } from '$lib/server/posthog';
 import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
 
+/**
+ * `getPaginatedLocationsByCompanyId` splices the sort column into the SQL with
+ * `sql.raw`, so only these known column names may ever reach it from the URL.
+ */
+const SORTABLE_LOCATION_COLUMNS = ['location_name', 'complete_address', 'created_at'];
+
 export const load: PageServerLoad = async (event) => {
-	const skip = Number(event.url.searchParams.get('skip'));
+	const rawSkip = Number(event.url.searchParams.get('skip'));
+	const skip = Number.isInteger(rawSkip) && rawSkip > 0 ? rawSkip : 0;
 	const sortBy = event.url.searchParams.get('sortBy')?.toString();
 	const sortOn = event.url.searchParams.get('sortOn')?.toString();
 
-	const orderBy = sortBy && sortOn ? { column: sortOn, direction: sortBy } : undefined;
+	const orderBy =
+		sortOn && SORTABLE_LOCATION_COLUMNS.includes(sortOn) && (sortBy === 'asc' || sortBy === 'desc')
+			? { column: sortOn, direction: sortBy }
+			: undefined;
 
 	const user = event.locals.user;
 
