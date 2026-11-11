@@ -112,7 +112,7 @@
 
         <label
                 for="avatar-upload"
-                class="absolute bottom-1 right-1 rounded-full bg-white text-gray-300 p-2 cursor-pointer shadow-sm transition-colors"
+                class="absolute bottom-1 right-1 rounded-full bg-card text-muted-foreground p-2 cursor-pointer shadow-sm transition-colors"
                 class:opacity-50={isUploading}
                 class:pointer-events-none={isUploading}
         >

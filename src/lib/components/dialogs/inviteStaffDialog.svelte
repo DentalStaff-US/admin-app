@@ -167,7 +167,7 @@
 									type="button"
 									variant="ghost"
 									size="icon"
-									class="h-8 w-8 text-red-500"
+									class="h-8 w-8 text-destructive"
 									on:click={() => handleRemove(invitee.email)}
 								>
 									<TrashIcon class="h-4 w-4" />

@@ -105,7 +105,7 @@
 							<label class="flex items-center gap-2 flex-1 cursor-pointer text-sm">
 								<input
 									type="checkbox"
-									class="h-4 w-4 rounded border-gray-300"
+									class="h-4 w-4 rounded border-input"
 									checked={isAssigned}
 									on:change={(e) => onToggleChange(loc.id, e)}
 								/>
@@ -129,10 +129,10 @@
 				</div>
 
 				{#if selectedIds.size > 0 && !primaryId}
-					<p class="text-sm text-red-600">Select a primary location.</p>
+					<p class="text-sm text-destructive">Select a primary location.</p>
 				{/if}
 				{#if selectedIds.size === 0}
-					<p class="text-sm text-yellow-700">
+					<p class="text-sm text-status-warning-fg">
 						No locations selected — this staff member will see no requisitions, timesheets, or
 						invoices until at least one location is assigned.
 					</p>

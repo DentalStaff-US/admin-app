@@ -1,11 +1,11 @@
 <script lang="ts">
-	// Shared branded shell for all auth pages: soft sky gradient, centered,
+	// Shared branded shell for all auth pages: soft primary-tinted gradient, centered,
 	// responsive, DTSS logo + a portal label so users always know which app
 	// they're on (this is the CLIENT / practice + staff portal).
 	import logo from '$lib/assets/dtss-logo.png';
 
 	export let label = 'Client Portal';
-	export let gradient = 'from-sky-50 via-white to-sky-100';
+	export let gradient = 'from-primary-soft via-background to-primary/10';
 </script>
 
 <div
