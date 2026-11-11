@@ -257,8 +257,8 @@ export function groupApplicants<T extends ApplicationLike>(
 export type StageAction = 'RECOMMEND' | 'APPROVE' | 'DENY';
 
 /**
- * The actions a row offers. Approve/Deny need requisition rights and a pending
- * application; Recommend is admin-only, for an interested professional on an
+ * The actions a row offers. Approve/Deny need requisition rights, a pending
+ * application and a live (pending or open) request; Recommend is admin-only, for an interested professional on an
  * open request (the server re-checks consent, blacklist and duplicates).
  */
 export function stageActions(opts: {
@@ -272,7 +272,11 @@ export function stageActions(opts: {
 	if (stage === 'INTERESTED') {
 		return audience === 'admin' && requestStatus === 'OPEN' ? ['RECOMMEND'] : [];
 	}
-	if (stage === 'APPLIED' || stage === 'RECOMMENDED') return ['APPROVE', 'DENY'];
+	// Only while the request is live: after a hire the others were auto-declined,
+	// and a closed or canceled request has no one left to decide on.
+	if ((stage === 'APPLIED' || stage === 'RECOMMENDED') && (requestStatus === 'OPEN' || requestStatus === 'PENDING')) {
+		return ['APPROVE', 'DENY'];
+	}
 	return [];
 }
 

@@ -126,6 +126,8 @@ describe('stageActions', () => {
 		expect(stageActions({ stage: 'APPLIED', audience: 'practice', canManage: false, requestStatus: 'OPEN' })).toEqual([]);
 		expect(stageActions({ stage: 'HIRED', audience: 'admin', canManage: true, requestStatus: 'OPEN' })).toEqual([]);
 		expect(stageActions({ stage: 'DENIED', audience: 'admin', canManage: true, requestStatus: 'OPEN' })).toEqual([]);
+		expect(stageActions({ stage: 'APPLIED', audience: 'admin', canManage: true, requestStatus: 'PAYMENT_REQUIRED' })).toEqual([]);
+		expect(stageActions({ stage: 'APPLIED', audience: 'practice', canManage: true, requestStatus: 'CLOSED' })).toEqual([]);
 	});
 	it('lets only admins recommend an interested professional, and only while open', () => {
 		expect(stageActions({ stage: 'INTERESTED', audience: 'admin', canManage: true, requestStatus: 'OPEN' })).toEqual(['RECOMMEND']);
