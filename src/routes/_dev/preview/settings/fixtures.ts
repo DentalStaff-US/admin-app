@@ -98,3 +98,44 @@ export const billing = {
 };
 
 export const affiliateStatus = { programEnabled: true, eligible: true, enrolled: false };
+
+// Onboarding
+export const onboardingForms = () => ({
+	company: fakeForm({ companyName: '', cell_phone: '' }),
+	location: fakeForm({ name: '', completeAddress: '', lat: undefined, lon: undefined, timezone: '', phoneNumber: '', phoneNumberType: '', email: '', website: '' }),
+	staff: fakeForm({ invitees: [] as { email: string; staffRole: string }[] })
+});
+
+// Support
+const reporter = { id: 'u1', firstName: 'Shannon', lastName: 'Carter', email: 'shannon@brightsmiles.test', avatarUrl: null, role: 'CLIENT' };
+const agent = { id: 'a1', firstName: 'Jordan', lastName: 'Reyes', email: 'jordan@dtss.test', avatarUrl: null, role: 'SUPERADMIN' };
+const hoursAgo = (h: number) => new Date(Date.now() - h * 36e5);
+
+export const tickets = [
+	{ supportTicket: { id: 't1', ticketNumber: 1042, title: "Can't approve last week's timesheet", status: 'PENDING', createdAt: hoursAgo(30), updatedAt: hoursAgo(2) }, reportedBy: reporter },
+	{ supportTicket: { id: 't2', ticketNumber: 1039, title: 'Invoice shows the wrong billing address', status: 'NEW', createdAt: hoursAgo(50), updatedAt: hoursAgo(50) }, reportedBy: { ...reporter, firstName: 'Maria', lastName: 'Lopez', role: 'CLIENT_STAFF' } },
+	{ supportTicket: { id: 't3', ticketNumber: 1001, title: 'How do I add a second location?', status: 'CLOSED', createdAt: hoursAgo(400), updatedAt: hoursAgo(380) }, reportedBy: reporter }
+];
+
+export const ticket = (closed: boolean) => ({
+	details: {
+		ticket: {
+			id: 't1',
+			ticketNumber: 1042,
+			title: "Can't approve last week's timesheet",
+			status: closed ? 'CLOSED' : 'PENDING',
+			createdAt: hoursAgo(30),
+			updatedAt: hoursAgo(2),
+			expectedResult: "Approve Maria's timesheet for Nov 2–8 so it goes on this week's invoice.",
+			actualResults: 'The Approve button spins and then nothing happens. No error.',
+			stepsToReproduce: 'Timesheets › To review\nOpen Maria Lopez, Nov 2–8\nClick Approve'
+		},
+		reportedBy: reporter,
+		closedBy: closed ? agent : null
+	},
+	comments: [
+		{ comment: { id: 'c2', body: "Thanks — that's fixed now. It was a rounding issue on Thursday's break. Could you try again?", createdAt: hoursAgo(3), fromId: 'a1' }, user: agent },
+		{ comment: { id: 'c1', body: "Hi Shannon, I'm looking into it. Does it happen for other timesheets too?", createdAt: hoursAgo(20), fromId: 'a1' }, user: agent },
+		{ comment: { id: 'c3', body: 'Just this one. Trying again now.', createdAt: hoursAgo(2), fromId: 'u1' }, user: reporter }
+	]
+});
