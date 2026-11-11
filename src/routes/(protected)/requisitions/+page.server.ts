@@ -30,6 +30,39 @@ import {
 } from '$lib/server/skills/skillRequirements';
 import { SkillRequirementError } from '$lib/server/skills/requisitionSkills';
 import { setFlash } from 'sveltekit-flash-message/server';
+import { readPage, readSort } from '$dtss/tableState';
+import {
+	buildList,
+	facets,
+	parseTab,
+	readFilters,
+	SORTABLE,
+	type ListRow
+} from '$features/requisitions/requestList';
+import { withListDetails } from '$features/requisitions/server/requestList';
+
+const PAGE_SIZE = 20;
+
+/**
+ * Tabs, filters, sort and paging for the Requests list, all from the URL. The
+ * role-specific queries above still decide which rows the caller may see.
+ */
+async function listView(event: RequestEvent, rows: Parameters<typeof withListDetails>[0], filter: string | null) {
+	const all: ListRow[] = await withListDetails(rows);
+	const url = event.url;
+	// The dashboard's "Unbilled placements" link lands on every unbilled row.
+	const tab = parseTab(url.searchParams.get('tab'), filter === 'unbilled' ? 'all' : 'open');
+	const sort = readSort(url, SORTABLE, { column: 'created', direction: 'desc' });
+	const view = buildList(all, {
+		tab,
+		filters: readFilters(url),
+		sort,
+		page: readPage(url),
+		pageSize: PAGE_SIZE,
+		now: new Date()
+	});
+	return { tab, sort, pageSize: PAGE_SIZE, facets: facets(all), ...view };
+}
 import { message, superValidate } from 'sveltekit-superforms/server';
 
 export const load = async (event: RequestEvent) => {
@@ -51,7 +84,7 @@ export const load = async (event: RequestEvent) => {
 			user: event.locals.user,
 			searchTerm,
 			filter,
-			requisitions: requisitions || [],
+			list: await listView(event, requisitions || [], filter),
 			adminForm: form,
 			clientForm: null,
 			clientStatus: null,
@@ -79,7 +112,7 @@ export const load = async (event: RequestEvent) => {
 			user,
 			searchTerm,
 			filter: null,
-			requisitions: requisitions || [],
+			list: await listView(event, requisitions || [], null),
 			clientForm: form,
 			adminForm: null,
 			clientStatus,
@@ -105,7 +138,7 @@ export const load = async (event: RequestEvent) => {
 			user,
 			searchTerm,
 			filter: null,
-			requisitions: requisitions || [],
+			list: await listView(event, requisitions || [], null),
 			clientForm: form,
 			adminForm: null,
 			clientStatus,
@@ -120,7 +153,7 @@ export const load = async (event: RequestEvent) => {
 		user: event.locals.user,
 		searchTerm,
 		filter: null,
-		requisitions: [],
+		list: await listView(event, [], null),
 		adminForm: null,
 		clientForm: null,
 		clientStatus: null,

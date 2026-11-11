@@ -15,15 +15,15 @@
 </script>
 
 {#if requirements.length === 0}
-	<p class="text-sm text-gray-500">No Preference</p>
+	<p class="text-sm text-muted-foreground">No Preference</p>
 {:else}
 	<ul class="space-y-1 text-sm">
 		{#each requirements as r (r.categoryId)}
 			<li>
 				<span class="font-medium">{r.categoryName}</span>
-				<span class="text-xs text-gray-500">({r.matchMode === 'ALL' ? 'all of' : 'any of'})</span>:
+				<span class="text-xs text-muted-foreground">({r.matchMode === 'ALL' ? 'all of' : 'any of'})</span>:
 				{#each r.skills as s, i (s.id)}
-					<span class:text-red-600={missing.has(s.id)}>{s.name}{s.requiresCertificate ? ' (cert.)' : ''}</span
+					<span class:text-destructive={missing.has(s.id)}>{s.name}{s.requiresCertificate ? ' (cert.)' : ''}</span
 					>{i < r.skills.length - 1 ? ', ' : ''}
 				{/each}
 			</li>

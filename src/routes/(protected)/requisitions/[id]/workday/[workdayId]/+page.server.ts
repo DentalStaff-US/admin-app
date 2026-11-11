@@ -58,6 +58,7 @@ import {
 import { cancelRecurrenceDayAsActor } from '$lib/server/requisitions/cancelRecurrenceDay';
 import { and, eq, inArray } from 'drizzle-orm';
 import { recordAction, recordView } from '$lib/server/audit/audit';
+import { resolveRequisitionAccess } from '$lib/server/requisitions/access';
 import { getActivityForEntity } from '$lib/server/audit/queries';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { editRecurrenceDaySchema } from '$lib/config/zod-schemas';
@@ -120,6 +121,9 @@ export async function load(event: RequestEvent) {
 
 	const recurrenceDayId = event.params.workdayId;
 	const requisitionId = Number(event.params.id);
+	// Tenancy guard for every role (requisition belongs to the caller's company;
+	// scoped staff must be assigned to its location).
+	await resolveRequisitionAccess(user, requisitionId);
 	const editWorkdayScheduleForm = await superValidate(event, editRecurrenceDaySchema);
 
 	if (user.role === USER_ROLES.SUPERADMIN) {
@@ -321,6 +325,8 @@ export const actions = {
 		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
 			return fail(403, { error: 'Not authorized' });
 		}
+		// Tenancy guard: the requisition in the URL must be reachable by the caller.
+		await resolveRequisitionAccess(user, Number(event.params.id));
 
 		const form = await superValidate(event, editRecurrenceDaySchema);
 
@@ -383,6 +389,8 @@ export const actions = {
 		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
 			return fail(403, { error: 'Not authorized to assign candidates' });
 		}
+		// Tenancy guard: the requisition in the URL must be reachable by the caller.
+		await resolveRequisitionAccess(user, Number(event.params.id));
 
 		const formData = await request.formData();
 		const candidateId = formData.get('candidateId') as string;
@@ -565,6 +573,8 @@ export const actions = {
 		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
 			return fail(403, { error: 'Not authorized' });
 		}
+		// Tenancy guard: the requisition in the URL must be reachable by the caller.
+		await resolveRequisitionAccess(user, Number(event.params.id));
 
 		const formData = await request.formData();
 		const recurrenceDayId = formData.get('recurrenceDayId') as string;
@@ -696,6 +706,8 @@ export const actions = {
 		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
 			return fail(403, { error: 'Not authorized to reassign candidates' });
 		}
+		// Tenancy guard: the requisition in the URL must be reachable by the caller.
+		await resolveRequisitionAccess(user, Number(event.params.id));
 
 		const formData = await request.formData();
 		const newCandidateId = formData.get('candidateId') as string;
@@ -931,6 +943,8 @@ export const actions = {
 		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
 			return fail(403, { error: 'Not authorized' });
 		}
+		// Tenancy guard: the requisition in the URL must be reachable by the caller.
+		await resolveRequisitionAccess(user, Number(event.params.id));
 
 		try {
 			const formData = await request.formData();
@@ -1011,6 +1025,8 @@ export const actions = {
 		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
 			return fail(403, { error: 'Not authorized' });
 		}
+		// Tenancy guard: the requisition in the URL must be reachable by the caller.
+		await resolveRequisitionAccess(user, Number(event.params.id));
 
 		const formData = await request.formData();
 		const requisitionId = Number(params.id);
@@ -1084,6 +1100,8 @@ export const actions = {
 		const user = locals.user;
 		if (!user) return fail(403);
 		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { error: 'Admin only' });
+		// Tenancy guard: the requisition in the URL must be reachable by the caller.
+		await resolveRequisitionAccess(user, Number(event.params.id));
 
 		const recurrenceDayId = params.workdayId;
 		if (!recurrenceDayId) return fail(400, { error: 'Missing workday id' });
