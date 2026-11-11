@@ -93,7 +93,7 @@
         enhance: addressEnhance,
         submitting: isAddressSubmitting,
         errors: addressErrors
-    } = superForm(data.locationForm, {
+    } = superForm(data.locationForm!, {
         onResult: ({result}) => {
             if (result.type === 'success') {
                 editingLocation = false;
@@ -106,7 +106,7 @@
         enhance: hoursEnhance,
         submitting: isHoursSubmitting,
         errors: hoursErrors
-    } = superForm(data.operatingHoursForm, {
+    } = superForm(data.operatingHoursForm!, {
         onResult: ({result}) => {
             if (result.type === 'success') {
                 editingHours = false;
