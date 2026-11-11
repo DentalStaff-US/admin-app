@@ -180,7 +180,12 @@
 				{#if isAdmin}
 					<dl class="mt-4 space-y-1 text-sm">
 						<dt class="text-muted-foreground">Invoice emails go to</dt>
-						<dd class="break-all font-semibold">{d.company?.billingEmail ?? 'The account owner’s login email (no billing email set)'}</dd>
+						{#if d.company?.billingEmail}
+							<dd class="break-all font-semibold">{d.company.billingEmail}</dd>
+						{:else}
+							<dd class="font-semibold">The account owner’s sign-in email</dd>
+							<dd class="text-muted-foreground">No billing email is set.</dd>
+						{/if}
 					</dl>
 				{/if}
 			</Section>

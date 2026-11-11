@@ -286,5 +286,5 @@ export function practiceShifts(scope: DashboardScope): CoverageShift[] {
 export const glance = (scope: DashboardScope) => ({
 	openRequests: ok(4),
 	shiftsThisMonth: ok({ filled: 18, total: 20 }),
-	balance: scope.can.viewBilling ? ok({ due: 2380, overdue: 1560 }) : null
+	balance: scope.can.viewBilling ? ok({ due: 2380, dueCount: 3, overdue: 1560, overdueCount: 1, paidThisMonth: 4120, timesheetsAwaiting: 2, expensesPending: 86.5, expensesPendingCount: 2 }) : null
 });

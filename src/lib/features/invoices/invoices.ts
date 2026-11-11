@@ -243,7 +243,7 @@ export function invoiceMethodNotice(input: {
 			tone: issuedOnPaper ? 'info' : 'warning',
 			title: 'Paper invoicing is on for this practice',
 			body:
-				'client_invoice_method = PAPER overrides a connected Stripe customer: new invoices for this practice, including the ones created when a timesheet is approved, are paper invoices and are never charged through Stripe. Record payments here by hand.' +
+				'New invoices for this practice, including those created when a timesheet is approved, are paper invoices, even if a Stripe customer is connected. Record payments here by hand.' +
 				(issuedOnPaper ? '' : ' This invoice was issued through Stripe before the switch, so it stays a Stripe invoice.')
 		};
 	}
@@ -252,11 +252,11 @@ export function invoiceMethodNotice(input: {
 		? {
 				tone: 'warning',
 				title: 'Issued on paper; the practice now pays through Stripe',
-				body: 'This invoice was issued while client_invoice_method was PAPER. New invoices go through Stripe, but this one is still paid by hand: record its payments here.'
+				body: 'This invoice was issued while the practice was on paper invoicing. New invoices go through Stripe, but this one is still paid by hand: record its payments here.'
 			}
 		: {
 				tone: 'info',
 				title: 'Billed through Stripe',
-				body: 'client_invoice_method = STRIPE. DTSS emails the invoice to the billing contact; Stripe collects the payment. Switching the practice to PAPER would override its Stripe customer for new invoices.'
+				body: 'DTSS emails the invoice to the billing contact and Stripe collects the payment. Switching the practice to paper invoicing would apply to new invoices only.'
 			};
 }

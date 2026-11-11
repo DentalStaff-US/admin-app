@@ -39,21 +39,18 @@ describe('navFor', () => {
 			'/timesheets',
 			'/invoices',
 			'/inbox',
-			'/staff',
 			'/locations',
 			'/support',
 			'/settings'
 		]);
 	});
 
-	it('gives staff Timesheets, and Invoices/Staff only as office admins', () => {
+	it('gives staff Timesheets, and Invoices only as office admins', () => {
 		const staff = hrefs('CLIENT_STAFF');
 		expect(staff).toContain('/timesheets');
 		expect(staff).not.toContain('/invoices');
-		expect(staff).not.toContain('/staff');
 		const officeAdmin = hrefs('CLIENT_STAFF', true);
 		expect(officeAdmin).toContain('/invoices');
-		expect(officeAdmin).toContain('/staff');
 	});
 
 	it('never shows admin-only areas to practices', () => {

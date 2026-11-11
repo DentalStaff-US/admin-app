@@ -1,16 +1,16 @@
 <script lang="ts">
-	// At a glance (10 §4.1): three numbers, each a link to the list it counts.
-	// Balance due is omitted, not $0, when billing isn't this user's (§4.2 rule 3).
+	// At a glance (10 §4.1): each number links to the list it counts. Money
+	// lives in PracticeBillingCard, shown only when billing is this user's.
 	import Hint from '$dtss/Hint.svelte';
 	import Section from '$dtss/Section.svelte';
-	import { DASH, formatMoneyTile } from '../format';
+	import { DASH } from '../format';
 	import { FAILED_HINT, METRICS, metricHint } from '../metrics';
-	import type { Metric } from '../types';
+	import type { Metric, PracticeBilling } from '../types';
 
 	type Glance = {
 		openRequests: Metric<number>;
 		shiftsThisMonth: Metric<{ filled: number; total: number }>;
-		balance: Metric<{ due: number; overdue: number }> | null;
+		balance: Metric<PracticeBilling> | null;
 	};
 
 	let { glance }: { glance: Glance } = $props();
@@ -36,15 +36,6 @@
 				)}
 			</span>
 		</a></li>
-		{#if glance.balance}
-			{@const b = glance.balance}
-			<li><a href={METRICS.balanceDue.href} class="flex items-baseline justify-between gap-4 py-3  hover:underline">
-				<span class="text-sm text-muted-foreground"><Hint text={metricHint('balanceDue')}>{METRICS.balanceDue.label}</Hint></span>
-				<span class="text-right">
-					<span class="block text-2xl font-extrabold tabular-nums">{@render value(b, () => (b.ok ? formatMoneyTile(b.value.due) : ''))}</span>
-					{#if b.ok && b.value.overdue > 0}
-						<span class="text-sm font-semibold text-status-negative-fg">{formatMoneyTile(b.value.overdue)} overdue</span>
-					{/if}
 				</span>
 			</a></li>
 		{/if}

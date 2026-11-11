@@ -366,7 +366,7 @@ export function staffNoLocationItem(row: StaffNoLocationRow): AttentionItem {
 		title: `${shortName(row.firstName, row.lastName)} isn't assigned to a location`,
 		detail: "They can't see any shifts or timesheets until you add one.",
 		since: row.createdAt,
-		href: '/staff',
-		action: { label: 'Assign location', href: '/staff' }
+		href: '/settings?tab=STAFF&role=CLIENT',
+		action: { label: 'Assign location', href: '/settings?tab=STAFF&role=CLIENT' }
 	};
 }

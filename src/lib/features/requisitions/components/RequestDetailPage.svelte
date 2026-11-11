@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { replaceState } from '$app/navigation';
+	import { afterNavigate, replaceState } from '$app/navigation';
 	import { AlertCircle } from 'lucide-svelte';
 	import { formatInTimeZone } from 'date-fns-tz';
 	import EmptyState from '$dtss/EmptyState.svelte';
@@ -74,14 +74,17 @@
 		const wanted = (ALIASES[raw] ?? raw) as TabKey;
 		return tabs.some((t) => t.value === wanted) ? wanted : tabs[0].value;
 	};
-	let tab = $state<TabKey>('details');
-	// Follow real navigations (a Stepper count link); tab clicks only rewrite the URL.
-	$effect(() => {
-		tab = fromUrl($page.url);
+	// A click picks the tab locally and mirrors it into the URL with a shallow
+	// replaceState. Re-reading the URL on every $page change snapped the tab
+	// back, so the URL only wins again after a real navigation (a Stepper link).
+	let picked = $state<TabKey | null>(null);
+	const tab = $derived<TabKey>(picked && tabs.some((t) => t.value === picked) ? picked : fromUrl($page.url));
+	afterNavigate(() => {
+		picked = null;
 	});
 	function selectTab(value: string | undefined) {
 		if (!value) return;
-		tab = value as TabKey;
+		picked = value as TabKey;
 		const url = new URL($page.url);
 		url.searchParams.set('tab', value);
 		url.searchParams.delete('stage');

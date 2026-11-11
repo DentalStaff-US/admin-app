@@ -71,7 +71,7 @@ describe('line items', () => {
 describe('invoiceMethodNotice', () => {
 	it('tells admins that PAPER overrides a Stripe customer', () => {
 		const n = invoiceMethodNotice({ invoiceType: 'PAPER', clientMethod: 'PAPER', isAdmin: true });
-		expect(n.body).toContain('client_invoice_method = PAPER overrides a connected Stripe customer');
+		expect(n.body).toContain('even if a Stripe customer is connected');
 		expect(n.tone).toBe('info');
 	});
 	it('warns when the invoice and the practice disagree', () => {

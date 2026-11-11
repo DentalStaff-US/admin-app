@@ -9,7 +9,7 @@
 		exiting = true;
 		// Server endpoint so the exit is recorded in the ledger before the
 		// admin's own session is restored.
-		await fetch('/admin/impersonation/stop', { method: 'POST' });
+		await fetch('/impersonation/stop', { method: 'POST' });
 		// Full load: the session changes underneath every cached page.
 		window.location.href = '/admin/menu/users';
 	}

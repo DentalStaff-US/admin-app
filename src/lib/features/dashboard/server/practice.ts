@@ -4,7 +4,7 @@
  * the practice (client/company) AND its location set; [] locations returns nothing.
  * Sections a capability excludes are not queried at all (10 §4.2 rule 3).
  */
-import { and, asc, count, eq, gte, inArray, lt, notExists, sql, sum, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, gte, inArray, lt, notExists, sql, type SQL } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import { userTable } from '$lib/server/database/schemas/auth';
 import { clientStaffLocationTable, clientStaffProfileTable } from '$lib/server/database/schemas/client';
@@ -12,11 +12,12 @@ import {
 	invoiceTable,
 	recurrenceDayTable,
 	requisitionTable,
-	timeSheetTable
+	timeSheetTable,
+	timesheetExpenseTable
 } from '$lib/server/database/schemas/requisition';
 import { getClientSignatureViews } from '$lib/server/signatures/view';
 import { hasNoLocations } from '../scope';
-import type { AttentionGroup, DashboardScope, Metric } from '../types';
+import type { AttentionGroup, DashboardScope, Metric, PracticeBilling } from '../types';
 import {
 	dueInvoiceItem,
 	overdueInvoiceItem,
@@ -236,8 +237,9 @@ export type PracticeGlance = {
 	openRequests: Metric<number>;
 	shiftsThisMonth: Metric<{ filled: number; total: number }>;
 	/** Absent when the user can't view billing: omitted, not $0 (10 §4.2 rule 3). */
-	balance: Metric<{ due: number; overdue: number }> | null;
+	balance: Metric<PracticeBilling> | null;
 };
+
 
 export async function practiceGlance(scope: DashboardScope, month: { first: string; last: string }, now = new Date()): Promise<PracticeGlance> {
 	requirePractice(scope);
@@ -274,23 +276,68 @@ export async function practiceGlance(scope: DashboardScope, month: { first: stri
 		return { filled: Number(r.filled), total: Number(r.total) };
 	});
 
-	const balance = scope.can.viewBilling
-		? settle('balanceDue', async () => {
-				if (loc === false) return { due: 0, overdue: 0 };
-				const q = db
-					.select({
-						due: sum(invoiceTable.amountRemaining).mapWith(Number),
-						overdue: sql<number>`coalesce(sum(${invoiceTable.amountRemaining}) filter (where ${invoiceTable.dueDate} < ${now}), 0)`.mapWith(Number)
-					})
-					.from(invoiceTable);
-				const where = and(eq(invoiceTable.clientId, scope.clientId), eq(invoiceTable.status, 'open'), loc);
-				const [r] = await (Array.isArray(scope.locationIds)
-					? q.leftJoin(requisitionTable, eq(requisitionTable.id, invoiceTable.requisitionId)).where(where)
-					: q.where(where));
-				return { due: r?.due || 0, overdue: r?.overdue || 0 };
-			})
-		: Promise.resolve(null);
+	const balance = scope.can.viewBilling ? settle('balanceDue', () => practiceBilling(scope, month, now)) : Promise.resolve(null);
 
 	const [a, b, c] = await Promise.all([openRequests, shiftsThisMonth, balance]);
 	return { openRequests: a, shiftsThisMonth: b, balance: c };
+}
+
+async function practiceBilling(
+	scope: DashboardScope & { clientId: string },
+	month: { first: string },
+	now: Date
+): Promise<PracticeBilling> {
+	const loc = locationCondition(scope);
+	const empty: PracticeBilling = { due: 0, dueCount: 0, overdue: 0, overdueCount: 0, paidThisMonth: 0, timesheetsAwaiting: 0, expensesPending: 0, expensesPendingCount: 0 };
+	if (loc === false) return empty;
+	// Location-scoped rows are matched through their requisition, as everywhere else here.
+	const scoped = Array.isArray(scope.locationIds);
+	const monthStart = new Date(`${month.first}T00:00:00`);
+
+	const invoices = db
+		.select({
+			due: sql<number>`coalesce(sum(${invoiceTable.amountRemaining}) filter (where ${invoiceTable.status} = 'open'), 0)`.mapWith(Number),
+			dueCount: sql<number>`count(*) filter (where ${invoiceTable.status} = 'open')`.mapWith(Number),
+			overdue: sql<number>`coalesce(sum(${invoiceTable.amountRemaining}) filter (where ${invoiceTable.status} = 'open' and ${invoiceTable.dueDate} < ${now}), 0)`.mapWith(Number),
+			overdueCount: sql<number>`count(*) filter (where ${invoiceTable.status} = 'open' and ${invoiceTable.dueDate} < ${now})`.mapWith(Number),
+			paidThisMonth: sql<number>`coalesce(sum(${invoiceTable.amountPaid}) filter (where ${invoiceTable.status} = 'paid' and ${invoiceTable.paidAt} >= ${monthStart}), 0)`.mapWith(Number)
+		})
+		.from(invoiceTable);
+	const invoiceWhere = and(eq(invoiceTable.clientId, scope.clientId), loc);
+	const invoiceQuery = scoped
+		? invoices.leftJoin(requisitionTable, eq(requisitionTable.id, invoiceTable.requisitionId)).where(invoiceWhere)
+		: invoices.where(invoiceWhere);
+
+	const timesheets = timesheetCount(
+		and(eq(timeSheetTable.associatedClientId, scope.clientId), eq(timeSheetTable.status, 'PENDING'), loc || undefined)!
+	);
+
+	const expenses = db
+		.select({
+			cents: sql<number>`coalesce(sum(${timesheetExpenseTable.amountCents}), 0)`.mapWith(Number),
+			count: count()
+		})
+		.from(timesheetExpenseTable)
+		.innerJoin(timeSheetTable, eq(timeSheetTable.id, timesheetExpenseTable.timesheetId))
+		.leftJoin(requisitionTable, eq(requisitionTable.id, timeSheetTable.requisitionId))
+		.where(
+			and(
+				eq(timeSheetTable.associatedClientId, scope.clientId),
+				eq(timesheetExpenseTable.status, 'PENDING'),
+				sql`${timeSheetTable.status} not in ('VOID', 'REJECTED')`,
+				loc || undefined
+			)
+		);
+
+	const [[inv], [ts], [exp]] = await Promise.all([invoiceQuery, timesheets, expenses]);
+	return {
+		due: inv?.due || 0,
+		dueCount: inv?.dueCount || 0,
+		overdue: inv?.overdue || 0,
+		overdueCount: inv?.overdueCount || 0,
+		paidThisMonth: inv?.paidThisMonth || 0,
+		timesheetsAwaiting: Number(ts?.count ?? 0),
+		expensesPending: (exp?.cents || 0) / 100,
+		expensesPendingCount: Number(exp?.count ?? 0)
+	};
 }

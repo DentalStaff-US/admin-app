@@ -17,8 +17,7 @@ import {
 	Settings,
 	Shield,
 	ShieldCheck,
-	UserRound,
-	Users
+	UserRound
 } from 'lucide-svelte';
 import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 import { USER_ROLES } from '$lib/config/constants';
@@ -72,7 +71,6 @@ const GROUPS: NavGroup[] = [
 		items: [
 			{ href: '/professionals', label: 'Professionals', icon: UserRound, show: isAdmin },
 			{ href: '/clients', label: 'Clients', icon: Building2, show: isAdmin },
-			{ href: '/staff', label: 'Staff', icon: Users, show: isOfficeAdmin },
 			{ href: '/locations', label: 'Locations', icon: MapPin, show: isPractice }
 		]
 	},

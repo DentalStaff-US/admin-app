@@ -38,7 +38,7 @@ export const KIND_META: Record<AttentionKind, KindMeta> = {
 	// Practices
 	SIGNATURE_PENDING: { category: 'people', priority: 1, tone: 'pending', noun: 'agreements to sign', listHref: '/settings' },
 	INVOICE_DUE: { category: 'billing', priority: 3, tone: 'info', noun: 'invoices due soon', listHref: '/invoices?tab=open' },
-	STAFF_NO_LOCATION: { category: 'people', priority: 5, tone: 'pending', noun: 'staff without a location', listHref: '/staff' }
+	STAFF_NO_LOCATION: { category: 'people', priority: 5, tone: 'pending', noun: 'staff without a location', listHref: '/settings?tab=STAFF&role=CLIENT' }
 };
 
 export const CATEGORY_LABELS: Record<AttentionCategory, string> = {

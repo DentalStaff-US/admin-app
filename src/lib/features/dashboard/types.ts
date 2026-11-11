@@ -186,3 +186,18 @@ export type CoverageShift = {
 };
 
 export type ComplianceSeverityKey = 'CRITICAL' | 'BLOCKED' | 'ACTION' | 'WATCH';
+
+/** Money in flight for a practice, in dollars: what's waiting, owed, overdue and paid. */
+export type PracticeBilling = {
+	/** Open invoices, including overdue ones. */
+	due: number;
+	dueCount: number;
+	overdue: number;
+	overdueCount: number;
+	paidThisMonth: number;
+	/** Submitted timesheets waiting on the practice's approval (invoiced once approved). */
+	timesheetsAwaiting: number;
+	/** Expense claims on this practice's timesheets still waiting for a decision. */
+	expensesPending: number;
+	expensesPendingCount: number;
+};

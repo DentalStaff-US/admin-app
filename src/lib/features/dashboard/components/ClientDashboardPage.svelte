@@ -18,13 +18,14 @@
 	import type { ClientRequisitionSchema } from '$lib/config/zod-schemas';
 	import { ACTION_HINTS } from '../hints';
 	import { showLocationColumn } from '../scope';
-	import type { AttentionGroup, CoverageShift, DashboardScope, Metric } from '../types';
+	import type { AttentionGroup, CoverageShift, DashboardScope, Metric, PracticeBilling } from '../types';
 	import { BUSINESS_TIMEZONE } from '../window';
 	import AtAGlance from './AtAGlance.svelte';
 	import AttentionQueue from './AttentionQueue.svelte';
 	import { keepFresh } from './live';
 	import NextShiftCard from './NextShiftCard.svelte';
 	import NoLocationsState from './NoLocationsState.svelte';
+	import PracticeBillingCard from './PracticeBillingCard.svelte';
 	import ScopeChip from './ScopeChip.svelte';
 	import SectionSkeleton from './SectionSkeleton.svelte';
 	import UpcomingShiftsList from './UpcomingShiftsList.svelte';
@@ -33,7 +34,7 @@
 	type Glance = {
 		openRequests: Metric<number>;
 		shiftsThisMonth: Metric<{ filled: number; total: number }>;
-		balance: Metric<{ due: number; overdue: number }> | null;
+		balance: Metric<PracticeBilling> | null;
 	};
 
 	export type ClientDashboardData = {
@@ -178,7 +179,10 @@
 				{#await data.glance}
 					<SectionSkeleton label="at a glance" rows={3} />
 				{:then glance}
-					{#if glance}<AtAGlance {glance} />{/if}
+					{#if glance}
+						<AtAGlance {glance} />
+						{#if glance.balance}<PracticeBillingCard billing={glance.balance} />{/if}
+					{/if}
 				{/await}
 			</div>
 		</div>

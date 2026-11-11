@@ -53,7 +53,6 @@ const TITLES: Record<string, string> = {
 	'/admin/menu/experience-levels': 'Experience Levels',
 	'/admin/menu/mass-notifications': 'Mass Notifications',
 	'/admin/menu/mass-notifications/create': 'New Mass Notification',
-	'/admin/menu/notification-templates': 'Notification Templates',
 	'/admin/menu/record-history': 'Record History',
 	'/admin/menu/skill-categories': 'Skill Categories',
 	'/admin/menu/skills': 'Skills',

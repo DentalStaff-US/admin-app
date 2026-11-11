@@ -11,7 +11,7 @@
  *
  *   CLIENT / CLIENT_STAFF live in THIS app → Better Auth's native
  *     `impersonateUser`, which swaps the admin's own session cookie on this
- *     domain. The layout banner plus /admin/impersonation/stop exits it.
+ *     domain. The layout banner plus /impersonation/stop exits it (outside /admin, which the impersonated user can't reach).
  *
  *   CANDIDATE lives in the candidate app → the admin app's session hook actively
  *     bounces CANDIDATE-role sessions to CANDIDATE_APP_DOMAIN, so impersonating
