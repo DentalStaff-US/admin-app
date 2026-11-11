@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	activeHref,
+	TEAM_HREF,
 	breadcrumbs,
 	fillsScreen,
 	navFor,
@@ -39,6 +40,7 @@ describe('navFor', () => {
 			'/timesheets',
 			'/invoices',
 			'/inbox',
+			'/settings?tab=STAFF&role=CLIENT',
 			'/locations',
 			'/support',
 			'/settings'
@@ -51,6 +53,8 @@ describe('navFor', () => {
 		expect(staff).not.toContain('/invoices');
 		const officeAdmin = hrefs('CLIENT_STAFF', true);
 		expect(officeAdmin).toContain('/invoices');
+		expect(staff).not.toContain(TEAM_HREF);
+		expect(officeAdmin).toContain(TEAM_HREF);
 	});
 
 	it('never shows admin-only areas to practices', () => {
@@ -144,5 +148,18 @@ describe('breadcrumbs', () => {
 			{ label: 'Admin', href: '/admin/menu' },
 			{ label: 'Skills' }
 		]);
+	});
+});
+
+describe('Team in the Practice section', () => {
+	const groups = navFor({ role: 'CLIENT' });
+	it('sits above Locations under Practice', () => {
+		const practice = groups.find((g) => g.label === 'Practice');
+		expect(practice?.items.map((i) => i.label)).toEqual(['Team', 'Locations']);
+	});
+	it('lights Team on its Settings section and Settings everywhere else in Settings', () => {
+		expect(activeHref('/settings', groups, '?tab=STAFF&role=CLIENT')).toBe(TEAM_HREF);
+		expect(activeHref('/settings', groups, '?tab=BILLING&role=CLIENT')).toBe('/settings');
+		expect(breadcrumbs('/settings', groups, null, '?tab=STAFF&role=CLIENT')).toEqual([{ label: 'Team' }]);
 	});
 });

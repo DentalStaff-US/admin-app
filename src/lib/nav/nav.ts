@@ -17,7 +17,8 @@ import {
 	Settings,
 	Shield,
 	ShieldCheck,
-	UserRound
+	UserRound,
+	Users
 } from 'lucide-svelte';
 import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 import { USER_ROLES } from '$lib/config/constants';
@@ -49,6 +50,8 @@ const isPractice = (ctx: NavContext) => isClient(ctx) || isStaff(ctx);
 const isOfficeAdmin = (ctx: NavContext) => isClient(ctx) || (isStaff(ctx) && !!ctx.isOfficeAdmin);
 const anyone = (ctx: NavContext) => isAdmin(ctx) || isPractice(ctx);
 
+export const TEAM_HREF = '/settings?tab=STAFF&role=CLIENT';
+
 const GROUPS: NavGroup[] = [
 	{
 		label: null,
@@ -70,7 +73,14 @@ const GROUPS: NavGroup[] = [
 		label: 'People',
 		items: [
 			{ href: '/professionals', label: 'Professionals', icon: UserRound, show: isAdmin },
-			{ href: '/clients', label: 'Clients', icon: Building2, show: isAdmin },
+			{ href: '/clients', label: 'Clients', icon: Building2, show: isAdmin }
+		]
+	},
+	{
+		label: 'Practice',
+		items: [
+			// Team is a section of Settings; the query keeps it lit there (see activeHref).
+			{ href: TEAM_HREF, label: 'Team', icon: Users, show: isOfficeAdmin },
 			{ href: '/locations', label: 'Locations', icon: MapPin, show: isPractice }
 		]
 	},
@@ -99,15 +109,24 @@ const under = (pathname: string, prefix: string) =>
 
 /**
  * The item to mark current. The longest matching prefix wins, so
- * /admin/compliance lights Compliance rather than Admin.
+ * /admin/compliance lights Compliance rather than Admin. An href with a query
+ * (Team, a Settings section) matches only that exact page with those params,
+ * and beats any plain prefix.
  */
-export function activeHref(pathname: string, groups: NavGroup[]): string | null {
+export function activeHref(pathname: string, groups: NavGroup[], search = ''): string | null {
+	const params = new URLSearchParams(search);
 	let best: { href: string; length: number } | null = null;
 	for (const item of groups.flatMap((g) => g.items)) {
 		for (const prefix of [item.href, ...(item.match ?? [])]) {
-			if (under(pathname, prefix) && (!best || prefix.length > best.length)) {
-				best = { href: item.href, length: prefix.length };
+			const [path, query] = prefix.split('?');
+			let length = -1;
+			if (query) {
+				const wanted = new URLSearchParams(query);
+				if (pathname === path && [...wanted].every(([k, v]) => params.get(k) === v)) length = Infinity;
+			} else if (under(pathname, prefix)) {
+				length = prefix.length;
 			}
+			if (length >= 0 && (!best || length > best.length)) best = { href: item.href, length };
 		}
 	}
 	return best?.href ?? null;
@@ -138,12 +157,12 @@ const ID_SEGMENT = /^(\d+|[0-9a-f]{8}-[0-9a-f-]{27,}|[A-Za-z0-9_-]{16,})$/;
  * from the section. An id segment reads as "#1042" for requisitions and
  * "Details" elsewhere. Pages that need better can render their own header.
  */
-export function breadcrumbs(pathname: string, groups: NavGroup[], current: string | null): Crumb[] {
-	const href = activeHref(pathname, groups);
+export function breadcrumbs(pathname: string, groups: NavGroup[], current: string | null, search = ''): Crumb[] {
+	const href = activeHref(pathname, groups, search);
 	const item = href ? groups.flatMap((g) => g.items).find((i) => i.href === href) : null;
 	if (!item) return current ? [{ label: current }] : [];
 	const path = pathname.replace(/\/+$/, '');
-	if (path === item.href) return [{ label: item.label }];
+	if (path === item.href.split('?')[0]) return [{ label: item.label }];
 
 	const crumbs: Crumb[] = [{ label: item.label, href: item.href }];
 	const last = path.split('/').pop() ?? '';

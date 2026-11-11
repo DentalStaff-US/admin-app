@@ -22,8 +22,6 @@
 			<ChevronDown class="size-4" aria-hidden="true" />
 		</DropdownMenu.Trigger>
 		<DropdownMenu.Content align="end" class="w-48">
-			<DropdownMenu.Item on:click={onrequest}>New requisition</DropdownMenu.Item>
-			<DropdownMenu.Separator />
 			<DropdownMenu.Item on:click={onprofessional}>New professional</DropdownMenu.Item>
 			<DropdownMenu.Item on:click={onclient}>New client</DropdownMenu.Item>
 		</DropdownMenu.Content>

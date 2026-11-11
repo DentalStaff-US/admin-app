@@ -36,8 +36,5 @@
 				)}
 			</span>
 		</a></li>
-				</span>
-			</a></li>
-		{/if}
 	</ul>
 </Section>

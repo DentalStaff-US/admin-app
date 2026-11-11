@@ -21,6 +21,7 @@
 
 	let {
 		pathname,
+		search = '',
 		nav,
 		sidebar = $bindable('expanded'),
 		canSearch = false,
@@ -35,6 +36,8 @@
 		children
 	}: {
 		pathname: string;
+		/** The query string, for nav items that point at a Settings section (Team). */
+		search?: string;
 		nav: NavContext;
 		/** From the cookie on the server, so the first paint has the right width. */
 		sidebar?: SidebarState;
@@ -54,8 +57,8 @@
 	} = $props();
 
 	const groups = $derived(navFor(nav));
-	const active = $derived(activeHref(pathname, groups));
-	const crumbs = $derived(breadcrumbs(pathname, groups, pageLabel(pathname)));
+	const active = $derived(activeHref(pathname, groups, search));
+	const crumbs = $derived(breadcrumbs(pathname, groups, pageLabel(pathname), search));
 	const fills = $derived(fillsScreen(pathname));
 	const rail = $derived(sidebar === 'rail');
 

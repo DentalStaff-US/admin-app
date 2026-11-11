@@ -28,6 +28,7 @@
 {:else}
 	<AdminShell
 		pathname={page.url.pathname}
+		search={page.url.search}
 		nav={{ role: user?.role, isOfficeAdmin: data.isOfficeAdmin }}
 		bind:sidebar
 		canSearch={checkIsAdmin(user?.role)}
