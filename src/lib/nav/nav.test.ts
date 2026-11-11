@@ -40,7 +40,7 @@ describe('navFor', () => {
 			'/timesheets',
 			'/invoices',
 			'/inbox',
-			'/settings?tab=STAFF&role=CLIENT',
+			'/team',
 			'/locations',
 			'/support',
 			'/settings'
@@ -157,9 +157,9 @@ describe('Team in the Practice section', () => {
 		const practice = groups.find((g) => g.label === 'Practice');
 		expect(practice?.items.map((i) => i.label)).toEqual(['Team', 'Locations']);
 	});
-	it('lights Team on its Settings section and Settings everywhere else in Settings', () => {
-		expect(activeHref('/settings', groups, '?tab=STAFF&role=CLIENT')).toBe(TEAM_HREF);
-		expect(activeHref('/settings', groups, '?tab=BILLING&role=CLIENT')).toBe('/settings');
-		expect(breadcrumbs('/settings', groups, null, '?tab=STAFF&role=CLIENT')).toEqual([{ label: 'Team' }]);
+	it('matches a query href only on that exact page and params', () => {
+		const withQuery = [{ label: null, items: [{ href: '/settings?tab=STAFF', label: 'X', icon: groups[0].items[0].icon, show: () => true }, groups[0].items[0]] }];
+		expect(activeHref('/settings', withQuery, '?tab=STAFF&role=CLIENT')).toBe('/settings?tab=STAFF');
+		expect(activeHref('/settings', withQuery, '?tab=BILLING')).toBeNull();
 	});
 });

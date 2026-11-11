@@ -50,7 +50,7 @@ const isPractice = (ctx: NavContext) => isClient(ctx) || isStaff(ctx);
 const isOfficeAdmin = (ctx: NavContext) => isClient(ctx) || (isStaff(ctx) && !!ctx.isOfficeAdmin);
 const anyone = (ctx: NavContext) => isAdmin(ctx) || isPractice(ctx);
 
-export const TEAM_HREF = '/settings?tab=STAFF&role=CLIENT';
+export const TEAM_HREF = '/team';
 
 const GROUPS: NavGroup[] = [
 	{
@@ -79,7 +79,7 @@ const GROUPS: NavGroup[] = [
 	{
 		label: 'Practice',
 		items: [
-			// Team is a section of Settings; the query keeps it lit there (see activeHref).
+			// Also a section of Settings; this is its own page.
 			{ href: TEAM_HREF, label: 'Team', icon: Users, show: isOfficeAdmin },
 			{ href: '/locations', label: 'Locations', icon: MapPin, show: isPractice }
 		]

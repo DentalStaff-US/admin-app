@@ -47,20 +47,8 @@ import { EmailService } from '$lib/server/email/emailService';
 import { syncStripeCustomerBillingEmail } from '$lib/server/billing/recipients';
 import { z } from 'zod';
 import { hasTypedConfirmation } from '$lib/server/confirmation';
+import { newStaffInvitesSchema } from '$lib/features/settings/server/team';
 
-const newStaffInvitesSchema = z.object({
-	invitees: z
-		.array(
-			z.object({
-				email: z.string().email({ message: 'Please enter a valid email address' }),
-				staffRole: z.enum(['CLIENT_ADMIN', 'CLIENT_MANAGER', 'CLIENT_EMPLOYEE'], {
-					required_error: 'Please select a staff role',
-					invalid_type_error: 'Please select a valid staff role'
-				})
-			})
-		)
-		.min(1, 'Please add at least one staff member')
-});
 const avatarUrlSchema = z.object({ url: z.string(), isForUser: z.boolean().default(true) });
 const userProfileSchema = userSchema.pick({
 	firstName: true,
@@ -515,6 +503,11 @@ export const actions = {
 		if (!user) {
 			return fail(401);
 		}
+		// Only the owner or CLIENT_ADMIN staff manage the team.
+		const inviter = user.role === USER_ROLES.CLIENT_STAFF ? await getClientStaffProfilebyUserId(user.id) : null;
+		if (user.role !== USER_ROLES.CLIENT && inviter?.staffRole !== 'CLIENT_ADMIN') {
+			return fail(403, { error: 'Not allowed' });
+		}
 
 		const invitees = rawInvitees ? JSON.parse(rawInvitees.toString()) : [];
 
@@ -534,7 +527,12 @@ export const actions = {
 			const expiresAt = new Date();
 			expiresAt.setDate(expiresAt.getDate() + INVITE_EXPIRATION_DAYS);
 
-			const client = await getClientProfilebyUserId(user?.id);
+			// CLIENT_ADMIN staff invite on the owner's behalf (they reach /team too).
+			const client =
+				user.role === USER_ROLES.CLIENT
+					? await getClientProfilebyUserId(user.id)
+					: await getClientProfileByStaffUserId(user.id);
+			if (!client) throw new Error('Client profile not found');
 			const company = await getClientCompanyByClientId(client.id);
 			const location = await getPrimaryLocationForCompany(company.id);
 
@@ -595,8 +593,8 @@ export const actions = {
 			});
 		}
 
-		// Only redirect if at least one invite was successful
-		redirect(302, '/dashboard');
+		// Stay on the team list (settings or /team) so the new invites show as pending.
+		return { form };
 	},
 	uploadClientDocument: async (event: RequestEvent) => {
 		const user = event.locals.user;

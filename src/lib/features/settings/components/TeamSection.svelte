@@ -13,19 +13,24 @@
 	import InviteStaffDialog from './InviteStaffDialog.svelte';
 	import PendingInvitesList from './PendingInvitesList.svelte';
 	import SettingsPanel from './SettingsPanel.svelte';
+	import PageHeader from '$dtss/PageHeader.svelte';
 
 	let {
 		staff = [],
 		pendingInvites = [],
 		companyLocations = [],
-		staffInviteForm
+		staffInviteForm,
+		asPage = false
 	}: {
 		staff?: StaffMember[] | null;
 		pendingInvites?: any[];
 		companyLocations?: Array<{ id: string; name: string | null }>;
 		staffInviteForm: any;
+		/** On /team the heading is the page's h1 rather than a settings section h2. */
+		asPage?: boolean;
 	} = $props();
 
+	const TEAM_DESCRIPTION = 'Who can use DTSS for your practice, and where they work.';
 	let filter = $state<StaffFilter>('all');
 	let inviteOpen = $state(false);
 	let selected = $state<StaffMember | null>(null);
@@ -121,17 +126,28 @@
 	{/if}
 {/snippet}
 
-<SettingsPanel title="Team" description="Who can use DTSS for your practice, and where they work.">
-	{#snippet actions()}
-		<Button on:click={() => (inviteOpen = true)}><UserPlus class="mr-2 size-4" aria-hidden="true" /> Invite staff</Button>
-	{/snippet}
+{#snippet inviteButton()}
+	<Button on:click={() => (inviteOpen = true)}><UserPlus class="mr-2 size-4" aria-hidden="true" /> Invite staff</Button>
+{/snippet}
 
-	{#if pendingInvites.length > 0}
-		<PendingInvitesList invites={pendingInvites} />
-	{/if}
+{#if asPage}
+	<PageHeader title="Team" description={TEAM_DESCRIPTION} actions={inviteButton} />
+	<div class="space-y-6">
+		{#if pendingInvites.length > 0}
+			<PendingInvitesList invites={pendingInvites} />
+		{/if}
 
-	<DataTable {rows} {columns} key={(m) => m.profile.id} caption="Team members" {tabs} {mobile} {empty} />
-</SettingsPanel>
+		<DataTable {rows} {columns} key={(m) => m.profile.id} caption="Team members" {tabs} {mobile} {empty} />
+	</div>
+{:else}
+	<SettingsPanel title="Team" description={TEAM_DESCRIPTION} actions={inviteButton}>
+		{#if pendingInvites.length > 0}
+			<PendingInvitesList invites={pendingInvites} />
+		{/if}
+
+		<DataTable {rows} {columns} key={(m) => m.profile.id} caption="Team members" {tabs} {mobile} {empty} />
+	</SettingsPanel>
+{/if}
 
 <InviteStaffDialog bind:open={inviteOpen} {staffInviteForm} />
 
