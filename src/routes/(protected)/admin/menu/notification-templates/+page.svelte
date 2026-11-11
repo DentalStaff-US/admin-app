@@ -8,7 +8,7 @@
 		type TableOptions,
 		createSvelteTable,
 		flexRender
-	} from '@tanstack/svelte-table';
+	} from '$lib/components/tables/svelte-table';
 	import * as Form from '$lib/components/ui/form';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import type { PageData } from './$types';

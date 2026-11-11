@@ -17,7 +17,7 @@
 		type TableOptions,
 		createSvelteTable,
 		flexRender
-	} from '@tanstack/svelte-table';
+	} from '$lib/components/tables/svelte-table';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { superForm } from 'sveltekit-superforms/client';
 	import { Label } from '$lib/components/ui/label';

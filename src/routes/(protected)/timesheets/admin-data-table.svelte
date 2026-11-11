@@ -7,7 +7,7 @@
       getSortedRowModel,
       createSvelteTable,
   	flexRender,
-    } from '@tanstack/svelte-table';
+    } from '$lib/components/tables/svelte-table';
     import * as Table from '$lib/components/ui/table';
     import { ArrowUpDown } from 'lucide-svelte';
     import type { TimesheetWithRelations } from '$lib/server/database/schemas/requisition';

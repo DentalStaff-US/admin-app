@@ -6,7 +6,7 @@
 		type TableOptions,
 		createSvelteTable,
 		flexRender
-	} from '@tanstack/svelte-table';
+	} from '$lib/components/tables/svelte-table';
 	import * as Table from '$lib/components/ui/table';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';

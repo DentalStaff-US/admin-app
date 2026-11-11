@@ -17,7 +17,7 @@
         getSortedRowModel,
         type ColumnDef,
         type TableOptions
-    } from '@tanstack/svelte-table';
+    } from '$lib/components/tables/svelte-table';
     import Badge from '$lib/components/ui/badge/badge.svelte';
     import {cn} from '$lib/utils';
     import {STAFF_ROLE_ENUM, USER_ROLES} from '$lib/config/constants';

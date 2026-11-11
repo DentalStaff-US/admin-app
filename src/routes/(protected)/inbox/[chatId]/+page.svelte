@@ -93,9 +93,9 @@
 	function handleKeyPress(event: KeyboardEvent) {
 		if (event.key === 'Enter' && !event.shiftKey) {
 			event.preventDefault();
-			const form = event.target?.closest('form');
-			if (form && $form.body.trim()) {
-				form.requestSubmit();
+			const formEl = (event.target as HTMLElement | null)?.closest('form');
+			if (formEl && $form.body.trim()) {
+				formEl.requestSubmit();
 			}
 		}
 	}

@@ -1,7 +1,5 @@
 <script lang="ts">
-	import Calendar from '@event-calendar/core';
-	import TimeGrid from '@event-calendar/time-grid';
-	import DayGrid from '@event-calendar/day-grid';
+	import { Calendar, DayGrid, TimeGrid } from '@event-calendar/core';
 	import '@event-calendar/core/index.css';
 	import type { CalendarEvent } from '$lib/types';
 	import EventPopover from './EventPopover.svelte';

@@ -39,7 +39,7 @@
 		getSortedRowModel,
 		type ColumnDef,
 		type TableOptions
-	} from '@tanstack/svelte-table';
+	} from '$lib/components/tables/svelte-table';
 	import { Badge } from '$lib/components/ui/badge';
 	import { writable } from 'svelte/store';
 	import * as Tabs from '$lib/components/ui/tabs';

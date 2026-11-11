@@ -6,7 +6,7 @@
 		getPaginationRowModel,
 		getSortedRowModel,
 		createSvelteTable
-	} from '@tanstack/svelte-table';
+	} from '$lib/components/tables/svelte-table';
 	import * as Table from '$lib/components/ui/table';
 	import { ArrowUpDown } from 'lucide-svelte';
 	import type { InvoiceWithRelations } from '$lib/server/database/schemas/requisition';

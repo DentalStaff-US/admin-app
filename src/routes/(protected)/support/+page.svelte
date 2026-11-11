@@ -7,7 +7,7 @@
 		type TableOptions,
 		createSvelteTable,
 		flexRender
-	} from '@tanstack/svelte-table';
+	} from '$lib/components/tables/svelte-table';
 	import type { PageData } from './$types';
 	import type { SuperValidated } from 'sveltekit-superforms';
 	import { newSupportTicketSchema, type NewSupportTicketSchema } from '$lib/config/zod-schemas';

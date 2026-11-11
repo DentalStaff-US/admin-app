@@ -41,7 +41,7 @@
 		type TableOptions,
 		createSvelteTable,
 		flexRender
-	} from '@tanstack/svelte-table';
+	} from '$lib/components/tables/svelte-table';
 	import ViewLink from '$lib/components/tables/ViewLink.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { StatusBadge } from '$lib/components/ui/status-badge';

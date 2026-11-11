@@ -8,7 +8,7 @@
         getSortedRowModel,
         createSvelteTable,
         flexRender
-    } from '@tanstack/svelte-table';
+    } from '$lib/components/tables/svelte-table';
     import {onMount} from 'svelte';
     import {writable} from 'svelte/store';
     import * as Table from '$lib/components/ui/table';

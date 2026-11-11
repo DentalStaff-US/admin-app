@@ -87,7 +87,7 @@
 		type TableOptions,
 		createSvelteTable,
 		flexRender
-	} from '@tanstack/svelte-table';
+	} from '$lib/components/tables/svelte-table';
 
 	// Other imports
 	import { writable } from 'svelte/store';

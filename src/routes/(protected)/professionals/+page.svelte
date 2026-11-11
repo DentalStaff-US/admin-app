@@ -6,7 +6,7 @@
 		createSvelteTable,
 		flexRender,
 		getCoreRowModel
-	} from '@tanstack/svelte-table';
+	} from '$lib/components/tables/svelte-table';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import * as Table from '$lib/components/ui/table';
 	import { Button } from '$lib/components/ui/button';
