@@ -1,46 +1,43 @@
 <script lang="ts">
-	import { SETTINGS_MENU_OPTIONS, USER_ROLES } from '$lib/config/constants';
-	import ClientSettingsView from '$lib/views/client/clientSettingsView.svelte';
-	import type { SuperValidated } from 'sveltekit-superforms';
-	import type { UserSchema, UserUpdatePasswordSchema } from '$lib/config/zod-schemas';
-	import ClientStaffSettingsView from '$lib/views/client/clientStaffSettingsView.svelte';
-	import { page } from '$app/stores';
-	import type { PageData } from './$types';
-	import AdminSettingsView from '$lib/views/admin/adminSettingsView.svelte';
 	import { tick } from 'svelte';
 	import { superForm } from 'sveltekit-superforms/client';
+	import { pushState } from '$app/navigation';
+	import { page } from '$app/state';
+	import {
+		AdminSettingsPage,
+		ClientSettingsPage,
+		ClientStaffSettingsPage,
+		resolveSection,
+		settingsSections,
+		settingsViewFor,
+		SettingsShell,
+		type SettingsSection
+	} from '$features/settings';
 
-	export let data: PageData;
-	export let subscriptionForm;
-	export let companyForm;
+	let { data } = $props();
 
-	$: documents = data.documents;
-	$: userProfileForm = data.userProfileForm;
-	$: profileForm = data.profileForm;
-	$: passwordForm = data.passwordForm;
-	$: subscriptionForm = data.subscriptionForm;
-	$: companyForm = data.companyForm;
-	$: billingInfo = data.billingInfo;
-	$: hasAdminPrivileges = data.hasAdminRights;
-	$: staff = data.staff;
-	$: user = data.user;
-	$: URLTab = $page.url.searchParams.get('tab');
-	$: URLRole = $page.url.searchParams.get('role');
-	$: company = data.company;
+	const view = $derived(settingsViewFor(data.user?.role, Boolean(data.hasAdminRights)));
+	const affiliate = $derived(Boolean(data.affiliateStatus?.programEnabled && data.affiliateStatus?.eligible));
+	const sections = $derived(view ? settingsSections(view, { affiliate }) : []);
+	const fromUrl = $derived(view ? resolveSection(view, page.url, sections) : null);
 
-	$: console.log('URLTab:', URLTab);
+	// Switching sections is shallow routing: the URL changes (so it can be shared
+	// and Back works) without re-running the page's load. `null` = the list.
+	const shallow = $derived((page.state as { settingsTab?: string | null }).settingsTab);
+	const activeId = $derived(shallow ?? fromUrl?.id ?? '');
+	const explicit = $derived(shallow === undefined ? Boolean(fromUrl?.explicit) : shallow !== null);
 
-	$: defaultTab =
-		user?.role === USER_ROLES.CLIENT
-			? SETTINGS_MENU_OPTIONS.CLIENT.PROFILE
-			: user?.role === USER_ROLES.CLIENT_STAFF
-				? SETTINGS_MENU_OPTIONS.CLIENT_STAFF.PROFILE
-				: SETTINGS_MENU_OPTIONS.ADMIN.PROFILE;
+	function select(section: SettingsSection) {
+		pushState(section.href, { settingsTab: section.id });
+		window.scrollTo({ top: 0 });
+	}
 
-	$: selectedTab = URLTab && URLRole ? SETTINGS_MENU_OPTIONS[URLRole][URLTab] : defaultTab;
+	function back() {
+		pushState('/settings', { settingsTab: null });
+	}
 
-	const avatarForm = superForm(data.avatarForm);
-	const { form: formAvatar, enhance: avatarEnhance, errors: avatarError } = avatarForm;
+	// svelte-ignore state_referenced_locally
+	const { form: formAvatar, enhance: avatarEnhance } = superForm(data.avatarForm as any);
 
 	async function handleAvatarUpdated(url: string, isForUser: boolean = true) {
 		$formAvatar.url = url;
@@ -56,62 +53,53 @@
 	}
 </script>
 
-<section class="grow h-screen overflow-y-auto">
-	<div class="p-6 flex flex-col gap-6 grow h-full">
-		<h1 class="text-3xl font-extrabold leading-tight tracking-tighter md:text-4xl">
-			Account Settings
-		</h1>
-		<a
-			href="/settings/notifications"
-			class="-mt-2 w-fit text-sm font-medium text-blue-600 hover:underline"
-		>
-			Manage notification preferences (email &amp; SMS) →
-		</a>
-		{#if user?.role === USER_ROLES.CLIENT || hasAdminPrivileges}
-			<ClientSettingsView
-				bind:selectedTab
-				{companyForm}
-				{userProfileForm}
-				{profileForm}
-				{passwordForm}
-				{billingInfo}
+{#if view}
+	<SettingsShell {sections} {activeId} {explicit} onSelect={select} onBack={back}>
+		{#if view === 'client'}
+			<ClientSettingsPage
+				{activeId}
+				user={data.user}
+				company={data.company}
+				userProfileForm={data.userProfileForm}
+				profileForm={data.profileForm}
+				passwordForm={data.passwordForm}
+				companyForm={data.companyForm}
 				billingContactForm={data.billingContactForm}
+				billingInfo={data.billingInfo}
 				staffInviteForm={data.inviteForm}
-				{staff}
-				{user}
-				{company}
+				staff={data.staff}
 				companyLocations={data.companyLocations ?? []}
 				pendingInvites={data.pendingInvites ?? []}
-				{handleAvatarUpdated}
 				documents={data.documents ?? []}
 				signatureRequests={data.signatureRequests ?? []}
 				affiliateStatus={data.affiliateStatus ?? null}
 				partnerPortalUrl={data.partnerPortalUrl ?? '/affiliate-portal'}
-			/>
-		{:else if user?.role === USER_ROLES.CLIENT_STAFF}
-			<ClientStaffSettingsView
-				bind:selectedTab
-				{userProfileForm}
-				{passwordForm}
-				{companyForm}
-				{hasAdminPrivileges}
-				{user}
 				{handleAvatarUpdated}
+			/>
+		{:else if view === 'staff'}
+			<ClientStaffSettingsPage
+				{activeId}
+				user={data.user}
+				userProfileForm={data.userProfileForm}
+				passwordForm={data.passwordForm}
+				companyForm={data.companyForm}
 				affiliateStatus={data.affiliateStatus ?? null}
 				partnerPortalUrl={data.partnerPortalUrl ?? '/affiliate-portal'}
+				{handleAvatarUpdated}
 			/>
-		{:else if user?.role === USER_ROLES.SUPERADMIN}
-			<AdminSettingsView
-				bind:selectedTab
-				{userProfileForm}
-				{passwordForm}
-				{user}
+		{:else}
+			<AdminSettingsPage
+				{activeId}
+				user={data.user}
+				userProfileForm={data.userProfileForm}
+				passwordForm={data.passwordForm}
 				{handleAvatarUpdated}
 			/>
 		{/if}
-	</div>
-	<form id="avatar-url-form" method="POST" action="?/avatarUpload" use:avatarEnhance class="hidden">
-		<input type="hidden" name="url" bind:value={$formAvatar.url} />
-		<input type="hidden" name="isForUser" bind:value={$formAvatar.isForUser} />
-	</form>
-</section>
+	</SettingsShell>
+{/if}
+
+<form id="avatar-url-form" method="POST" action="?/avatarUpload" use:avatarEnhance class="hidden">
+	<input type="hidden" name="url" bind:value={$formAvatar.url} />
+	<input type="hidden" name="isForUser" bind:value={$formAvatar.isForUser} />
+</form>

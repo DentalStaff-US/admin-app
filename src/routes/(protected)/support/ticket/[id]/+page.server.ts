@@ -3,7 +3,7 @@ import {
 	getSupportTicketDetails,
 	updateSupportTicket
 } from '$lib/server/database/queries/support';
-import { fail, redirect } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from './$types';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { z } from 'zod';
@@ -21,11 +21,13 @@ export async function load(event: RequestEvent) {
 		redirect(302, '/auth/sign-in');
 	}
 
-	const supportTicket = await getSupportTicketDetails(id);
+	// The query throws when the id doesn't exist; that's a 404, not a 500.
+	const supportTicket = await getSupportTicketDetails(id).catch(() => null);
+	if (!supportTicket) error(404, 'Ticket not found');
 
 	const commentForm = await superValidate(event, newSupportTicketCommentSchema);
 
-	return { user, ticket: supportTicket || null, commentForm };
+	return { user, ticket: supportTicket, commentForm };
 }
 
 export const actions = {
@@ -90,7 +92,7 @@ export const actions = {
 		const form = await superValidate(request, newSupportTicketCommentSchema);
 
 		if (!form.valid) {
-			fail(400, { form });
+			return fail(400, { form });
 		}
 
 		try {

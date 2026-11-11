@@ -31,7 +31,8 @@ export const load: PageServerLoad = async (event) => {
 		};
 	}
 
-	const supportTickets = await getSupportTicketsForUser(user.id);
+	// Search now filters a practice's own tickets too (the query always took it).
+	const supportTickets = await getSupportTicketsForUser(user.id, search);
 
 	return {
 		form,
@@ -46,7 +47,7 @@ export const actions = {
 		let newId;
 
 		if (!form.valid) {
-			fail(400, { form });
+			return fail(400, { form });
 		}
 
 		try {
