@@ -59,6 +59,7 @@
 
 <ModeWatcher defaultMode="light" />
 <Toaster richColors />
-<div class="relative flex min-h-screen flex-col overflow-hidden">
+<!-- overflow-x-clip, not overflow-hidden: hidden would break the shell's sticky top bar and sidebar. -->
+<div class="relative flex min-h-screen flex-col overflow-x-clip">
 	<slot />
 </div>

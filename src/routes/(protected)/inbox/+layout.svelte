@@ -116,7 +116,7 @@
 	const { form, enhance, submitting } = superForm(data.newConversationForm);
 </script>
 
-<div class="flex h-screen bg-background">
+<div class="flex h-full bg-background">
 	<!-- Sidebar - Hidden on mobile when viewing conversation -->
 	<div
 		class={cn(
