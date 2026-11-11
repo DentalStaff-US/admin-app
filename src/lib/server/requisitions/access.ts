@@ -18,6 +18,7 @@ import {
 } from '$lib/server/database/queries/clients';
 import { getRequisitionDetailsById } from '$lib/server/database/queries/requisitions';
 import { assertCanAccessLocation } from '$lib/server/scoping';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 type SessionUser = { id: string; role: string };
 
@@ -40,7 +41,7 @@ export async function resolveRequisitionAccess(
 	if (!requisition?.requisition) error(404, 'Requisition not found');
 
 	let companyId: string;
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (checkIsAdmin(user.role)) {
 		// The requisition's own company. Going via its client picked that client's
 		// first company, so an admin got a 404 on a second company's requisitions.
 		companyId = requisition.requisition.companyId;

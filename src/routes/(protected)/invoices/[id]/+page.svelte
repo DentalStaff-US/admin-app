@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 	import { FileX } from 'lucide-svelte';
 	import EmptyState from '$dtss/EmptyState.svelte';
 	import Page from '$dtss/Page.svelte';
@@ -14,7 +15,7 @@
 </svelte:head>
 
 {#if data.invoice}
-	<InvoiceDetail data={data as any} isAdmin={data.user?.role === USER_ROLES.SUPERADMIN} />
+	<InvoiceDetail data={data as any} isAdmin={checkIsAdmin(data.user?.role)} />
 {:else}
 	<!-- The load returns no invoice when it isn't yours (or doesn't exist). -->
 	<Page width="narrow">

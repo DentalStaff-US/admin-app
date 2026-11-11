@@ -27,7 +27,9 @@ export type ScopedClient = {
 	client: typeof clientProfileTable.$inferSelect;
 };
 
-export function adminScope(): DashboardScope {
+/** The all-practices scope for DTSS staff; capabilities follow the staff role. */
+// The default keeps old callers on full capabilities; real callers pass the user's role.
+export function adminScope(role: string = USER_ROLES.SUPERADMIN): DashboardScope {
 	return {
 		kind: 'all',
 		clientId: null,
@@ -37,7 +39,7 @@ export function adminScope(): DashboardScope {
 		availableLocations: [],
 		chosen: false,
 		label: 'All practices',
-		can: capabilitiesFor(USER_ROLES.SUPERADMIN),
+		can: capabilitiesFor(role),
 		ownerName: null,
 		ownerEmail: null
 	};

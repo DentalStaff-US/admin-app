@@ -5,14 +5,15 @@ import {
 	recipientKey,
 	toCampaignFilters
 } from '$lib/server/database/queries/campaigns';
+import { can } from '$lib/authz';
 
 // Recipient preview for the builder. Returns the eligible count, why others were
 // excluded (opted out / no contact info), and the full deliverable list so the
 // admin can select/deselect individuals before queueing — without sending
-// anything. SUPERADMIN only.
+// anything. comms.massSend (SUPERADMIN) only.
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const user = locals.user;
-	if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+	if (!user || !can(user, 'comms.massSend')) {
 		return json({ error: 'Unauthorized' }, { status: 403 });
 	}
 

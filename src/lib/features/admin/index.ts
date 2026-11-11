@@ -5,7 +5,7 @@ export * from './components/comms';
 
 export { default as AdminMenuGrid } from './components/AdminMenuGrid.svelte';
 export { ADMIN_MENU_ITEMS } from './adminMenuItems';
-export { ADMIN_MENU_AREAS, filterAdminMenu, groupAdminMenu, type AdminMenuArea, type AdminMenuItem } from './menu';
+export { ADMIN_MENU_AREAS, adminMenuFor, filterAdminMenu, groupAdminMenu, type AdminMenuArea, type AdminMenuItem } from './menu';
 
 export { default as ComplianceQueue } from './components/compliance/ComplianceQueue.svelte';
 export {

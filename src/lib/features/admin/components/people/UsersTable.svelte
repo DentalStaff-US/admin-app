@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 	import { Ban, Check, ExternalLink, Search, ShieldCheck, Trash2, UserCog, Users, X } from 'lucide-svelte';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
@@ -28,6 +29,7 @@
 		limit,
 		search = '',
 		currentUserId,
+		can = { ban: false, delete: false, impersonate: false },
 		pageHref
 	}: {
 		users: UserRow[];
@@ -36,6 +38,8 @@
 		limit: number;
 		search?: string;
 		currentUserId?: string | null;
+		/** The viewer's account-action permissions (role matrix). The server re-checks each. */
+		can?: { ban: boolean; delete: boolean; impersonate: boolean };
 		pageHref: (page: number) => string;
 	} = $props();
 
@@ -63,7 +67,8 @@
 	}
 
 	const isSelf = (row: UserRow) => row.id === currentUserId;
-	const canImpersonate = (row: UserRow) => !isSelf(row) && row.role !== 'SUPERADMIN';
+	// Never DTSS staff: the server refuses impersonating any admin.
+	const canImpersonate = (row: UserRow) => can.impersonate && !isSelf(row) && !checkIsAdmin(row.role);
 	const who = $derived(pending ? `${displayName(pending.user)} (${pending.user.email})` : '');
 
 	const columns: DataColumn<UserRow>[] = [
@@ -132,7 +137,9 @@
 				<UserCog class="size-4" aria-hidden="true" />
 			</Button>
 		{/if}
-		{#if r.banned}
+		{#if !can.ban}
+			<!-- No suspend/reinstate for this viewer. -->
+		{:else if r.banned}
 			<Button variant="ghost" size="icon" aria-label="Reinstate {displayName(r)}" on:click={() => open('reinstate', r)}>
 				<ShieldCheck class="size-4 text-status-positive-fg" aria-hidden="true" />
 			</Button>
@@ -147,15 +154,17 @@
 				<Ban class="size-4 text-status-warning-fg" aria-hidden="true" />
 			</Button>
 		{/if}
-		<Button
-			variant="ghost"
-			size="icon"
-			disabled={isSelf(r)}
-			aria-label={isSelf(r) ? 'You cannot delete your own account' : `Delete ${displayName(r)}`}
-			on:click={() => open('delete', r)}
-		>
-			<Trash2 class="size-4 text-destructive" aria-hidden="true" />
-		</Button>
+		{#if can.delete}
+			<Button
+				variant="ghost"
+				size="icon"
+				disabled={isSelf(r)}
+				aria-label={isSelf(r) ? 'You cannot delete your own account' : `Delete ${displayName(r)}`}
+				on:click={() => open('delete', r)}
+			>
+				<Trash2 class="size-4 text-destructive" aria-hidden="true" />
+			</Button>
+		{/if}
 	</div>
 {/snippet}
 

@@ -25,6 +25,7 @@ import {
 import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing';
 import { getPostHogClient } from '$lib/server/posthog';
 import { recordView } from '$lib/server/audit/audit';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 export const load: PageServerLoad = async (event) => {
 	const { id, applicationId } = event.params;
@@ -45,7 +46,7 @@ export const load: PageServerLoad = async (event) => {
 	// requisition comes back empty.
 	const applicationDetails = await getRequisitionApplicationDetails(+id, applicationId);
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (checkIsAdmin(user.role)) {
 		const activity = applicationDetails
 			? await getActivityForEntity('REQUISITION_APPLICATIONS', applicationId)
 			: [];

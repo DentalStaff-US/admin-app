@@ -4,6 +4,7 @@
   The route's +page.svelte renders this with its page data unchanged.
 -->
 <script lang="ts">
+	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 	/* eslint-disable @typescript-eslint/no-explicit-any */
 	import { enhance } from '$app/forms';
 	import { formatInTimeZone } from 'date-fns-tz';
@@ -32,7 +33,7 @@
 	/** The workday route's page data (see its +page.server.ts). */
 	let { data }: { data: Record<string, any> } = $props();
 
-	const isAdmin = $derived(data.user?.role === USER_ROLES.SUPERADMIN);
+	const isAdmin = $derived(checkIsAdmin(data.user?.role));
 	const day = $derived(data.recurrenceDay?.recurrenceDay);
 	const req = $derived(data.recurrenceDay?.requisition);
 	const tz = $derived<string>(req?.referenceTimezone ?? 'America/New_York');

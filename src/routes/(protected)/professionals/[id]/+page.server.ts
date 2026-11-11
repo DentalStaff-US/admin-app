@@ -60,6 +60,7 @@ import {
 	deleteComment,
 	getCommentsForCandidate
 } from '$lib/server/database/queries/admin';
+import { can } from '$lib/authz';
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
@@ -107,7 +108,7 @@ export const load: PageServerLoad = async (event) => {
 	const comments = await getCommentsForCandidate(id);
 	// History tab: this professional's slice of the action_history ledger. Read
 	// only, and only for admins (the tab is admin-only).
-	const activity = user.role === USER_ROLES.SUPERADMIN ? await getActivityForEntity('CANDIDATES', id) : [];
+	const activity = checkIsAdmin(user.role) ? await getActivityForEntity('CANDIDATES', id) : [];
 	// Permanent tab: their saves and applications across permanent requests (admin only).
 	const permanentActivity = await loadCandidatePermanentTab(user, id);
 
@@ -187,10 +188,10 @@ export const actions = {
 		const user = locals.user;
 		if (!user) return fail(403);
 
-		// A professional's days off are schedule-privacy data, so this is SUPERADMIN
+		// A professional's days off are schedule-privacy data, so this is DTSS staff
 		// only — the same gate as the rest of this page's write actions and the same
 		// gate as the Work History tab.
-		if (user.role !== USER_ROLES.SUPERADMIN) {
+		if (!can(user, 'professionals.manage')) {
 			return fail(403, {
 				message: "You do not have permission to update a professional's availability"
 			});
@@ -248,7 +249,7 @@ export const actions = {
 			return fail(403);
 		}
 
-		if (user.role !== USER_ROLES.SUPERADMIN) {
+		if (!can(user, 'professionals.manage')) {
 			return fail(403, { message: "You do not have permission to update a user's details" });
 		}
 
@@ -331,7 +332,7 @@ export const actions = {
 			return fail(403);
 		}
 
-		if (user.role !== USER_ROLES.SUPERADMIN) {
+		if (!can(user, 'professionals.manage')) {
 			return fail(403, { message: 'You do not have permission to update disciplines' });
 		}
 
@@ -397,7 +398,7 @@ export const actions = {
 	updateSkills: async (event) => {
 		const { id } = event.params;
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'professionals.manage')) {
 			return fail(403, { message: 'You do not have permission to update skills' });
 		}
 
@@ -436,7 +437,7 @@ export const actions = {
 		const user = event.locals.user;
 
 		if (!user) return fail(403);
-		if (user.role !== USER_ROLES.SUPERADMIN) {
+		if (!can(user, 'professionals.manage')) {
 			return fail(403, { message: 'You do not have permission to update certifications' });
 		}
 
@@ -495,7 +496,7 @@ export const actions = {
 			return fail(403);
 		}
 
-		if (user.role !== USER_ROLES.SUPERADMIN) {
+		if (!can(user, 'professionals.manage')) {
 			return fail(403, { message: 'You do not have permission to update status' });
 		}
 		const form = await superValidate(event, CandidateStatusSchema);
@@ -554,7 +555,7 @@ export const actions = {
 			return redirect(302, '/sign-in');
 		}
 		// Same gate as this page's other write actions.
-		if (user.role !== USER_ROLES.SUPERADMIN) {
+		if (!can(user, 'professionals.manage')) {
 			return fail(403, { message: 'Only admins can upload documents for a professional' });
 		}
 
@@ -639,7 +640,7 @@ export const actions = {
 	 */
 	updateDocumentCredential: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'professionals.manage')) return fail(403);
 
 		const candidateId = event.params.id as string;
 		const fd = await event.request.formData();
@@ -727,7 +728,7 @@ export const actions = {
 
 	deleteDocument: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'professionals.manage')) return fail(403);
 
 		const formData = await event.request.formData();
 		const documentId = formData.get('documentId') as string;
@@ -748,7 +749,7 @@ export const actions = {
 	},
 	toggleAdminDocumentLock: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'professionals.manage')) return fail(403);
 
 		const formData = await event.request.formData();
 		const documentId = formData.get('documentId') as string;
@@ -779,7 +780,7 @@ export const actions = {
 	},
 	addComment: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'professionals.manage')) return fail(403);
 
 		const { id } = event.params;
 		const formData = await event.request.formData();
@@ -794,7 +795,7 @@ export const actions = {
 
 	deleteComment: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'professionals.manage')) return fail(403);
 
 		const formData = await event.request.formData();
 		const commentId = formData.get('commentId') as string;

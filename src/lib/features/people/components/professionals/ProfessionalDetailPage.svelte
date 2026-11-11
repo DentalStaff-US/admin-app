@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 	import { page } from '$app/state';
 	import { AlertCircle, Pencil } from 'lucide-svelte';
 	import { Button } from '$lib/components/ui/button';
@@ -28,12 +29,12 @@
 	 * The professional detail body (06 › Professionals / clients detail):
 	 * PageHeader with avatar, status and key badges; tabs as child components;
 	 * edits in FormSheets. Admin-only tabs and actions follow the same
-	 * SUPERADMIN check as before; the actions re-check on the server.
+	 * staff-admin check (SUPERADMIN or ADMIN); the actions re-check on the server.
 	 */
 	let { data }: { data: any } = $props();
 
 	const candidate = $derived(data.candidate);
-	const isAdmin = $derived(data.user?.role === 'SUPERADMIN');
+	const isAdmin = $derived(checkIsAdmin(data.user?.role));
 	const name = $derived(candidate ? displayName(candidate.user.firstName, candidate.user.lastName, candidate.user.email) : '');
 	const disciplines = $derived((data.allDisciplines ?? []) as any[]);
 	const certSkills = $derived((data.candidateSkills ?? []).filter((s: any) => s.requiresCertificate));

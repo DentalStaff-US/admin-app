@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
+	import { can } from '$lib/authz';
 	import { page } from '$app/state';
 	import { env } from '$env/dynamic/public';
 	import { AlertCircle, CreditCard, Pencil } from 'lucide-svelte';
@@ -33,13 +35,16 @@
 	/**
 	 * The practice detail body (06 › Professionals / clients detail): header
 	 * with logo, status and billing state; tabs as child components; edits in
-	 * FormSheets. The page is SUPERADMIN-only (the load redirects others); the
-	 * isAdmin checks are kept as they were.
+	 * FormSheets. The page is DTSS-staff-only (the load redirects others); isAdmin
+	 * means "staff admin", and actions an ADMIN lacks are gated with can().
 	 */
 	let { data, form = null }: { data: any; form?: Record<string, unknown> | null } = $props();
 
 	const client = $derived(data.client);
-	const isAdmin = $derived(data.user?.role === 'SUPERADMIN');
+	const isAdmin = $derived(checkIsAdmin(data.user?.role));
+	// One-off invoices and un-blacklisting are SUPERADMIN-only in the role matrix.
+	const canOneOffInvoice = $derived(can(data.user, 'invoices.oneOff'));
+	const canRemoveBlacklist = $derived(can(data.user, 'blacklist.remove'));
 	const practice = $derived(client?.company?.companyName || 'Practice');
 	const owner = $derived(client ? displayName(client.user.firstName, client.user.lastName, client.user.email) : '');
 	const paper = $derived(client?.profile?.clientInvoiceMethod === 'PAPER');
@@ -95,7 +100,7 @@
 				{/if}
 				{#if needsCustomerSetup}
 					<BillingSetupButton clientId={client.profile.id} pending={!!client.subscription?.stripeCustomerSetupPending} ownerName={owner} ownerEmail={client.user.email} />
-				{:else}
+				{:else if canOneOffInvoice}
 					<Button variant="outline" class="gap-2" on:click={() => (invoiceOpen = true)}><CreditCard class="size-4" aria-hidden="true" />Create invoice</Button>
 				{/if}
 				{#if isAdmin}
@@ -122,7 +127,7 @@
 				{:else if active === 'requisitions'}
 					<ClientRequisitions requisitions={data.requisitions ?? []} recurrenceDays={data.recurrenceDays ?? []} {isAdmin} onNew={() => (requisitionOpen = true)} />
 				{:else if active === 'invoices'}
-					<ClientInvoices invoices={data.invoices ?? []} onNew={needsCustomerSetup ? undefined : () => (invoiceOpen = true)} />
+					<ClientInvoices invoices={data.invoices ?? []} onNew={needsCustomerSetup || !canOneOffInvoice ? undefined : () => (invoiceOpen = true)} />
 				{:else if active === 'documents'}
 					<div class="space-y-6">
 						{#if isAdmin}<ClientAgreements signatureRequests={data.signatureRequests ?? []} signatureKinds={data.signatureKinds ?? []} />{/if}
@@ -141,7 +146,7 @@
 								searchError={blacklistSearchError}
 								searchAction="?/searchBlacklistCandidate"
 								addAction="?/addBlacklist"
-								removeAction="?/removeBlacklist"
+								removeAction={canRemoveBlacklist ? '?/removeBlacklist' : undefined}
 							/>
 						</Section>
 					</div>

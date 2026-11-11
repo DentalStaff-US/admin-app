@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 	import { page } from '$app/stores';
 	import { Plus, Workflow } from 'lucide-svelte';
 	import Notice from '$dtss/Notice.svelte';
@@ -16,7 +17,7 @@
 	let { data }: { data: PageData } = $props();
 
 	let drawerExpanded = $state(false);
-	const isAdmin = $derived(data.user?.role === USER_ROLES.SUPERADMIN);
+	const isAdmin = $derived(checkIsAdmin(data.user?.role));
 	const noun = 'requisition';
 	const clientForm = $derived(data.clientForm as SuperValidated<ClientRequisitionSchema> | null);
 	const adminForm = $derived(data.adminForm as SuperValidated<AdminRequisitionSchema> | null);

@@ -32,13 +32,14 @@ import {
 	syncRequisitionTimezonesForLocation
 } from '$lib/server/requisitions/referenceTimezone';
 import { logger } from '$lib/server/logger';
+import { can } from '$lib/authz';
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
 	if (!user) {
 		redirect(302, '/auth/sign-in');
 	}
-	if (user.role !== 'SUPERADMIN') {
+	if (!can(user, 'practices.manage')) {
 		redirect(302, '/dashboard');
 	}
 	const { id, locationId } = event.params;
@@ -99,7 +100,7 @@ export const actions = {
 			redirect(302, '/auth/sign-in');
 		}
 		// Same as the page: admin only. Any signed-in user could post here before.
-		if (user.role !== 'SUPERADMIN') error(403, 'Forbidden');
+		if (!can(user, 'practices.manage')) error(403, 'Forbidden');
 		const form = await superValidate(event, NewAddressSchema);
 
 		if (!form.valid) {
@@ -165,7 +166,7 @@ export const actions = {
 			redirect(302, '/auth/sign-in');
 		}
 		// Same as the page: admin only. Any signed-in user could post here before.
-		if (user.role !== 'SUPERADMIN') error(403, 'Forbidden');
+		if (!can(user, 'practices.manage')) error(403, 'Forbidden');
 		const form = await superValidate(event, ContactSchema);
 		if (!form.valid) {
 			return fail(400, { form });
@@ -208,7 +209,7 @@ export const actions = {
 			redirect(302, '/auth/sign-in');
 		}
 		// Same as the page: admin only. Any signed-in user could post here before.
-		if (user.role !== 'SUPERADMIN') error(403, 'Forbidden');
+		if (!can(user, 'practices.manage')) error(403, 'Forbidden');
 		const form = await superValidate(event, OperatingHoursSchema);
 
 		if (!form.valid) {
@@ -271,7 +272,7 @@ export const actions = {
 			redirect(302, '/auth/sign-in');
 		}
 		// Same as the page: admin only. Any signed-in user could post here before.
-		if (user.role !== 'SUPERADMIN') error(403, 'Forbidden');
+		if (!can(user, 'practices.manage')) error(403, 'Forbidden');
 		const form = await superValidate(event, LocationSchema);
 		if (!form.valid) {
 			return fail(400, { form });
@@ -330,7 +331,7 @@ export const actions = {
 		if (!user) {
 			redirect(302, '/auth/sign-in');
 		}
-		if (user.role !== 'SUPERADMIN') {
+		if (!can(user, 'practices.manage')) {
 			return fail(403, { error: 'Not authorized' });
 		}
 		const { locationId } = event.params;
@@ -373,7 +374,7 @@ export const actions = {
 			redirect(302, '/auth/sign-in');
 		}
 		// Same as the page: admin only. Any signed-in user could post here before.
-		if (user.role !== 'SUPERADMIN') error(403, 'Forbidden');
+		if (!can(user, 'practices.manage')) error(403, 'Forbidden');
 		const form = await superValidate(event, LocationContactDestinationSchema);
 		if (!form.valid) {
 			return fail(400, { destinationForm: form });
@@ -412,7 +413,7 @@ export const actions = {
 			redirect(302, '/auth/sign-in');
 		}
 		// Same as the page: admin only. Any signed-in user could post here before.
-		if (user.role !== 'SUPERADMIN') error(403, 'Forbidden');
+		if (!can(user, 'practices.manage')) error(403, 'Forbidden');
 		const formData = await event.request.formData();
 		const form = await superValidate(formData, RemoveLocationContactDestinationSchema);
 		if (!form.valid) {
@@ -447,7 +448,7 @@ export const actions = {
 	},
 	geocodeLocation: async (event) => {
 		const user = event.locals.user;
-		if (!user || user.role !== 'SUPERADMIN') {
+		if (!user || !can(user, 'practices.manage')) {
 			redirect(302, '/auth/sign-in');
 		}
 

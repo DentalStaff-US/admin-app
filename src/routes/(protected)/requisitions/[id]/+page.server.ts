@@ -114,6 +114,8 @@ import { hasTypedConfirmation } from '$lib/server/confirmation';
 import { getRequestLifecycle, isRequestUnbilled } from '$features/requisitions/server/permanent';
 import type { Audience } from '$features/requisitions';
 import { recurrenceDaysBelongTo } from '$features/requisitions/server/guards';
+import { can } from '$lib/authz';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 /** Permanent requests: stage counts, fee state and (admins only) who saved it. */
 async function loadLifecycle(
@@ -190,7 +192,7 @@ const loadRequisitionPage = async (event: RequestEvent) => {
 	const deleteRecurrenceDayForm = await superValidate(event, deleteRecurrenceDaySchema);
 	const invoiceForm = await superValidate(requisitionInvoiceSchema);
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (checkIsAdmin(user.role)) {
 		await resolveRequisitionAccess(user, idAsNum);
 		const company = await getCompanyByRequisitionIdAdmin(idAsNum);
 		const requisition = await getRequisitionDetailsByIdAdmin(idAsNum);
@@ -458,11 +460,12 @@ export const actions = {
 			return fail(404, { form });
 		}
 
-		// Payment-tracking statuses are admin-only. The UI hides them from clients,
-		// but enforce here too in case of direct POST.
+		// Payment-tracking statuses are DTSS-only. The UI hides them from clients,
+		// but enforce here too in case of direct POST. Marking the fee received
+		// records a payment, so it needs payments.record (SUPERADMIN).
 		if (
-			(form.data.status === 'PAYMENT_REQUIRED' || form.data.status === 'PAYMENT_RECEIVED') &&
-			user.role !== USER_ROLES.SUPERADMIN
+			(form.data.status === 'PAYMENT_REQUIRED' && !can(user, 'requisitions.manage')) ||
+			(form.data.status === 'PAYMENT_RECEIVED' && !can(user, 'payments.record'))
 		) {
 			return fail(403, { form });
 		}
@@ -527,7 +530,7 @@ export const actions = {
 		// Direct-assign is admin-only: a qualified candidate gets dropped onto the
 		// new day(s), which are created FILLED instead of OPEN.
 		const candidateId =
-			user.role === USER_ROLES.SUPERADMIN
+			can(user, 'requisitions.manage')
 				? (formData.get('candidateId') as string | null) || null
 				: null;
 		const assigning = !!candidateId;
@@ -545,9 +548,9 @@ export const actions = {
 		const billing = await getRequisitionBillingReadiness(idAsNum);
 		if (!billing.ready) {
 			const company =
-				user.role === USER_ROLES.SUPERADMIN ? await getCompanyByRequisitionIdAdmin(idAsNum) : null;
+				can(user, 'requisitions.manage') ? await getCompanyByRequisitionIdAdmin(idAsNum) : null;
 			const msg = billingNotReadyMessage({
-				audience: user.role === USER_ROLES.SUPERADMIN ? 'ADMIN' : 'CLIENT',
+				audience: can(user, 'requisitions.manage') ? 'ADMIN' : 'CLIENT',
 				what: 'add shifts',
 				companyName: company?.companyName
 			});
@@ -896,7 +899,7 @@ export const actions = {
 			return fail(403, { error: 'Not authenticated' });
 		}
 
-		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+		if (!(can(user, 'invoices.create') || ['CLIENT', 'CLIENT_STAFF'].includes(user.role))) {
 			return fail(403, { error: 'Not authorized to create invoices' });
 		}
 
@@ -1086,7 +1089,7 @@ export const actions = {
 	updateReferenceTimezone: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user) return fail(403);
-		if (user.role !== USER_ROLES.SUPERADMIN) {
+		if (!can(user, 'requisitions.manage')) {
 			return fail(403, { error: 'Not authorized' });
 		}
 
@@ -1175,7 +1178,7 @@ export const actions = {
 	cancelRecurrenceDay: async (request: RequestEvent) => {
 		const user = request.locals.user;
 		if (!user) return fail(403);
-		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+		if (!(can(user, 'requisitions.manage') || ['CLIENT', 'CLIENT_STAFF'].includes(user.role))) {
 			return fail(403, { error: 'Not authorized' });
 		}
 
@@ -1338,7 +1341,7 @@ export const actions = {
 	bulkDeleteRecurrenceDays: async (request: RequestEvent) => {
 		const user = request.locals.user;
 		if (!user) return fail(403);
-		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { error: 'Admin only' });
+		if (!can(user, 'requisitions.manage')) return fail(403, { error: 'Admin only' });
 
 		const formData = await request.request.formData();
 		const idsCsv = (formData.get('ids') as string | null) ?? '';
@@ -1449,7 +1452,7 @@ export const actions = {
 
 		const deleted = await deleteRequisitionComment(commentId, requisitionId, {
 			userId: user!.id,
-			isAdmin: user!.role === USER_ROLES.SUPERADMIN
+			isAdmin: can(user!, 'requisitions.manage')
 		});
 		if (!deleted) return fail(404, { error: 'Comment not found.' });
 
@@ -1465,7 +1468,7 @@ export const actions = {
 
 	recommendCandidate: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'requisitions.manage')) return fail(403);
 		const requisitionId = Number(event.params.id);
 		await resolveRequisitionAccess(user, requisitionId);
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 	// "New requisition" in a right-hand
 	// FormSheet. Props are unchanged: dashboards, clients and locations pages
 	// open it by binding `drawerExpanded`.
@@ -27,7 +28,7 @@
 	} = $props();
 
 	let dirty = $state(false);
-	const isAdmin = $derived(user?.role === USER_ROLES.SUPERADMIN);
+	const isAdmin = $derived(checkIsAdmin(user?.role));
 	const isClient = $derived(user?.role === USER_ROLES.CLIENT || user?.role === USER_ROLES.CLIENT_STAFF);
 </script>
 

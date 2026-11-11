@@ -4,6 +4,7 @@
   +page.svelte renders this with its page data unchanged.
 -->
 <script lang="ts">
+	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 	/* eslint-disable @typescript-eslint/no-explicit-any */
 	import { enhance as formEnhance } from '$app/forms';
 	import { page } from '$app/stores';
@@ -38,7 +39,7 @@
 	const application = $derived(data.application);
 	const app = $derived(application?.application);
 	const profile = $derived(application?.candidateProfile);
-	const isAdmin = $derived(data.user?.role === USER_ROLES.SUPERADMIN);
+	const isAdmin = $derived(checkIsAdmin(data.user?.role));
 	const requisitionId = $derived(requisitionIdProp ?? $page.params.id);
 	const noun = 'Requisition';
 	const name = $derived(application ? `${application.user.firstName ?? ''} ${application.user.lastName ?? ''}`.trim() : '');

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { pageHrefFor, readPage, withParam } from '$dtss/tableState';
@@ -7,7 +8,7 @@
 
 	let { data } = $props();
 
-	const isAdmin = $derived(data.user?.role === USER_ROLES.SUPERADMIN);
+	const isAdmin = $derived(checkIsAdmin(data.user?.role));
 	const search = $derived(page.url.searchParams.get('search') ?? '');
 
 	function onSearch(term: string) {

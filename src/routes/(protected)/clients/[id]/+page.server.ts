@@ -90,6 +90,7 @@ import {
 	deleteClientDocument,
 	toggleClientDocumentLock
 } from '$lib/server/database/queries/clients';
+import { can } from '$lib/authz';
 
 const LineItemSchema = z.array(
 	z.object({
@@ -154,7 +155,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		redirect(302, '/auth/sign-in');
 	}
 
-	if (user.role !== USER_ROLES.SUPERADMIN) {
+	if (!can(user, 'practices.manage')) {
 		redirect(302, '/dashboard');
 	}
 
@@ -357,7 +358,7 @@ export const actions = {
 		const user = event.locals.user;
 		const { id: clientId } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'practices.manage')) {
 			return fail(403, { error: 'Not authorized' });
 		}
 
@@ -414,7 +415,7 @@ export const actions = {
 		const user = request.locals.user;
 		const { id: clientId } = request.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'invoices.oneOff')) {
 			redirect(302, '/dashboard');
 		}
 
@@ -551,7 +552,7 @@ export const actions = {
 			return redirect(301, '/auth/sign-in');
 		}
 
-		if (user.role === USER_ROLES.SUPERADMIN) {
+		if (can(user, 'practices.manage')) {
 			const clientCompany = await getClientCompanyByClientId(id);
 
 			if (!clientCompany) {
@@ -646,7 +647,7 @@ export const actions = {
 		const user = event.locals.user;
 		const { id: clientId } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'practices.manage')) {
 			redirect(302, '/dashboard');
 		}
 
@@ -746,7 +747,7 @@ export const actions = {
 		const user = event.locals.user;
 		const { id: clientId } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'practices.manage')) {
 			return fail(403, { error: 'Unauthorized' });
 		}
 
@@ -780,7 +781,7 @@ export const actions = {
 				email: invitee.email.toLowerCase(),
 				staffRole: invitee.staffRole,
 				invitedRole: 'CLIENT_STAFF' as const,
-				referrerRole: user.role as 'CANDIDATE' | 'CLIENT_STAFF' | 'SUPERADMIN' | 'CLIENT',
+				referrerRole: user.role as 'CANDIDATE' | 'CLIENT_STAFF' | 'SUPERADMIN' | 'ADMIN' | 'CLIENT',
 				referrerId: user.id,
 				expiresAt
 			}));
@@ -821,7 +822,7 @@ export const actions = {
 	resendStaffInvite: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		const { id: clientId } = event.params;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'practices.manage')) {
 			return fail(403, { error: 'Unauthorized' });
 		}
 		const formData = await event.request.formData();
@@ -849,7 +850,7 @@ export const actions = {
 	revokeStaffInvite: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		const { id: clientId } = event.params;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'practices.manage')) {
 			return fail(403, { error: 'Unauthorized' });
 		}
 		const formData = await event.request.formData();
@@ -874,7 +875,7 @@ export const actions = {
 		const user = event.locals.user;
 		const { id: clientId } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'practices.manage')) {
 			return fail(403, { error: 'Unauthorized' });
 		}
 
@@ -919,7 +920,7 @@ export const actions = {
 
 	addComment: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 
 		const { id } = event.params;
 		const formData = await event.request.formData();
@@ -934,7 +935,7 @@ export const actions = {
 
 	deleteComment: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 
 		const formData = await event.request.formData();
 		const commentId = formData.get('commentId') as string;
@@ -947,7 +948,7 @@ export const actions = {
 	},
 	uploadClientDocument: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 
 		const { id } = event.params;
 		const formData = await event.request.formData();
@@ -969,7 +970,7 @@ export const actions = {
 
 	deleteClientDocument: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 
 		const formData = await event.request.formData();
 		const documentId = formData.get('documentId') as string;
@@ -989,7 +990,7 @@ export const actions = {
 
 	toggleClientDocumentLock: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 
 		const formData = await event.request.formData();
 		const documentId = formData.get('documentId') as string;
@@ -1010,7 +1011,7 @@ export const actions = {
 	// (admin-created, bulk-imported) and re-sending after a cancel/decline/expiry.
 	sendSignatureRequest: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 		const kind = String((await event.request.formData()).get('kind') ?? '');
 		if (!SIGNATURE_KINDS.includes(kind)) return fail(400, { error: 'Unknown document' });
 
@@ -1038,7 +1039,7 @@ export const actions = {
 
 	resendSignatureRequest: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 		const requestId = String((await event.request.formData()).get('requestId') ?? '');
 		try {
 			await resendSigningInvite(requestId, user.id);
@@ -1053,7 +1054,7 @@ export const actions = {
 
 	cancelSignatureRequest: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 		const formData = await event.request.formData();
 		const requestId = String(formData.get('requestId') ?? '');
 		const reason = String(formData.get('reason') ?? '').trim() || undefined;
@@ -1077,7 +1078,7 @@ export const actions = {
 	// Returns the match in the action result for the card to render.
 	searchBlacklistCandidate: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'blacklist.add')) return fail(403);
 
 		const formData = await event.request.formData();
 		const email = String(formData.get('email') ?? '')
@@ -1103,7 +1104,7 @@ export const actions = {
 
 	addBlacklist: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'blacklist.add')) return fail(403);
 
 		const { id } = event.params;
 		const formData = await event.request.formData();
@@ -1139,7 +1140,7 @@ export const actions = {
 
 	removeBlacklist: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'blacklist.remove')) return fail(403);
 
 		const { id } = event.params;
 		const formData = await event.request.formData();

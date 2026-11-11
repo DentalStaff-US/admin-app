@@ -6,6 +6,7 @@
  * Notifications is its own route and joins the same nav.
  */
 import { SETTINGS_MENU_OPTIONS, USER_ROLES } from '$lib/config/constants';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 /** Which settings screen a user gets. Mirrors the old page's role branches. */
 export type SettingsView = 'admin' | 'client' | 'staff';
@@ -66,7 +67,7 @@ const DEFS: Record<SettingsView, Def[]> = {
 
 /** The screen for a role. `hasAdminRights` = CLIENT, or CLIENT_STAFF with CLIENT_ADMIN. */
 export function settingsViewFor(role: string | null | undefined, hasAdminRights: boolean): SettingsView | null {
-	if (role === USER_ROLES.SUPERADMIN) return 'admin';
+	if (checkIsAdmin(role ?? undefined)) return 'admin';
 	if (role === USER_ROLES.CLIENT || (role === USER_ROLES.CLIENT_STAFF && hasAdminRights)) return 'client';
 	if (role === USER_ROLES.CLIENT_STAFF) return 'staff';
 	return null;

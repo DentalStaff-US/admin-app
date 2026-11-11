@@ -28,7 +28,7 @@ export interface ParsedUser {
 type CsvRow = Record<string, unknown>;
 
 export const IMPORT_ROLE_LABELS: Record<ImportRole, string> = {
-	SUPERADMIN: 'Admin',
+	SUPERADMIN: 'Super admin',
 	CLIENT: 'Business',
 	CANDIDATE: 'Professional'
 };

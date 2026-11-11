@@ -11,6 +11,7 @@ import { getClientCompanyById } from '$lib/server/database/queries/clients';
 import type { RequestEvent } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
 import { logger } from '$lib/server/logger';
+import { isStaffRole } from '$lib/authz';
 
 export async function load(event: RequestEvent) {
 	const token = event.params.token;
@@ -111,10 +112,15 @@ export const actions = {
 					message: 'Invalid or expired invitation'
 				});
 			}
+			// A team invite carries ADMIN or SUPERADMIN, chosen by the super admin
+			// who sent it. Anything else on a no-company invite is refused.
+			if (!isStaffRole(invite.invitedRole)) {
+				return fail(400, { message: 'Invalid or expired invitation' });
+			}
 			const inviteData = {
 				token,
 				email: invite.email,
-				invitedRole: 'SUPERADMIN'
+				invitedRole: invite.invitedRole
 			};
 			event.cookies.set('admin_invite', JSON.stringify(inviteData), {
 				path: '/',
@@ -126,7 +132,7 @@ export const actions = {
 			logger.event('invitation_accepted', {
 				distinctId: invite.referrerId ?? 'unknown',
 				invite_type: 'admin',
-				invited_role: 'SUPERADMIN'
+				invited_role: invite.invitedRole
 			});
 		} catch (error) {
 			logger.error('auth.invite.handleAdminInvite failed', { error, token });

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 	import { USER_ROLES } from '$lib/config/constants';
 	import { TicketDetailPage } from '$features/support';
 
@@ -10,6 +11,6 @@
 <TicketDetailPage
 	ticket={data.ticket as any}
 	viewerId={data.user.id}
-	isAdmin={data.user.role === USER_ROLES.SUPERADMIN}
+	isAdmin={checkIsAdmin(data.user.role)}
 	commentForm={data.commentForm}
 />

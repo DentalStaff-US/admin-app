@@ -64,6 +64,7 @@ async function listView(event: RequestEvent, rows: Parameters<typeof withListDet
 	return { tab, sort, pageSize: PAGE_SIZE, facets: facets(all), ...view };
 }
 import { message, superValidate } from 'sveltekit-superforms/server';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 export const load = async (event: RequestEvent) => {
 	const user = event.locals.user;
@@ -76,7 +77,7 @@ export const load = async (event: RequestEvent) => {
 		redirect(301, '/auth/sign-in');
 	}
 
-	if (user?.role === USER_ROLES.SUPERADMIN) {
+	if (checkIsAdmin(user?.role)) {
 		const requisitions = await getRequisitionsAdmin(searchTerm, { view: filter });
 		const form = await superValidate(event, adminRequisitionSchema);
 

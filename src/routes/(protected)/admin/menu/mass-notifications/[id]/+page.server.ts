@@ -8,11 +8,12 @@ import {
 	cancelCampaign,
 	retryFailedRecipients
 } from '$lib/server/database/queries/campaigns';
+import { can } from '$lib/authz';
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
 	if (!user) redirect(302, '/auth/sign-in');
-	if (user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/dashboard');
+	if (!can(user, 'comms.massSend')) redirect(302, '/dashboard');
 
 	const campaign = await getCampaignById(event.params.id);
 	if (!campaign) error(404, 'Mass notification not found');
@@ -25,7 +26,7 @@ export const actions = {
 	cancel: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user) return fail(401, { message: 'Unauthorized' });
-		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { message: 'Unauthorized' });
+		if (!can(user, 'comms.massSend')) return fail(403, { message: 'Unauthorized' });
 
 		const ok = await cancelCampaign(event.params.id);
 		setFlash(
@@ -40,7 +41,7 @@ export const actions = {
 	retry: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user) return fail(401, { message: 'Unauthorized' });
-		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { message: 'Unauthorized' });
+		if (!can(user, 'comms.massSend')) return fail(403, { message: 'Unauthorized' });
 
 		const count = await retryFailedRecipients(event.params.id);
 		setFlash(

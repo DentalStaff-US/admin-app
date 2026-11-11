@@ -16,6 +16,7 @@ import { logger } from '$lib/server/logger';
 import { canApproveInline } from '../scope';
 import type { DashboardScope } from '../types';
 import { adminScope, resolveClientScope } from './scope';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 const REASONS: Record<string, string> = {
 	PENDING_EXPENSES: 'Some expenses still need review. Open the timesheet to finish.',
@@ -36,8 +37,8 @@ export async function approveFromDashboard(event: RequestEvent) {
 	if (!timesheetId) return fail(400, { error: 'Missing timesheet.' });
 
 	let scope: DashboardScope;
-	if (user.role === USER_ROLES.SUPERADMIN) {
-		scope = adminScope();
+	if (checkIsAdmin(user.role)) {
+		scope = adminScope(user.role);
 	} else if (user.role === USER_ROLES.CLIENT || user.role === USER_ROLES.CLIENT_STAFF) {
 		const resolved = await resolveClientScope(user);
 		if (!resolved) return fail(403, { error: 'Not allowed.' });

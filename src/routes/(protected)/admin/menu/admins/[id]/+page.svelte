@@ -9,4 +9,5 @@
 	isSelf={data.user.id === data.profile.id}
 	updateForm={data.updateAdminForm}
 	deleteError={form?.message}
+	superadminCount={data.superadminCount}
 />

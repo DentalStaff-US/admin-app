@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 	import { USER_ROLES } from '$lib/config/constants';
 	import { TimesheetAdmin, TimesheetReview, weekRangeLabel, type TimesheetPageData } from '$features/timesheets';
 
@@ -11,7 +12,7 @@
 </svelte:head>
 
 <!-- One component per role (06 › Timesheets). -->
-{#if data.user.role === USER_ROLES.SUPERADMIN}
+{#if checkIsAdmin(data.user.role)}
 	<TimesheetAdmin data={view} />
 {:else}
 	<TimesheetReview data={view} />

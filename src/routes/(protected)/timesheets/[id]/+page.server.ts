@@ -81,6 +81,8 @@ import { addExpenseSchema } from '$lib/config/zod-schemas';
 import { hasTypedConfirmation } from '$lib/server/confirmation';
 import { getClientInvoiceMethod } from '$features/timesheets/server/invoiceMethod';
 import { assertTimesheetActionAccess } from '$features/timesheets/server/access';
+import { can } from '$lib/authz';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 export const load = async (event: RequestEvent) => {
 	const user = event.locals.user;
@@ -156,7 +158,7 @@ export const load = async (event: RequestEvent) => {
 				})
 			: 0;
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (checkIsAdmin(user.role)) {
 		const timesheet = await getTimesheetDetailsAdmin(id);
 		const requisition = await getRequisitionDetailsByIdAdmin(timesheet.requisitionId);
 		const recurrenceDays = await getRecurrenceDaysForTimesheet(timesheet);
@@ -292,7 +294,7 @@ export const actions = {
 		const { user } = event.locals;
 		const { id } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'timesheets.approve')) {
 			return fail(403, { error: 'Only admins can adjust the hourly rate' });
 		}
 
@@ -340,7 +342,7 @@ export const actions = {
 		const { user } = event.locals;
 		const { id } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'timesheets.approve')) {
 			return fail(403, { error: 'Only admins can set the admin fee' });
 		}
 
@@ -433,7 +435,7 @@ export const actions = {
 		const { id } = event.params;
 		const { user } = event.locals;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'timesheets.approve')) {
 			throw error(401, 'Unauthorized');
 		}
 
@@ -560,7 +562,7 @@ export const actions = {
 		const { id } = event.params;
 		const { user } = event.locals;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'timesheets.approve')) {
 			throw error(401, 'Unauthorized');
 		}
 
@@ -664,7 +666,7 @@ export const actions = {
 		const { id } = event.params;
 		const { user } = event.locals;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'timesheets.approve')) {
 			throw error(401, 'Unauthorized');
 		}
 
@@ -797,7 +799,7 @@ export const actions = {
 		// Only admins and clients may reject, and only a submitted (PENDING) sheet —
 		// you can't reject a draft, an already-approved, or a voided timesheet.
 		if (
-			user.role !== USER_ROLES.SUPERADMIN &&
+			!can(user, 'timesheets.approve') &&
 			user.role !== USER_ROLES.CLIENT &&
 			user.role !== USER_ROLES.CLIENT_STAFF
 		) {
@@ -849,7 +851,7 @@ export const actions = {
 		// Only admins and clients may approve. (Status is guarded inside
 		// approveAndInvoiceTimesheet, which rejects anything not PENDING/DISCREPANCY.)
 		if (
-			user.role !== USER_ROLES.SUPERADMIN &&
+			!can(user, 'timesheets.approve') &&
 			user.role !== USER_ROLES.CLIENT &&
 			user.role !== USER_ROLES.CLIENT_STAFF
 		) {
@@ -897,7 +899,7 @@ export const actions = {
 			return fail(401, { error: 'Unauthorized' });
 		}
 		if (
-			user.role !== USER_ROLES.SUPERADMIN &&
+			!can(user, 'timesheets.approve') &&
 			user.role !== USER_ROLES.CLIENT &&
 			user.role !== USER_ROLES.CLIENT_STAFF
 		) {
@@ -939,7 +941,7 @@ export const actions = {
 	// timesheet can regenerate.
 	voidTimesheet: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'invoices.void')) {
 			redirect(302, '/auth/sign-in');
 		}
 		const userId = user.id;
@@ -978,7 +980,7 @@ export const actions = {
 	// disconnects its workdays (nulls timesheetId) so they regenerate a fresh timesheet.
 	deleteTimesheet: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'timesheets.approve')) {
 			redirect(302, '/auth/sign-in');
 		}
 		const { id } = event.params;
@@ -1023,7 +1025,7 @@ export const actions = {
 		if (event.locals.user === null) {
 			redirect(302, '/auth/sign-in');
 		}
-		if (event.locals.user?.role !== USER_ROLES.SUPERADMIN) {
+		if (!can(event.locals.user, 'timesheets.approve')) {
 			throw error(403, 'Forbidden');
 		}
 		const { user } = event.locals;
@@ -1326,7 +1328,7 @@ export const actions = {
 		const user = event.locals.user;
 		const { id } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'wages.markPaid')) {
 			return fail(403, { error: 'Unauthorized' });
 		}
 
@@ -1370,7 +1372,7 @@ export const actions = {
 		const user = event.locals.user;
 		const { id } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'wages.markPaid')) {
 			return fail(403, { error: 'Unauthorized' });
 		}
 
@@ -1441,7 +1443,7 @@ export const actions = {
 		// Only admin and the assigned candidate may add via this server action.
 		// Clients/staff don't add expenses — they approve/reject.
 		if (
-			user.role !== USER_ROLES.SUPERADMIN &&
+			!can(user, 'timesheets.approve') &&
 			!(user.role === USER_ROLES.CANDIDATE && timesheet.associatedCandidateId)
 		) {
 			return fail(403, { form });
@@ -1485,7 +1487,7 @@ export const actions = {
 		// Admin can edit any pending expense. Candidate can edit only their own.
 		const isOwnerCandidate =
 			user.role === USER_ROLES.CANDIDATE && existing.createdByUserId === user.id;
-		if (user.role !== USER_ROLES.SUPERADMIN && !isOwnerCandidate) {
+		if (!can(user, 'timesheets.approve') && !isOwnerCandidate) {
 			return fail(403, { error: 'Forbidden' });
 		}
 
@@ -1520,7 +1522,7 @@ export const actions = {
 
 		const isOwnerCandidate =
 			user.role === USER_ROLES.CANDIDATE && existing.createdByUserId === user.id;
-		if (user.role !== USER_ROLES.SUPERADMIN && !isOwnerCandidate) {
+		if (!can(user, 'timesheets.approve') && !isOwnerCandidate) {
 			return fail(403, { error: 'Forbidden' });
 		}
 
@@ -1548,7 +1550,7 @@ export const actions = {
 
 		// Only admin, client, or client-staff may approve.
 		if (
-			user.role !== USER_ROLES.SUPERADMIN &&
+			!can(user, 'timesheets.approve') &&
 			user.role !== USER_ROLES.CLIENT &&
 			user.role !== USER_ROLES.CLIENT_STAFF
 		) {
@@ -1576,7 +1578,7 @@ export const actions = {
 		if (!user) redirect(302, '/auth/sign-in');
 
 		if (
-			user.role !== USER_ROLES.SUPERADMIN &&
+			!can(user, 'timesheets.approve') &&
 			user.role !== USER_ROLES.CLIENT &&
 			user.role !== USER_ROLES.CLIENT_STAFF
 		) {

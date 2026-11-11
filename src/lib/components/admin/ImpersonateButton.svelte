@@ -15,10 +15,12 @@
       so the server minted one on the candidate domain and left ours alone. Open
       it in a new tab; this tab stays signed in as the admin.
 
-  Gated by the caller on SUPERADMIN. The server re-checks regardless — this
-  button being hidden is a courtesy, not the control.
+  Hidden unless the signed-in user holds users.impersonate. The server re-checks
+  regardless — this button being hidden is a courtesy, not the control.
 -->
 <script lang="ts">
+	import { can } from '$lib/authz';
+	import { page } from '$app/state';
 	import { UserCog } from 'lucide-svelte';
 	import ConfirmDialog from '$dtss/ConfirmDialog.svelte';
 	import { Button } from '$lib/components/ui/button';
@@ -53,6 +55,9 @@
 		 */
 		crossApp?: boolean;
 	} = $props();
+
+	// Only roles with users.impersonate (SUPERADMIN) see the button at all.
+	const allowed = $derived(can(page.data.user, 'users.impersonate'));
 
 	let busy = $state(false);
 	let confirmOpen = $state(false);
@@ -101,7 +106,7 @@
 	}
 </script>
 
-{#if userId}
+{#if userId && allowed}
 	<div class="flex flex-col items-end gap-1">
 		<Button
 			{variant}

@@ -1,18 +1,19 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, RequestEvent } from './$types';
-import { message, setError, superValidate } from 'sveltekit-superforms/server';
-import { userSchema } from '$lib/config/zod-schemas';
+import { message, superValidate } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { getAdminUsers } from '$lib/server/database/queries/admin';
-import { USER_ROLES } from '$lib/config/constants';
 import { z } from 'zod';
 import db from '$lib/server/database/drizzle';
 import { userInviteTable } from '$lib/server/database/schemas/auth';
 import { EmailService } from '$lib/server/email/emailService';
 import { getUserByEmail } from '$lib/server/database/queries/users';
+import { can, guardStaffInvite, STAFF_ROLES } from '$lib/authz';
 
-const adminUserSchema = userSchema.pick({
-	email: true
+/** Invite a DTSS team member as Admin (the default) or Super admin. */
+const inviteSchema = z.object({
+	email: z.string().email('Invalid email address'),
+	role: z.enum(STAFF_ROLES).default('ADMIN')
 });
 
 export const load: PageServerLoad = async (event) => {
@@ -23,11 +24,11 @@ export const load: PageServerLoad = async (event) => {
 		redirect(302, '/auth/sign-in');
 	}
 
-	if (user.role !== USER_ROLES.SUPERADMIN) {
+	if (!can(user, 'admins.manage')) {
 		redirect(302, '/dashboard');
 	}
 
-	const form = await superValidate(event, adminUserSchema);
+	const form = await superValidate(event, inviteSchema);
 	const admins = await getAdminUsers(searchTerm);
 
 	return {
@@ -37,8 +38,7 @@ export const load: PageServerLoad = async (event) => {
 };
 
 export const actions = {
-	// Actions can be added here in the future for admin management
-	// For security reasons, admin deletion might be handled separately
+	// Invite a team member. Deletion and role changes live on /admin/menu/admins/[id].
 	default: async (event: RequestEvent) => {
 		const user = event.locals.user;
 
@@ -46,33 +46,33 @@ export const actions = {
 			return fail(401);
 		}
 
-		const form = await superValidate(
-			event, // Pass the parsed data
-			z.object({
-				email: z.string().email('Invalid email address')
-			})
-		);
+		const form = await superValidate(event, inviteSchema);
 
 		if (!form.valid) {
-			console.log('Form validation errors:', form.errors);
 			return fail(400, { form });
 		}
 
+		// AZ-4: only admins.manage may invite, and only to a staff role. Previously
+		// this action didn't check the caller at all.
+		const allowed = guardStaffInvite(user, form.data.role);
+		if (!allowed.ok) {
+			setFlash({ type: 'error', message: allowed.message }, event);
+			return fail(allowed.status, { form });
+		}
 
 		try {
-			const { email } = form.data;
+			const { email, role } = form.data;
 			const INVITE_EXPIRATION_DAYS = 7;
 			const expiresAt = new Date();
 			expiresAt.setDate(expiresAt.getDate() + INVITE_EXPIRATION_DAYS);
 			const emailService = new EmailService();
 
-			// Format invites for our invite function
 			const invite = {
 				token: crypto.randomUUID().toString(), // Unique token for the invite link
-				id: crypto.randomUUID().toString(), // Generate a unique ID for each invite
+				id: crypto.randomUUID().toString(),
 				email: email.toLowerCase(),
-				invitedRole: 'SUPERADMIN', // This is their platform role
-				referrerRole: 'SUPERADMIN' as const,
+				invitedRole: role, // Their platform role: ADMIN or SUPERADMIN
+				referrerRole: 'SUPERADMIN' as const, // guardStaffInvite only passes admins.manage holders
 				referrerId: user.id,
 				expiresAt: expiresAt
 			};
@@ -92,16 +92,12 @@ export const actions = {
 			// on the invite row — otherwise the lookup at /auth/invite/[token]
 			// returns nothing and the link reads as "Invalid Invitation".
 			await db.transaction(async (tx) => {
-				// Insert invite into database
 				await tx.insert(userInviteTable).values(invite);
 
-				// Send the invite email
 				try {
 					await emailService.sendAdminUserInviteEmail(email, invite.token);
 				} catch (emailError) {
 					console.error('Error sending invite email:', emailError);
-					// Optionally, you could throw here to rollback the transaction
-					// or just log the error and continue
 					throw new Error('Failed to send invitation email');
 				}
 			});

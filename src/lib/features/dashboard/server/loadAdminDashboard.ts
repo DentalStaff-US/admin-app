@@ -18,8 +18,8 @@ import { settle } from './settle';
 
 export const COVERAGE_DAYS = 7;
 
-export async function loadAdminDashboard(url: URL) {
-	const scope = adminScope();
+export async function loadAdminDashboard(url: URL, role?: string) {
+	const scope = adminScope(role);
 	const now = new Date();
 	const window = parseKpiWindow(url.searchParams.get('window'));
 	const coverageDays = nextBusinessDays(COVERAGE_DAYS, now);

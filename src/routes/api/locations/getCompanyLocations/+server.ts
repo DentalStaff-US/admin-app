@@ -7,14 +7,16 @@ import {
 	getClientProfileByStaffUserId,
 	getClientProfilebyUserId
 } from '$lib/server/database/queries/clients';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 export const GET: RequestHandler = async ({ locals }) => {
 	const user = locals.user;
 
 	if (
-		user?.role !== USER_ROLES.SUPERADMIN &&
+		!user ||
+		(!checkIsAdmin(user.role) &&
 		user?.role !== USER_ROLES.CLIENT &&
-		user?.role !== USER_ROLES.CLIENT_STAFF
+		user.role !== USER_ROLES.CLIENT_STAFF)
 	) {
 		error(401, 'Unauthorized role, no access allowed.');
 	}

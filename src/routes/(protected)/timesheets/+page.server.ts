@@ -15,6 +15,7 @@ import {
 	shapeTimesheetList,
 	toTimesheetListRow
 } from '$features/timesheets/timesheetList';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 export const load = async (event) => {
 	const { locals, url } = event;
@@ -29,7 +30,7 @@ export const load = async (event) => {
 
 	// Scope is unchanged: admins see every sheet; a practice owner sees its
 	// client's sheets; client staff only those at their scoped locations.
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (checkIsAdmin(user.role)) {
 		timesheets = await getAllTimesheetsAdmin(searchTerm);
 	} else if (user.role === USER_ROLES.CLIENT) {
 		if (!user.completedOnboarding) {
@@ -51,7 +52,7 @@ export const load = async (event) => {
 
 	return {
 		user,
-		isAdmin: user.role === USER_ROLES.SUPERADMIN,
+		isAdmin: checkIsAdmin(user.role),
 		list,
 		query,
 		searchTerm

@@ -47,6 +47,7 @@ import { EmailService } from '$lib/server/email/emailService';
 import { syncStripeCustomerBillingEmail } from '$lib/server/billing/recipients';
 import { z } from 'zod';
 import { hasTypedConfirmation } from '$lib/server/confirmation';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 const newStaffInvitesSchema = z.object({
 	invitees: z
@@ -76,7 +77,7 @@ export async function load(event) {
 			error: 'You must be signed in to view this page.'
 		});
 	}
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (checkIsAdmin(user.role)) {
 		const userProfileForm = await superValidate(event, userProfileSchema);
 		const passwordForm = await superValidate(event, userUpdatePasswordSchema);
 		const avatarForm = await superValidate(event, avatarUrlSchema);
@@ -548,7 +549,7 @@ export const actions = {
 				email: invitee.email.toLowerCase(),
 				staffRole: invitee.staffRole,
 				invitedRole: 'CLIENT_STAFF', // This is their platform role
-				referrerRole: user.role as 'CANDIDATE' | 'CLIENT_STAFF' | 'SUPERADMIN' | 'CLIENT',
+				referrerRole: user.role as 'CANDIDATE' | 'CLIENT_STAFF' | 'SUPERADMIN' | 'ADMIN' | 'CLIENT',
 				referrerId: user.id,
 				expiresAt: expiresAt
 			}));

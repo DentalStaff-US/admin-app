@@ -4,6 +4,7 @@ import { approveFromDashboard } from '$lib/features/dashboard/server/approveFrom
 import { loadAdminDashboard } from '$lib/features/dashboard/server/loadAdminDashboard';
 import { loadClientDashboard } from '$lib/features/dashboard/server/loadClientDashboard';
 import type { Actions, PageServerLoad } from './$types';
+import { can } from '$lib/authz';
 
 export const load: PageServerLoad = async (event) => {
 	// Personalised and acted on: never cache it, or "I approved it but it still
@@ -15,8 +16,8 @@ export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
 	if (!user) redirect(302, '/auth/sign-in');
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
-		return { user, dashboard: await loadAdminDashboard(event.url) };
+	if (can(user, 'dashboard.read')) {
+		return { user, dashboard: await loadAdminDashboard(event.url, user.role) };
 	}
 	if (user.role === USER_ROLES.CLIENT || user.role === USER_ROLES.CLIENT_STAFF) {
 		return { user, dashboard: await loadClientDashboard(user, event.url) };

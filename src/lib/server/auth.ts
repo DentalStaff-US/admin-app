@@ -156,7 +156,9 @@ export const auth = betterAuth({
 		admin({
 			ac,
 			roles,
-			// Only SUPERADMIN may call admin-plane endpoints (ban, impersonate, list users…).
+			// Only SUPERADMIN may call admin-plane endpoints (ban, impersonate, set role…).
+			// ADMIN is in `roles` with read-only statements and must stay out of this
+			// list: the matrix in $lib/authz denies it users.ban / users.impersonate.
 			adminRoles: [USER_ROLES.SUPERADMIN],
 			defaultRole: USER_ROLES.CANDIDATE,
 			// Shown to a banned user who attempts to sign in (static fallback; the

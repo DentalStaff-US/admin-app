@@ -13,6 +13,7 @@ import {
 } from '$lib/server/database/queries/skills';
 import { USER_ROLES } from '$lib/config/constants';
 import { hasTypedConfirmation } from '$lib/server/confirmation';
+import { can } from '$lib/authz';
 
 /**
  * Skill categories: name, description, which disciplines they apply to (none =
@@ -23,7 +24,7 @@ import { hasTypedConfirmation } from '$lib/server/confirmation';
 function requireSuperadmin(event: RequestEvent) {
 	const user = event.locals.user;
 	if (!user) redirect(302, '/auth/sign-in');
-	return user.role === USER_ROLES.SUPERADMIN;
+	return can(user, 'platform.configure');
 }
 
 const categoryFields = z.object({

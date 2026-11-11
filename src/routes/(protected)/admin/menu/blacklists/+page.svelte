@@ -28,7 +28,9 @@
 <Page>
 	<PageHeader
 		title="Blacklists"
-		description="Every professional a practice has blocked, across all practices. Add a block from the practice's profile page; remove it here or there."
+		description={data.canRemove
+			? "Every professional a practice has blocked, across all practices. Add a block from the practice's profile page; remove it here or there."
+			: "Every professional a practice has blocked, across all practices. Add a block from the practice's profile page. Only a super admin can remove one."}
 	/>
 
 	<BlacklistTable
@@ -36,10 +38,12 @@
 		search={data.search ?? ''}
 		pagination={{ page: data.page ?? 1, pageSize: data.limit ?? 25, total: data.total ?? 0, href: (p) => pageHrefFor(page.url, p) }}
 		{toolbar}
-		onRemove={(r) => {
-			pending = r;
-			removeOpen = true;
-		}}
+		onRemove={data.canRemove
+			? (r) => {
+					pending = r;
+					removeOpen = true;
+				}
+			: undefined}
 	/>
 </Page>
 
