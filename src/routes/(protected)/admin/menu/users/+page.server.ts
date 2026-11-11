@@ -9,6 +9,7 @@ import {
 } from '$lib/server/database/queries/admin';
 import { auth } from '$lib/server/auth';
 import { startImpersonation } from '$lib/server/impersonation';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
 
 const DEFAULT_LIMIT = 25;
 
@@ -45,6 +46,8 @@ export const actions = {
 		const formData = await event.request.formData();
 		const id = (formData.get('id') as string | null)?.trim();
 		if (!id) return fail(400, { error: 'Missing user id' });
+		// Hard delete: the dialog makes the admin type DELETE; refuse anything else.
+		if (!hasTypedConfirmation(formData)) return fail(400, { error: 'Type DELETE to confirm' });
 
 		// Defense-in-depth: never let an admin delete their own account from this UI.
 		if (id === user.id) {
