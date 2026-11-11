@@ -24,11 +24,13 @@ export class InboxService {
 		type,
 		participants,
 		applicationId,
+		companyId,
 		initialMessage
 	}: {
 		type: ConversationType;
 		participants: { userId: string; participantType: ParticipantType }[];
 		applicationId?: string;
+		companyId?: string;
 		initialMessage?: string;
 	}) {
 		console.log(
@@ -43,6 +45,7 @@ export class InboxService {
 				id: conversationId,
 				type,
 				applicationId,
+				companyId,
 				isActive: true
 			});
 
@@ -178,7 +181,8 @@ export class InboxService {
 					participants: enhancedParticipants,
 					lastMessage,
 					unreadCount,
-					applicationData
+					applicationData,
+					practice: await this.getConversationPractice(conv.conversations.companyId)
 				};
 			})
 		);
@@ -366,7 +370,8 @@ export class InboxService {
 					createdAt: conversationTable.createdAt,
 					updatedAt: conversationTable.updatedAt,
 					isActive: conversationTable.isActive,
-					applicationId: conversationTable.applicationId
+					applicationId: conversationTable.applicationId,
+					companyId: conversationTable.companyId
 				})
 				.from(conversationTable)
 				.where(and(eq(conversationTable.id, conversationId), eq(conversationTable.isActive, true)))
@@ -464,8 +469,24 @@ export class InboxService {
 			participants,
 			messages,
 			unreadCount,
-			applicationData
+			applicationData,
+			practice: await this.getConversationPractice(conversation.companyId)
 		};
+	}
+
+	/** The practice a CLIENT_CANDIDATE conversation is with, shaped like applicationData.company. */
+	private async getConversationPractice(companyId: string | null) {
+		if (!companyId) return null;
+		const [practice] = await db
+			.select({
+				id: clientCompanyTable.id,
+				name: clientCompanyTable.companyName,
+				logo: clientCompanyTable.companyLogo
+			})
+			.from(clientCompanyTable)
+			.where(eq(clientCompanyTable.id, companyId))
+			.limit(1);
+		return practice ?? null;
 	}
 
 	async addParticipant({

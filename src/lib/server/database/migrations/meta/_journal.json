@@ -498,6 +498,13 @@
       "when": 1793837913226,
       "tag": "0070_wealthy_microbe",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1794356341740,
+      "tag": "0071_wealthy_pandemic",
+      "breakpoints": true
     }
   ]
 }
