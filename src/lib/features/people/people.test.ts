@@ -183,3 +183,20 @@ describe('locations list URL contract', () => {
 		expect(staffForTab(rows, 'manager')).toHaveLength(0);
 	});
 });
+
+describe('timesheetsFromShifts', () => {
+	it('collapses worked days into one row per timesheet, newest week first', async () => {
+		const { timesheetsFromShifts } = await import('./people');
+		const day = (ts: any, req = 7) => ({
+			recurrenceDay: { dayStart: '2026-11-03T13:00:00Z' },
+			requisition: { id: req, companyName: 'Bright Smiles' },
+			timesheet: ts
+		});
+		const a = { id: 't1', status: 'APPROVED', weekBeginDate: '2026-10-26', totalHoursWorked: '16.5' };
+		const b = { id: 't2', status: 'PENDING', weekBeginDate: '2026-11-02', totalHoursWorked: null };
+		const rows = timesheetsFromShifts([day(a), day(a), day(b), day(null)]);
+		expect(rows.map((r) => r.id)).toEqual(['t2', 't1']);
+		expect(rows[1]).toMatchObject({ shifts: 2, totalHoursWorked: 16.5, practice: 'Bright Smiles' });
+		expect(rows[0].totalHoursWorked).toBeNull();
+	});
+});

@@ -270,3 +270,52 @@ export function staffRoleLabel(role: string | null | undefined): string {
 export function readTab<T extends string>(value: string | null, allowed: readonly T[]): T {
 	return (allowed as readonly string[]).includes(value ?? '') ? (value as T) : allowed[0];
 }
+
+type WorkedShift = {
+	recurrenceDay: { dayStart: Date | string };
+	requisition: { id: number; title?: string | null; companyName?: string | null };
+	timesheet: {
+		id: string;
+		status?: string | null;
+		weekBeginDate?: string | null;
+		totalHoursWorked?: string | number | null;
+	} | null;
+};
+
+export type TimesheetSummary = {
+	id: string;
+	status: string | null;
+	weekBeginDate: string | null;
+	totalHoursWorked: number | null;
+	practice: string | null;
+	requisitionId: number;
+	shifts: number;
+};
+
+/**
+ * The work-history query returns one row per worked day; a timesheet covers a
+ * week of them. Collapse to one row per timesheet, newest week first.
+ */
+export function timesheetsFromShifts(shifts: readonly WorkedShift[]): TimesheetSummary[] {
+	const byId = new Map<string, TimesheetSummary>();
+	for (const shift of shifts) {
+		const sheet = shift.timesheet;
+		if (!sheet?.id) continue;
+		const existing = byId.get(sheet.id);
+		if (existing) {
+			existing.shifts += 1;
+			continue;
+		}
+		const hours = sheet.totalHoursWorked === null || sheet.totalHoursWorked === undefined ? null : Number(sheet.totalHoursWorked);
+		byId.set(sheet.id, {
+			id: sheet.id,
+			status: sheet.status ?? null,
+			weekBeginDate: sheet.weekBeginDate ?? null,
+			totalHoursWorked: Number.isFinite(hours) ? hours : null,
+			practice: shift.requisition.companyName ?? null,
+			requisitionId: shift.requisition.id,
+			shifts: 1
+		});
+	}
+	return [...byId.values()].sort((a, b) => (b.weekBeginDate ?? '').localeCompare(a.weekBeginDate ?? ''));
+}

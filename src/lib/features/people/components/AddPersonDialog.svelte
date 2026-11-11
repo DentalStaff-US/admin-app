@@ -34,7 +34,7 @@
 			if (result.type === 'success' || result.type === 'redirect') open = false;
 		}
 	});
-	const { submitting, message } = sf;
+	const { submitting, message, errors } = sf;
 	const config = { form: sf, schema: adminNewUserSchema };
 </script>
 
@@ -86,7 +86,9 @@
 					<Form.Validation />
 				</Form.Item>
 			</Form.Field>
-			{#if $message}<p class="text-sm text-destructive" role="alert">{$message}</p>{/if}
+			{#if $errors._errors?.length || ($message && $message !== 'Profile created successfully')}
+				<p class="text-sm text-destructive" role="alert">{$errors._errors?.[0] ?? $message}</p>
+			{/if}
 			<Dialog.Footer class="gap-2">
 				<Button variant="outline" on:click={() => (open = false)}>Cancel</Button>
 				<Button type="submit" disabled={$submitting}>{$submitting ? 'Creating…' : 'Create'}</Button>

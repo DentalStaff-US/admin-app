@@ -29,6 +29,12 @@
 	const id = `tabs-${Math.random().toString(36).slice(2, 8)}`;
 	let buttons: HTMLButtonElement[] = $state([]);
 
+	// Keep the active tab in view when the strip scrolls sideways on phones.
+	$effect(() => {
+		const index = tabs.findIndex((t) => t.value === value);
+		buttons[index]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+	});
+
 	function select(next: string) {
 		value = next;
 		if (!syncUrl || typeof window === 'undefined') return;

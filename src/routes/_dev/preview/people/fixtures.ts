@@ -68,3 +68,77 @@ export const locations = [
 	{ id: 'l2', location_name: 'Brandon', complete_address: '980 W Brandon Blvd, Brandon, FL 33511', company_phone: '(813) 555-0190' },
 	{ id: 'l3', location_name: 'Wesley Chapel', complete_address: '2700 Bruce B Downs Blvd, Wesley Chapel, FL 33544', company_phone: null }
 ];
+
+const proDisciplines = [
+	{
+		discipline: { id: 'd1', name: 'Dental Hygienist', abbreviation: 'RDH', requiresLicense: true },
+		experience: { experienceLevel: '5+ years', experienceLevelId: 'e3', requiresCert: false },
+		salaryRange: { min: 42, max: 52 },
+		effectiveLicenseExpiry: '2026-12-01',
+		licenseGraceStartedOn: null,
+		effectiveCertExpiry: null
+	},
+	{
+		discipline: { id: 'd2', name: 'Dental Assistant', abbreviation: 'DA', requiresLicense: false },
+		experience: { experienceLevel: '3–5 years', experienceLevelId: 'e2', requiresCert: true },
+		salaryRange: { min: 26, max: 30 },
+		effectiveLicenseExpiry: null,
+		licenseGraceStartedOn: null,
+		effectiveCertExpiry: '2028-03-31'
+	}
+];
+
+const worked = (id: string, day: string, ts: { id: string; week: string; hours: string; status: string }, req = 1042, practice = 'Bright Smiles Dental') => ({
+	workday: { id },
+	recurrenceDay: { dayStart: d(`${day}T12:30:00Z`) },
+	requisition: { id: req, title: 'Temp Dental Hygienist', companyName: practice },
+	location: { address1: '1201 W Platt St', address2: null, city: 'Tampa', state: 'FL', zip: '33606' },
+	timesheet: { id: ts.id, totalHoursWorked: ts.hours, status: ts.status, weekBeginDate: ts.week }
+});
+const t1 = { id: 'ts1', week: '2026-10-26', hours: '16.5', status: 'APPROVED' };
+const t2 = { id: 'ts2', week: '2026-11-02', hours: '24', status: 'SUBMITTED' };
+
+export function professionalData(opts: { admin?: boolean; empty?: boolean } = {}) {
+	const admin = opts.admin ?? true;
+	const empty = opts.empty ?? false;
+	return {
+		user: { id: 'me', role: admin ? 'SUPERADMIN' : 'CLIENT' },
+		candidate: {
+			user: { id: 'u-p1', firstName: 'Maria', lastName: 'Gonzalez', email: 'maria.gonzalez@example.com', avatarUrl: null, receiveEmail: true, receiveSms: false },
+			profile: { id: 'p1', puid: 10482, status: 'ACTIVE', cellPhone: '8135550142', completeAddress: '1201 W Platt St, Tampa, FL 33606', birthday: '1991-04-18', workersCompCode: '8021', workPreference: null }
+		},
+		allDisciplines: empty ? [] : proDisciplines,
+		availableDisciplines: Object.values(disciplines),
+		experienceLevels: [
+			{ id: 'e1', value: '0–2 years' },
+			{ id: 'e2', value: '3–5 years' },
+			{ id: 'e3', value: '5+ years' }
+		],
+		workHistory: empty ? [] : [worked('w1', '2026-10-27', t1), worked('w2', '2026-10-29', t1), worked('w3', '2026-11-03', t2), worked('w4', '2026-11-04', t2), worked('w5', '2026-11-05', t2)],
+		documents: empty
+			? []
+			: [
+					{ id: 'doc1', filename: 'FL-RDH-license.pdf', type: 'LICENSE', uploadUrl: '#', adminOnly: false, createdAt: d('2026-03-14'), expiryDate: '2026-12-01', disciplineId: 'd1', skillId: null },
+					{ id: 'doc2', filename: 'DANB-cert.jpg', type: 'CERTIFICATE', uploadUrl: '#', adminOnly: false, createdAt: d('2026-04-02'), expiryDate: '2028-03-31', disciplineId: 'd2', skillId: null },
+					{ id: 'doc3', filename: 'resume-2026.docx', type: 'RESUME', uploadUrl: '#', adminOnly: true, createdAt: d('2026-03-14'), expiryDate: null, disciplineId: null, skillId: null }
+				],
+		statusForm: fakeSuperValidated({ status: 'ACTIVE' }),
+		personalDetailsForm: fakeSuperValidated({}),
+		disciplinesForm: fakeSuperValidated({
+			disciplines: proDisciplines.map((x) => ({ disciplineId: x.discipline.id, experienceLevelId: x.experience.experienceLevelId, preferredHourlyMin: x.salaryRange.min, preferredHourlyMax: x.salaryRange.max }))
+		}),
+		documentsForm: fakeSuperValidated({ urls: [], filesData: '' }),
+		comments: empty ? [] : comments,
+		activity: empty ? [] : activity,
+		availability: {
+			availableDays: [1, 2, 3, 4, 5],
+			availableDaysSource: 'ADMIN',
+			availableDaysUpdatedAt: d('2026-11-01'),
+			blackouts: [{ date: '2026-11-26', source: 'PROFESSIONAL', note: 'Thanksgiving' }, { date: '2026-12-24', source: 'ADMIN', note: null }],
+			bookedDates: [{ date: '2026-11-12', requisitionId: 1042, workdayId: 'w9' }]
+		},
+		availabilityWindow: { from: '2026-11-10', to: '2027-11-10' },
+		candidateSkills: [{ skillId: 'sk1', name: 'Nitrous monitoring', categoryId: 'c1', categoryName: 'Clinical', requiresCertificate: true, certExpiresOn: null, effective: true }],
+		skillCatalog: [{ id: 'c1', name: 'Clinical', description: null, skills: [{ id: 'sk1', name: 'Nitrous monitoring', requiresCertificate: true, archivedAt: null }, { id: 'sk2', name: 'Local anesthesia', requiresCertificate: true, archivedAt: null }] }]
+	};
+}

@@ -27,6 +27,8 @@ import {
 } from '$lib/server/database/queries/candidateDisciplines';
 import { setDisciplineCertification } from '$lib/server/certifications/setDisciplineCertification';
 import { recordAction } from '$lib/server/audit/audit';
+import { getActivityForEntity } from '$lib/server/audit/queries';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
 import {
 	getCandidateAvailability,
 	saveCandidateAvailability
@@ -95,6 +97,9 @@ export const load: PageServerLoad = async (event) => {
 	const workHistory = await getAllCandidateWorkHistory(id);
 	const documents = await getCandidateDocuments(id);
 	const comments = await getCommentsForCandidate(id);
+	// History tab: this professional's slice of the action_history ledger. Read
+	// only, and only for admins (the tab is admin-only).
+	const activity = user.role === USER_ROLES.SUPERADMIN ? await getActivityForEntity('CANDIDATES', id) : [];
 
 	// Skills: what they hold, plus the catalog scoped to their disciplines (keeping
 	// anything already held, even if archived or out of scope, so it can be removed).
@@ -711,6 +716,8 @@ export const actions = {
 
 		const formData = await event.request.formData();
 		const documentId = formData.get('documentId') as string;
+		// Hard delete: the dialog makes the admin type DELETE, and so does this.
+		if (!hasTypedConfirmation(formData)) return fail(400, { error: 'Type DELETE to confirm' });
 
 		try {
 			await db
@@ -776,6 +783,8 @@ export const actions = {
 
 		const formData = await event.request.formData();
 		const commentId = formData.get('commentId') as string;
+		// Hard delete: the dialog makes the admin type DELETE, and so does this.
+		if (!hasTypedConfirmation(formData)) return fail(400, { error: 'Type DELETE to confirm' });
 
 		await deleteComment(commentId, user.id);
 		setFlash({ type: 'success', message: 'Comment deleted' }, event);

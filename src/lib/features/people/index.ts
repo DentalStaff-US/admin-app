@@ -15,7 +15,12 @@ export { default as PersonAvatar } from './components/PersonAvatar.svelte';
 export { default as ProfileNotes } from './components/ProfileNotes.svelte';
 export { default as StatusMenu } from './components/StatusMenu.svelte';
 
+export * from './credentials';
+export { default as ToneBadge } from './components/ToneBadge.svelte';
+export { default as FormPhoneInput } from './components/FormPhoneInput.svelte';
+
 export { default as ProfessionalsTable } from './components/professionals/ProfessionalsTable.svelte';
+export { default as ProfessionalDetailPage } from './components/professionals/ProfessionalDetailPage.svelte';
 export { default as ClientsTable } from './components/clients/ClientsTable.svelte';
 export { default as StaffTable } from './components/staff/StaffTable.svelte';
 export { default as LocationsTable } from './components/locations/LocationsTable.svelte';

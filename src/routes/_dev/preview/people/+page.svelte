@@ -14,6 +14,7 @@
 		ClientsTable,
 		ListSearch,
 		LocationsTable,
+		ProfessionalDetailPage,
 		ProfessionalsTable,
 		StaffDetailsDialog,
 		StaffTable
@@ -29,7 +30,7 @@
 	let staffOpen = $state(false);
 	let staffMember = $state<(typeof fx.staff)[number] | null>(null);
 	const path = $derived(
-		({ pros: '/professionals', clients: '/clients', staff: '/staff', locations: '/locations' } as Record<string, string>)[screen] ?? '/professionals'
+		({ pro: '/professionals/p1', pros: '/professionals', clients: '/clients', staff: '/staff', locations: '/locations' } as Record<string, string>)[screen] ?? '/professionals'
 	);
 </script>
 
@@ -102,6 +103,8 @@
 			title="Add a professional"
 			description="Creates their account with an empty profile. Fill in the rest on the next page."
 		/>
+	{:else if screen === 'pro'}
+		<ProfessionalDetailPage data={fx.professionalData({ admin: q.get('role') !== 'client', empty })} />
 	{:else if screen === 'clients'}
 		<Page>
 			<PageHeader title="Clients" description="Practices and their owners, by status.">
