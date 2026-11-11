@@ -99,16 +99,16 @@ export const METRICS = {
 		label: 'Permanent pipeline',
 		kind: 'informational',
 		window: 'live',
-		hint: () => 'Open permanent requests and where their candidates are, right now.',
+		hint: () => 'Open permanent requisitions and where their candidates are, right now.',
 		href: '/requisitions'
 	},
 	// --- Practices: at a glance --------------------------------------------
 	openRequests: {
 		id: 'openRequests',
-		label: 'Open requests',
+		label: 'Open requisitions',
 		kind: 'informational',
 		window: 'live',
-		hint: () => 'Requests that are posted and still looking for professionals.',
+		hint: () => 'Requisitions that are posted and still looking for professionals.',
 		href: '/requisitions'
 	},
 	shiftsThisMonth: {

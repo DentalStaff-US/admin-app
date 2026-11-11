@@ -56,7 +56,7 @@
 <Page>
 	<PageHeader
 		title="Skill categories"
-		description="Group skills and choose which disciplines each category applies to. Practices set a requirement, or No preference, per category on each request."
+		description="Group skills and choose which disciplines each category applies to. Practices set a requirement, or No preference, per category on each requisition."
 	>
 		{#snippet actions()}
 			<Button variant="outline" href="/admin/menu/skills">Manage skills</Button>
@@ -103,7 +103,7 @@
 		>
 			<Dialog.Header>
 				<Dialog.Title class="text-h2">{editing ? 'Edit category' : 'Add skill category'}</Dialog.Title>
-				<Dialog.Description>Practices set one requirement per category on each request.</Dialog.Description>
+				<Dialog.Description>Practices set one requirement per category on each requisition.</Dialog.Description>
 			</Dialog.Header>
 			{#if editing}<input type="hidden" name="id" value={editing.id} />{/if}
 			<div class="space-y-4">
@@ -147,7 +147,7 @@
 	title={target?.archivedAt ? `Restore ${target?.name}?` : `Archive ${target?.name ?? 'this category'}?`}
 	description={target?.archivedAt
 		? 'The category becomes available to choose again.'
-		: 'The category is hidden from new choices. Requests that already use it keep it, and you can restore it later.'}
+		: 'The category is hidden from new choices. Requisitions that already use it keep it, and you can restore it later.'}
 	action="?/setArchived"
 	fields={{ id: target?.id ?? '', archived: target?.archivedAt ? 'false' : 'true' }}
 	confirmLabel={target?.archivedAt ? 'Restore category' : 'Archive category'}
@@ -157,7 +157,7 @@
 <TaxonomyConfirmDialog
 	bind:open={deleteOpen}
 	title="Delete {target?.name ?? 'this category'}?"
-	description="The category has no skills and isn't used by any request, so it's removed for good. This can't be undone."
+	description="The category has no skills and isn't used by any requisition, so it's removed for good. This can't be undone."
 	action="?/deleteCategory"
 	fields={{ id: target?.id ?? '' }}
 	confirmLabel="Delete category"

@@ -17,17 +17,16 @@
 
 	let drawerExpanded = $state(false);
 	const isAdmin = $derived(data.user?.role === USER_ROLES.SUPERADMIN);
-	// Practices see "Requests", admins "Requisitions".
-	const noun = $derived(isAdmin ? 'requisition' : 'request');
+	const noun = 'requisition';
 	const clientForm = $derived(data.clientForm as SuperValidated<ClientRequisitionSchema> | null);
 	const adminForm = $derived(data.adminForm as SuperValidated<AdminRequisitionSchema> | null);
 </script>
 
 <Page>
 	<PageHeader
-		title={isAdmin ? 'Requisitions' : 'Requests'}
+		title="Requisitions"
 		description={isAdmin
-			? 'Every temp and permanent request across practices.'
+			? 'Every temp and permanent requisition across practices.'
 			: 'Temp shifts and permanent positions across your locations.'}
 	>
 		{#snippet actions()}
@@ -52,7 +51,7 @@
 			</Notice>
 		{:else if data.clientStatus === 'PENDING'}
 			<Notice tone="pending" title="Pending approval">
-				You'll be able to post requests once our team approves your account.
+				You'll be able to post requisitions once our team approves your account.
 			</Notice>
 		{:else if data.clientStatus === 'DENIED'}
 			<Notice tone="negative" title="Account denied">

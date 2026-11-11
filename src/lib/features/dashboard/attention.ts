@@ -31,7 +31,7 @@ export const KIND_META: Record<AttentionKind, KindMeta> = {
 	PERM_UNBILLED: { category: 'billing', priority: 3, tone: 'warning', noun: 'unbilled placements', listHref: '/requisitions?filter=unbilled' },
 	COMPLIANCE_BLOCKED: { category: 'people', priority: 3, tone: 'negative', noun: 'blocked professionals', listHref: '/admin/compliance?severity=BLOCKED' },
 	TIMESHEET_PENDING: { category: 'timesheets', priority: 4, tone: 'pending', noun: 'timesheets to review', listHref: '/timesheets?tab=review' },
-	PERM_APPLICANTS_WAITING: { category: 'people', priority: 4, tone: 'pending', noun: 'permanent requests with applicants waiting', listHref: '/requisitions/permanent' },
+	PERM_APPLICANTS_WAITING: { category: 'people', priority: 4, tone: 'pending', noun: 'permanent requisitions with applicants waiting', listHref: '/requisitions/permanent' },
 	PRO_PENDING_APPROVAL: { category: 'people', priority: 5, tone: 'pending', noun: 'professionals awaiting approval', listHref: '/professionals?status=PENDING' },
 	CLIENT_PENDING_APPROVAL: { category: 'people', priority: 5, tone: 'pending', noun: 'practices awaiting approval', listHref: '/clients?status=PENDING' },
 	SUPPORT_OPEN: { category: 'support', priority: 6, tone: 'info', noun: 'open support tickets', listHref: '/support' },

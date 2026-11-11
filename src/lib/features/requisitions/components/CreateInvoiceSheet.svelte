@@ -91,7 +91,7 @@
 	bind:open
 	{dirty}
 	title="Create invoice"
-	description={`Charge the practice for request #${requisitionId} (${label}). Use the notes to say what the charges cover.`}
+	description={`Charge the practice for requisition #${requisitionId} (${label}). Use the notes to say what the charges cover.`}
 >
 	<form id="create-invoice-form" method="POST" action="?/createInvoice" use:enhance class="space-y-6">
 		<div class="grid gap-4 sm:grid-cols-2">

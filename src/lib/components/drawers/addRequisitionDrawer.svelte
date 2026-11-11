@@ -1,5 +1,5 @@
 <script lang="ts">
-	// "New request" (practices) / "New requisition" (admins) in a right-hand
+	// "New requisition" in a right-hand
 	// FormSheet. Props are unchanged: dashboards, clients and locations pages
 	// open it by binding `drawerExpanded`.
 	import FormSheet from '$dtss/FormSheet.svelte';
@@ -33,10 +33,10 @@
 
 <FormSheet
 	bind:open={drawerExpanded}
-	title={isAdmin ? 'New requisition' : 'New request'}
+	title="New requisition"
 	description={isAdmin
 		? 'Post a temp or permanent requisition for a practice. You can add days once it exists.'
-		: 'Tell us who you need. You can add the days once the request is posted.'}
+		: 'Tell us who you need. You can add the days once the requisition is posted.'}
 	{dirty}
 >
 	{#if isAdmin && adminForm}

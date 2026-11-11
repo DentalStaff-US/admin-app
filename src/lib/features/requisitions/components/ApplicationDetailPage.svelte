@@ -40,7 +40,7 @@
 	const profile = $derived(application?.candidateProfile);
 	const isAdmin = $derived(data.user?.role === USER_ROLES.SUPERADMIN);
 	const requisitionId = $derived(requisitionIdProp ?? $page.params.id);
-	const noun = $derived(isAdmin ? 'Requisition' : 'Request');
+	const noun = 'Requisition';
 	const name = $derived(application ? `${application.user.firstName ?? ''} ${application.user.lastName ?? ''}`.trim() : '');
 	const recommended = $derived(app?.source === 'ADMIN_RECOMMENDED');
 
@@ -235,7 +235,7 @@
 	<ConfirmDialog
 		bind:open={approveOpen}
 		title={`Approve ${name}?`}
-		description={`${name} is notified that they got the role. On a permanent request any other pending applicants are declined and notified, and the request moves to Payment required; a temp request is closed.`}
+		description={`${name} is notified that they got the role. On a permanent requisition any other pending applicants are declined and notified, and the requisition moves to Payment required; a temp requisition is closed.`}
 	>
 		{#snippet confirm()}
 			<form method="POST" action="?/approveApplication" use:approvalEnhance>
@@ -281,7 +281,7 @@
 {:else}
 	<Page width="narrow">
 		<PageHeader title="Application not found" />
-		<EmptyState icon={SearchX} title="We couldn't find this application" description="It may belong to another request, or the link is out of date.">
+		<EmptyState icon={SearchX} title="We couldn't find this application" description="It may belong to another requisition, or the link is out of date.">
 			<Button href={`/requisitions/${requisitionId}`}>Back to {noun.toLowerCase()} #{requisitionId}</Button>
 		</EmptyState>
 	</Page>

@@ -162,7 +162,7 @@ export function lifecycleSteps(opts: {
 			key: 'POSTED',
 			label: 'Posted',
 			count: null,
-			hint: 'The request is live on the job board once it is open.'
+			hint: 'The requisition is live on the job board once it is open.'
 		},
 		{
 			key: 'INTERESTED',
@@ -171,8 +171,8 @@ export function lifecycleSteps(opts: {
 			href: stageHref('interested'),
 			hint:
 				audience === 'admin'
-					? 'Professionals who saved this request but have not applied.'
-					: 'Professionals who saved this request. Saving is not consent to be contacted, so names stay private.'
+					? 'Professionals who saved this requisition but have not applied.'
+					: 'Professionals who saved this requisition. Saving is not consent to be contacted, so names stay private.'
 		},
 		{
 			key: 'APPLIED',
@@ -187,7 +187,7 @@ export function lifecycleSteps(opts: {
 			label: 'Hired',
 			count: counts.hired,
 			href: stageHref('hired'),
-			hint: 'An approved applicant. Approving moves the request to payment required.'
+			hint: 'An approved applicant. Approving moves the requisition to payment required.'
 		},
 		{
 			key: 'FEE',

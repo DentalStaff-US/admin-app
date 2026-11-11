@@ -13,7 +13,7 @@
 </script>
 
 <div class="inline-flex">
-	<Button class="rounded-r-none" on:click={onrequest}><Plus class="mr-1.5 size-4" aria-hidden="true" />New request</Button>
+	<Button class="rounded-r-none" on:click={onrequest}><Plus class="mr-1.5 size-4" aria-hidden="true" />New requisition</Button>
 	<DropdownMenu.Root>
 		<DropdownMenu.Trigger
 			aria-label="More ways to add"
@@ -22,7 +22,7 @@
 			<ChevronDown class="size-4" aria-hidden="true" />
 		</DropdownMenu.Trigger>
 		<DropdownMenu.Content align="end" class="w-48">
-			<DropdownMenu.Item on:click={onrequest}>New request</DropdownMenu.Item>
+			<DropdownMenu.Item on:click={onrequest}>New requisition</DropdownMenu.Item>
 			<DropdownMenu.Separator />
 			<DropdownMenu.Item on:click={onprofessional}>New professional</DropdownMenu.Item>
 			<DropdownMenu.Item on:click={onclient}>New client</DropdownMenu.Item>

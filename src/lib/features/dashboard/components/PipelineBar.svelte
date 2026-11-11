@@ -24,7 +24,7 @@
 
 <Section title="Shift pipeline" description="Temp shifts by status, {metricWindowText('pipelineBilling', window)} (whole period)">
 	{#snippet actions()}
-		<a href="/requisitions" class="text-sm font-semibold text-primary-dark hover:underline">Requests</a>
+		<a href="/requisitions" class="text-sm font-semibold text-primary-dark hover:underline">Requisitions</a>
 	{/snippet}
 	{#if pipeline.ok}
 		{@const p = pipeline.value}

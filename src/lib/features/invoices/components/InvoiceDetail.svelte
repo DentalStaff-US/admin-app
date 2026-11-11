@@ -142,7 +142,7 @@
 		facts={[
 			{ label: 'Issued', value: day(inv.createdAt) },
 			{ label: 'Due', cell: dueFact },
-			{ label: 'Request', cell: requestFact },
+			{ label: 'Requisition', cell: requestFact },
 			{ label: 'Timesheet', cell: timesheetFact }
 		]}
 	/>

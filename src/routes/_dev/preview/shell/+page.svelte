@@ -21,8 +21,8 @@
 
 {#snippet body()}
 	<Page>
-		<PageHeader title="Requests" description="Every temp and permanent request across your locations.">
-			{#snippet actions()}<Button>New request</Button>{/snippet}
+		<PageHeader title="Requisitions" description="Every temp and permanent requisition across your locations.">
+			{#snippet actions()}<Button>New requisition</Button>{/snippet}
 		</PageHeader>
 		<div class="grid gap-4 md:grid-cols-3">
 			{#each Array(q.get('long') ? 24 : 6) as _, i (i)}
@@ -51,7 +51,7 @@
 		topBannerShown={!!q.get('as')}
 	>
 		{#snippet banner()}
-			{#if q.get('banner')}<Notice tone="warning" title="Payment method needed">Add a card or bank account to keep posting requests.</Notice>{/if}
+			{#if q.get('banner')}<Notice tone="warning" title="Payment method needed">Add a card or bank account to keep posting requisitions.</Notice>{/if}
 		{/snippet}
 		{@render body()}
 	</AdminShell>

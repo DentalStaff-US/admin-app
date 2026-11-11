@@ -56,7 +56,7 @@
 	};
 
 	const columns: DataColumn<PipelineRow>[] = [
-		{ id: 'request', header: 'Request', cell: requestCell },
+		{ id: 'request', header: 'Requisition', cell: requestCell },
 		{ id: 'interested', header: 'Interested', numeric: true, cell: interestedCell },
 		{ id: 'applied', header: 'Applied', numeric: true, cell: appliedCell },
 		{ id: 'recommended', header: 'Recommended', numeric: true, cell: recommendedCell },
@@ -141,11 +141,11 @@
 {/snippet}
 
 {#snippet empty()}
-	<EmptyState icon={Workflow} title="No permanent requests here" description="Permanent requests show up here from posting until the fee is received." />
+	<EmptyState icon={Workflow} title="No permanent requisitions here" description="Permanent requisitions show up here from posting until the fee is received." />
 {/snippet}
 
 <Page width={view === 'board' ? 'full' : 'default'}>
-	<PageHeader title="Permanent pipeline" description="Every permanent request from posting to fee received. Each count opens exactly those people.">
+	<PageHeader title="Permanent pipeline" description="Every permanent requisition from posting to fee received. Each count opens exactly those people.">
 		{#snippet actions()}
 			<div role="group" aria-label="Layout" class="inline-flex rounded-md bg-muted p-1">
 				{#each [['table', 'Table', Rows], ['board', 'Board', Columns]] as const as [value, label, Icon] (value)}
@@ -170,8 +170,8 @@
 			{columns}
 			key={(r) => r.id}
 			rowHref={(r) => `/requisitions/${r.id}`}
-			rowLabel={(r) => `Open request #${r.id}, ${title(r)} at ${r.companyName}`}
-			caption="Permanent requests by stage"
+			rowLabel={(r) => `Open requisition #${r.id}, ${title(r)} at ${r.companyName}`}
+			caption="Permanent requisitions by stage"
 			tabs={tabsSnippet}
 			{toolbar}
 			{empty}

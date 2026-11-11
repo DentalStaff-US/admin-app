@@ -33,8 +33,8 @@
 				<p class="text-overline uppercase text-primary-dark">You're all set</p>
 				<h1 class="mt-2 text-h1">Welcome to DTSS{firstName ? `, ${firstName}` : ''}</h1>
 				<p class="mt-3 text-lg text-muted-foreground">
-					Post a request and we'll match it with qualified professionals near you. Our team reviews new
-					practices, and your requests go out to professionals once you're approved.
+					Post a requisition and we'll match it with qualified professionals near you. Our team reviews new
+					practices, and your requisitions go out to professionals once you're approved.
 				</p>
 				<ul class="mt-6 space-y-2">
 					{#each checklist as item (item.label)}
@@ -51,7 +51,7 @@
 					{/each}
 				</ul>
 				<div class="mt-8 flex flex-col gap-3 sm:flex-row">
-					<Button size="lg" href="/requisitions">Post your first request <ArrowRight class="ml-2 size-4" aria-hidden="true" /></Button>
+					<Button size="lg" href="/requisitions">Post your first requisition <ArrowRight class="ml-2 size-4" aria-hidden="true" /></Button>
 					<Button size="lg" variant="outline" href="/dashboard">Go to your dashboard</Button>
 				</div>
 			</div>

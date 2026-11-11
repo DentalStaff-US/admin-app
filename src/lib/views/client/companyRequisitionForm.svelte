@@ -294,7 +294,7 @@
 	<div class="sticky -bottom-5 -mx-6 -mb-5 flex flex-col-reverse gap-3 border-t bg-background px-6 py-4 sm:flex-row sm:justify-end">
 		<Button type="button" variant="outline" on:click={handleDrawerClose}>Cancel</Button>
 		<Button type="submit" disabled={$submitting}>
-			{$submitting ? 'Posting…' : 'Post request'}
+			{$submitting ? 'Posting…' : 'Post requisition'}
 		</Button>
 	</div>
 </form>

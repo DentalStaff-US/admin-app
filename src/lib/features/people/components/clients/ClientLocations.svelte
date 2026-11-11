@@ -27,7 +27,7 @@
 </script>
 
 {#snippet empty()}
-	<EmptyState icon={Building2} title="No locations yet" description="Add the practice's first office so requests and staff can be tied to it." />
+	<EmptyState icon={Building2} title="No locations yet" description="Add the practice's first office so requisitions and staff can be tied to it." />
 {/snippet}
 
 <Section title="Locations" flush>

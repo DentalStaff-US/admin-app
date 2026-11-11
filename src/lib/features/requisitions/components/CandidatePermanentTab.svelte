@@ -38,12 +38,12 @@
 
 <Section
 	title="Permanent"
-	description={`Permanent requests ${firstName ?? 'this professional'} saved or is applying for, with where they stand on each.`}
+	description={`Permanent requisitions ${firstName ?? 'this professional'} saved or is applying for, with where they stand on each.`}
 	flush
 >
 	{#if items.length === 0}
 		<div class="p-5 sm:p-6">
-			<EmptyState icon={Briefcase} title="No permanent activity" description="Saved and applied permanent requests show up here." />
+			<EmptyState icon={Briefcase} title="No permanent activity" description="Saved and applied permanent requisitions show up here." />
 		</div>
 	{:else}
 		<div class="divide-y">
@@ -66,7 +66,7 @@
 								<div class="flex flex-wrap items-center gap-2 text-sm">
 									<StatusBadge status={TONE[item.stage]} label={STAGE_LABEL[item.stage]} />
 									{#if item.requestStatus !== 'OPEN'}
-										<StatusBadge status={item.requestStatus} label={`Request ${item.requestStatus.replace(/_/g, ' ').toLowerCase()}`} />
+										<StatusBadge status={item.requestStatus} label={`Requisition ${item.requestStatus.replace(/_/g, ' ').toLowerCase()}`} />
 									{/if}
 									<span class="text-muted-foreground">
 										{item.stage === 'INTERESTED' ? 'Saved' : item.stage === 'RECOMMENDED' ? 'Recommended' : 'Applied'} {when(item.at)}

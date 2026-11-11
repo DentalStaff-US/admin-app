@@ -69,7 +69,7 @@
 					<div>
 						<Label for="defaultSearchRadiusMiles" class="font-semibold">Default search radius (miles)</Label>
 						<p class="mt-1 text-sm text-muted-foreground">
-							Used to find qualified professionals for a request when the request sets no radius of its own.
+							Used to find qualified professionals for a requisition when the requisition sets no radius of its own.
 							Applies in both apps.
 						</p>
 					</div>

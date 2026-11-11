@@ -178,10 +178,10 @@
 <AdminShell {pathname} nav={{ role: admin ? 'SUPERADMIN' : 'CLIENT' }} bind:sidebar name={admin ? 'Shannon Carter' : 'Ana Reyes'} initials={admin ? 'SC' : 'AR'}>
 	{#if view === 'list'}
 		<Page>
-			<PageHeader title={admin ? 'Requisitions' : 'Requests'} description={admin ? 'Every temp and permanent request across practices.' : 'Temp shifts and permanent positions across your locations.'}>
+			<PageHeader title="Requisitions" description={admin ? 'Every temp and permanent requisition across practices.' : 'Temp shifts and permanent positions across your locations.'}>
 				{#snippet actions()}
 					{#if admin}<Button variant="outline" href="?view=pipeline">Permanent pipeline</Button>{/if}
-					<Button>New {admin ? 'requisition' : 'request'}</Button>
+					<Button>New requisition</Button>
 				{/snippet}
 			</PageHeader>
 			<RequestsTable
@@ -195,7 +195,7 @@
 				sort={{ column: 'created', direction: 'desc' }}
 				facets={buildFacets(listRows)}
 				isAdmin={admin}
-				noun={admin ? 'requisition' : 'request'}
+				noun="requisition"
 			/>
 		</Page>
 	{:else if view === 'detail'}

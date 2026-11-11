@@ -23,7 +23,7 @@
 		{ id: 1038, role: 'Front Office', practice: 'Harbor Dental Group', dates: 'Nov 9 – Nov 20', rate: 24, status: 'CLOSED', filled: '8/8' }
 	];
 	const columns: DataColumn<Req>[] = [
-		{ id: 'role', header: 'Request', value: (r) => `#${r.id} · ${r.role}`, sortable: true },
+		{ id: 'role', header: 'Requisition', value: (r) => `#${r.id} · ${r.role}`, sortable: true },
 		{ id: 'practice', header: 'Practice', value: (r) => r.practice },
 		{ id: 'dates', header: 'Dates', value: (r) => r.dates },
 		{ id: 'rate', header: 'Rate', value: (r) => `$${r.rate}/hr`, numeric: true, sortable: true },
@@ -45,7 +45,7 @@
 {/snippet}
 {#snippet tabs()}
 	<TabsWithCounts
-		label="Request status"
+		label="Requisition status"
 		active="open"
 		tabs={[
 			{ value: 'open', label: 'Open', href: '?tab=open', count: 12 },
@@ -55,11 +55,11 @@
 		]}
 	/>
 {/snippet}
-{#snippet toolbar()}<Input placeholder="Search requests" class="max-w-xs" />{/snippet}
+{#snippet toolbar()}<Input placeholder="Search requisitions" class="max-w-xs" />{/snippet}
 
 <AdminShell pathname="/requisitions" nav={{ role: 'SUPERADMIN' }} bind:sidebar name="Shannon Carter" initials="SC">
 	<Page>
-		<PageHeader title="Requisitions" description="Every temp and permanent request.">
+		<PageHeader title="Requisitions" description="Every temp and permanent requisition.">
 			{#snippet actions()}
 				<Button variant="outline" on:click={() => (confirmOpen = true)}>Delete draft</Button>
 				<Button on:click={() => (sheetOpen = true)}>New requisition</Button>
@@ -84,14 +84,14 @@
 				<Timeline entries={[
 					{ id: 1, at: new Date(), actor: 'Shannon C.', text: 'approved the timesheet', tone: 'positive' },
 					{ id: 2, at: new Date(Date.now() - 864e5), actor: 'Maria L.', text: 'claimed Tuesday', tone: 'info' },
-					{ id: 3, at: new Date(Date.now() - 2 * 864e5), text: 'Request posted', tone: 'neutral' }
+					{ id: 3, at: new Date(Date.now() - 2 * 864e5), text: 'Requisition posted', tone: 'neutral' }
 				]} />
 			</Section>
 		</div>
 	</Page>
 </AdminShell>
 
-<FormSheet bind:open={sheetOpen} title="New requisition" description="Post a temp or permanent request." {dirty}>
+<FormSheet bind:open={sheetOpen} title="New requisition" description="Post a temp or permanent requisition." {dirty}>
 	<label class="block text-sm font-semibold">Notes <Input oninput={() => (dirty = true)} /></label>
 	{#snippet footer()}
 		<Button variant="outline" on:click={() => (sheetOpen = false)}>Cancel</Button>

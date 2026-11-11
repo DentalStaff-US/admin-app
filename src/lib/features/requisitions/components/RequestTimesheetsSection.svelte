@@ -51,7 +51,7 @@
 	key={(r) => r.timeSheet.id}
 	rowHref={(r) => `/timesheets/${r.timeSheet.id}`}
 	rowLabel={(r) => `Open timesheet for ${name(r)}, week of ${week(r)}`}
-	caption="Timesheets on this request"
+	caption="Timesheets on this requisition"
 	{mobile}
 	{empty}
 />

@@ -101,11 +101,11 @@
 
 {#snippet postButton()}
 	{#if canPost}
-		<Button on:click={() => (drawerExpanded = true)}><Plus class="mr-1.5 size-4" aria-hidden="true" />Post a request</Button>
+		<Button on:click={() => (drawerExpanded = true)}><Plus class="mr-1.5 size-4" aria-hidden="true" />Post a requisition</Button>
 	{:else if postBlockedReason}
 		<Hint text={postBlockedReason}>
 			<span class="inline-flex h-10 cursor-not-allowed items-center rounded-md bg-primary-strong px-4 text-sm font-medium text-primary-foreground opacity-50">
-				<Plus class="mr-1.5 size-4" aria-hidden="true" />Post a request
+				<Plus class="mr-1.5 size-4" aria-hidden="true" />Post a requisition
 			</span>
 		</Hint>
 	{/if}
@@ -122,11 +122,11 @@
 	{#if data.notice?.kind === 'account'}
 		<Notice tone={data.notice.status === 'DENIED' ? 'negative' : 'pending'} title={data.notice.status === 'PENDING' ? 'Your account is pending approval' : data.notice.status === 'DENIED' ? 'Your account was not approved' : 'Your account is inactive'}>
 			{#if data.notice.status === 'PENDING'}
-				You'll be able to post requests once DTSS approves your account.
+				You'll be able to post requisitions once DTSS approves your account.
 			{:else if data.notice.status === 'DENIED'}
 				Contact support if you believe this is a mistake.
 			{:else}
-				Posting requests is paused. Contact support to reactivate.
+				Posting requisitions is paused. Contact support to reactivate.
 			{/if}
 		</Notice>
 	{:else if data.notice?.kind === 'billing'}

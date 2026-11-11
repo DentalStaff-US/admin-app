@@ -56,7 +56,7 @@ const GROUPS: NavGroup[] = [
 		items: [
 			{ href: '/dashboard', label: 'Dashboard', icon: LayoutGrid, show: anyone },
 			{ href: '/calendar', label: 'Calendar', icon: CalendarDays, show: anyone },
-			{ href: '/requisitions', label: 'Requests', icon: Briefcase, show: anyone },
+			{ href: '/requisitions', label: 'Requisitions', icon: Briefcase, show: anyone },
 			{ href: '/timesheets', label: 'Timesheets', icon: FileText, show: anyone },
 			{
 				href: '/invoices',
@@ -87,19 +87,12 @@ const GROUPS: NavGroup[] = [
 	}
 ];
 
-/** Admins keep their word for requests; practices see "Requests" (05 › Naming). */
-function labelFor(item: NavItem, ctx: NavContext): string {
-	if (item.href === '/requisitions' && isAdmin(ctx)) return 'Requisitions';
-	return item.label;
-}
-
 /** The groups this person sees, empty groups dropped. */
 export function navFor(ctx: NavContext): NavGroup[] {
 	return GROUPS.map((group) => ({
 		label: group.label,
 		items: group.items
 			.filter((item) => item.show(ctx))
-			.map((item) => ({ ...item, label: labelFor(item, ctx) }))
 	})).filter((group) => group.items.length > 0);
 }
 
@@ -156,7 +149,7 @@ export function breadcrumbs(pathname: string, groups: NavGroup[], current: strin
 
 	const crumbs: Crumb[] = [{ label: item.label, href: item.href }];
 	const last = path.split('/').pop() ?? '';
-	// The section's own title ("Requisitions" for a practice's "Requests") isn't a new place.
+	// The section's own title isn't a new place.
 	if (current && current !== item.label && current !== pageLabel(item.href))
 		crumbs.push({ label: current });
 	else if (ID_SEGMENT.test(last))

@@ -45,9 +45,9 @@
 
 	const blockedReason = (m: PotentialMatch) =>
 		m.application
-			? 'Already has an application on this request.'
+			? 'Already has an application on this requisition.'
 			: !requisitionOpen
-				? 'Only open requests can take recommendations.'
+				? 'Only open requisitions can take recommendations.'
 				: null;
 
 	const belowCount = $derived(matches.filter((m) => !m.meetsExperience).length);

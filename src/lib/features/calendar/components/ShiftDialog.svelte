@@ -59,7 +59,7 @@
 			{#if href}
 				<Dialog.Footer class="gap-2">
 					<!-- 06 › Calendar: a Button href, not a Button nested in <a>. -->
-					<Button {href}>View request</Button>
+					<Button {href}>View requisition</Button>
 				</Dialog.Footer>
 			{/if}
 		{/if}

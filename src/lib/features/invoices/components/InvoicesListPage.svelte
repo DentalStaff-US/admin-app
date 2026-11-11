@@ -46,7 +46,7 @@
 	const columns = $derived<DataColumn<InvoiceListRow>[]>([
 		{ id: 'number', header: 'Invoice', value: (r) => r.number, sortable: true, class: 'whitespace-nowrap' },
 		{ id: 'party', header: isAdmin ? 'Practice' : 'Professional', value: (r) => (isAdmin ? r.practice : r.professional) ?? '—', sortable: true },
-		{ id: 'request', header: 'Request', value: (r) => (r.requisitionId ? `#${r.requisitionId}` : '—') },
+		{ id: 'request', header: 'Requisition', value: (r) => (r.requisitionId ? `#${r.requisitionId}` : '—') },
 		{ id: 'due', header: 'Due', cell: dueCell, sortable: true },
 		{ id: 'amount', header: 'Amount', value: (r) => usd(r.total), numeric: true, sortable: true },
 		{ id: 'status', header: 'Status', cell: statusCell, sortable: true }

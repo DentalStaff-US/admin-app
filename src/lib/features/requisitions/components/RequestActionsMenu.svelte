@@ -25,7 +25,7 @@
 		status: string;
 		permanent: boolean;
 		isAdmin: boolean;
-		/** "request" for practices, "requisition" for admins. */
+		/** The word for a posting in user-facing copy. */
 		noun: string;
 		timezone: string;
 		onCreateInvoice?: () => void;
@@ -54,20 +54,20 @@
 			title: `Cancel this ${noun}?`,
 			description: permanent
 				? "It comes off the job board and no one else can apply. Applicants aren't notified automatically."
-				: 'Upcoming open days are closed, and professionals with shifts on this request get a text that it was canceled.',
+				: 'Upcoming open days are closed, and professionals with shifts on this requisition get a text that it was canceled.',
 			confirm: `Cancel ${noun}`,
 			destructive: true
 		},
 		PAYMENT_REQUIRED: {
 			label: 'Mark payment required…',
 			title: 'Mark the placement fee as due?',
-			description: 'The request moves to payment required and shows as unbilled until an invoice is raised.',
+			description: 'The requisition moves to payment required and shows as unbilled until an invoice is raised.',
 			confirm: 'Mark payment required'
 		},
 		PAYMENT_RECEIVED: {
 			label: 'Mark fee received…',
 			title: 'Mark the placement fee as received?',
-			description: 'Record that the practice paid. This completes the hiring lifecycle for this request.',
+			description: 'Record that the practice paid. This completes the hiring lifecycle for this requisition.',
 			confirm: 'Mark received'
 		}
 	});

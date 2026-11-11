@@ -64,7 +64,7 @@
 <Page>
 	<PageHeader
 		title="Skills"
-		description="Skills professionals can hold and requests can require. A skill that needs a certificate (e.g. CPR/BLS) only counts while a valid one is on file."
+		description="Skills professionals can hold and requisitions can require. A skill that needs a certificate (e.g. CPR/BLS) only counts while a valid one is on file."
 	>
 		{#snippet actions()}
 			<Button variant="outline" href="/admin/menu/skill-categories">Manage categories</Button>
@@ -137,7 +137,7 @@
 		>
 			<Dialog.Header>
 				<Dialog.Title class="text-h2">{editing ? 'Edit skill' : 'Add skill'}</Dialog.Title>
-				<Dialog.Description>Skills sit in a category; practices require them per request.</Dialog.Description>
+				<Dialog.Description>Skills sit in a category; practices require them per requisition.</Dialog.Description>
 			</Dialog.Header>
 			{#if editing}<input type="hidden" name="id" value={editing.id} />{/if}
 			<div class="space-y-4">
@@ -195,7 +195,7 @@
 	title={target?.archivedAt ? `Restore ${target?.name}?` : `Archive ${target?.name ?? 'this skill'}?`}
 	description={target?.archivedAt
 		? 'The skill becomes available to choose again.'
-		: 'The skill is hidden from new choices. Professionals and requests that already have it keep it, and you can restore it later.'}
+		: 'The skill is hidden from new choices. Professionals and requisitions that already have it keep it, and you can restore it later.'}
 	action="?/setArchived"
 	fields={{ id: target?.id ?? '', archived: target?.archivedAt ? 'false' : 'true' }}
 	confirmLabel={target?.archivedAt ? 'Restore skill' : 'Archive skill'}
@@ -205,7 +205,7 @@
 <TaxonomyConfirmDialog
 	bind:open={deleteOpen}
 	title="Delete {target?.name ?? 'this skill'}?"
-	description="No professional holds this skill and no request requires it, so it's removed for good. This can't be undone."
+	description="No professional holds this skill and no requisition requires it, so it's removed for good. This can't be undone."
 	action="?/deleteSkill"
 	fields={{ id: target?.id ?? '' }}
 	confirmLabel="Delete skill"
