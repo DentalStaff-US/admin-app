@@ -50,6 +50,8 @@ import { z } from 'zod';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { getClientSignatureViews } from '$lib/server/signatures/view';
+import { getActivityForEntity } from '$lib/server/audit/queries';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
 import {
 	cancelSignatureRequest,
 	requestSignature,
@@ -229,6 +231,9 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	);
 
 	const comments = await getCommentsForClient(id);
+	// History tab: the owner's account in the action_history ledger (sign-ins,
+	// impersonation). There is no client entity type in the ledger yet.
+	const activity = result?.user ? await getActivityForEntity('USERS', result.user.id, { limit: 100 }) : [];
 
 	// PAPER invoicing with an unused Stripe customer. This page is where the
 	// invoice method is both displayed and edited, and where one-off invoices are
@@ -274,6 +279,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				updateClientForm,
 				statusForm,
 				comments,
+				activity,
 				documents,
 				signatureRequests,
 				signatureKinds: listSignatureKinds('CLIENT'),
@@ -932,6 +938,8 @@ export const actions = {
 
 		const formData = await event.request.formData();
 		const commentId = formData.get('commentId') as string;
+		// Hard delete: the dialog makes the admin type DELETE, and so does this.
+		if (!hasTypedConfirmation(formData)) return fail(400, { error: 'Type DELETE to confirm' });
 
 		await deleteComment(commentId, user.id);
 		setFlash({ type: 'success', message: 'Comment deleted' }, event);
@@ -965,6 +973,8 @@ export const actions = {
 
 		const formData = await event.request.formData();
 		const documentId = formData.get('documentId') as string;
+		// Hard delete: the dialog makes the admin type DELETE, and so does this.
+		if (!hasTypedConfirmation(formData)) return fail(400, { error: 'Type DELETE to confirm' });
 
 		try {
 			await deleteClientDocument(documentId);

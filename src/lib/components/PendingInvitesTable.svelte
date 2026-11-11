@@ -1,16 +1,18 @@
 <script lang="ts">
-	// Pending invites list — used on the admin client detail page, the client
-	// settings staff tab, and the location detail page. Renders one row per
-	// not-yet-accepted invite with email/role/location/sent/expires, plus
-	// Resend and Revoke action buttons that POST to the supplied actions.
+	// Pending invites list: used on the admin client detail page, the client
+	// settings staff tab and the location detail page. One row per
+	// not-yet-accepted invite, with Resend and Revoke posting to the supplied
+	// actions. Revoke stops the sign-up link working, so it's confirmed.
 	//
-	// `showLocation` is opt-out so the location detail page (which is already
-	// scoped to one location) can drop the redundant column.
+	// `showLocation` is opt-out so the location detail page (already scoped to
+	// one location) can drop the redundant column.
 	import { enhance } from '$app/forms';
-	import { Button } from '$lib/components/ui/button';
-	import { Badge } from '$lib/components/ui/badge';
-	import { RefreshCw, X } from 'lucide-svelte';
 	import { format, formatDistanceToNow } from 'date-fns';
+	import { RefreshCw, X } from 'lucide-svelte';
+	import { Button } from '$lib/components/ui/button';
+	import StatusBadge from '$dtss/StatusBadge.svelte';
+	import ConfirmAction from '$lib/features/people/components/ConfirmAction.svelte';
+	import { staffRoleLabel } from '$lib/features/people/people';
 
 	type Invite = {
 		id: string;
@@ -22,96 +24,107 @@
 		locationName?: string | null;
 	};
 
-	export let invites: Invite[] = [];
-	export let resendAction: string;
-	export let revokeAction: string;
-	export let showLocation = true;
-	export let canManage = true;
+	let {
+		invites = [],
+		resendAction,
+		revokeAction,
+		showLocation = true,
+		canManage = true,
+		embedded = false
+	}: {
+		invites?: Invite[];
+		resendAction: string;
+		revokeAction: string;
+		showLocation?: boolean;
+		canManage?: boolean;
+		/** Inside a section card already: drop the table's own border (no nested cards). */
+		embedded?: boolean;
+	} = $props();
 
-	function isExpired(expiresAt: Date | string): boolean {
-		return new Date(expiresAt).getTime() <= Date.now();
-	}
-
-	function staffRoleLabel(role: string | null): string {
-		switch (role) {
-			case 'CLIENT_ADMIN':
-				return 'Admin';
-			case 'CLIENT_MANAGER':
-				return 'Manager';
-			case 'CLIENT_EMPLOYEE':
-				return 'Employee';
-			default:
-				return role ?? '—';
-		}
-	}
+	const isExpired = (expiresAt: Date | string) => new Date(expiresAt).getTime() <= Date.now();
+	let resending = $state<string | null>(null);
 </script>
 
 {#if invites.length > 0}
-	<div class="rounded-md border">
+	<div class={embedded ? 'overflow-x-auto' : 'overflow-x-auto rounded-lg border'}>
 		<table class="w-full text-sm">
-			<thead class="bg-gray-50 text-left text-xs uppercase text-muted-foreground">
+			<caption class="sr-only">Pending invites</caption>
+			<thead class="bg-muted/50 text-left">
 				<tr>
-					<th class="px-3 py-2 font-medium">Email</th>
-					<th class="px-3 py-2 font-medium">Role</th>
+					<th scope="col" class="px-4 py-3 text-overline font-bold uppercase text-muted-foreground">Email</th>
+					<th scope="col" class="hidden px-4 py-3 text-overline font-bold uppercase text-muted-foreground sm:table-cell">Role</th>
 					{#if showLocation}
-						<th class="px-3 py-2 font-medium">Location</th>
+						<th scope="col" class="hidden px-4 py-3 text-overline font-bold uppercase text-muted-foreground md:table-cell">Location</th>
 					{/if}
-					<th class="px-3 py-2 font-medium">Sent</th>
-					<th class="px-3 py-2 font-medium">Status</th>
+					<th scope="col" class="hidden px-4 py-3 text-overline font-bold uppercase text-muted-foreground sm:table-cell">Sent</th>
+					<th scope="col" class="px-4 py-3 text-overline font-bold uppercase text-muted-foreground">Status</th>
 					{#if canManage}
-						<th class="px-3 py-2 font-medium text-right">Actions</th>
+						<th scope="col" class="px-4 py-3 text-right"><span class="sr-only">Actions</span></th>
 					{/if}
 				</tr>
 			</thead>
 			<tbody class="divide-y">
-				{#each invites as invite}
+				{#each invites as invite (invite.id)}
 					{@const expired = isExpired(invite.expiresAt)}
-					<tr>
-						<td class="px-3 py-2">{invite.email}</td>
-						<td class="px-3 py-2">{staffRoleLabel(invite.staffRole)}</td>
+					<tr class="align-middle">
+						<td class="max-w-40 px-4 py-3 sm:max-w-56">
+							<p class="truncate font-semibold">{invite.email}</p>
+							<p class="text-caption text-muted-foreground sm:hidden">{staffRoleLabel(invite.staffRole)}</p>
+						</td>
+						<td class="hidden px-4 py-3 sm:table-cell">{staffRoleLabel(invite.staffRole)}</td>
 						{#if showLocation}
-							<td class="px-3 py-2">{invite.locationName ?? '—'}</td>
+							<td class="hidden px-4 py-3 md:table-cell">{invite.locationName ?? '—'}</td>
 						{/if}
-						<td class="px-3 py-2 text-muted-foreground">
+						<td class="hidden px-4 py-3 text-muted-foreground sm:table-cell">
 							{formatDistanceToNow(new Date(invite.createdAt), { addSuffix: true })}
 						</td>
-						<td class="px-3 py-2">
+						<td class="px-4 py-3">
 							{#if expired}
-								<Badge value="Expired" class="bg-red-100 text-red-800 text-xs" />
+								<StatusBadge status="EXPIRED" />
 							{:else}
-								<Badge value="Pending" class="bg-yellow-100 text-yellow-800 text-xs" />
-								<div class="text-xs text-muted-foreground mt-1">
+								<StatusBadge status="PENDING" />
+								<p class="mt-1 hidden text-caption text-muted-foreground sm:block">
 									Expires {format(new Date(invite.expiresAt), 'PP')}
-								</div>
+								</p>
 							{/if}
 						</td>
 						{#if canManage}
-							<td class="px-3 py-2 text-right">
+							<td class="px-4 py-3">
 								<div class="flex justify-end gap-1">
-									<form method="POST" action={resendAction} use:enhance>
+									<form
+										method="POST"
+										action={resendAction}
+										use:enhance={() => {
+											resending = invite.id;
+											return async ({ update }) => {
+												await update();
+												resending = null;
+											};
+										}}
+									>
 										<input type="hidden" name="inviteId" value={invite.id} />
 										<Button
 											type="submit"
 											variant="ghost"
 											size="icon"
-											class="h-8 w-8"
-											title="Resend invite email"
+											class="size-9"
+											aria-label="Resend invite to {invite.email}"
+											disabled={resending === invite.id}
 										>
-											<RefreshCw class="h-4 w-4" />
+											<RefreshCw class="size-4 {resending === invite.id ? 'animate-spin' : ''}" aria-hidden="true" />
 										</Button>
 									</form>
-									<form method="POST" action={revokeAction} use:enhance>
-										<input type="hidden" name="inviteId" value={invite.id} />
-										<Button
-											type="submit"
-											variant="ghost"
-											size="icon"
-											class="h-8 w-8 text-red-500"
-											title="Revoke invite"
-										>
-											<X class="h-4 w-4" />
-										</Button>
-									</form>
+									<ConfirmAction
+										action={revokeAction}
+										fields={{ inviteId: invite.id }}
+										title="Revoke the invite to {invite.email}?"
+										description="The sign-up link in their email stops working. You can invite them again later."
+										confirmLabel="Revoke invite"
+										label="Revoke invite to {invite.email}"
+										icon={X}
+										iconOnly
+										variant="ghost"
+									/>
 								</div>
 							</td>
 						{/if}
@@ -121,5 +134,5 @@
 		</table>
 	</div>
 {:else}
-	<p class="text-sm text-muted-foreground py-4">No pending invites.</p>
+	<p class={embedded ? 'px-5 py-4 text-sm text-muted-foreground sm:px-6' : 'py-4 text-sm text-muted-foreground'}>No pending invites.</p>
 {/if}

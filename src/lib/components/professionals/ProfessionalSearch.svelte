@@ -113,13 +113,13 @@
 	{#if searching}
 		<!-- Stated plainly at the point of use: these results are NOT filtered
 		     to the requisition, so an admin can see what they are overriding. -->
-		<p class="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+		<p class="rounded-md border border-status-warning-border bg-status-warning-bg px-3 py-2 text-xs text-status-warning-fg">
 			Searching all active professionals — discipline, experience, pay and distance filters are
 			ignored.
 		</p>
 
 		{#if errorMessage}
-			<p class="text-sm text-red-600">Search failed: {errorMessage}</p>
+			<p class="text-sm text-destructive">Search failed: {errorMessage}</p>
 		{:else if loading && !visible.length}
 			<p class="py-6 text-center text-sm text-muted-foreground">Searching…</p>
 		{:else if !visible.length && lastAppliedTerm}
