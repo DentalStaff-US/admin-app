@@ -26,18 +26,18 @@ export type KindMeta = {
 export const KIND_META: Record<AttentionKind, KindMeta> = {
 	UNFILLED_SOON: { category: 'shifts', priority: 1, tone: 'warning', noun: 'open shifts in the next 48h', listHref: '/calendar' },
 	COMPLIANCE_CRITICAL: { category: 'people', priority: 1, tone: 'negative', noun: 'booked professionals with expired credentials', listHref: '/admin/compliance?severity=CRITICAL' },
-	TIMESHEET_DISCREPANCY: { category: 'timesheets', priority: 2, tone: 'warning', noun: 'timesheet discrepancies', listHref: '/timesheets?tab=discrepancy' },
-	INVOICE_OVERDUE: { category: 'billing', priority: 3, tone: 'negative', noun: 'overdue invoices', listHref: '/invoices' },
+	TIMESHEET_DISCREPANCY: { category: 'timesheets', priority: 2, tone: 'warning', noun: 'timesheet discrepancies', listHref: '/timesheets?tab=discrepancies' },
+	INVOICE_OVERDUE: { category: 'billing', priority: 3, tone: 'negative', noun: 'overdue invoices', listHref: '/invoices?tab=overdue' },
 	PERM_UNBILLED: { category: 'billing', priority: 3, tone: 'warning', noun: 'unbilled placements', listHref: '/requisitions?filter=unbilled' },
 	COMPLIANCE_BLOCKED: { category: 'people', priority: 3, tone: 'negative', noun: 'blocked professionals', listHref: '/admin/compliance?severity=BLOCKED' },
-	TIMESHEET_PENDING: { category: 'timesheets', priority: 4, tone: 'pending', noun: 'timesheets to review', listHref: '/timesheets?tab=pending' },
+	TIMESHEET_PENDING: { category: 'timesheets', priority: 4, tone: 'pending', noun: 'timesheets to review', listHref: '/timesheets?tab=review' },
 	PERM_APPLICANTS_WAITING: { category: 'people', priority: 4, tone: 'pending', noun: 'permanent requests with applicants waiting', listHref: '/requisitions' },
 	PRO_PENDING_APPROVAL: { category: 'people', priority: 5, tone: 'pending', noun: 'professionals awaiting approval', listHref: '/professionals?status=PENDING' },
 	CLIENT_PENDING_APPROVAL: { category: 'people', priority: 5, tone: 'pending', noun: 'practices awaiting approval', listHref: '/clients?status=PENDING' },
 	SUPPORT_OPEN: { category: 'support', priority: 6, tone: 'info', noun: 'open support tickets', listHref: '/support' },
 	// Practices
 	SIGNATURE_PENDING: { category: 'people', priority: 1, tone: 'pending', noun: 'agreements to sign', listHref: '/settings' },
-	INVOICE_DUE: { category: 'billing', priority: 3, tone: 'info', noun: 'invoices due soon', listHref: '/invoices' },
+	INVOICE_DUE: { category: 'billing', priority: 3, tone: 'info', noun: 'invoices due soon', listHref: '/invoices?tab=open' },
 	STAFF_NO_LOCATION: { category: 'people', priority: 5, tone: 'pending', noun: 'staff without a location', listHref: '/staff' }
 };
 

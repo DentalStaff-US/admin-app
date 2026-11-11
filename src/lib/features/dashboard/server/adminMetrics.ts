@@ -111,7 +111,7 @@ async function billedKpi(b: WindowBounds) {
 async function wagesOwedKpi() {
 	const [[{ count: owed }], amount] = await Promise.all([
 		db.select({ count: count() }).from(timeSheetTable).where(eq(timeSheetTable.wagesStatus, 'WAGES_DUE')),
-		// The existing overtime-accurate total, same source as /timesheets?tab=wages-due.
+		// The existing overtime-accurate total, same source as /timesheets?tab=approved&wages=WAGES_DUE.
 		getWagesDueTotal()
 	]);
 	return { amount, count: Number(owed) };

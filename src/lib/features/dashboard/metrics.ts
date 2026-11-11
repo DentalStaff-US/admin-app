@@ -66,7 +66,7 @@ export const METRICS = {
 		kind: 'informational',
 		window: 'live',
 		hint: () => 'Approved hours not yet paid to professionals, with overtime. Right now, not windowed.',
-		href: '/timesheets?tab=wages-due'
+		href: '/timesheets?tab=approved&wages=WAGES_DUE'
 	},
 	// --- DTSS admins: pipeline and receivables ----------------------------
 	pipelineBilling: {
@@ -92,7 +92,7 @@ export const METRICS = {
 		kind: 'informational',
 		window: 'live',
 		hint: () => 'Open invoices by how far past their due date they are, by amount still owed.',
-		href: '/invoices'
+		href: '/invoices?tab=open'
 	},
 	permPipeline: {
 		id: 'permPipeline',
@@ -125,7 +125,7 @@ export const METRICS = {
 		kind: 'informational',
 		window: 'live',
 		hint: () => 'Unpaid invoices, including any past their due date.',
-		href: '/invoices'
+		href: '/invoices?tab=open'
 	}
 } satisfies Record<string, MetricDef>;
 
