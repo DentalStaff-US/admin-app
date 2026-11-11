@@ -15,6 +15,7 @@ import db from '$lib/server/database/drizzle';
 import type { CandidateProfile } from '$lib/server/database/schemas/candidate';
 import { adminNewUserSchema } from '$lib/config/zod-schemas';
 import { setFlash } from 'sveltekit-flash-message/server';
+import { can } from '$lib/authz';
 
 export const load: PageServerLoad = async (event) => {
 	const { url, locals } = event;
@@ -27,7 +28,7 @@ export const load: PageServerLoad = async (event) => {
 		redirect(302, '/auth/sign-in');
 	}
 
-	if (user.role !== USER_ROLES.SUPERADMIN) {
+	if (!can(user, 'professionals.manage')) {
 		redirect(302, '/dashboard');
 	}
 
@@ -64,7 +65,7 @@ export const actions = {
 			return fail(401);
 		}
 
-		if (user.role !== USER_ROLES.SUPERADMIN) {
+		if (!can(user, 'professionals.manage')) {
 			return fail(403, { message: 'Unauthorized' });
 		}
 

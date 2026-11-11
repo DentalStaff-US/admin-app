@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 	import { page } from '$app/stores';
 	import { afterNavigate, replaceState } from '$app/navigation';
 	import { AlertCircle } from 'lucide-svelte';
@@ -34,7 +35,7 @@
 	let { data }: { data: any } = $props();
 
 	const user = $derived(data.user);
-	const isAdmin = $derived(user?.role === USER_ROLES.SUPERADMIN);
+	const isAdmin = $derived(checkIsAdmin(user?.role));
 	const audience = $derived(isAdmin ? ('admin' as const) : ('practice' as const));
 	const noun = 'requisition';
 	const req = $derived(data.requisition);

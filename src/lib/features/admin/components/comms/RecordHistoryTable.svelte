@@ -42,6 +42,7 @@
 
 	const ROLE_LABELS: Record<string, string> = {
 		SUPERADMIN: 'Admin',
+		ADMIN: 'Admin',
 		CLIENT: 'Client',
 		CLIENT_STAFF: 'Client staff',
 		CANDIDATE: 'Professional'

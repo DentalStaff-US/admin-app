@@ -20,6 +20,7 @@ import {
 	workdayTable
 } from '$lib/server/database/schemas/requisition';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
+import { can } from '$lib/authz';
 
 export const load = async (event: LayoutServerLoadEvent) => {
 	event.depends('inbox:list');
@@ -41,7 +42,7 @@ export const load = async (event: LayoutServerLoadEvent) => {
 
 	let availableUsers: Partial<User>[] = [];
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (can(user, 'inbox.manage')) {
 		availableUsers = await db
 			.select({
 				id: userTable.id,

@@ -8,7 +8,7 @@
 </script>
 
 <Page>
-	<PageHeader title="Admins" description="The people who run DTSS. Open one to edit their details.">
+	<PageHeader title="Admins" description="The people who run DTSS, as admins or super admins. Open one to edit their details or role.">
 		{#snippet actions()}<InviteAdminDialog form={data.form} />{/snippet}
 	</PageHeader>
 	<AdminsTable admins={data.admins} search={page.url.searchParams.get('search') ?? ''} />

@@ -39,7 +39,7 @@ export function displayName(row: { firstName: string | null; lastName: string | 
  * Profile page per role. Routes expect the PROFILE id (not user.id):
  *   /professionals/[id] reads candidate_profiles.id
  *   /clients/[id]       reads client_profiles.id (parent profile for CLIENT_STAFF)
- * SUPERADMIN has no detail page here, so there's no link.
+ * DTSS staff (SUPERADMIN / ADMIN) have no detail page here, so there's no link.
  */
 export function profileHref(row: Pick<UserRow, 'role' | 'candidateProfileId' | 'clientProfileId'>): string | null {
 	if (row.role === 'CANDIDATE' && row.candidateProfileId) return `/professionals/${row.candidateProfileId}`;
@@ -59,7 +59,7 @@ export function formatDate(d: string | Date): string {
 }
 
 const ROLE_LABELS: Record<string, string> = {
-	SUPERADMIN: 'Admin',
+	SUPERADMIN: 'Super admin',
 	ADMIN: 'Admin',
 	CLIENT: 'Practice owner',
 	CLIENT_STAFF: 'Practice staff',

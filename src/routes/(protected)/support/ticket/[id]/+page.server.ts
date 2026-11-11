@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { USER_ROLES } from '$lib/config/constants';
 import { assertTicketAccess } from '$features/support/server/access';
+import { can } from '$lib/authz';
 
 const newSupportTicketCommentSchema = z.object({
 	body: z.string().min(1, 'Comment cannot be empty')
@@ -115,7 +116,7 @@ export const actions = {
 			};
 
 			const update =
-				user?.role === USER_ROLES.SUPERADMIN
+				can(user, 'support.manage')
 					? {
 							status: 'PENDING' as const
 						}

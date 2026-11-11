@@ -9,7 +9,10 @@
 </script>
 
 <Page>
-	<PageHeader title="All users" description="Search, inspect, suspend and remove users across every role." />
+	<PageHeader
+		title="All users"
+		description={data.can.ban ? 'Search, inspect, suspend and remove users across every role.' : 'Search and inspect users across every role.'}
+	/>
 	<UsersTable
 		users={data.users}
 		total={data.total ?? 0}
@@ -17,6 +20,7 @@
 		limit={data.limit ?? 25}
 		search={data.search ?? ''}
 		currentUserId={data.user?.id}
+		can={data.can}
 		pageHref={(p) => pageHrefFor(page.url, p)}
 	/>
 </Page>

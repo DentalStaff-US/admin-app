@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { can } from '$lib/authz';
+	import { page } from '$app/state';
 	/**
 	 * Admin timesheet detail (06 › Timesheets: `TimesheetAdmin`). Same data,
 	 * actions and gates as the old page; split into sections and restyled.
@@ -34,6 +36,10 @@
 	import { timesheetView, type TimesheetPageData } from '../view';
 
 	let { data }: { data: TimesheetPageData } = $props();
+
+	// Role matrix: wages and voiding an invoice are SUPERADMIN-only; the server re-checks.
+	const canMarkWages = $derived(can(page.data.user, 'wages.markPaid'));
+	const canVoidInvoice = $derived(can(page.data.user, 'invoices.void'));
 
 	// --- Hours editing ------------------------------------------------------
 	let editing = $state(false);
@@ -215,7 +221,9 @@
 							{#if submitHint}<p class="text-sm text-muted-foreground">{submitHint}</p>{/if}
 						{/if}
 					{/if}
-					{#if v.isApproved && wagesStatus === 'WAGES_DUE'}
+					{#if !canMarkWages}
+						<!-- Wages are marked by a super admin. -->
+					{:else if v.isApproved && wagesStatus === 'WAGES_DUE'}
 						<Button variant="outline" on:click={() => (wagesPaidOpen = true)}>
 							<CircleDollarSign class="mr-2 size-4" aria-hidden="true" /> Mark wages paid…
 						</Button>
@@ -225,9 +233,11 @@
 						</Button>
 					{/if}
 					{#if v.isApproved && data.invoice}
-						<Button variant="destructiveOutline" on:click={() => (voidInvoiceOpen = true)}>
-							<Ban class="mr-2 size-4" aria-hidden="true" /> Void timesheet & invoice…
-						</Button>
+						{#if canVoidInvoice}
+							<Button variant="destructiveOutline" on:click={() => (voidInvoiceOpen = true)}>
+								<Ban class="mr-2 size-4" aria-hidden="true" /> Void timesheet & invoice…
+							</Button>
+						{/if}
 					{:else if !v.isVoid && !(v.isApproved && wagesStatus === 'WAGES_PAID')}
 						<Button variant="destructiveOutline" on:click={() => (voidOpen = true)}>
 							<Ban class="mr-2 size-4" aria-hidden="true" /> Void timesheet…

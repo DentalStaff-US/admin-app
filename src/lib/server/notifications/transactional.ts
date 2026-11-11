@@ -65,6 +65,8 @@ import { APP_NAME, USER_ROLES } from '$lib/config/constants';
 import { recordAction } from '$lib/server/audit/audit';
 import { pickCommentRecipients } from '$lib/server/requisitions/commentRules';
 import type { AuditEntityType } from '$lib/audit/constants';
+import { STAFF_ROLES } from '$lib/authz';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 const emailService = new EmailService();
 
@@ -1440,14 +1442,14 @@ export async function notifyInvoiceCreated(args: {
 // ---------- Support ----------
 
 /**
- * New support ticket — email every SUPERADMIN.
+ * New support ticket — email every DTSS admin (SUPERADMIN and ADMIN).
  */
 export async function notifySupportTicketCreated(): Promise<void> {
 	try {
 		const admins = await db
 			.select({ email: userTable.email })
 			.from(userTable)
-			.where(eq(userTable.role, USER_ROLES.SUPERADMIN));
+			.where(inArray(userTable.role, [...STAFF_ROLES]));
 
 		const recipients = admins.filter((a) => !!a.email);
 		if (recipients.length === 0) return;
@@ -1477,7 +1479,7 @@ export async function notifySupportTicketCreated(): Promise<void> {
 /**
  * A new support ticket was created (any path: admin /support page, external
  * candidate API, billing-help, in-app support modal). Fan out to every
- * SUPERADMIN with receiveEmail=true. Fire-and-forget — never throws to the
+ * DTSS admin (SUPERADMIN or ADMIN) with receiveEmail=true. Fire-and-forget — never throws to the
  * caller, so ticket creation isn't gated on email delivery.
  */
 export async function notifyAdminsOfNewSupportTicket(ticketId: string): Promise<void> {
@@ -1508,7 +1510,7 @@ export async function notifyAdminsOfNewSupportTicket(ticketId: string): Promise<
 		const admins = await db
 			.select({ email: userTable.email })
 			.from(userTable)
-			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+			.where(and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true)));
 
 		if (admins.length === 0) {
 			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
@@ -1582,7 +1584,7 @@ export async function notifyClientStatusChange(
 
 /**
  * New client just finished the company-onboarding step — notify every
- * SUPERADMIN (filtered by `receiveEmail`) so they can review the new business.
+ * DTSS admin (filtered by `receiveEmail`) so they can review the new business.
  * Pairs with the client-status enum: this surfaces PENDING client profiles
  * for approval.
  */
@@ -1604,7 +1606,7 @@ export async function notifyAdminsOfNewClient(clientId: string): Promise<void> {
 		const admins = await db
 			.select({ email: userTable.email })
 			.from(userTable)
-			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+			.where(and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true)));
 
 		if (admins.length === 0) {
 			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
@@ -1635,7 +1637,7 @@ export async function notifyAdminsOfNewClient(clientId: string): Promise<void> {
 }
 
 /**
- * A professional profile row was just created — notify every SUPERADMIN
+ * A professional profile row was just created — notify every DTSS admin
  * (filtered by `receiveEmail`).
  *
  * Keyed to the `candidate_profiles` INSERT in `setupCandidateProfile` (the first
@@ -1675,7 +1677,7 @@ export async function notifyAdminsOfCandidateProfileCreated(candidateId: string)
 		const admins = await db
 			.select({ email: userTable.email })
 			.from(userTable)
-			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+			.where(and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true)));
 
 		if (admins.length === 0) {
 			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
@@ -1738,7 +1740,7 @@ export async function notifyAdminsOfCandidateReadyForApproval(candidateId: strin
 		const admins = await db
 			.select({ email: userTable.email })
 			.from(userTable)
-			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+			.where(and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true)));
 
 		if (admins.length === 0) {
 			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
@@ -1884,7 +1886,7 @@ export async function notifyCertExpiring(args: {
 }
 
 /**
- * Weekly credential digest to every SUPERADMIN who accepts email.
+ * Weekly credential digest to every DTSS admin who accepts email.
  *
  * This is not a nicety: gating `getQualifiedProfessionalsForRequisition` on
  * certification also gates the new-workday notification blast, so an expired
@@ -1909,7 +1911,7 @@ export async function notifyAdminsOfCertExpiryDigest(sections: {
 		const admins = await db
 			.select({ email: userTable.email })
 			.from(userTable)
-			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+			.where(and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true)));
 
 		if (admins.length === 0) {
 			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
@@ -2084,7 +2086,7 @@ export async function notifyRequisitionComment(commentId: string): Promise<void>
 			return;
 		}
 
-		const authorIsAdmin = author.role === USER_ROLES.SUPERADMIN;
+		const authorIsAdmin = checkIsAdmin(author.role);
 		const recipients = pickCommentRecipients({
 			internal: comment.internal,
 			authorId: comment.authorId,
@@ -2098,7 +2100,7 @@ export async function notifyRequisitionComment(commentId: string): Promise<void>
 							.select({ email: userTable.email })
 							.from(userTable)
 							.where(
-								and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true))
+								and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true))
 							)
 					).map((a) => a.email)
 		});
@@ -2450,7 +2452,7 @@ export async function notifyAdminsSignatureAlert(args: {
 		const admins = await db
 			.select({ email: userTable.email })
 			.from(userTable)
-			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+			.where(and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true)));
 		if (admins.length === 0) {
 			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
 			return;

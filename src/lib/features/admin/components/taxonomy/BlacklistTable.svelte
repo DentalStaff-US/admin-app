@@ -29,7 +29,8 @@
 		pagination?: Pagination;
 		toolbar?: Snippet;
 		search?: string;
-		onRemove: (row: BlacklistRow) => void;
+		/** Omitted for viewers without blacklist.remove: no remove button. */
+		onRemove?: (row: BlacklistRow) => void;
 	} = $props();
 
 	const fullName = (r: BlacklistRow) => `${r.firstName ?? ''} ${r.lastName ?? ''}`.trim() || '(no name)';
@@ -45,12 +46,14 @@
 
 {#snippet actions(r: BlacklistRow)}
 	<div class="flex justify-end">
+		{#if onRemove}
 		<IconAction
 			label="Remove the block between {fullName(r)} and {r.companyName ?? 'this practice'}"
 			icon={Trash2}
 			destructive
 			on:click={() => onRemove(r)}
 		/>
+		{/if}
 	</div>
 {/snippet}
 

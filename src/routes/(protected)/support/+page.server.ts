@@ -11,6 +11,7 @@ import { newSupportTicketSchema } from '$lib/config/zod-schemas';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { getPostHogClient } from '$lib/server/posthog';
 import { notifySupportTicketCreated } from '$lib/server/notifications/transactional';
+import { can } from '$lib/authz';
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
@@ -21,7 +22,7 @@ export const load: PageServerLoad = async (event) => {
 	}
 	const form = await superValidate(event, newSupportTicketSchema);
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (can(user, 'support.manage')) {
 		const supportTickets = await getAllSupportTickets(search);
 
 		return {

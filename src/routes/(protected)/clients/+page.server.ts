@@ -20,6 +20,7 @@ import type { NewUser } from '$lib/server/database/schemas/auth';
 import { Argon2id } from 'oslo/password';
 import { setFlash } from 'sveltekit-flash-message/server';
 import type { ClientProfile } from '$lib/server/database/schemas/client';
+import { can } from '$lib/authz';
 
 export const load: PageServerLoad = async (event) => {
 	const { url, locals } = event;
@@ -34,7 +35,7 @@ export const load: PageServerLoad = async (event) => {
 		redirect(302, '/auth/sign-in');
 	}
 
-	if (user.role !== USER_ROLES.SUPERADMIN) {
+	if (!can(user, 'practices.manage')) {
 		redirect(302, '/dashboard');
 	}
 
@@ -68,7 +69,7 @@ export const actions = {
 			return fail(401);
 		}
 
-		if (user.role !== USER_ROLES.SUPERADMIN) {
+		if (!can(user, 'practices.manage')) {
 			return fail(403, { message: 'Unauthorized' });
 		}
 

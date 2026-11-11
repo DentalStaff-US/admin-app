@@ -38,6 +38,8 @@ import { eq } from 'drizzle-orm';
 import { assertCanAccessLocation } from '$lib/server/scoping';
 import { assertLocationAccess, assertStaffInCompany } from '$features/people/server/locationAccess';
 import { syncRequisitionTimezonesForLocation } from '$lib/server/requisitions/referenceTimezone';
+import { can } from '$lib/authz';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 const assignStaffToLocationSchema = z.object({
 	staffId: z.string(),
@@ -54,7 +56,8 @@ export const load: PageServerLoad = async (event) => {
 		redirect(301, '/auth/sign-in');
 	}
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	// Practice-only page: DTSS staff use /clients/[id]/locations instead.
+	if (checkIsAdmin(user.role)) {
 		redirect(301, '/dashboard');
 	}
 
@@ -175,7 +178,7 @@ export const actions = {
 	 * Both compute the new full set server-side and route through
 	 * setStaffLocations() so we always end up with at most one primary.
 	 *
-	 * Allowed for SUPERADMIN, CLIENT, and CLIENT_ADMIN client_staff.
+	 * Allowed for DTSS staff (practices.manage), CLIENT, and CLIENT_ADMIN client_staff.
 	 */
 	resendStaffInvite: async (event: RequestEvent) => {
 		const user = event.locals.user;
@@ -252,7 +255,7 @@ export const actions = {
 		const { id: locationId } = event.params;
 		if (!user) return fail(401, { error: 'Unauthorized' });
 
-		const isAdmin = user.role === USER_ROLES.SUPERADMIN;
+		const isAdmin = can(user, 'practices.manage');
 		const isClient = user.role === USER_ROLES.CLIENT;
 		const staffSelf =
 			user.role === USER_ROLES.CLIENT_STAFF ? await getClientStaffProfilebyUserId(user.id) : null;

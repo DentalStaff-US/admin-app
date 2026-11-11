@@ -12,11 +12,12 @@ import {
 	toCampaignFilters
 } from '$lib/server/database/queries/campaigns';
 import { getDefaultSearchRadius } from '$lib/server/database/queries/config';
+import { can } from '$lib/authz';
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
 	if (!user) redirect(302, '/auth/sign-in');
-	if (user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/dashboard');
+	if (!can(user, 'comms.massSend')) redirect(302, '/dashboard');
 
 	const [form, disciplines, experienceLevels, radius] = await Promise.all([
 		superValidate(event, massNotificationSchema),
@@ -40,7 +41,7 @@ export const actions = {
 	queue: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user) return fail(401, { message: 'Unauthorized' });
-		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { message: 'Unauthorized' });
+		if (!can(user, 'comms.massSend')) return fail(403, { message: 'Unauthorized' });
 
 		const form = await superValidate(event, massNotificationSchema);
 		if (!form.valid) return fail(400, { form });

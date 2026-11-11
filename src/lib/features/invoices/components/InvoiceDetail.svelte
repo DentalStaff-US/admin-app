@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { can } from '$lib/authz';
 	/**
 	 * Invoice detail, admin and practice (06 › Invoices): same structure and
 	 * actions as before, on tokens. Status and due date sit in the header; the
@@ -56,10 +57,13 @@
 		!isPaper && !!inv.attempted && (inv.attemptCount ?? 0) > 0 && !['paid', 'void', 'uncollectible'].includes(inv.status)
 	);
 
-	const canProcess = $derived(isAdmin && !isPaper && overdueForPayment && inv.status !== 'void' && inv.status !== 'uncollectible');
-	const canRecord = $derived(isAdmin && isPaper && !isPaid && !isVoided);
-	const canReverse = $derived(isAdmin && isPaper && amountPaid > 0 && !isVoided);
-	const canVoid = $derived(isAdmin && !isVoided && inv.status !== 'paid' && inv.status !== 'uncollectible');
+	// Role matrix: charging, paper payments and voids are SUPERADMIN-only (ADMIN views).
+	const mayPay = $derived(can(data.user, 'payments.record'));
+	const mayVoid = $derived(can(data.user, 'invoices.void'));
+	const canProcess = $derived(isAdmin && mayPay && !isPaper && overdueForPayment && inv.status !== 'void' && inv.status !== 'uncollectible');
+	const canRecord = $derived(isAdmin && mayPay && isPaper && !isPaid && !isVoided);
+	const canReverse = $derived(isAdmin && mayPay && isPaper && amountPaid > 0 && !isVoided);
+	const canVoid = $derived(isAdmin && mayVoid && !isVoided && inv.status !== 'paid' && inv.status !== 'uncollectible');
 
 	const day = (v: string | Date) => new Date(v).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 	const when = (v: string | Date) =>

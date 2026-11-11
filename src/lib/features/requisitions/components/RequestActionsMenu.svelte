@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { can } from '$lib/authz';
+	import { page } from '$app/state';
 	import { enhance } from '$app/forms';
 	import { Ban, CheckCircle2, ChevronDown, Clock, CreditCard, Globe, Lock, RotateCcw } from 'lucide-svelte';
 	import ConfirmDialog from '$dtss/ConfirmDialog.svelte';
@@ -74,7 +76,9 @@
 
 	const options = $derived(
 		(['OPEN', 'CLOSED', 'CANCELED'] as Status[])
-			.concat(isAdmin && permanent ? ['PAYMENT_REQUIRED', 'PAYMENT_RECEIVED'] : [])
+			.concat(isAdmin && permanent ? ['PAYMENT_REQUIRED'] : [])
+			// Recording the fee as paid is SUPERADMIN-only (payments.record).
+			.concat(isAdmin && permanent && can(page.data.user, 'payments.record') ? ['PAYMENT_RECEIVED'] : [])
 			.filter((s) => s !== status)
 	);
 	const ICON = { OPEN: RotateCcw, CLOSED: Lock, CANCELED: Ban, PAYMENT_REQUIRED: Clock, PAYMENT_RECEIVED: CheckCircle2 };

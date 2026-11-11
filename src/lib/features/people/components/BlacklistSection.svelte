@@ -38,7 +38,8 @@
 		searchError?: string | null;
 		searchAction: string;
 		addAction: string;
-		removeAction: string;
+		/** Omitted when the viewer can't remove (blacklist.remove is SUPERADMIN only). */
+		removeAction?: string;
 	} = $props();
 
 	let email = $state('');
@@ -116,6 +117,7 @@
 							</p>
 						</div>
 					</div>
+					{#if removeAction}
 					<ConfirmAction
 						action={removeAction}
 						fields={{ candidateId: person.candidateId }}
@@ -128,6 +130,7 @@
 						iconOnly
 						variant="ghost"
 					/>
+					{/if}
 				</li>
 			{/each}
 		</ul>

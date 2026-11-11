@@ -2,6 +2,7 @@
  * Location scope (10 §4.2), the pure half. `server/scope.ts` reads the user's
  * company, staff role and assignments; this decides capabilities and narrowing.
  */
+import { can, isStaffRole } from '$lib/authz';
 import type { DashboardCapabilities, DashboardScope, ScopeLocation } from './types';
 
 export type StaffRole = 'CLIENT_ADMIN' | 'CLIENT_MANAGER' | 'CLIENT_EMPLOYEE';
@@ -25,7 +26,16 @@ const NONE: DashboardCapabilities = {
  * owner and CLIENT_ADMIN → all; CLIENT_MANAGER → approve + post; CLIENT_EMPLOYEE → view only.
  */
 export function capabilitiesFor(role: string, staffRole?: StaffRole | null): DashboardCapabilities {
-	if (role === 'SUPERADMIN' || role === 'CLIENT') return { ...ALL };
+	// DTSS staff: straight from the role matrix, so ADMIN and SUPERADMIN can differ.
+	if (isStaffRole(role)) {
+		return {
+			approveTimesheets: can(role, 'timesheets.approve'),
+			postRequests: can(role, 'requisitions.manage'),
+			viewBilling: can(role, 'invoices.read'),
+			manageStaff: can(role, 'practices.manage')
+		};
+	}
+	if (role === 'CLIENT') return { ...ALL };
 	if (role !== 'CLIENT_STAFF') return { ...NONE };
 	switch (staffRole) {
 		case 'CLIENT_ADMIN':

@@ -36,7 +36,7 @@
 		<Button type="submit" variant="outline">Search</Button>
 		{#if search}<Button variant="ghost" href="?">Clear</Button>{/if}
 		<p class="ml-auto text-sm text-muted-foreground">
-			{admins.length} {admins.length === 1 ? 'administrator' : 'administrators'}
+			{admins.length} {admins.length === 1 ? 'team member' : 'team members'}
 		</p>
 	</form>
 {/snippet}
@@ -45,7 +45,7 @@
 	<EmptyState
 		icon={Shield}
 		title={search ? `No admins match “${search}”` : 'No administrators yet'}
-		description={search ? 'Try a different name or email.' : 'Invite a colleague to help run DTSS.'}
+		description={search ? 'Try a different name or email.' : 'Invite a colleague to help run DTSS as an admin or super admin.'}
 	>
 		{#if search}<Button variant="outline" href="?">Clear search</Button>{/if}
 	</EmptyState>

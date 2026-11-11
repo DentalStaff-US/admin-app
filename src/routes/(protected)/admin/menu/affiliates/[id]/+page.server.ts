@@ -12,6 +12,7 @@ import {
 } from '$lib/server/database/queries/affiliatesAdmin';
 import { resolveCommissionRate } from '$lib/server/affiliate/commission';
 import type { AffiliateStatus } from '$lib/server/affiliate/eligibility';
+import { can } from '$lib/authz';
 
 const rateOverrideSchema = z.object({
 	ratePercent: z.string().optional(),
@@ -33,8 +34,9 @@ const flaggedSchema = z.object({
 	approve: z.boolean()
 });
 
-function requireSuperadmin(locals: App.Locals) {
-	return locals.user?.role === USER_ROLES.SUPERADMIN;
+/** Rate overrides, status, ledger adjustments and flagged referrals: payouts.manage. */
+function canManagePayouts(locals: App.Locals) {
+	return can(locals.user, 'payouts.manage');
 }
 
 export async function load(event) {
@@ -52,13 +54,13 @@ export async function load(event) {
 		affiliateType: affiliateTypeForRole(detail.profile.role),
 		programRate: config.commissionRate,
 		effectiveRate: rate,
-		isSuperadmin: requireSuperadmin(event.locals)
+		isSuperadmin: canManagePayouts(event.locals)
 	};
 }
 
 export const actions = {
 	setRateOverride: async (event) => {
-		if (!requireSuperadmin(event.locals)) return fail(403, { message: 'Superadmin only' });
+		if (!canManagePayouts(event.locals)) return fail(403, { message: 'Superadmin only' });
 		const parsed = rateOverrideSchema.safeParse(Object.fromEntries(await event.request.formData()));
 		if (!parsed.success) return fail(400, { message: 'Invalid override' });
 
@@ -91,7 +93,7 @@ export const actions = {
 	},
 
 	setStatus: async (event) => {
-		if (!requireSuperadmin(event.locals)) return fail(403, { message: 'Superadmin only' });
+		if (!canManagePayouts(event.locals)) return fail(403, { message: 'Superadmin only' });
 		const parsed = statusSchema.safeParse(Object.fromEntries(await event.request.formData()));
 		if (!parsed.success) return fail(400, { message: 'A reason is required' });
 
@@ -106,7 +108,7 @@ export const actions = {
 	},
 
 	adjust: async (event) => {
-		if (!requireSuperadmin(event.locals)) return fail(403, { message: 'Superadmin only' });
+		if (!canManagePayouts(event.locals)) return fail(403, { message: 'Superadmin only' });
 		const parsed = adjustmentSchema.safeParse(Object.fromEntries(await event.request.formData()));
 		if (!parsed.success) return fail(400, { message: 'Amount and a reason are required' });
 
@@ -133,7 +135,7 @@ export const actions = {
 	},
 
 	resolveFlagged: async (event) => {
-		if (!requireSuperadmin(event.locals)) return fail(403, { message: 'Superadmin only' });
+		if (!canManagePayouts(event.locals)) return fail(403, { message: 'Superadmin only' });
 		const data = Object.fromEntries(await event.request.formData());
 		const parsed = flaggedSchema.safeParse({ ...data, approve: data.approve === 'true' });
 		if (!parsed.success) return fail(400, { message: 'Invalid input' });

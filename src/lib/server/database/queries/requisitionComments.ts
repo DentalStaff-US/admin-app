@@ -3,12 +3,13 @@ import db from '../drizzle';
 import { requisitionCommentTable } from '../schemas/requisition';
 import { userTable } from '../schemas/auth';
 import { USER_ROLES } from '$lib/config/constants';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 export const REQUISITION_COMMENT_MAX_LENGTH = 5000;
 
 /**
  * Comment thread for a requisition, oldest first (reads like a conversation).
- * `includeInternal` must only be true for SUPERADMIN — internal rows are
+ * `includeInternal` must only be true for DTSS staff (SUPERADMIN or ADMIN) — internal rows are
  * admin-only notes and are filtered here, not in the UI.
  */
 export async function getRequisitionComments(
@@ -76,7 +77,7 @@ export async function getRequisitionCommentById(commentId: string) {
 }
 
 /**
- * Authors may delete their own comments; SUPERADMIN may delete any. Scoped to
+ * Authors may delete their own comments; DTSS staff may delete any. Scoped to
  * the requisition so a comment id from another thread can't be deleted through
  * this one. Returns the deleted row, or null when nothing matched.
  */
@@ -105,5 +106,5 @@ export async function getClientCommenterEmails(requisitionId: number) {
 		.from(requisitionCommentTable)
 		.innerJoin(userTable, eq(userTable.id, requisitionCommentTable.authorId))
 		.where(eq(requisitionCommentTable.requisitionId, requisitionId));
-	return rows.filter((r) => r.role !== USER_ROLES.SUPERADMIN && !!r.email);
+	return rows.filter((r) => !checkIsAdmin(r.role) && !!r.email);
 }

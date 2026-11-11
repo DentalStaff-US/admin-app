@@ -13,6 +13,7 @@ import { experienceLevelTable } from '$lib/server/database/schemas/skill';
 import { eq, max } from 'drizzle-orm';
 import { z } from 'zod';
 import { hasTypedConfirmation } from '$lib/server/confirmation';
+import { can } from '$lib/authz';
 
 const experienceLevelSchema = newExperienceLevelSchema.pick({
 	value: true
@@ -43,7 +44,7 @@ export const load: PageServerLoad = async (event) => {
 		redirect(302, '/auth/sign-in');
 	}
 
-	if (user && user.role !== USER_ROLES.SUPERADMIN) {
+	if (user && !can(user, 'platform.configure')) {
 		redirect(302, '/dashboard');
 	}
 
@@ -107,7 +108,7 @@ export const actions = {
 			redirect(302, '/auth/sign-in');
 		}
 
-		if (user.role !== 'SUPERADMIN') {
+		if (!can(user, 'platform.configure')) {
 			return fail(403, { message: 'You do not have permission to delete experience levels.' });
 		}
 
@@ -154,7 +155,7 @@ export const actions = {
 	reorderExperienceLevels: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user) redirect(302, '/auth/sign-in');
-		if (user.role !== USER_ROLES.SUPERADMIN) {
+		if (!can(user, 'platform.configure')) {
 			return fail(403, { message: 'You do not have permission to reorder experience levels.' });
 		}
 

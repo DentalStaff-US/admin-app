@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
     // Legacy syntax kept: this page's superForm wiring is unchanged from before
     // the redesign; only the markup moved onto the design-system components.
     import {Input} from '$lib/components/ui/input';
@@ -204,13 +205,13 @@
     <Page>
         <DetailHeader title={location.name} subtitle={company?.companyName ?? 'Office location'} back={{ href: '/locations', label: 'Locations' }}>
             {#snippet actions()}
-                {#if user?.role !== USER_ROLES.SUPERADMIN && data.canCreateRequisitions}
+                {#if !checkIsAdmin(user?.role) && data.canCreateRequisitions}
                     <Button class="gap-2" on:click={() => (drawerExpanded = true)}><Plus class="size-4" aria-hidden="true"/>New requisition</Button>
                 {/if}
             {/snippet}
         </DetailHeader>
 
-        {#if user?.role !== USER_ROLES.SUPERADMIN && data.clientStatus && !data.canCreateRequisitions}
+        {#if !checkIsAdmin(user?.role) && data.clientStatus && !data.canCreateRequisitions}
             <Notice tone="pending">Your account is {String(data.clientStatus ?? 'PENDING').toLowerCase()}, so posting requisitions is paused until it's approved.</Notice>
         {/if}
 
@@ -372,7 +373,7 @@
                 {:else if active === 'requisitions'}
                     {#snippet emptyReqs()}
                         <EmptyState icon={ClipboardList} title="No requisitions yet" description="Requisitions posted for this location show up here.">
-                            {#if user?.role !== USER_ROLES.SUPERADMIN && data.canCreateRequisitions}
+                            {#if !checkIsAdmin(user?.role) && data.canCreateRequisitions}
                                 <Button on:click={() => (drawerExpanded = true)}>Post the first requisition</Button>
                             {/if}
                         </EmptyState>

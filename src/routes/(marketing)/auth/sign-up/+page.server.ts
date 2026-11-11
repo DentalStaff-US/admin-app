@@ -87,6 +87,28 @@ export const actions = {
 				return setError(form, 'email', 'Please use the email address from your invitation.');
 			}
 
+			// The invite cookie is ours but unsigned, so its role is never trusted:
+			// re-read the invite row by token and take the role from there. A forged
+			// cookie could otherwise sign anyone up as SUPERADMIN.
+			if (inviteData) {
+				const [row] = await db
+					.select({
+						email: userInviteTable.email,
+						invitedRole: userInviteTable.invitedRole,
+						companyId: userInviteTable.companyId,
+						staffRole: userInviteTable.staffRole,
+						expiresAt: userInviteTable.expiresAt
+					})
+					.from(userInviteTable)
+					.where(eq(userInviteTable.token, String(inviteData.token ?? '')))
+					.limit(1);
+				if (!row || new Date() > new Date(row.expiresAt) || row.email.toLowerCase() !== form.data.email.toLowerCase()) {
+					setFlash({ type: 'error', message: 'This invitation is invalid or has expired.' }, event);
+					return setError(form, 'email', 'This invitation is invalid or has expired.');
+				}
+				inviteData = { ...inviteData, invitedRole: row.invitedRole, companyId: row.companyId, staffRole: row.staffRole };
+			}
+
 			const email = form.data.email.toLowerCase();
 			// Invited users get their invited role + are auto-verified (they arrived
 			// via an email link) and skip onboarding; everyone else is a CLIENT.

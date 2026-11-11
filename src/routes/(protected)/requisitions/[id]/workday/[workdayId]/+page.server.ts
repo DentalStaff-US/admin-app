@@ -72,6 +72,8 @@ import {
 	notifyWorkdayReposted,
 	notifyWorkdayDeleted
 } from '$lib/server/notifications/transactional';
+import { can } from '$lib/authz';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 const adjustedHourlyRateSchema = z.object({
 	timesheetId: z.string().min(1),
@@ -126,7 +128,7 @@ export async function load(event: RequestEvent) {
 	await resolveRequisitionAccess(user, requisitionId);
 	const editWorkdayScheduleForm = await superValidate(event, editRecurrenceDaySchema);
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (checkIsAdmin(user.role)) {
 		const requisition = await getRequisitionDetailsById(requisitionId);
 		const client = await getClientProfileByIdAdmin(requisition.requisition.company.clientId);
 		const company = await getClientCompanyByClientId(client.id);
@@ -322,7 +324,7 @@ export const actions = {
 			return fail(403, { error: 'Not authenticated' });
 		}
 
-		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+		if (!(can(user, 'requisitions.manage') || ['CLIENT', 'CLIENT_STAFF'].includes(user.role))) {
 			return fail(403, { error: 'Not authorized' });
 		}
 		// Tenancy guard: the requisition in the URL must be reachable by the caller.
@@ -386,7 +388,7 @@ export const actions = {
 			return fail(403, { error: 'Not authenticated' });
 		}
 
-		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+		if (!(can(user, 'requisitions.manage') || ['CLIENT', 'CLIENT_STAFF'].includes(user.role))) {
 			return fail(403, { error: 'Not authorized to assign candidates' });
 		}
 		// Tenancy guard: the requisition in the URL must be reachable by the caller.
@@ -570,7 +572,7 @@ export const actions = {
 			return fail(403, { error: 'Not authenticated' });
 		}
 
-		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+		if (!(can(user, 'requisitions.manage') || ['CLIENT', 'CLIENT_STAFF'].includes(user.role))) {
 			return fail(403, { error: 'Not authorized' });
 		}
 		// Tenancy guard: the requisition in the URL must be reachable by the caller.
@@ -703,7 +705,7 @@ export const actions = {
 			return fail(403, { error: 'Not authenticated' });
 		}
 
-		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+		if (!(can(user, 'requisitions.manage') || ['CLIENT', 'CLIENT_STAFF'].includes(user.role))) {
 			return fail(403, { error: 'Not authorized to reassign candidates' });
 		}
 		// Tenancy guard: the requisition in the URL must be reachable by the caller.
@@ -940,7 +942,7 @@ export const actions = {
 			return fail(403, { error: 'Not authenticated' });
 		}
 
-		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+		if (!(can(user, 'requisitions.manage') || ['CLIENT', 'CLIENT_STAFF'].includes(user.role))) {
 			return fail(403, { error: 'Not authorized' });
 		}
 		// Tenancy guard: the requisition in the URL must be reachable by the caller.
@@ -985,7 +987,7 @@ export const actions = {
 	// 		return fail(403, { error: 'Not authenticated' });
 	// 	}
 
-	// 	if (user.role !== USER_ROLES.SUPERADMIN) {
+	// 	if (!can(user, 'requisitions.manage')) {
 	// 		return fail(403, { error: 'Only admins can adjust the hourly rate' });
 	// 	}
 
@@ -1022,7 +1024,7 @@ export const actions = {
 		const { locals, params, request } = event;
 		const user = locals.user;
 		if (!user) return fail(403, { error: 'Not authenticated' });
-		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+		if (!(can(user, 'blacklist.add') || ['CLIENT', 'CLIENT_STAFF'].includes(user.role))) {
 			return fail(403, { error: 'Not authorized' });
 		}
 		// Tenancy guard: the requisition in the URL must be reachable by the caller.
@@ -1099,7 +1101,7 @@ export const actions = {
 		const { request, locals, params } = event;
 		const user = locals.user;
 		if (!user) return fail(403);
-		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { error: 'Admin only' });
+		if (!can(user, 'requisitions.manage')) return fail(403, { error: 'Admin only' });
 		// Tenancy guard: the requisition in the URL must be reachable by the caller.
 		await resolveRequisitionAccess(user, Number(event.params.id));
 

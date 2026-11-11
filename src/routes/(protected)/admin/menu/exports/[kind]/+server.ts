@@ -3,13 +3,14 @@ import { USER_ROLES } from '$lib/config/constants';
 import { findExport } from '$lib/server/export/registry';
 import { csvResponse, datedFilename } from '$lib/server/export/csv';
 import { logger } from '$lib/server/logger';
+import { can } from '$lib/authz';
 
 /**
  * GET /admin/menu/exports/<key>?from=YYYY-MM-DD&to=YYYY-MM-DD
- * Superadmin only. Dates optional and inclusive.
+ * exports.run (SUPERADMIN) only. Dates optional and inclusive.
  */
 export const GET: RequestHandler = async ({ params, url, locals }) => {
-	if (locals.user?.role !== USER_ROLES.SUPERADMIN) throw error(403, 'Superadmin only');
+	if (!locals.user || !can(locals.user, 'exports.run')) throw error(403, 'Superadmin only');
 
 	const def = params.kind ? findExport(params.kind) : undefined;
 	if (!def) throw error(404, 'Unknown export');

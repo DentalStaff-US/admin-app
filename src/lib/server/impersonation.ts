@@ -34,6 +34,8 @@ import db from '$lib/server/database/drizzle';
 import { userTable } from '$lib/server/database/schemas/auth';
 import { USER_ROLES } from '$lib/config/constants';
 import { logger } from '$lib/server/logger';
+import { can } from '$lib/authz';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 /** Minutes the cross-app handoff token stays valid. Matches the one-time-token plugin. */
 const HANDOFF_TTL_MS = 3 * 60 * 1000;
@@ -70,8 +72,8 @@ export async function startImpersonation(
 	// restated here rather than relying on any caller having checked. Better Auth's
 	// admin plugin independently enforces `adminRoles: [SUPERADMIN]` on
 	// impersonateUser; this check also covers the cross-app branch, which bypasses
-	// that endpoint.
-	if (admin.role !== USER_ROLES.SUPERADMIN) {
+	// that endpoint. users.impersonate is SUPERADMIN-only in the role matrix.
+	if (!can(admin, 'users.impersonate')) {
 		return { ok: false, status: 403, message: 'Not authorized to impersonate' };
 	}
 
@@ -89,9 +91,9 @@ export async function startImpersonation(
 
 	if (!target) return { ok: false, status: 404, message: 'User not found' };
 
-	// Never impersonate another superadmin: it would let one admin act as another
-	// with only the first admin's name in the ledger.
-	if (target.role === USER_ROLES.SUPERADMIN) {
+	// Never impersonate DTSS staff (SUPERADMIN or ADMIN): it would let one admin act
+	// as another with only the first admin's name in the ledger.
+	if (checkIsAdmin(target.role)) {
 		return { ok: false, status: 403, message: 'Cannot impersonate an administrator' };
 	}
 

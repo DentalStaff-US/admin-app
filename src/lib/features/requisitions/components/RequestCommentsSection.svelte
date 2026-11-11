@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 	import { enhance } from '$app/forms';
 	import { Lock, MessageSquare, Trash2 } from 'lucide-svelte';
 	import { format, formatDistanceToNow } from 'date-fns';
@@ -48,7 +49,7 @@
 	let deleteSubmitting = $state(false);
 
 	const author = (c: Comment) => `${c.authorFirstName ?? ''} ${c.authorLastName ?? ''}`.trim() || 'Someone';
-	const fromDtss = (c: Comment) => c.authorRole === USER_ROLES.SUPERADMIN;
+	const fromDtss = (c: Comment) => checkIsAdmin(c.authorRole ?? undefined);
 	const canDelete = (c: Comment) => isAdmin || c.authorId === currentUserId;
 </script>
 

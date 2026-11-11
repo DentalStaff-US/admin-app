@@ -20,6 +20,7 @@ export type HistoryEntry = {
 
 const ROLE_LABELS: Record<string, string> = {
 	SUPERADMIN: 'Admin',
+	ADMIN: 'Admin',
 	CLIENT: 'Practice',
 	CLIENT_STAFF: 'Practice staff',
 	CANDIDATE: 'Professional'

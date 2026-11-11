@@ -106,6 +106,21 @@ describe('startImpersonation — authorization', () => {
 		expect(state.impersonateUserCalls).toHaveLength(0);
 	});
 
+	it('refuses an ADMIN caller: users.impersonate is SUPERADMIN-only', async () => {
+		state.userRows = [{ id: 'u-1', role: 'CLIENT', email: 'c@x.test' }];
+		const result = await startImpersonation(evt({ id: 'admin-9', role: 'ADMIN' }), 'u-1');
+		expect(result).toMatchObject({ ok: false, status: 403 });
+		expect(state.createdSessions).toHaveLength(0);
+		expect(state.impersonateUserCalls).toHaveLength(0);
+	});
+
+	it('refuses impersonating an ADMIN, like any DTSS staff account', async () => {
+		state.userRows = [{ id: 'admin-3', role: 'ADMIN', email: 'd@x.test' }];
+		const result = await startImpersonation(evt(), 'admin-3');
+		expect(result).toMatchObject({ ok: false, status: 403 });
+		expect(state.impersonateUserCalls).toHaveLength(0);
+	});
+
 	it('refuses a missing id', async () => {
 		expect(await startImpersonation(evt(), null)).toMatchObject({ ok: false, status: 400 });
 		expect(await startImpersonation(evt(), '   ')).toMatchObject({ ok: false, status: 400 });

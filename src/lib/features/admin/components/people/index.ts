@@ -2,6 +2,7 @@
 export { default as UsersTable } from './UsersTable.svelte';
 export { default as AdminsTable } from './AdminsTable.svelte';
 export { default as InviteAdminDialog } from './InviteAdminDialog.svelte';
+export { default as StaffRoleField } from './StaffRoleField.svelte';
 export { default as AdminProfile } from './AdminProfile.svelte';
 export { default as AffiliateTotals } from './AffiliateTotals.svelte';
 export { default as AffiliateProgramSettingsForm } from './AffiliateProgramSettingsForm.svelte';

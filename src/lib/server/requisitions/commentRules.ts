@@ -1,13 +1,14 @@
 import { USER_ROLES } from '$lib/config/constants';
+import { can } from '$lib/authz';
 
 /**
  * Pure rules for the requisition comment thread, kept apart from the DB code so
  * the visibility/notification decisions are unit-tested.
  */
 
-/** Only SUPERADMIN may write an internal (client-hidden) note; anyone else's flag is ignored. */
+/** Only DTSS staff (requisitions.manage) may write an internal (client-hidden) note; anyone else's flag is ignored. */
 export function resolveCommentInternal(role: string | null | undefined, raw: unknown): boolean {
-	return role === USER_ROLES.SUPERADMIN && raw === 'true';
+	return can(role, 'requisitions.manage') && raw === 'true';
 }
 
 /**

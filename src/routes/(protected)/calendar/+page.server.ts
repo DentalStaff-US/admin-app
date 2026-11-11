@@ -8,6 +8,7 @@ import {
 } from '$lib/server/database/queries/clients';
 import { redirect } from '@sveltejs/kit';
 import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 export const load = async ({ locals }) => {
 	const user = locals.user;
@@ -16,7 +17,7 @@ export const load = async ({ locals }) => {
 		redirect(301, '/auth/sign-in');
 	}
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (checkIsAdmin(user.role)) {
 		const events = await getCalendarEventsForAdmin(user.id);
 
 		return {

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Pencil, Trash2 } from 'lucide-svelte';
+	import { Pencil, ShieldCheck, Trash2 } from 'lucide-svelte';
+	import { enhance as formEnhance } from '$app/forms';
 	import { superForm } from 'sveltekit-superforms/client';
 	import ConfirmDialog from '$dtss/ConfirmDialog.svelte';
 	import FactGrid from '$dtss/FactGrid.svelte';
@@ -10,6 +11,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import { STAFF_ROLE_OPTIONS } from '$lib/authz';
 	import { roleLabel } from './people';
 
 	type Profile = { id: string; firstName: string | null; lastName: string | null; email: string; role: string };
@@ -18,14 +20,29 @@
 		profile,
 		isSelf,
 		updateForm,
-		deleteError
+		deleteError,
+		superadminCount = 0
 	}: {
 		profile: Profile;
 		/** The signed-in admin is looking at their own record: no delete. */
 		isSelf: boolean;
 		updateForm: any;
 		deleteError?: string | null;
+		/** Active SUPERADMIN accounts, for the last-super-admin guard. The server re-checks. */
+		superadminCount?: number;
 	} = $props();
+
+	// Two staff roles, so changing role is a switch to the other one. Identity
+	// checks on the profile's role (not permissions): the server runs guardStaffChange.
+	const nextRole = $derived(profile.role === 'SUPERADMIN' ? 'ADMIN' : 'SUPERADMIN');
+	const nextOption = $derived(STAFF_ROLE_OPTIONS.find((o) => o.value === nextRole)!);
+	const isLastSuper = $derived(profile.role === 'SUPERADMIN' && superadminCount <= 1);
+	// Why the role or delete action is unavailable, shown instead of a dead button.
+	const roleBlocked = $derived(
+		isSelf ? 'You can’t change your own role. Ask another super admin.' : isLastSuper ? 'They’re the last super admin, so their role can’t change until there’s another.' : null
+	);
+	let roleOpen = $state(false);
+	let roleSubmitting = $state(false);
 
 	let editOpen = $state(false);
 	let deleteOpen = $state(false);
@@ -46,9 +63,9 @@
 </script>
 
 <Page width="narrow">
-	<PageHeader title={name} description="Administrator · {profile.email}">
+	<PageHeader title={name} description="{roleLabel(profile.role)} · {profile.email}">
 		{#snippet actions()}
-			{#if !isSelf}
+			{#if !isSelf && !isLastSuper}
 				<Button variant="destructiveOutline" on:click={() => (deleteOpen = true)}>
 					<Trash2 class="mr-2 size-4" aria-hidden="true" /> Delete admin
 				</Button>
@@ -71,6 +88,16 @@
 				{ label: 'Role', value: roleLabel(profile.role) }
 			]}
 		/>
+	</Section>
+
+	<Section title="Role" description={STAFF_ROLE_OPTIONS.find((o) => o.value === profile.role)?.description}>
+		{#if roleBlocked}
+			<p class="text-sm text-muted-foreground">{roleBlocked}</p>
+		{:else}
+			<Button variant="outline" on:click={() => (roleOpen = true)}>
+				<ShieldCheck class="mr-2 size-4" aria-hidden="true" /> Make {nextOption.label.toLowerCase()}
+			</Button>
+		{/if}
 	</Section>
 </Page>
 
@@ -103,6 +130,32 @@
 		</form>
 	</Dialog.Content>
 </Dialog.Root>
+
+<ConfirmDialog
+	bind:open={roleOpen}
+	title={nextRole === 'ADMIN' ? `Make ${name} an admin?` : `Make ${name} a super admin?`}
+	description="{nextOption.label}: {nextOption.description} The change applies the next time they load a page."
+>
+	{#snippet confirm()}
+		<form
+			method="POST"
+			action="?/setRole"
+			use:formEnhance={() => {
+				roleSubmitting = true;
+				return async ({ update }) => {
+					roleSubmitting = false;
+					roleOpen = false;
+					await update();
+				};
+			}}
+		>
+			<input type="hidden" name="role" value={nextRole} />
+			<Button type="submit" class="min-h-11 w-full sm:min-h-10 sm:w-auto" disabled={roleSubmitting}>
+				{roleSubmitting ? 'Saving…' : `Make ${nextOption.label.toLowerCase()}`}
+			</Button>
+		</form>
+	{/snippet}
+</ConfirmDialog>
 
 <ConfirmDialog
 	bind:open={deleteOpen}

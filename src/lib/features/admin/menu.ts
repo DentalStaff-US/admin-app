@@ -3,6 +3,8 @@
  * Framework-free so the grouping is testable; icons are passed through untouched.
  */
 
+import { can, type Permission } from '$lib/authz';
+
 export const ADMIN_MENU_AREAS = ['People', 'Billing', 'Communication', 'Data', 'System'] as const;
 export type AdminMenuArea = (typeof ADMIN_MENU_AREAS)[number];
 
@@ -13,6 +15,8 @@ export type AdminMenuItem<Icon = unknown> = {
 	/** One line saying what the tool is for. */
 	description: string;
 	icon: Icon;
+	/** The role-matrix permission the tool needs. Omitted = any DTSS admin. */
+	permission?: Permission;
 };
 
 export type AdminMenuGroup<Icon = unknown> = {
@@ -26,6 +30,14 @@ export function groupAdminMenu<Icon>(items: AdminMenuItem<Icon>[]): AdminMenuGro
 		area,
 		items: items.filter((item) => item.area === area)
 	})).filter((group) => group.items.length > 0);
+}
+
+/** The tools this user (or role) may open; the server enforces the same permission. */
+export function adminMenuFor<Icon>(
+	items: AdminMenuItem<Icon>[],
+	user: string | { role?: string | null } | null | undefined
+): AdminMenuItem<Icon>[] {
+	return items.filter((item) => !item.permission || can(user, item.permission));
 }
 
 /** Case-insensitive match on the label or description, for the menu's filter box. */

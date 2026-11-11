@@ -19,14 +19,15 @@ import { deleteUsersWithoutRecords } from '$lib/server/database/queries/admin';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { hasTypedConfirmation } from '$lib/server/confirmation';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
+import { can } from '$lib/authz';
 
 /**
- * Every action here is SUPERADMIN-only, like the page. Previously only the
+ * Every action here needs users.import (SUPERADMIN), like the page. Previously only the
  * load checked, so any signed-in user could post to these actions directly
  * (including deleteAllUsers and the bulk import).
  */
 function requireSuperadmin(locals: App.Locals) {
-	if (locals.user?.role !== USER_ROLES.SUPERADMIN) throw error(403, 'Forbidden');
+	if (!can(locals.user, 'users.import')) throw error(403, 'Forbidden');
 }
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -34,7 +35,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		redirect(301, '/login');
 	}
 
-	if (locals.user.role !== USER_ROLES.SUPERADMIN) {
+	if (!can(locals.user, 'users.import')) {
 		redirect(301, '/dashboard');
 	}
 };

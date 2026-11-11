@@ -7,13 +7,15 @@ import {
 	removeCandidateFromBlacklist
 } from '$lib/server/database/queries/blacklist';
 import { logger } from '$lib/server/logger';
+import { can } from '$lib/authz';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 const DEFAULT_LIMIT = 25;
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
 	if (!user) redirect(302, '/auth/sign-in');
-	if (user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/dashboard');
+	if (!checkIsAdmin(user.role)) redirect(302, '/dashboard');
 
 	const search = event.url.searchParams.get('search') ?? '';
 	const page = Math.max(1, Number(event.url.searchParams.get('page')) || 1);
@@ -26,6 +28,7 @@ export const load: PageServerLoad = async (event) => {
 	});
 
 	return {
+		canRemove: can(user, 'blacklist.remove'),
 		entries,
 		total,
 		page,
@@ -38,7 +41,7 @@ export const actions = {
 	removeBlacklist: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user) return fail(401);
-		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!can(user, 'blacklist.remove')) return fail(403);
 
 		const formData = await event.request.formData();
 		const candidateId = String(formData.get('candidateId') ?? '').trim();
