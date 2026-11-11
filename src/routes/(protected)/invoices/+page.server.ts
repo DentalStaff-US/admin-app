@@ -7,6 +7,7 @@ import {
 import { getClientInvoices, getAllInvoicesAdmin } from '$lib/server/database/queries/requisitions';
 import { redirect } from '@sveltejs/kit';
 import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
+import { readInvoiceListQuery, shapeInvoiceList, toInvoiceListRow } from '$features/invoices/invoices';
 
 export const load = async (event) => {
 	const { locals, url } = event;
@@ -35,5 +36,9 @@ export const load = async (event) => {
 		invoices = await getClientInvoices(client?.id, { searchTerm, locationIds: scopedLocationIds });
 	}
 
-	return { user, invoices: invoices || [], searchTerm };
+	// Tab, filters, sort and page come from the URL.
+	const query = readInvoiceListQuery(url);
+	const list = shapeInvoiceList((invoices || []).map((row: unknown) => toInvoiceListRow(row)), query);
+
+	return { user, isAdmin: user.role === USER_ROLES.SUPERADMIN, list, query, searchTerm };
 };

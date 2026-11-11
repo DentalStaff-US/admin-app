@@ -78,6 +78,8 @@ import { resolveBillingRecipient } from '$lib/server/billing/recipients';
 import { voidInvoiceAndNotify } from '$lib/server/invoices/voidNotify';
 import { superValidate } from 'sveltekit-superforms/server';
 import { addExpenseSchema } from '$lib/config/zod-schemas';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
+import { getClientInvoiceMethod } from '$features/timesheets/server/invoiceMethod';
 
 export const load = async (event: RequestEvent) => {
 	const user = event.locals.user;
@@ -128,6 +130,10 @@ export const load = async (event: RequestEvent) => {
 		// live preview, and the override editor is closed.
 		frozen: rawTimesheet?.adminFeeSource != null
 	};
+
+	// Which invoice approval would create (PAPER overrides a Stripe customer),
+	// for the approve confirmation. Read-only.
+	const invoiceMethod = await getClientInvoiceMethod(rawTimesheet?.associatedClientId);
 
 	const unfinishedWorkdays = rawTimesheet ? await getUnfinishedWorkdaysForTimesheet(id) : [];
 	const hasUnfinishedWorkdays = unfinishedWorkdays.length > 0;
@@ -181,7 +187,8 @@ export const load = async (event: RequestEvent) => {
 			hasUnfinishedWorkdays,
 			unfinishedWorkdayCount,
 			priorWeekHours,
-			auditHistory
+			auditHistory,
+			invoiceMethod
 		};
 	}
 
@@ -221,7 +228,8 @@ export const load = async (event: RequestEvent) => {
 			addExpenseForm,
 			hasUnfinishedWorkdays,
 			unfinishedWorkdayCount,
-			priorWeekHours
+			priorWeekHours,
+			invoiceMethod
 		};
 	}
 
@@ -260,7 +268,8 @@ export const load = async (event: RequestEvent) => {
 			addExpenseForm,
 			hasUnfinishedWorkdays,
 			unfinishedWorkdayCount,
-			priorWeekHours
+			priorWeekHours,
+			invoiceMethod
 		};
 	}
 
@@ -1509,6 +1518,13 @@ export const actions = {
 			user.role === USER_ROLES.CANDIDATE && existing.createdByUserId === user.id;
 		if (user.role !== USER_ROLES.SUPERADMIN && !isOwnerCandidate) {
 			return fail(403, { error: 'Forbidden' });
+		}
+
+		// A hard delete: the row is gone, so the dialog makes you type DELETE and
+		// a stray or replayed request without it is refused.
+		if (!hasTypedConfirmation(formData)) {
+			setFlash({ type: 'error', message: 'Type DELETE to confirm' }, event);
+			return fail(400, { error: 'Type DELETE to confirm' });
 		}
 
 		try {
