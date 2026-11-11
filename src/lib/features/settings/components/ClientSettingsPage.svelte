@@ -6,7 +6,7 @@
 	} from '$lib/config/constants';
 	import { superForm } from 'sveltekit-superforms/client';
 	import { cn } from '$lib/utils';
-	import TwoFactorSettings from '$lib/components/settings/two-factor-settings.svelte';
+	import TwoFactorSettings from './TwoFactorSettings.svelte';
 	import * as Alert from '$lib/components/ui/alert';
 	import {
 		AlertCircle,

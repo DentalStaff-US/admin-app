@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { SETTINGS_MENU_OPTIONS, USER_ROLES } from '$lib/config/constants';
-	import ClientSettingsView from '$lib/views/client/clientSettingsView.svelte';
+	import ClientSettingsView from '$features/settings/components/ClientSettingsPage.svelte';
 	import type { SuperValidated } from 'sveltekit-superforms';
 	import type { UserSchema, UserUpdatePasswordSchema } from '$lib/config/zod-schemas';
-	import ClientStaffSettingsView from '$lib/views/client/clientStaffSettingsView.svelte';
+	import ClientStaffSettingsView from '$features/settings/components/ClientStaffSettingsPage.svelte';
 	import { page } from '$app/stores';
 	import type { PageData } from './$types';
-	import AdminSettingsView from '$lib/views/admin/adminSettingsView.svelte';
+	import AdminSettingsView from '$features/settings/components/AdminSettingsPage.svelte';
 	import { tick } from 'svelte';
 	import { superForm } from 'sveltekit-superforms/client';
 

@@ -8,7 +8,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
 	import AvatarUpload from "$lib/components/avatar-upload.svelte";
-	import TwoFactorSettings from '$lib/components/settings/two-factor-settings.svelte';
+	import TwoFactorSettings from './TwoFactorSettings.svelte';
 
 	export let userProfileForm;
 	export let passwordForm;

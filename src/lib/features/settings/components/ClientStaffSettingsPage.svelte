@@ -10,7 +10,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
 	import { Switch } from '$lib/components/ui/switch';
-	import TwoFactorSettings from '$lib/components/settings/two-factor-settings.svelte';
+	import TwoFactorSettings from './TwoFactorSettings.svelte';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import AvatarUpload from '$lib/components/avatar-upload.svelte';
 	import AffiliateSettingsCard from '$lib/components/affiliate/AffiliateSettingsCard.svelte';
