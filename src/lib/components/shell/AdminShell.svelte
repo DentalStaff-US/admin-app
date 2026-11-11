@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import { ChevronRight, ChevronsLeft, ChevronsRight, Menu, Search } from 'lucide-svelte';
 	import logo from '$lib/assets/white-dtss-logo.png';
-	import emblem from '$lib/assets/dental-staff-emblem.svg';
+	import mark from '$lib/assets/dtss-mark.png';
 	import * as Sheet from '$lib/components/ui/sheet';
 	import {
 		activeHref,
@@ -111,7 +111,7 @@
 				)}
 			>
 				{#if rail}
-					<img src={emblem} alt="DTSS" class="size-8 brightness-0 invert" />
+					<img src={mark} alt="DTSS" class="size-9 brightness-0 invert" />
 				{:else}
 					<img src={logo} alt="DTSS" class="h-8 w-auto brightness-0 invert" />
 				{/if}
