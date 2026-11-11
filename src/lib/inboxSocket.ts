@@ -9,6 +9,8 @@ export const inboxSocketConnected = () => connected;
 function refresh() {
 	invalidate('inbox:list');
 	invalidate('inbox:unread');
+	// The sidebar's Inbox badge (protected layout load).
+	invalidate('app:unread');
 	// Loading a thread marks it read, so a thread in a background tab must wait until
 	// someone can see it. That also keeps their email alert accurate.
 	if (document.visibilityState === 'visible') invalidate('inbox:conversation');

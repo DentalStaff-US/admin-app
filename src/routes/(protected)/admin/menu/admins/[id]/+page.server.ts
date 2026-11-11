@@ -62,7 +62,8 @@ export const actions = {
 		}
 
 		try {
-			deleteAdminUser(id);
+			// Awaited so a failure (e.g. UserHasRecordsError) lands in the catch.
+			await deleteAdminUser(id);
 			setFlash({ type: 'success', message: 'User deleted successfully.' }, event);
 		} catch (err) {
 			console.error('Error deleting user:', err);
