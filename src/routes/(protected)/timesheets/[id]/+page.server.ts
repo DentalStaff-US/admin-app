@@ -80,6 +80,7 @@ import { superValidate } from 'sveltekit-superforms/server';
 import { addExpenseSchema } from '$lib/config/zod-schemas';
 import { hasTypedConfirmation } from '$lib/server/confirmation';
 import { getClientInvoiceMethod } from '$features/timesheets/server/invoiceMethod';
+import { assertTimesheetActionAccess } from '$features/timesheets/server/access';
 
 export const load = async (event: RequestEvent) => {
 	const user = event.locals.user;
@@ -804,6 +805,7 @@ export const actions = {
 		}
 
 		const { id } = event.params;
+		await assertTimesheetActionAccess(user, id);
 
 		const existing = await getTimesheetById(id);
 		if (!existing) {
@@ -854,6 +856,7 @@ export const actions = {
 			return fail(403, { error: 'Forbidden' });
 		}
 
+		await assertTimesheetActionAccess(user, id);
 		const result = await approveAndInvoiceTimesheet(id, { actorUserId: user.id });
 
 		if (result.ok) {
@@ -901,6 +904,7 @@ export const actions = {
 			return fail(403, { error: 'Forbidden' });
 		}
 
+		await assertTimesheetActionAccess(user, id);
 		const timesheet = await getTimesheetById(id);
 		if (!timesheet || !timesheet.requisitionId) {
 			return fail(404, { error: 'Timesheet not found' });
@@ -1554,6 +1558,7 @@ export const actions = {
 		const formData = await event.request.formData();
 		const expenseId = String(formData.get('expenseId') ?? '');
 		if (!expenseId) return fail(400, { error: 'Missing expense id' });
+		await assertTimesheetActionAccess(user, event.params.id, { expenseId });
 
 		try {
 			await approveTimesheetExpense(expenseId, user.id);
@@ -1582,6 +1587,7 @@ export const actions = {
 		const expenseId = String(formData.get('expenseId') ?? '');
 		const reason = String(formData.get('reason') ?? '').trim();
 		if (!expenseId) return fail(400, { error: 'Missing expense id' });
+		await assertTimesheetActionAccess(user, event.params.id, { expenseId });
 		if (!reason) {
 			setFlash({ type: 'error', message: 'A rejection reason is required' }, event);
 			return fail(400, { error: 'Reason required' });
