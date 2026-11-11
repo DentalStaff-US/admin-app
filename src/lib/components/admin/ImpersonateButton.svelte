@@ -19,56 +19,54 @@
   button being hidden is a courtesy, not the control.
 -->
 <script lang="ts">
-	import { Button } from '$lib/components/ui/button';
 	import { UserCog } from 'lucide-svelte';
+	import ConfirmDialog from '$dtss/ConfirmDialog.svelte';
+	import { Button } from '$lib/components/ui/button';
 
-	/** users.id of the person to impersonate — NOT their profile id. */
-	export let userId: string | null | undefined;
-	/** For the confirm copy, e.g. "Dana Whitfield". */
-	export let userName = 'this user';
-	/** Where the browser lands after a same-app impersonation. */
-	export let redirectTo = '/dashboard';
-	export let variant: 'outline' | 'ghost' = 'outline';
-	export let size: 'sm' | 'default' = 'sm';
-	/** Icon-only, for dense rows. */
-	export let iconOnly = false;
-	/** Overrides the default button text, e.g. "Sign in as owner". */
-	export let label: string | null = null;
-	/**
-	 * True when the target lives in the candidate app (role CANDIDATE), so the
-	 * server will hand off to that domain and the browser opens a NEW TAB.
-	 *
-	 * A prop rather than something this component infers: the hosting page knows
-	 * definitionally which it is (the professional header is always a candidate,
-	 * the client header never is), and the confirm text has to be accurate about
-	 * what is going to happen BEFORE the request is made. The server still decides
-	 * the actual path from the database role — this only governs the wording.
-	 */
-	export let crossApp = false;
+	let {
+		userId,
+		userName = 'this user',
+		redirectTo = '/dashboard',
+		variant = 'outline',
+		size = 'sm',
+		iconOnly = false,
+		label = null,
+		crossApp = false
+	}: {
+		/** users.id of the person to impersonate — NOT their profile id. */
+		userId: string | null | undefined;
+		/** For the confirm copy, e.g. "Dana Whitfield". */
+		userName?: string;
+		/** Where the browser lands after a same-app impersonation. */
+		redirectTo?: string;
+		variant?: 'outline' | 'ghost';
+		size?: 'sm' | 'default';
+		/** Icon-only, for dense rows. */
+		iconOnly?: boolean;
+		/** Overrides the default button text, e.g. "Sign in as owner". */
+		label?: string | null;
+		/**
+		 * True when the target lives in the candidate app (role CANDIDATE), so the
+		 * server hands off to that domain and the browser opens a NEW TAB. A prop
+		 * because the confirm copy must be accurate before the request is made; the
+		 * server still decides the actual path from the database role.
+		 */
+		crossApp?: boolean;
+	} = $props();
 
-	let busy = false;
-	// Local, not a flash message: this repo has no client-side flash convention and
-	// an error here needs to appear next to the button that caused it.
-	let errorMessage: string | null = null;
+	let busy = $state(false);
+	let confirmOpen = $state(false);
+	// Local, not a flash message: an error here belongs next to the button.
+	let errorMessage = $state<string | null>(null);
+
+	const buttonText = $derived(busy ? 'Starting…' : (label ?? 'Sign in as user') + (crossApp ? ' ↗' : ''));
+	const ariaLabel = $derived(
+		crossApp ? `Sign in as ${userName} (opens their portal in a new tab)` : `Sign in as ${userName}`
+	);
 
 	async function start() {
 		if (!userId || busy) return;
 		errorMessage = null;
-
-		// Acting as someone else is worth one deliberate beat. The ledger records it
-		// either way (IMPERSONATE_START, and impersonatedBy on everything done
-		// afterwards), which is exactly why the admin should know it is starting.
-		const detail = crossApp
-			? 'Their portal opens in a new tab. This tab stays signed in as you, and the new tab has an "End impersonation" banner.'
-			: 'This tab switches to their account. Use the "Exit impersonation" banner at the top to come back.';
-		if (
-			!confirm(
-				`Sign in as ${userName}?\n\nYou'll see the app exactly as they do, and anything you do is recorded as you acting on their behalf.\n\n${detail}`
-			)
-		) {
-			return;
-		}
-
 		busy = true;
 		try {
 			const res = await fetch('/admin/impersonation/start', {
@@ -81,6 +79,7 @@
 			if (!res.ok || !data?.success) {
 				errorMessage = data?.message ?? 'Could not start impersonation.';
 				busy = false;
+				confirmOpen = false;
 				return;
 			}
 
@@ -88,6 +87,7 @@
 				// New tab on the candidate domain; this tab remains the admin's.
 				window.open(data.handoffUrl, '_blank', 'noopener');
 				busy = false;
+				confirmOpen = false;
 				return;
 			}
 
@@ -96,6 +96,7 @@
 		} catch {
 			errorMessage = 'Could not start impersonation.';
 			busy = false;
+			confirmOpen = false;
 		}
 	}
 </script>
@@ -104,24 +105,34 @@
 	<div class="flex flex-col items-end gap-1">
 		<Button
 			{variant}
-			{size}
+			size={iconOnly ? 'icon' : size}
 			type="button"
-			class="gap-2 text-blue-700 hover:bg-blue-50"
+			class={iconOnly ? '' : 'gap-2'}
 			disabled={busy}
-			title={crossApp
-				? `Sign in as ${userName} (opens their portal in a new tab)`
-				: `Sign in as ${userName}`}
-			on:click={start}
+			aria-label={iconOnly ? ariaLabel : undefined}
+			on:click={() => (confirmOpen = true)}
 		>
-			<UserCog class="h-4 w-4" />
-			{#if !iconOnly}
-				{busy
-					? 'Starting…'
-					: (label ?? 'Sign in as user') + (crossApp ? ' ↗' : '')}
-			{/if}
+			<UserCog class="size-4" aria-hidden="true" />
+			{#if !iconOnly}{buttonText}{/if}
 		</Button>
 		{#if errorMessage}
 			<p class="text-xs text-destructive" role="alert">{errorMessage}</p>
 		{/if}
 	</div>
+
+	<!-- Acting as someone else is worth one deliberate beat. The ledger records it
+	     either way (IMPERSONATE_START, and impersonatedBy on everything after). -->
+	<ConfirmDialog
+		bind:open={confirmOpen}
+		title="Sign in as {userName}?"
+		description={crossApp
+			? "You'll see their portal exactly as they do, in a new tab; this tab stays signed in as you. Anything you do there is recorded as you acting on their behalf."
+			: "This tab switches to their account and you'll see the app exactly as they do. Anything you do is recorded as you acting on their behalf. Exit from the banner at the top."}
+	>
+		{#snippet confirm()}
+			<Button class="min-h-11 sm:min-h-10" disabled={busy} on:click={start}>
+				{busy ? 'Starting…' : crossApp ? 'Open their portal' : 'Sign in as user'}
+			</Button>
+		{/snippet}
+	</ConfirmDialog>
 {/if}

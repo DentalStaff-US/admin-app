@@ -8,6 +8,7 @@ import {
 import { z } from 'zod';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
 
 const UpdateAdmimProfileSchema = z.object({
 	firstName: z.string(),
@@ -54,6 +55,10 @@ export const actions = {
 
 		if (id === user.id) {
 			return fail(400, { message: 'You cannot delete your own account.' });
+		}
+		// Hard delete: refuse unless DELETE was typed in the confirmation dialog.
+		if (!hasTypedConfirmation(await event.request.formData())) {
+			return fail(400, { message: 'Type DELETE to confirm.' });
 		}
 
 		try {

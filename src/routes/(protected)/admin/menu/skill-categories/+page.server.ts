@@ -12,6 +12,7 @@ import {
 	updateSkillCategory
 } from '$lib/server/database/queries/skills';
 import { USER_ROLES } from '$lib/config/constants';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
 
 /**
  * Skill categories: name, description, which disciplines they apply to (none =
@@ -135,6 +136,8 @@ export const actions = {
 		const fd = await event.request.formData();
 		const id = String(fd.get('id') ?? '');
 		if (!id) return fail(400, { message: 'Missing category.' });
+		// Hard delete: the dialog posts the typed word (03 › ConfirmDialog).
+		if (!hasTypedConfirmation(fd)) return fail(400, { message: 'Type DELETE to confirm.' });
 
 		const outcome = await deleteSkillCategoryIfUnused(id);
 		if (outcome === 'IN_USE') {

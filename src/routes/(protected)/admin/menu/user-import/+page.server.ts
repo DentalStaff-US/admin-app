@@ -17,6 +17,7 @@ import {
 import { geocodingQueue } from '$lib/server/geocode-queue';
 import { deleteUsersWithoutRecords } from '$lib/server/database/queries/admin';
 import { setFlash } from 'sveltekit-flash-message/server';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -250,6 +251,11 @@ export const actions: Actions = {
 		const { request } = event;
 		const formData = await request.formData();
 		const emailsJson = formData.get('emails') as string;
+
+		// Hard delete: the dialog makes the admin type DELETE; refuse anything else.
+		if (!hasTypedConfirmation(formData)) {
+			return fail(400, { error: 'Type DELETE to confirm' });
+		}
 
 		if (!emailsJson) {
 			return fail(400, { error: 'Missing emails data' });

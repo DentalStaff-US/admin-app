@@ -47,7 +47,6 @@ export const load = async ({ locals }) => {
 		const scopedLocationIds = await getClientStaffScopedLocationIds(user);
 		const events = await getCalendarEventsForClient(client?.id, scopedLocationIds);
 
-		console.log(events);
 
 		return {
 			user,

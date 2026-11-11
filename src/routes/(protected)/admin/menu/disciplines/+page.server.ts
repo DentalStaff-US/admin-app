@@ -12,6 +12,7 @@ import { USER_ROLES } from '$lib/config/constants';
 import db from '$lib/server/database/drizzle';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { eq } from 'drizzle-orm';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
 
 export const load: PageServerLoad = async (event) => {
 	const searchTerm = event.url.searchParams.get('search') || '';
@@ -112,9 +113,12 @@ export const actions = {
 		if (!user) redirect(302, '/auth/sign-in');
 		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { message: 'Unauthorized.' });
 
-		const form = await superValidate(event, deleteDisciplineSchema);
+		const formData = await event.request.formData();
+		const form = await superValidate(formData, deleteDisciplineSchema);
 
 		if (!form.valid) return fail(400, { form });
+		// Hard delete: the dialog posts the typed word (03 › ConfirmDialog).
+		if (!hasTypedConfirmation(formData)) return setError(form, 'Type DELETE to confirm.');
 
 		try {
 			await db.delete(disciplineTable).where(eq(disciplineTable.id, form.data.id));

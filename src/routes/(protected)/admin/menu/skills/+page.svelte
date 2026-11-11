@@ -1,40 +1,48 @@
 <script lang="ts">
-	import * as Dialog from '$lib/components/ui/dialog';
-	import { Button } from '$lib/components/ui/button';
-	import { Input } from '$lib/components/ui/input';
-	import { Badge } from '$lib/components/ui/badge';
-	import type { PageData } from './$types';
 	import { enhance } from '$app/forms';
-	import { goto } from '$app/navigation';
+	import { Loader2, Plus, Sparkles } from 'lucide-svelte';
+	import EmptyState from '$dtss/EmptyState.svelte';
+	import Page from '$dtss/Page.svelte';
+	import PageHeader from '$dtss/PageHeader.svelte';
+	import * as Dialog from '$lib/components/ui/dialog';
+	import * as Select from '$lib/components/ui/select';
+	import { Button } from '$lib/components/ui/button';
+	import { Checkbox } from '$lib/components/ui/checkbox';
+	import { Input } from '$lib/components/ui/input';
+	import { Label } from '$lib/components/ui/label';
 	import {
-		ArrowDown,
-		ArrowUp,
-		Archive,
-		ArchiveRestore,
-		Edit,
-		FileBadge,
-		Loader2,
-		Sparkles,
-		Trash
-	} from 'lucide-svelte';
+		TaxonomyConfirmDialog,
+		TaxonomySearchField,
+		SkillsTable,
+		type SkillRow
+	} from '$features/admin/components/taxonomy';
 
-	export let data: PageData;
+	let { data, form } = $props();
 
-	type SkillRow = PageData['skills'][number];
+	let dialogOpen = $state(false);
+	let saving = $state(false);
+	let editing = $state<SkillRow | null>(null);
+	let formName = $state('');
+	let formCategoryId = $state('');
+	let formRequiresCertificate = $state(false);
 
-	let searchTerm = data.searchTerm ?? '';
-	let dialogOpen = false;
-	let saving = false;
-	let editing: SkillRow | null = null;
-	let formName = '';
-	let formCategoryId = '';
-	let formRequiresCertificate = false;
+	let archiveOpen = $state(false);
+	let deleteOpen = $state(false);
+	let target = $state<SkillRow | null>(null);
 
-	$: skills = data.skills;
-	$: categories = data.categories;
-	$: groups = categories
-		.map((c) => ({ category: c, skills: skills.filter((s) => s.categoryId === c.id) }))
-		.filter((g) => g.skills.length > 0 || !searchTerm);
+	const search = $derived(data.searchTerm ?? '');
+	const skills = $derived(data.skills as SkillRow[]);
+	const categories = $derived(data.categories);
+	const groups = $derived(
+		categories
+			.map((c) => ({ category: c, skills: skills.filter((s) => s.categoryId === c.id) }))
+			.filter((g) => g.skills.length > 0 || !search)
+	);
+	const selectedCategory = $derived(
+		categories.find((c) => c.id === formCategoryId)
+			? { value: formCategoryId, label: categories.find((c) => c.id === formCategoryId)!.name }
+			: undefined
+	);
 
 	function openAdd(categoryId = '') {
 		editing = null;
@@ -51,147 +59,73 @@
 		formRequiresCertificate = s.requiresCertificate;
 		dialogOpen = true;
 	}
-
-	/** The category's skill order with `id` moved one step. Sort order is per category. */
-	function movedOrder(list: SkillRow[], id: string, delta: -1 | 1): string[] {
-		const ids = list.map((s) => s.id);
-		const i = ids.indexOf(id);
-		const j = i + delta;
-		if (i < 0 || j < 0 || j >= ids.length) return ids;
-		[ids[i], ids[j]] = [ids[j], ids[i]];
-		return ids;
-	}
-
-	function handleSearch() {
-		const q = searchTerm.trim();
-		goto(q ? `/admin/menu/skills?search=${encodeURIComponent(q)}` : '/admin/menu/skills');
-	}
 </script>
 
-<section class="flex flex-col h-full p-6 pb-16 space-y-6">
-	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-		<div>
-			<h1 class="text-3xl font-bold tracking-tight">Skills</h1>
-			<p class="text-muted-foreground">
-				Skills professionals can hold and requisitions can require. Mark a skill as needing a
-				certificate (e.g. CPR/BLS) and it only counts while a valid one is on file.
-			</p>
-		</div>
-		<div class="flex gap-2">
-			<Button variant="outline" href="/admin/menu/skill-categories">Manage Categories</Button>
-			<Button class="bg-primary hover:bg-primary/90" on:click={() => openAdd()} disabled={categories.length === 0}>
-				Add New Skill
+<Page>
+	<PageHeader
+		title="Skills"
+		description="Skills professionals can hold and requests can require. A skill that needs a certificate (e.g. CPR/BLS) only counts while a valid one is on file."
+	>
+		{#snippet actions()}
+			<Button variant="outline" href="/admin/menu/skill-categories">Manage categories</Button>
+			<Button on:click={() => openAdd()} disabled={categories.length === 0}>
+				<Plus class="mr-2 size-4" aria-hidden="true" />Add skill
 			</Button>
-		</div>
+		{/snippet}
+	</PageHeader>
+
+	<div class="flex flex-wrap items-center gap-3">
+		<TaxonomySearchField label="Search skills or categories" value={search} />
+		{#if search}<p class="text-sm text-muted-foreground">Clear the search to reorder.</p>{/if}
 	</div>
 
-	<form on:submit|preventDefault={handleSearch} class="flex items-center gap-2">
-		<Input bind:value={searchTerm} placeholder="Search skills or categories..." class="bg-white max-w-xs" />
-		<Button size="sm" type="submit" class="bg-primary hover:bg-primary/90">Search</Button>
-	</form>
-
-	<!-- Per-category counts; each jumps to its group below. -->
 	{#if groups.length > 0}
-		<div class="flex flex-wrap gap-2">
+		<nav aria-label="Jump to category" class="flex flex-wrap gap-2">
 			{#each groups as g (g.category.id)}
-				<Badge
-					variant="secondary"
-					class="text-xs"
-					href={`#category-${g.category.id}`}
-					value={`${g.category.name}: ${g.skills.length}`}
-				/>
+				<a
+					href="#category-{g.category.id}"
+					class="inline-flex items-center gap-1.5 rounded-full border bg-card px-3 py-1 text-sm font-semibold hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				>
+					{g.category.name}
+					<span class="rounded-full bg-muted px-1.5 text-xs font-bold tabular-nums text-muted-foreground">{g.skills.length}</span>
+				</a>
 			{/each}
-		</div>
+		</nav>
 	{/if}
 
 	{#if categories.length === 0}
-		<div class="bg-white rounded-lg border p-8 text-center">
-			<Sparkles class="mx-auto mb-3 h-8 w-8 text-gray-400" />
-			<p class="mb-4 text-sm text-muted-foreground">Create a skill category first.</p>
-			<Button href="/admin/menu/skill-categories">Go to Skill Categories</Button>
-		</div>
+		<EmptyState icon={Sparkles} title="Create a skill category first" description="Every skill belongs to a category.">
+			<Button href="/admin/menu/skill-categories">Go to skill categories</Button>
+		</EmptyState>
+	{:else if groups.length === 0}
+		<EmptyState icon={Sparkles} title="No results for “{search}”" description="Try a different skill or category name." />
 	{/if}
 
 	{#each groups as g (g.category.id)}
-		<div
-			id={`category-${g.category.id}`}
-			class="bg-white rounded-lg shadow-sm border scroll-mt-6"
-			class:opacity-60={!!g.category.archivedAt}
-		>
-			<div class="flex items-center justify-between border-b px-4 py-2">
-				<div class="flex items-center gap-2">
-					<h2 class="font-semibold">{g.category.name}</h2>
-					{#if g.category.archivedAt}<span class="pill pill-secondary">Archived</span>{/if}
-					<span class="text-xs text-muted-foreground">{g.skills.length} skills</span>
-				</div>
-				{#if !g.category.archivedAt}
-					<Button variant="ghost" size="sm" on:click={() => openAdd(g.category.id)}>+ Add skill</Button>
-				{/if}
-			</div>
-			{#if g.skills.length === 0}
-				<p class="px-4 py-3 text-sm text-muted-foreground">No skills yet.</p>
-			{:else}
-				<ul class="divide-y">
-					{#each g.skills as s, i (s.id)}
-						<li class="flex flex-wrap items-center gap-3 px-4 py-2" class:opacity-60={!!s.archivedAt}>
-							<div class="flex flex-col">
-								<form method="POST" action="?/reorder" use:enhance>
-									{#each movedOrder(g.skills, s.id, -1) as id}<input type="hidden" name="orderedIds" value={id} />{/each}
-									<button type="submit" disabled={i === 0 || !!searchTerm} class="disabled:opacity-30" aria-label="Move up">
-										<ArrowUp class="h-3 w-3" />
-									</button>
-								</form>
-								<form method="POST" action="?/reorder" use:enhance>
-									{#each movedOrder(g.skills, s.id, 1) as id}<input type="hidden" name="orderedIds" value={id} />{/each}
-									<button type="submit" disabled={i === g.skills.length - 1 || !!searchTerm} class="disabled:opacity-30" aria-label="Move down">
-										<ArrowDown class="h-3 w-3" />
-									</button>
-								</form>
-							</div>
-							<div class="flex-1 min-w-[10rem] flex items-center gap-2">
-								<span>{s.name}</span>
-								{#if s.requiresCertificate}
-									<span class="pill pill-outline gap-1"><FileBadge class="h-3 w-3" /> Certificate required</span>
-								{/if}
-								{#if s.archivedAt}<span class="pill pill-secondary">Archived</span>{/if}
-							</div>
-							<div class="text-xs text-muted-foreground w-48">
-								{s.candidateCount} professional{s.candidateCount === 1 ? '' : 's'} ·
-								{s.requisitionCount} requisition{s.requisitionCount === 1 ? '' : 's'}
-							</div>
-							<div class="flex items-center gap-1">
-								<Button variant="ghost" size="sm" on:click={() => openEdit(s)} aria-label="Edit">
-									<Edit class="h-4 w-4" />
-								</Button>
-								<form method="POST" action="?/setArchived" use:enhance>
-									<input type="hidden" name="id" value={s.id} />
-									<input type="hidden" name="archived" value={s.archivedAt ? 'false' : 'true'} />
-									<Button type="submit" variant="ghost" size="sm" aria-label={s.archivedAt ? 'Restore' : 'Archive'}>
-										{#if s.archivedAt}<ArchiveRestore class="h-4 w-4" />{:else}<Archive class="h-4 w-4" />{/if}
-									</Button>
-								</form>
-								{#if s.candidateCount === 0 && s.requisitionCount === 0}
-									<form method="POST" action="?/deleteSkill" use:enhance>
-										<input type="hidden" name="id" value={s.id} />
-										<Button type="submit" variant="destructive" size="sm" aria-label="Delete">
-											<Trash size={16} />
-										</Button>
-									</form>
-								{/if}
-							</div>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</div>
+		<SkillsTable
+			category={g.category}
+			rows={g.skills}
+			{search}
+			onAdd={openAdd}
+			onEdit={openEdit}
+			onArchive={(s) => {
+				target = s;
+				archiveOpen = true;
+			}}
+			onDelete={(s) => {
+				target = s;
+				deleteOpen = true;
+			}}
+		/>
 	{/each}
-</section>
+</Page>
 
 <Dialog.Root bind:open={dialogOpen}>
-	<Dialog.Content class="sm:max-w-[440px]">
+	<Dialog.Content class="sm:max-w-lg">
 		<form
 			method="POST"
 			action={editing ? '?/editSkill' : '?/addSkill'}
+			class="space-y-6"
 			use:enhance={() => {
 				saving = true;
 				return async ({ result, update }) => {
@@ -202,77 +136,78 @@
 			}}
 		>
 			<Dialog.Header>
-				<Dialog.Title>{editing ? 'Edit Skill' : 'Add New Skill'}</Dialog.Title>
+				<Dialog.Title class="text-h2">{editing ? 'Edit skill' : 'Add skill'}</Dialog.Title>
+				<Dialog.Description>Skills sit in a category; practices require them per request.</Dialog.Description>
 			</Dialog.Header>
 			{#if editing}<input type="hidden" name="id" value={editing.id} />{/if}
-			<div class="space-y-4 py-4">
-				<div class="space-y-1">
-					<label for="skill-name" class="text-sm font-medium">Name</label>
+			<div class="space-y-4">
+				<div class="space-y-1.5">
+					<Label for="skill-name" class="font-semibold">Name</Label>
 					<Input id="skill-name" name="name" bind:value={formName} required maxlength={80} />
 				</div>
-				<div class="space-y-1">
-					<label for="skill-category" class="text-sm font-medium">Category</label>
-					<select
-						id="skill-category"
-						name="categoryId"
-						bind:value={formCategoryId}
-						required
-						class="w-full border rounded-md px-2 py-2 text-sm bg-white"
+				<div class="space-y-1.5">
+					<Label for="skill-category" class="font-semibold">Category</Label>
+					<Select.Root
+						selected={selectedCategory}
+						onSelectedChange={(v) => {
+							if (v) formCategoryId = String(v.value);
+						}}
 					>
-						{#each categories as c (c.id)}
-							<option value={c.id} disabled={!!c.archivedAt && c.id !== editing?.categoryId}>
-								{c.name}{c.archivedAt ? ' (archived)' : ''}
-							</option>
-						{/each}
-					</select>
+						<Select.Trigger id="skill-category" class="w-full">
+							<Select.Value placeholder="Choose a category" />
+						</Select.Trigger>
+						<Select.Content>
+							{#each categories as c (c.id)}
+								<Select.Item value={c.id} label={c.name} disabled={!!c.archivedAt && c.id !== editing?.categoryId}>
+									{c.name}{c.archivedAt ? ' (archived)' : ''}
+								</Select.Item>
+							{/each}
+						</Select.Content>
+					</Select.Root>
+					<input type="hidden" name="categoryId" value={formCategoryId} />
 				</div>
-				<label class="flex items-start gap-2 text-sm">
-					<input
-						type="checkbox"
-						name="requiresCertificate"
-						bind:checked={formRequiresCertificate}
-						class="mt-1"
-					/>
-					<span>
-						Requires a certificate
-						<span class="block text-xs text-muted-foreground">
-							The professional must upload a dated certificate linked to this skill. It stops
-							counting for matching once that certificate expires.
-						</span>
-					</span>
-				</label>
+				<div class="flex items-start gap-3 rounded-lg border bg-muted/40 p-4">
+					<Checkbox id="skill-cert" bind:checked={formRequiresCertificate} class="mt-0.5" />
+					{#if formRequiresCertificate}<input type="hidden" name="requiresCertificate" value="on" />{/if}
+					<div>
+						<Label for="skill-cert" class="font-semibold">Requires a certificate</Label>
+						<p class="mt-1 text-sm text-muted-foreground">
+							The professional uploads a dated certificate linked to this skill. It stops counting for
+							matching once that certificate expires.
+						</p>
+					</div>
+				</div>
+				{#if form?.message}<p class="text-sm text-destructive" role="alert">{form.message}</p>{/if}
 			</div>
-			<Dialog.Footer>
-				<Button variant="destructiveOutline" type="button" on:click={() => (dialogOpen = false)}>
-					Cancel
-				</Button>
-				<Button type="submit" class="bg-primary hover:bg-primary/90" disabled={saving}>
-					{#if saving}<Loader2 class="mr-2 h-4 w-4 animate-spin" />{/if}
-					{editing ? 'Save' : 'Add Skill'}
+			<Dialog.Footer class="gap-2">
+				<Button variant="outline" on:click={() => (dialogOpen = false)}>Cancel</Button>
+				<Button type="submit" disabled={saving || !formCategoryId}>
+					{#if saving}<Loader2 class="mr-2 size-4 animate-spin" aria-hidden="true" />{/if}
+					{editing ? 'Save changes' : 'Add skill'}
 				</Button>
 			</Dialog.Footer>
 		</form>
 	</Dialog.Content>
 </Dialog.Root>
 
-<style>
-	.pill {
-		display: inline-flex;
-		align-items: center;
-		border-radius: 9999px;
-		border-width: 1px;
-		padding: 0 0.5rem;
-		font-size: 0.75rem;
-		line-height: 1.25rem;
-		font-weight: 500;
-	}
-	.pill-outline {
-		border-color: rgb(229 231 235);
-		color: rgb(55 65 81);
-	}
-	.pill-secondary {
-		border-color: transparent;
-		background: rgb(243 244 246);
-		color: rgb(75 85 99);
-	}
-</style>
+<TaxonomyConfirmDialog
+	bind:open={archiveOpen}
+	title={target?.archivedAt ? `Restore ${target?.name}?` : `Archive ${target?.name ?? 'this skill'}?`}
+	description={target?.archivedAt
+		? 'The skill becomes available to choose again.'
+		: 'The skill is hidden from new choices. Professionals and requests that already have it keep it, and you can restore it later.'}
+	action="?/setArchived"
+	fields={{ id: target?.id ?? '', archived: target?.archivedAt ? 'false' : 'true' }}
+	confirmLabel={target?.archivedAt ? 'Restore skill' : 'Archive skill'}
+	destructive={false}
+/>
+
+<TaxonomyConfirmDialog
+	bind:open={deleteOpen}
+	title="Delete {target?.name ?? 'this skill'}?"
+	description="No professional holds this skill and no request requires it, so it's removed for good. This can't be undone."
+	action="?/deleteSkill"
+	fields={{ id: target?.id ?? '' }}
+	confirmLabel="Delete skill"
+	confirmText="DELETE"
+/>

@@ -1,0 +1,98 @@
+/*
+ * 03 › Calendar: @event-calendar themed with DTSS tokens. Only token
+ * variables here; event colours come from TONE_HEX in calendar.ts.
+ */
+.dtss-calendar .ec {
+	--ec-bg-color: hsl(var(--card));
+	--ec-text-color: hsl(var(--foreground));
+	--ec-border-color: hsl(var(--border));
+	--ec-color-400: hsl(var(--muted-foreground));
+	--ec-color-300: hsl(var(--border));
+	--ec-color-200: hsl(var(--muted));
+	--ec-color-100: hsl(var(--muted));
+	--ec-color-50: hsl(var(--muted));
+	--ec-button-bg-color: hsl(var(--background));
+	--ec-button-border-color: hsl(var(--input));
+	--ec-button-text-color: hsl(var(--foreground));
+	--ec-button-active-bg-color: hsl(var(--primary-soft));
+	--ec-button-active-border-color: hsl(var(--primary) / 0.4);
+	--ec-button-active-text-color: hsl(var(--primary-dark));
+	--ec-today-bg-color: hsl(var(--primary-soft));
+	--ec-highlight-color: hsl(var(--primary-soft));
+	--ec-event-bg-color: hsl(var(--primary-strong));
+	--ec-event-text-color: hsl(var(--primary-foreground));
+	--ec-now-indicator-color: hsl(var(--destructive));
+	--ec-popup-bg-color: hsl(var(--popover));
+	font-family: inherit;
+	font-size: 0.875rem;
+}
+
+/* Toolbar: the title reads as a section heading; buttons match outline Buttons. */
+.dtss-calendar .ec-toolbar {
+	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+.dtss-calendar .ec-title {
+	font-size: 1.125rem;
+	font-weight: 800;
+}
+.dtss-calendar .ec-button {
+	height: 2.25rem;
+	padding: 0 0.875rem;
+	font-size: 0.875rem;
+	font-weight: 600;
+	line-height: 1;
+	border-radius: calc(var(--radius) - 2px);
+	transition: background-color 150ms;
+}
+.dtss-calendar .ec-button:focus-visible {
+	outline: 2px solid hsl(var(--ring));
+	outline-offset: 2px;
+}
+
+/* Column heads in the overline style used by table headers. */
+.dtss-calendar .ec-col-head,
+.dtss-calendar .ec-day-head {
+	font-size: 0.75rem;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: hsl(var(--muted-foreground));
+}
+.dtss-calendar .ec-today .ec-day-head time,
+.dtss-calendar .ec-today .ec-day-head {
+	color: hsl(var(--primary-dark));
+}
+
+/* Events: bold title, time shrinks first. */
+.dtss-calendar .ec-event {
+	border-radius: 0.375rem;
+	padding: 2px 6px;
+	cursor: pointer;
+	font-weight: 700;
+}
+.dtss-calendar .ec-event:focus-visible {
+	outline: 2px solid hsl(var(--ring));
+	outline-offset: 1px;
+}
+.dtss-calendar .dtss-event {
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+	min-width: 0;
+	width: 100%;
+	overflow: hidden;
+}
+.dtss-calendar .dtss-event-title {
+	white-space: nowrap;
+	flex-shrink: 0;
+}
+.dtss-calendar .dtss-event-time {
+	font-weight: 600;
+	font-size: 0.8em;
+	opacity: 0.9;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	min-width: 0;
+}
