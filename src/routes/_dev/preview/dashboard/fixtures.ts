@@ -28,6 +28,8 @@ import {
 	type DashboardScope
 } from '$lib/features/dashboard/types';
 import { nextBusinessDays } from '$lib/features/dashboard/window';
+import { agreementStatus } from '$lib/features/dashboard/agreements';
+import { weeksAround, type AdminTrends } from '$lib/features/dashboard/trends';
 
 export const NOW = new Date('2026-11-10T14:20:00Z'); // Tue 9:20am ET
 const h = (hours: number) => new Date(NOW.getTime() + hours * 3_600_000);
@@ -288,3 +290,43 @@ export const glance = (scope: DashboardScope) => ({
 	shiftsThisMonth: ok({ filled: 18, total: 20 }),
 	balance: scope.can.viewBilling ? ok({ due: 2380, dueCount: 3, overdue: 1560, overdueCount: 1, paidThisMonth: 4120, timesheetsAwaiting: 2, expensesPending: 86.5, expensesPendingCount: 2 }) : null
 });
+
+// --- Trends and agreements -------------------------------------------------
+const trendWeeks = weeksAround(NOW, 12);
+const rates = [0.84, 0.88, 0.9, 0.86, null, 0.91, 0.93, 0.89, 0.94, 0.92, 0.95, 0.9];
+export const trends = ok<AdminTrends>({
+	fillRate: trendWeeks.map((w, i) => {
+		const total = rates[i] === null ? 0 : 40 + i * 2;
+		const filled = rates[i] === null ? 0 : Math.round((rates[i] as number) * total);
+		return { week: w.key, label: w.label, rate: total ? filled / total : null, filled, total };
+	}),
+	money: trendWeeks.map((w, i) => ({ week: w.key, label: w.label, billed: 9000 + i * 650 + (i % 3) * 900, margin: 2400 + i * 160 + (i % 3) * 210 })),
+	shiftsByStatus: weeksAround(NOW, 8, 4).map((w, i) => ({
+		week: w.key,
+		label: w.label,
+		future: i >= 8,
+		FILLED: i >= 8 ? 20 + i : 38 + (i % 4) * 3,
+		OPEN: i >= 8 ? 14 - i : 0,
+		UNFULFILLED: i >= 8 ? 0 : 3 + (i % 3),
+		CANCELED: 1 + (i % 2)
+	})),
+	topPractices: [
+		{ clientId: 'c1', name: 'Bright Smiles Tampa', billed: 48250, invoices: 14 },
+		{ clientId: 'c2', name: 'Gulf Coast Family Dental', billed: 31900, invoices: 11 },
+		{ clientId: 'c3', name: 'Westchase Dental Arts', billed: 22480, invoices: 9 },
+		{ clientId: 'c4', name: 'Brandon Pediatric Dentistry', billed: 15120, invoices: 6 },
+		{ clientId: 'c5', name: 'Seaside Orthodontics', billed: 8740, invoices: 3 }
+	]
+});
+
+const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86_400_000);
+export const agreements = ok(
+	agreementStatus([
+		{ clientId: 'a1', name: 'Seaside Orthodontics', clientCreatedAt: daysAgo(30), latest: null, everCompleted: false, hasUploadedAgreement: false },
+		{ clientId: 'a2', name: 'Lakeland Smiles', clientCreatedAt: daysAgo(9), latest: null, everCompleted: false, hasUploadedAgreement: false },
+		{ clientId: 'a3', name: 'Brandon Pediatric Dentistry', clientCreatedAt: daysAgo(40), latest: { status: 'OPENED', sentAt: daysAgo(12), subjectSignedAt: null, createdAt: daysAgo(12) }, everCompleted: false, hasUploadedAgreement: false },
+		{ clientId: 'a4', name: 'Clearwater Family Dental', clientCreatedAt: daysAgo(20), latest: { status: 'SENT', sentAt: daysAgo(3), subjectSignedAt: null, createdAt: daysAgo(3) }, everCompleted: false, hasUploadedAgreement: false },
+		{ clientId: 'a5', name: 'Westchase Dental Arts', clientCreatedAt: daysAgo(60), latest: { status: 'AWAITING_COUNTERSIGN', sentAt: daysAgo(8), subjectSignedAt: daysAgo(2), createdAt: daysAgo(8) }, everCompleted: false, hasUploadedAgreement: false },
+		{ clientId: 'a6', name: 'Bright Smiles Tampa', clientCreatedAt: daysAgo(90), latest: { status: 'COMPLETED', sentAt: daysAgo(80), subjectSignedAt: daysAgo(79), createdAt: daysAgo(80) }, everCompleted: true, hasUploadedAgreement: false }
+	])
+);

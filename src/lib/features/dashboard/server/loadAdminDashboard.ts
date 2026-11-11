@@ -11,6 +11,7 @@ import { adminSummaryLine } from '../attention';
 import { complianceSection } from '../compliance';
 import { nextBusinessDays, parseKpiWindow } from '../window';
 import { adminKpis, permPipeline, receivables, shiftPipeline } from './adminMetrics';
+import { adminAgreements, adminTrends } from './adminTrends';
 import { shiftsOnDays } from './coverage';
 import { adminAttention, complianceGroups } from './needsAttention';
 import { adminScope } from './scope';
@@ -30,6 +31,8 @@ export async function loadAdminDashboard(url: URL) {
 	const pipeline = shiftPipeline(scope, window, now);
 	const ageing = receivables(scope, now);
 	const perm = permPipeline(scope);
+	const trends = adminTrends(scope, now);
+	const agreements = adminAgreements(scope);
 
 	const [compliance, groups, adminForm, newProfessionalForm, newClientForm] = await Promise.all([
 		settle('compliance', getComplianceItems),
@@ -55,6 +58,8 @@ export async function loadAdminDashboard(url: URL) {
 		pipeline,
 		receivables: ageing,
 		permPipeline: perm,
+		trends,
+		agreements,
 		adminForm,
 		newProfessionalForm,
 		newClientForm

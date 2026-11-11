@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminSummaryLine, buildAttentionQueue, compareAttention, KIND_META, limitRows, parseAttentionFilter } from './attention';
+import { adminSummaryLine, attentionSummary, buildAttentionQueue, compareAttention, KIND_META, limitRows, parseAttentionFilter } from './attention';
 import { ATTENTION_KINDS, type AttentionGroup, type AttentionItem, type AttentionKind } from './types';
 
 const item = (kind: AttentionKind, id: string, over: Partial<AttentionItem> = {}): AttentionItem => ({
@@ -105,5 +105,23 @@ describe('adminSummaryLine', () => {
 			'5 shifts in the next 48h are still open · 3 timesheets waiting on you'
 		);
 		expect(adminSummaryLine([group('SUPPORT_OPEN', 2, [])])).toBeNull();
+	});
+});
+
+describe('attentionSummary', () => {
+	it('keeps kinds with work, most urgent first, and reports failures', () => {
+		const s = attentionSummary([
+			{ kind: 'TIMESHEET_PENDING', result: { ok: true, value: { count: 12, items: [] } } },
+			{ kind: 'SUPPORT_OPEN', result: { ok: true, value: { count: 0, items: [] } } },
+			{ kind: 'COMPLIANCE_CRITICAL', result: { ok: true, value: { count: 2, items: [] } } },
+			{ kind: 'INVOICE_OVERDUE', result: { ok: false } }
+		]);
+		expect(s.rows.map((r) => [r.label, r.count])).toEqual([
+			['Expired credentials', 2],
+			['Timesheets to review', 12]
+		]);
+		expect(s.total).toBe(14);
+		expect(s.failedKinds).toEqual(['INVOICE_OVERDUE']);
+		expect(s.rows[1].href).toBe('/timesheets?tab=review');
 	});
 });

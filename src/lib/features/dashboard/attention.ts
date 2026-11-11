@@ -157,3 +157,43 @@ export function adminSummaryLine(groups: AttentionGroup[]): string | null {
 	if (pending) parts.push(`${pending} ${pending === 1 ? 'timesheet' : 'timesheets'} waiting on you`);
 	return parts.length ? parts.join(' · ') : null;
 }
+
+/** Short names for the dashboard's compact Needs attention widget. */
+export const KIND_SHORT_LABEL: Record<AttentionKind, string> = {
+	UNFILLED_SOON: 'Unfilled in 48h',
+	COMPLIANCE_CRITICAL: 'Expired credentials',
+	TIMESHEET_DISCREPANCY: 'Discrepancies',
+	INVOICE_OVERDUE: 'Overdue invoices',
+	PERM_UNBILLED: 'Unbilled placements',
+	COMPLIANCE_BLOCKED: 'Blocked professionals',
+	TIMESHEET_PENDING: 'Timesheets to review',
+	PERM_APPLICANTS_WAITING: 'Permanent applicants',
+	PRO_PENDING_APPROVAL: 'Professionals to approve',
+	CLIENT_PENDING_APPROVAL: 'Practices to approve',
+	SUPPORT_OPEN: 'Support tickets',
+	SIGNATURE_PENDING: 'Agreements to sign',
+	INVOICE_DUE: 'Invoices due soon',
+	STAFF_NO_LOCATION: 'Staff without a location'
+};
+
+export type AttentionSummaryRow = { kind: AttentionKind; label: string; count: number; tone: StatusTone; href: string | null };
+
+/**
+ * One row per kind with work waiting, most urgent first. Zero counts are hidden
+ * (10 §3.7); failed kinds come back separately so the widget can say so.
+ */
+export function attentionSummary(groups: AttentionGroup[]): { rows: AttentionSummaryRow[]; total: number; failedKinds: AttentionKind[] } {
+	const rows: AttentionSummaryRow[] = [];
+	const failedKinds: AttentionKind[] = [];
+	for (const g of groups) {
+		if (!g.result.ok) {
+			failedKinds.push(g.kind);
+			continue;
+		}
+		if (g.result.value.count <= 0) continue;
+		const meta = KIND_META[g.kind];
+		rows.push({ kind: g.kind, label: KIND_SHORT_LABEL[g.kind], count: g.result.value.count, tone: meta.tone, href: meta.listHref });
+	}
+	rows.sort((a, b) => KIND_META[a.kind].priority - KIND_META[b.kind].priority || b.count - a.count);
+	return { rows, total: rows.reduce((n, r) => n + r.count, 0), failedKinds };
+}

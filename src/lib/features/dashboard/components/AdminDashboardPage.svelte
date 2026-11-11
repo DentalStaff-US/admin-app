@@ -21,19 +21,26 @@
 		Receivables,
 		ShiftPipeline
 	} from '../types';
+	import type { AgreementStatus } from '../agreements';
+	import type { AdminTrends } from '../trends';
 	import { BUSINESS_TIMEZONE } from '../window';
 	import AddUserDialog from './AddUserDialog.svelte';
-	import AttentionQueue from './AttentionQueue.svelte';
+	import AgreementsPanel from './AgreementsPanel.svelte';
+	import AttentionSummary from './AttentionSummary.svelte';
 	import ComplianceSection from './ComplianceSection.svelte';
 	import CoverageBoard from './CoverageBoard.svelte';
 	import FailedLine from './FailedLine.svelte';
+	import FillRateChart from './FillRateChart.svelte';
 	import KpiBand from './KpiBand.svelte';
 	import { keepFresh } from './live';
+	import MoneyTrendChart from './MoneyTrendChart.svelte';
 	import NewRequestMenu from './NewRequestMenu.svelte';
 	import PermPipelinePanel from './PermPipelinePanel.svelte';
 	import PipelineBar from './PipelineBar.svelte';
 	import ReceivablesAgeing from './ReceivablesAgeing.svelte';
 	import SectionSkeleton from './SectionSkeleton.svelte';
+	import ShiftStatusChart from './ShiftStatusChart.svelte';
+	import TopPracticesList from './TopPracticesList.svelte';
 	import WindowSelect from './WindowSelect.svelte';
 
 	type MaybePromise<T> = T | Promise<T>;
@@ -49,6 +56,8 @@
 		pipeline: MaybePromise<Metric<ShiftPipeline>>;
 		receivables: MaybePromise<Metric<Receivables>>;
 		permPipeline: MaybePromise<Metric<PermPipeline>>;
+		trends: MaybePromise<Metric<AdminTrends>>;
+		agreements: MaybePromise<Metric<AgreementStatus>>;
 		adminForm: SuperValidated<AdminRequisitionSchema> | null;
 		newProfessionalForm: SuperValidated<AdminNewUserSchema> | null;
 		newClientForm: SuperValidated<AdminNewUserSchema> | null;
@@ -127,14 +136,8 @@
 		{/snippet}
 	</PageHeader>
 
-	<AttentionQueue groups={data.attention} {now} syncUrl={live} />
-
-	{#await data.coverage}
-		<SectionSkeleton label="coverage" rows={5} />
-	{:then coverage}
-		<CoverageBoard shifts={coverage} days={data.coverageDays} />
-	{/await}
-
+	<!-- Numbers first (10 §3, reworked): KPIs, then the week ahead beside a compact
+	     Needs attention, then the trends, money and people panels. -->
 	<section aria-labelledby="kpi-title" class="space-y-4">
 		<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 			<h2 id="kpi-title" class="text-h3">How we're doing</h2>
@@ -148,29 +151,68 @@
 				<KpiBand kpis={k} />
 			{/await}
 		</div>
-		<div class="grid gap-6 lg:grid-cols-3">
-			<div class="lg:col-span-2" class:opacity-60={fetching}>
-				{#await pipeline}
-					<SectionSkeleton label="shift pipeline" rows={2} />
-				{:then p}
-					<PipelineBar pipeline={p} window={selected} />
-				{/await}
-			</div>
-			{#await data.receivables}
-				<SectionSkeleton label="receivables" rows={4} />
-			{:then r}
-				<ReceivablesAgeing receivables={r} />
-			{/await}
-		</div>
 	</section>
 
 	<div class="grid gap-6 lg:grid-cols-3">
-		<div class="lg:col-span-2"><ComplianceSection data={data.compliance} {now} /></div>
-		{#await data.permPipeline}
-			<SectionSkeleton label="permanent pipeline" rows={5} />
-		{:then p}
-			<PermPipelinePanel pipeline={p} />
+		<div class="min-w-0 lg:col-span-2">
+			{#await data.coverage}
+				<SectionSkeleton label="coverage" rows={5} />
+			{:then coverage}
+				<CoverageBoard shifts={coverage} days={data.coverageDays} />
+			{/await}
+		</div>
+		<AttentionSummary groups={data.attention} {now} />
+	</div>
+
+	{#await data.trends}
+		<div class="grid gap-6 lg:grid-cols-2">
+			<SectionSkeleton label="fill rate" rows={4} />
+			<SectionSkeleton label="billing" rows={4} />
+		</div>
+	{:then trends}
+		{#if trends.ok}
+			<div class="grid gap-6 lg:grid-cols-2">
+				<FillRateChart points={trends.value.fillRate} />
+				<MoneyTrendChart points={trends.value.money} />
+			</div>
+			<div class="grid gap-6 lg:grid-cols-3">
+				<div class="min-w-0 lg:col-span-2"><ShiftStatusChart points={trends.value.shiftsByStatus} /></div>
+				<TopPracticesList practices={trends.value.topPractices} />
+			</div>
+		{:else}
+			<FailedLine what="the trend charts" />
+		{/if}
+	{/await}
+
+	<div class="grid gap-6 lg:grid-cols-3">
+		<div class="min-w-0 lg:col-span-2" class:opacity-60={fetching}>
+			{#await pipeline}
+				<SectionSkeleton label="shift pipeline" rows={2} />
+			{:then p}
+				<PipelineBar pipeline={p} window={selected} />
+			{/await}
+		</div>
+		{#await data.receivables}
+			<SectionSkeleton label="receivables" rows={4} />
+		{:then r}
+			<ReceivablesAgeing receivables={r} />
 		{/await}
+	</div>
+
+	<div class="grid gap-6 lg:grid-cols-3">
+		<div class="min-w-0 lg:col-span-2"><ComplianceSection data={data.compliance} {now} /></div>
+		<div class="space-y-6">
+			{#await data.agreements}
+				<SectionSkeleton label="agreements" rows={4} />
+			{:then a}
+				{#if a.ok}<AgreementsPanel status={a.value} {now} />{:else}<FailedLine what="agreements" />{/if}
+			{/await}
+			{#await data.permPipeline}
+				<SectionSkeleton label="permanent pipeline" rows={5} />
+			{:then p}
+				<PermPipelinePanel pipeline={p} />
+			{/await}
+		</div>
 	</div>
 </Page>
 

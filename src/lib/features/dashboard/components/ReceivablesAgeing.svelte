@@ -17,7 +17,7 @@
 
 <Section title={METRICS.receivables.label} description="Open invoices by days past due, right now">
 	{#snippet actions()}
-		<a href={METRICS.receivables.href} class="text-sm font-semibold text-primary-dark hover:underline">Invoices</a>
+		<a href={METRICS.receivables.href} class="text-sm font-semibold text-primary-dark hover:underline" aria-label="View all invoices">View all</a>
 	{/snippet}
 	{#if receivables.ok}
 		{@const r = receivables.value}
@@ -31,7 +31,7 @@
 					</span>
 					<span class="text-right tabular-nums">
 						<span class="font-bold">{formatMoneyTile(r[b].amount)}</span>
-						<span class="ml-1 text-xs text-muted-foreground">{plural(r[b].count, 'inv')}</span>
+						<span class="ml-1 text-xs text-muted-foreground">{plural(r[b].count, 'invoice')}</span>
 					</span>
 				</li>
 			{/each}

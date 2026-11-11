@@ -29,7 +29,7 @@
 	flush
 >
 	{#snippet actions()}
-		<a href="/calendar" class="text-sm font-semibold text-primary-dark hover:underline">Calendar</a>
+		<a href="/calendar" class="text-sm font-semibold text-primary-dark hover:underline" aria-label="View all on the calendar">View all</a>
 	{/snippet}
 	{#if !shifts.ok}
 		<div class="p-5 sm:p-6"><FailedLine what="your upcoming shifts" /></div>

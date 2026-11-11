@@ -24,6 +24,8 @@
 		pipeline: view === 'loading' ? never : view === 'failed' ? failed() : fx.pipeline,
 		receivables: view === 'loading' ? never : fx.receivables,
 		permPipeline: view === 'loading' ? never : fx.permPipeline,
+		trends: view === 'loading' ? never : view === 'failed' ? failed() : fx.trends,
+		agreements: view === 'loading' ? never : view === 'failed' ? failed() : fx.agreements,
 		adminForm: null,
 		newProfessionalForm: null,
 		newClientForm: null
