@@ -11,4 +11,4 @@
 <div
 	class={cn("animate-pulse rounded-md bg-muted", className)}
 	{...$$restProps}
-/>
+></div>

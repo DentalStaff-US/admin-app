@@ -61,7 +61,7 @@
 				<li>
 					<div class="flex items-center gap-2">
 						<StatusBadge status={row.status} label={row.label} />
-						<span class="flex-1 border-b border-dashed border-border" aria-hidden="true" />
+						<span class="flex-1 border-b border-dashed border-border" aria-hidden="true"></span>
 						<span class="text-sm font-semibold tabular-nums">{dollars(bucket.billingCents)}</span>
 					</div>
 					<div class="mt-1 flex items-baseline justify-between">

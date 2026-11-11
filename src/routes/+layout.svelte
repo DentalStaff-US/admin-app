@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { LayoutData } from './$types';
+	import '@fontsource-variable/nunito';
 	import '../app.pcss';
 	import { page, updated } from '$app/stores';
 	import { beforeNavigate } from '$app/navigation';
@@ -22,7 +23,6 @@
 	}
 
 	const flash = getFlash(page);
-	$: console.log('+layout.svelte root flash: ' + JSON.stringify($flash));
 	$: if ($flash) {
 		switch ($flash.type) {
 			case 'success':
