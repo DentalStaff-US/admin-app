@@ -15,14 +15,14 @@
 		initials: string;
 		/** 03 › Avatar: size-8 in tables, size-10 in lists, size-14 in page headers. */
 		size?: 'sm' | 'md' | 'lg';
-		/** People are round, organisations rounded squares (a design rule). */
+		/** Every avatar is a circle; an organisation's logo gets a border so it sits on white. */
 		kind?: 'person' | 'org';
 		/** A professional's fallback uses the pro (teal) accent. */
 		audience?: 'practice' | 'pro';
 	} = $props();
 
 	const sizeClass = $derived(size === 'lg' ? 'size-14 text-lg' : size === 'md' ? 'size-10 text-sm' : 'size-8 text-xs');
-	const shape = $derived(kind === 'org' ? 'rounded-lg border' : 'rounded-full');
+	const shape = $derived(kind === 'org' ? 'rounded-full border' : 'rounded-full');
 </script>
 
 <Avatar.Root class={cn('shrink-0', sizeClass, shape)}>

@@ -23,9 +23,9 @@
 			<Dialog.Header class="space-y-3 text-left">
 				<div class="flex items-center gap-3">
 					{#if practice?.companyLogo}
-						<img src={practice.companyLogo} alt="" class="size-12 rounded-lg border bg-card object-contain p-1" />
+						<img src={practice.companyLogo} alt="" class="size-12 rounded-full border bg-card object-contain p-1" />
 					{:else}
-						<span class="inline-flex size-12 items-center justify-center rounded-lg border bg-muted text-muted-foreground">
+						<span class="inline-flex size-12 items-center justify-center rounded-full border bg-muted text-muted-foreground">
 							<Building2 class="size-6" aria-hidden="true" />
 						</span>
 					{/if}
