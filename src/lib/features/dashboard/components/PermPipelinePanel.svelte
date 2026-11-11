@@ -13,11 +13,11 @@
 	// The per-stage applicant page (/requisitions/permanent, 06) doesn't exist yet,
 	// so every stage links to the requests list until it does.
 	const STAGES = [
-		{ key: 'open', label: 'Open requests', hint: 'Permanent requests posted and taking applicants.', tone: 'info', href: '/requisitions' },
-		{ key: 'interested', label: 'Interested', hint: 'Professionals who saved an open permanent request.', tone: 'neutral', href: '/requisitions' },
-		{ key: 'applied', label: 'Applied', hint: 'Applications waiting for the practice to decide.', tone: 'pending', href: '/requisitions' },
-		{ key: 'recommended', label: 'Recommended', hint: 'Professionals DTSS put forward, waiting for the practice.', tone: 'pending', href: '/requisitions' },
-		{ key: 'hired', label: 'Hired, fee due', hint: 'Placements approved and awaiting the placement fee.', tone: 'positive', href: '/requisitions' }
+		{ key: 'open', label: 'Open requests', hint: 'Permanent requests posted and taking applicants.', tone: 'info', href: '/requisitions?tab=permanent' },
+		{ key: 'interested', label: 'Interested', hint: 'Professionals who saved an open permanent request.', tone: 'neutral', href: '/requisitions/permanent' },
+		{ key: 'applied', label: 'Applied', hint: 'Applications waiting for the practice to decide.', tone: 'pending', href: '/requisitions/permanent' },
+		{ key: 'recommended', label: 'Recommended', hint: 'Professionals DTSS put forward, waiting for the practice.', tone: 'pending', href: '/requisitions/permanent' },
+		{ key: 'hired', label: 'Hired, fee due', hint: 'Placements approved and awaiting the placement fee.', tone: 'positive', href: '/requisitions/permanent' }
 	] as const;
 </script>
 

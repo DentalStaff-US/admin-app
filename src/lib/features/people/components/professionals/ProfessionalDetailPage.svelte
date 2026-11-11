@@ -10,7 +10,7 @@
 	import DetailHeader from '../DetailHeader.svelte';
 	import DetailTabs from '../DetailTabs.svelte';
 	import HistoryTimeline from '../HistoryTimeline.svelte';
-	import PermanentTabSlot from '../PermanentTabSlot.svelte';
+	import { CandidatePermanentTab } from '$features/requisitions';
 	import ProfileNotes from '../ProfileNotes.svelte';
 	import StatusMenu from '../StatusMenu.svelte';
 	import ToneBadge from '../ToneBadge.svelte';
@@ -114,7 +114,7 @@
 				{:else if active === 'documents'}
 					<ProfessionalDocuments documents={data.documents ?? []} {disciplines} {certSkills} documentsForm={data.documentsForm} {isAdmin} />
 				{:else if active === 'permanent'}
-					<PermanentTabSlot candidateId={candidate.profile.id} />
+					<CandidatePermanentTab items={data.permanentActivity ?? []} firstName={candidate.user.firstName} />
 				{:else if active === 'notes'}
 					<Section title="Notes" description="Visible to DTSS admins only.">
 						<ProfileNotes comments={data.comments ?? []} currentUserId={data.user.id} addAction="?/addComment" deleteAction="?/deleteComment" />

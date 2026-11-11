@@ -10,7 +10,6 @@ export { default as DetailHeader } from './components/DetailHeader.svelte';
 export { default as DetailTabs } from './components/DetailTabs.svelte';
 export { default as HistoryTimeline } from './components/HistoryTimeline.svelte';
 export { default as ListSearch } from './components/ListSearch.svelte';
-export { default as PermanentTabSlot } from './components/PermanentTabSlot.svelte';
 export { default as PersonAvatar } from './components/PersonAvatar.svelte';
 export { default as ProfileNotes } from './components/ProfileNotes.svelte';
 export { default as StatusMenu } from './components/StatusMenu.svelte';

@@ -1,4 +1,5 @@
 import { candidateDocumentUploadsTable } from './../../../../lib/server/database/schemas/candidate';
+import { loadCandidatePermanentTab } from '$features/requisitions/server';
 import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 import { syncAffiliateEligibility } from '$lib/server/database/queries/affiliates';
 import type { PageServerLoad } from './$types';
@@ -107,6 +108,8 @@ export const load: PageServerLoad = async (event) => {
 	// History tab: this professional's slice of the action_history ledger. Read
 	// only, and only for admins (the tab is admin-only).
 	const activity = user.role === USER_ROLES.SUPERADMIN ? await getActivityForEntity('CANDIDATES', id) : [];
+	// Permanent tab: their saves and applications across permanent requests (admin only).
+	const permanentActivity = await loadCandidatePermanentTab(user, id);
 
 	// Skills: what they hold, plus the catalog scoped to their disciplines (keeping
 	// anything already held, even if archived or out of scope, so it can be removed).
@@ -142,7 +145,8 @@ export const load: PageServerLoad = async (event) => {
 				availability,
 				availabilityWindow: { from: availabilityFrom, to: availabilityTo },
 				candidateSkills,
-				skillCatalog
+				skillCatalog,
+				permanentActivity
 			}
 		: {
 				user,
