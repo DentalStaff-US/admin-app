@@ -34,7 +34,7 @@
 	{#if canDelete}
 		<DropdownMenu.Separator />
 		<DropdownMenu.Item
-			class="gap-2 text-red-500 focus:text-red-500"
+			class="gap-2 text-destructive focus:text-destructive"
 			on:click={() => onDelete?.()}
 		>
 			<Trash2 size={16} />
