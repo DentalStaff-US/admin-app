@@ -67,7 +67,7 @@
 	let billingHelpOpen = $state(false);
 
 	const scope = $derived(data.scope);
-	const canPost = $derived(data.canCreateRequisitions && scope.can.postRequests && !!data.clientForm);
+	const canPost = $derived(data.canCreateRequisitions && scope.can.postRequests);
 	const postBlockedReason = $derived(
 		!data.canCreateRequisitions ? ACTION_HINTS.postDisabled : !scope.can.postRequests ? ACTION_HINTS.postDisabledStaff : null
 	);

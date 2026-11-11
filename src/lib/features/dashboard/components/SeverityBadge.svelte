@@ -13,7 +13,7 @@
 	const TONE = { CRITICAL: 'negative', BLOCKED: 'negative', ACTION: 'warning', WATCH: 'pending' } as const;
 </script>
 
-<Hint text={statusHint(severity, 'admin') ?? SEVERITY_LABELS[severity]} class="inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-bold {TONE_CLASSES[TONE[severity]]}">
+<Hint text={statusHint(severity, 'admin') ?? SEVERITY_LABELS[severity]} class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-bold {TONE_CLASSES[TONE[severity]]}">
 	{#if severity === 'CRITICAL'}<CalendarX class="size-3.5" aria-hidden="true" />{/if}
 	{SEVERITY_LABELS[severity]}
 </Hint>

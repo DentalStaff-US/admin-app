@@ -37,7 +37,7 @@
 </script>
 
 {#if points.length}
-	<svg viewBox="0 0 {W} {H}" class="h-8 w-[120px] text-primary {className}" role="img" aria-label={label}>
+	<svg viewBox="0 0 {W} {H}" class="h-8 w-[120px] max-w-full text-primary {className}" role="img" aria-label={label}>
 		{#each points as seg}
 			{#if seg.length === 1}
 				{@const [x, y] = seg[0].split(',')}

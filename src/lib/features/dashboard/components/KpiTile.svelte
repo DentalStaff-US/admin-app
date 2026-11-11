@@ -54,10 +54,10 @@
 		<span class="shrink-0 text-xs text-muted-foreground">{windowText}</span>
 	</div>
 	<div class="mt-3 flex items-end justify-between gap-3">
-		<p class="text-3xl font-extrabold tabular-nums">
+		<p class="whitespace-nowrap text-3xl font-extrabold tabular-nums">
 			{#if failed}<Hint text={FAILED_HINT}>{DASH}</Hint>{:else}{value}{/if}
 		</p>
-		{#if !failed}<Sparkline values={series} label={seriesLabel} class="mb-1 shrink-0" />{/if}
+		{#if !failed}<Sparkline values={series} label={seriesLabel} class="mb-1 w-24 min-w-0 shrink" />{/if}
 	</div>
 	<div class="mt-1 flex min-h-5 flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
 		{#if !failed && trend !== null}

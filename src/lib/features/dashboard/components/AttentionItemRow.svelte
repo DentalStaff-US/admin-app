@@ -68,7 +68,7 @@
 		rel={item.action.external && item.href === item.action.href ? 'noopener noreferrer' : undefined}
 		class="group min-w-0 flex-1 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 	>
-		<p class="truncate font-semibold group-hover:underline">{item.title}</p>
+		<p class="font-semibold group-hover:underline sm:truncate">{item.title}</p>
 		<p class="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
 			{#if showLocation && item.location}
 				<span class="inline-flex items-center gap-1"><MapPin class="size-3.5" aria-hidden="true" />{item.location}</span>
