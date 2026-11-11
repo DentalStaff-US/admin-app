@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { ProgressBar } from '@prgm/sveltekit-progress-bar';
 	import convertNameToInitials from '$lib/_helpers/convertNameToInitials';
 	import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 	import AdminShell from '$shell/AdminShell.svelte';
@@ -15,8 +14,6 @@
 	const initials = $derived(convertNameToInitials(user?.firstName ?? '', user?.lastName ?? ''));
 	let sidebar = $state(data.sidebar);
 </script>
-
-<ProgressBar class="h-1 text-primary" />
 
 {#snippet impersonation()}
 	{#if data.impersonating}
