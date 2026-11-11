@@ -1,67 +1,33 @@
 <script lang="ts">
-    import ViewLink from './../../../../lib/components/tables/ViewLink.svelte';
-    import {Tabs, TabsContent, TabsList, TabsTrigger} from '$lib/components/ui/tabs/index.js';
+    // Legacy syntax kept: this page's superForm wiring is unchanged from before
+    // the redesign; only the markup moved onto the design-system components.
     import {Input} from '$lib/components/ui/input';
     import PhoneInput from '$lib/components/PhoneInput.svelte';
     import {Label} from '$lib/components/ui/label';
     import * as Select from '$lib/components/ui/select';
-    import {STATES} from '$lib/config/constants';
-    import {Save, X} from 'lucide-svelte';
-    import {superForm} from 'sveltekit-superforms/client';
-    import {onMount} from 'svelte';
-    import {writable} from 'svelte/store';
-    import {
-        createSvelteTable,
-        flexRender,
-        getCoreRowModel,
-        getSortedRowModel,
-        type ColumnDef,
-        type TableOptions
-    } from '$lib/components/tables/svelte-table';
-    import Badge from '$lib/components/ui/badge/badge.svelte';
-    import {cn} from '$lib/utils';
-    import {STAFF_ROLE_ENUM, USER_ROLES} from '$lib/config/constants';
+    import {Checkbox} from '$lib/components/ui/checkbox';
     import {Button} from '$lib/components/ui/button';
+    import {superForm} from 'sveltekit-superforms/client';
+    import {USER_ROLES} from '$lib/config/constants';
     import type {PageData} from './$types';
     import InviteStaffToLocationDialog from '$lib/components/dialogs/inviteStaffToLocationDialog.svelte';
     import PendingInvitesTable from '$lib/components/PendingInvitesTable.svelte';
-    import {CardHeader, CardTitle, CardContent, CardFooter} from '$lib/components/ui/card';
-    import {
-        Table,
-        TableBody,
-        TableCell,
-        TableHead,
-        TableHeader,
-        TableRow
-    } from '$lib/components/ui/table/index.js';
-    import {Card} from 'flowbite-svelte';
-    import {
-        Edit,
-        Info,
-        Users,
-        ClipboardList,
-        Building,
-        Phone,
-        Mail,
-        Globe,
-        MapPin,
-        ExternalLink,
-        Clock,
-        UserPlus,
-        Eye,
-        UserMinus,
-        Plus,
-        AlertCircle,
-        Star
-    } from 'lucide-svelte';
-    import {getDayName} from '$lib/_helpers';
-    import {enhance} from '$app/forms';
     import AddRequisitionDrawer from '$lib/components/drawers/addRequisitionDrawer.svelte';
-    import {clientRequisitionSchema, type ClientRequisitionSchema} from '$lib/config/zod-schemas';
+    import AddressSearchAutocomplete from '$lib/components/AddressSearchAutocomplete.svelte';
+    import type {AddressResult} from '$lib/types';
+    import {enhance} from '$app/forms';
+    import {getDayName} from '$lib/_helpers';
     import {formatTimeForDisplay, formatTimeString} from '$lib/_helpers/UTCTimezoneUtils';
-    import type {SuperValidated} from 'sveltekit-superforms';
-    import AddressSearchAutocomplete from "$lib/components/AddressSearchAutocomplete.svelte";
-    import type {AddressResult} from "$lib/types";
+    import {AlertCircle, ClipboardList, Pencil, Plus, Star, UserMinus, Users} from 'lucide-svelte';
+    import Page from '$dtss/Page.svelte';
+    import Section from '$dtss/Section.svelte';
+    import FactGrid from '$dtss/FactGrid.svelte';
+    import Notice from '$dtss/Notice.svelte';
+    import EmptyState from '$dtss/EmptyState.svelte';
+    import DataTable from '$dtss/DataTable.svelte';
+    import StatusBadge from '$dtss/StatusBadge.svelte';
+    import {page} from '$app/stores';
+    import {ConfirmAction, DetailHeader, DetailTabs, StaffTable, readTab, type StaffRow} from '$features/people';
 
     type StaffProfileData = {
         profile: {
@@ -106,117 +72,21 @@
     $: user = data.user;
     $: clientForm = data.clientForm;
 
-    let staffTableData: StaffProfileData[] = [];
-    let requisitionTableData: RequisitionData[] = [];
     let drawerExpanded = false;
-    let selectedState = location?.state || '';
     let selectedTimezone = location?.timezone || '';
-
-    const staffColumns: ColumnDef<StaffProfileData>[] = [
-        // {
-        // 	header: '',
-        // 	id: 'id',
-        // 	accessorFn: (original) => original.id,
-        // 	cell: (original) =>
-        // 		flexRender(ViewLink, {
-        // 			href: `/admin/menu/admins/${original.getValue()}`
-        // 		})
-        // },
-        {
-            header: 'Name',
-            id: 'last_name',
-            accessorFn: (original) => `${original.user.lastName}, ${original.user.firstName}`
-        },
-        {
-            header: 'Email',
-            id: 'email',
-            accessorFn: (original) => original.user.email
-        },
-        {
-            header: 'Role',
-            id: 'role',
-            accessorFn: (original) => {
-                const role = original.profile.staffRole as keyof typeof STAFF_ROLE_ENUM;
-                return STAFF_ROLE_ENUM[role];
-            }
-        }
+    $: staffRows = ((locationStaff ?? []) as unknown as (StaffRow & { isPrimary?: boolean | null })[]);
+    $: requisitionRows = ((requisitions ?? []) as RequisitionData[]);
+    $: requisitionColumns = [
+        { id: 'discipline', header: 'Discipline', value: (r: RequisitionData) => r.discipline ?? r.title ?? '—' },
+        { id: 'status', header: 'Status', cell: reqStatusCell },
+        { id: 'experience', header: 'Experience', value: (r: RequisitionData) => r.experienceLevel ?? '—' }
     ];
-    const requisitionColumns: ColumnDef<RequisitionData>[] = [
-        {
-            header: '',
-            id: 'id',
-            accessorFn: (original) => original.id,
-            cell: (original) =>
-                flexRender(ViewLink, {
-                    href: `/requisitions/${original.getValue()}`
-                })
-        },
-        {
-            header: 'Discipline',
-            id: 'discipline',
-            accessorKey: 'discipline'
-        },
-        {
-            header: 'Status',
-            id: 'status',
-            accessorKey: 'status',
-            cell: (original) =>
-                flexRender(Badge, {
-                    value: original.getValue(),
-                    class: cn(
-                        original.getValue() === 'PENDING' && 'bg-yellow-300 hover:bg-yellow-400',
-                        original.getValue() === 'OPEN' && 'bg-primary hover:bg-primary/90',
-                        original.getValue() === 'FILLED' && 'bg-green-400 hover:bg-bg-success',
-                        original.getValue() === 'UNFULFILLED' && 'bg-orange-400 hover:bg-orange-500',
-                        original.getValue() === 'CANCELED' && 'bg-destructive hover:bg-destructive/90'
-                    )
-                })
-        },
-        {
-            header: 'Experience Level',
-            id: 'experienceLevel',
-            accessorKey: 'experienceLevel'
-        }
+    $: tabs = [
+        { value: 'details', label: 'Details' },
+        { value: 'staff', label: 'Staff', count: staffRows.length },
+        { value: 'requisitions', label: 'Requisitions', count: requisitionRows.length }
     ];
-
-    const staffOptions = writable<TableOptions<StaffProfileData>>({
-        data: staffTableData,
-        columns: staffColumns,
-        getCoreRowModel: getCoreRowModel(),
-        getSortedRowModel: getSortedRowModel()
-    });
-    const requisitionOptions = writable<TableOptions<RequisitionData>>({
-        data: requisitionTableData,
-        columns: requisitionColumns,
-        getCoreRowModel: getCoreRowModel(),
-        getSortedRowModel: getSortedRowModel()
-    });
-
-    $: {
-        staffTableData = (locationStaff as StaffProfileData[]) || [];
-        staffOptions.update((o) => ({...o, data: staffTableData}));
-        requisitionTableData = (requisitions as RequisitionData[]) || [];
-        requisitionOptions.update((o) => ({...o, data: requisitionTableData}));
-    }
-
-    onMount(() => {
-        staffTableData = (locationStaff as StaffProfileData[]) || [];
-        staffOptions.update((o) => ({...o, data: staffTableData}));
-        requisitionTableData = (requisitions as RequisitionData[]) || [];
-        requisitionOptions.update((o) => ({...o, data: requisitionTableData}));
-    });
-    // const formatTime = (time: string): string => {
-    // 	const [hours, minutes] = time.split(':');
-    // 	const date = new Date();
-    // 	date.setHours(parseInt(hours), parseInt(minutes));
-    // 	return date.toLocaleTimeString('en-US', {
-    // 		hour: 'numeric',
-    // 		minute: '2-digit',
-    // 		hour12: true
-    // 	});
-    // };
-    const staffTable = createSvelteTable(staffOptions);
-    const requisitionsTable = createSvelteTable(requisitionOptions);
+    let tab = readTab($page.url.searchParams.get('tab'), ['details', 'staff', 'requisitions'] as const);
 
     const {
         form: locationForm,
@@ -248,7 +118,7 @@
     let editingLocation = false;
     let editingHours = false;
 
-    function cancelEdit(section) {
+    function cancelEdit(section: 'location' | 'hours') {
         switch (section) {
             case 'location':
                 editingLocation = false;
@@ -260,13 +130,21 @@
     }
 
     $: JSONHours = JSON.parse($hoursForm.operatingHours) || {};
-    $: stringifiedHours = JSON.stringify($hoursForm.operatingHours) || {};
+    // $hoursForm.operatingHours is already a JSON string: submit it as-is.
+    // Re-stringifying double-encoded it, so the action parsed back a string and
+    // wrote that into the jsonb column (the admin location page had the same fix).
+    $: stringifiedHours = $hoursForm.operatingHours || '{}';
+
+    function setHours(dayIndex: number, patch: Record<string, unknown>) {
+        const hours = JSONHours;
+        hours[dayIndex] = { ...hours[dayIndex], ...patch };
+        $hoursForm.operatingHours = JSON.stringify(hours);
+    }
 
     let selectedAddress: AddressResult | null = null;
 
     function handleAddressSelect(event: CustomEvent<AddressResult>) {
         const address = event.detail;
-        console.log("Selected address:", address);
         selectedAddress = address;
 
         // $formData.streetOne = address.
@@ -275,7 +153,6 @@
     }
 
     function handleClear() {
-        console.log("Address cleared");
         selectedAddress = null;
     }
 
@@ -288,610 +165,229 @@
     }
 </script>
 
+{#snippet reqStatusCell(r: RequisitionData)}<StatusBadge status={r.status} />{/snippet}
+
+{#snippet staffActions(row: StaffRow)}
+    {@const member = row as StaffRow & { isPrimary?: boolean | null }}
+    <div class="flex items-center justify-end gap-1">
+        {#if member.isPrimary}
+            <span class="rounded-md bg-muted px-2 py-0.5 text-xs font-medium">Primary</span>
+        {:else}
+            <form method="POST" action="?/updateStaffOnLocation" use:enhance>
+                <input type="hidden" name="staffId" value={member.profile.id}/>
+                <input type="hidden" name="action" value="makePrimary"/>
+                <Button type="submit" variant="ghost" size="icon" class="size-9"
+                        aria-label="Make this {member.user.firstName}'s primary location">
+                    <Star class="size-4" aria-hidden="true"/>
+                </Button>
+            </form>
+        {/if}
+        <ConfirmAction
+                action="?/updateStaffOnLocation"
+                fields={{ staffId: member.profile.id, action: 'remove' }}
+                title="Remove {member.user.firstName} {member.user.lastName} from {location?.name}?"
+                description="They lose access to this location's requests and timesheets. Their other locations are unchanged."
+                confirmLabel="Remove from location"
+                label="Remove {member.user.firstName} from this location"
+                icon={UserMinus}
+                iconOnly
+                variant="ghost"
+        />
+    </div>
+{/snippet}
+
+{#snippet emptyStaff()}
+    <EmptyState icon={Users} title="No staff assigned" description="Add your team to this location so they can see its requests and timesheets."/>
+{/snippet}
+
 {#if location}
-    <section class="container mx-auto px-4 py-6">
-        <div class="flex flex-col gap-6">
-            <!-- Header with location info -->
-            <div class="py-6">
-                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div>
-                        <h1 class="text-3xl font-bold">Office Location Details</h1>
-                        <h2 class="text-xl font-medium text-gray-700 mt-2">{location?.name}</h2>
-                    </div>
-                </div>
-            </div>
+    <Page>
+        <DetailHeader title={location.name} subtitle={company?.companyName ?? 'Office location'} back={{ href: '/locations', label: 'Locations' }}>
+            {#snippet actions()}
+                {#if user?.role !== USER_ROLES.SUPERADMIN && data.canCreateRequisitions}
+                    <Button class="gap-2" on:click={() => (drawerExpanded = true)}><Plus class="size-4" aria-hidden="true"/>New requisition</Button>
+                {/if}
+            {/snippet}
+        </DetailHeader>
 
-            <!-- Tabs section -->
-            <Tabs class="w-full">
-                <TabsList class="grid grid-cols-3 lg:w-fit">
-                    <TabsTrigger value="details" class="gap-2">
-                        <Info class="h-4 w-4"/>
-                        <span class="hidden md:inline">Details</span>
-                    </TabsTrigger>
-                    <TabsTrigger value="staff" class="gap-2">
-                        <Users class="h-4 w-4"/>
-                        <span class="hidden md:inline">Staff</span>
-                    </TabsTrigger>
-                    <TabsTrigger value="requisitions" class="gap-2">
-                        <ClipboardList class="h-4 w-4"/>
-                        <span class="hidden md:inline">Requisitions</span>
-                    </TabsTrigger>
-                </TabsList>
+        {#if user?.role !== USER_ROLES.SUPERADMIN && data.clientStatus && !data.canCreateRequisitions}
+            <Notice tone="pending">Your account is {String(data.clientStatus ?? 'PENDING').toLowerCase()}, so posting requests is paused until it's approved.</Notice>
+        {/if}
 
-                <!-- Details Tab -->
-                <TabsContent value="details" class="mt-6">
-                    <div class="grid grid-cols-4 gap-6">
-                        <Card class="w-full max-w-none col-span-4 md:col-span-2">
-                            <CardHeader>
-                                <div class="flex items-center justify-between">
-                                    <CardTitle class="text-blue-600 flex items-center gap-2">
-                                        <Building class="h-5 w-5"/>
-                                        Location Information
-                                    </CardTitle>
-                                    {#if !editingLocation}
-                                        <Button variant="ghost" size="sm" on:click={() => (editingLocation = true)}>
-                                            <Edit class="h-4 w-4"/>
-                                        </Button>
+        <DetailTabs {tabs} bind:value={tab} label="Location sections">
+            {#snippet children(active)}
+                {#if active === 'details'}
+                    <div class="grid gap-6 lg:grid-cols-2">
+                        <Section title="Location">
+                            {#snippet actions()}
+                                {#if !editingLocation}
+                                    <Button variant="outline" size="sm" class="gap-2" aria-label="Edit location details" on:click={() => (editingLocation = true)}><Pencil class="size-4" aria-hidden="true"/>Edit</Button>
+                                {/if}
+                            {/snippet}
+                            {#if editingLocation}
+                                <form method="POST" use:addressEnhance action="?/updateLocationDetails" class="space-y-4">
+                                    {#if $addressErrors && Object.keys($addressErrors).length}
+                                        <Notice tone="negative" alert>{#each Object.values($addressErrors) as error}<p>{error}</p>{/each}</Notice>
                                     {/if}
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                {#if editingLocation}
-                                    <form
-                                            method="POST"
-                                            use:addressEnhance
-                                            action="?/updateLocationDetails"
-                                            class="space-y-4"
-                                    >
-                                        {#if $addressErrors}
-                                            <div class="text-red-500 text-sm">
-                                                {#each Object.values($addressErrors) as error}
-                                                    <p>{error}</p>
-                                                {/each}
-                                            </div>
-                                        {/if}
-
-                                        <div class="grid grid-cols-1 gap-4">
-                                            <div class="">
-                                                <Label for="city">Street Address</Label>
-                                                <AddressSearchAutocomplete
-                                                        bind:selected={selectedAddress}
-                                                        on:select={handleAddressSelect}
-                                                        on:clear={handleClear}
-                                                        placeholder="Enter your address..."
-                                                        country="us"
-                                                        maxResults={8}
-                                                />
-                                                <input type="hidden" name="lat" value={$locationForm?.lat}/>
-                                                <input type="hidden" name="lon" value={$locationForm?.lon}/>
-                                                <input type="hidden" name="completeAddress"
-                                                       value={$locationForm?.completeAddress}/>
-                                                <input type="hidden" name="name" value={location.name}/>
-                                            </div>
-
-                                            <div class="space-y-2">
-                                                <Label for="timezone">Timezone</Label>
-                                                <Select.Root
-                                                        preventScroll={false}
-                                                        selected={selectedTimezone}
-                                                        onSelectedChange={(v) => {
-														v && ($locationForm.timezone = String(v.value));
-													}}
-                                                >
-                                                    <Select.Trigger>
-                                                        <Select.Value/>
-                                                    </Select.Trigger>
-                                                    <Select.Content class="max-h-[150px] overflow-y-scroll">
-                                                        {#each Intl.supportedValuesOf('timeZone').filter(z => z.startsWith('America')) as timezone}
-                                                            <Select.Item value={timezone}>
-                                                                <span>{timezone}</span>
-                                                            </Select.Item>
-                                                        {/each}
-                                                    </Select.Content>
-                                                    <Input name="timezone" type="hidden"
-                                                           value={$locationForm.timezone}/>
-                                                </Select.Root>
-                                            </div>
-                                        </div>
-
-                                        <div class="space-y-2">
-                                            <Label for="companyPhone">Office Phone</Label>
-                                            <PhoneInput
-                                                    id="companyPhone"
-                                                    name="companyPhone"
-                                                    bind:value={$locationForm.companyPhone}
-                                                    placeholder="Enter office phone number"
-                                            />
-                                        </div>
-
-                                        <!-- Onboarding asks for ONE number plus a type and stores it in
-                                             either cell_phone or company_phone, so a business that
-                                             answered "cell" had no editable field here at all and their
-                                             number never appeared on this card. -->
-                                        <div class="space-y-2">
-                                            <Label for="cellPhone">Office Cell Phone</Label>
-                                            <PhoneInput
-                                                    id="cellPhone"
-                                                    name="cellPhone"
-                                                    bind:value={$locationForm.cellPhone}
-                                                    placeholder="Enter office cell number"
-                                            />
-                                        </div>
-
-                                        <div class="space-y-2">
-                                            <Label for="email">Email Address</Label>
-                                            <Input
-                                                    id="email"
-                                                    name="email"
-                                                    type="email"
-                                                    bind:value={$locationForm.email}
-                                                    placeholder="Enter email address"
-                                            />
-                                        </div>
-
-                                        <div class="space-y-2">
-                                            <Label for="website">Website</Label>
-                                            <Input
-                                                    id="website"
-                                                    name="website"
-                                                    type="url"
-                                                    bind:value={$locationForm.website}
-                                                    placeholder="https://example.com"
-                                            />
-                                        </div>
-
-                                        <div class="flex gap-2 pt-4">
-                                            <Button
-                                                    type="submit"
-                                                    size="sm"
-                                                    class="gap-2 bg-primary hover:bg-primary/90 text-white"
-                                                    disabled={$isAddressSubmitting}
-                                            >
-                                                <Save class="h-4 w-4"/>
-                                                {$isAddressSubmitting ? 'Saving...' : 'Save Changes'}
-                                            </Button>
-                                            <Button
-                                                    type="button"
-                                                    variant="destructiveOutline"
-                                                    size="sm"
-                                                    on:click={() => cancelEdit('location')}
-                                                    class="gap-2 border-red-500 text-red-500 hover:bg-red-50 hover:text-red-500"
-                                            >
-                                                <X class="h-4 w-4"/>
-                                                Cancel
-                                            </Button>
-                                        </div>
+                                    <div class="space-y-2">
+                                        <Label for="address-search">Street address</Label>
+                                        <p class="text-sm text-muted-foreground">On file: {location.completeAddress || 'none'}</p>
+                                        <AddressSearchAutocomplete
+                                                bind:selected={selectedAddress}
+                                                on:select={handleAddressSelect}
+                                                on:clear={handleClear}
+                                                placeholder="Search for the new address…"
+                                                country="us"
+                                                maxResults={8}
+                                        />
                                         <input type="hidden" name="lat" value={$locationForm.lat}/>
                                         <input type="hidden" name="lon" value={$locationForm.lon}/>
-                                        <input type="hidden" name="completeAddress"
-                                               value={$locationForm.completeAddress}/>
-                                    </form>
-                                {:else}
-                                    <div class="space-y-4">
-                                        <div>
-                                            <h3 class="text-sm font-medium text-muted-foreground">Address</h3>
-                                            <address class="mt-1 not-italic text-sm">
-                                                {location?.completeAddress || 'No address provided'}
-                                            </address>
-                                        </div>
-
-                                        <div>
-                                            <h3 class="text-sm font-medium text-muted-foreground">Contact
-                                                Information</h3>
-                                            <div class="mt-2 space-y-2">
-                                                {#if location?.companyPhone}
-                                                    <div class="flex items-center gap-2">
-                                                        <Phone class="h-4 w-4 text-gray-500"/>
-                                                        <a
-                                                                href={`tel:${location.companyPhone}`}
-                                                                class="text-blue-600 hover:underline"
-                                                        >
-                                                            {location.companyPhone}
-                                                        </a>
-                                                    </div>
-                                                {/if}
-
-                                                {#if location?.cellPhone}
-                                                    <div class="flex items-center gap-2">
-                                                        <Phone class="h-4 w-4 text-gray-500"/>
-                                                        <a
-                                                                href={`tel:${location.cellPhone}`}
-                                                                class="text-blue-600 hover:underline"
-                                                        >
-                                                            {location.cellPhone}
-                                                        </a>
-                                                        <span class="text-xs text-muted-foreground">cell</span>
-                                                    </div>
-                                                {/if}
-
-                                                {#if location?.email}
-                                                    <div class="flex items-center gap-2">
-                                                        <Mail class="h-4 w-4 text-gray-500"/>
-                                                        <a
-                                                                href={`mailto:${location.email}`}
-                                                                class="text-blue-600 hover:underline"
-                                                        >
-                                                            {location.email}
-                                                        </a>
-                                                    </div>
-                                                {/if}
-
-                                                {#if location?.website}
-                                                    <div class="flex items-center gap-2">
-                                                        <Globe class="h-4 w-4 text-gray-500"/>
-                                                        <a
-                                                                href={location.website}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                class="text-blue-600 hover:underline break-all"
-                                                        >
-                                                            {location.website}
-                                                        </a>
-                                                    </div>
-                                                {/if}
-
-                                                {#if !location?.companyPhone && !location?.cellPhone && !location?.email && !location?.website}
-                                                    <p class="text-sm text-muted-foreground">
-                                                        No contact information available
-                                                    </p>
-                                                {/if}
-                                            </div>
-                                        </div>
-
-                                        <div>
-                                            <h3 class="text-sm font-medium text-muted-foreground">Company</h3>
-                                            <p class="mt-1">{company?.companyName || 'Unknown'}</p>
-                                        </div>
+                                        <input type="hidden" name="completeAddress" value={$locationForm.completeAddress}/>
+                                        <input type="hidden" name="name" value={location.name}/>
                                     </div>
-                                {/if}
-                            </CardContent>
-                        </Card>
-
-                        <Card class="w-full max-w-none col-span-4 md:col-span-2">
-                            <CardHeader>
-                                <div class="flex items-center justify-between">
-                                    <CardTitle class="text-blue-600 flex items-center gap-2">
-                                        <Clock class="h-5 w-5"/>
-                                        Hours of Operation
-                                    </CardTitle>
-                                    {#if !editingHours}
-                                        <Button variant="ghost" size="sm" on:click={() => (editingHours = true)}>
-                                            <Edit class="h-4 w-4"/>
-                                        </Button>
-                                    {/if}
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                {#if editingHours}
-                                    <form
-                                            use:hoursEnhance
-                                            method="POST"
-                                            action="?/updateOperatingHours"
-                                            class="space-y-4"
-                                    >
-                                        {#each Array.from({length: 7}, (_, i) => i) as dayIndex}
-                                            <div class="space-y-2">
-                                                <Label>{getDayName(dayIndex)}</Label>
-                                                <div class="grid grid-cols-3 gap-2 items-center">
-                                                    <div class="space-y-1">
-                                                        <Label for={`open-${dayIndex}`} class="text-xs">Open
-                                                            Time</Label>
-                                                        <Input
-                                                                id={`open-${dayIndex}`}
-                                                                type="time"
-                                                                value={formatTimeString(JSONHours[dayIndex]?.openTime) || ''}
-                                                                disabled={JSONHours[dayIndex]?.isClosed}
-                                                                on:change={(e) => {
-																let hours = JSONHours;
-																hours[dayIndex].openTime = formatTimeString(e.target.value);
-																$hoursForm.operatingHours = JSON.stringify(hours);
-															}}
-                                                        />
-                                                    </div>
-                                                    <div class="space-y-1">
-                                                        <Label for={`close-${dayIndex}`} class="text-xs">Close
-                                                            Time</Label>
-                                                        <Input
-                                                                id={`close-${dayIndex}`}
-                                                                type="time"
-                                                                value={formatTimeString(JSONHours[dayIndex]?.closeTime) || ''}
-                                                                disabled={JSONHours[dayIndex]?.isClosed}
-                                                                on:change={(e) => {
-																let hours = JSONHours;
-																hours[dayIndex].closeTime = formatTimeString(e.target.value);
-																$hoursForm.operatingHours = JSON.stringify(hours);
-															}}
-                                                        />
-                                                    </div>
-                                                    <div class="space-y-1">
-                                                        <Label class="text-xs">Closed</Label>
-                                                        <input
-                                                                type="checkbox"
-                                                                checked={JSONHours[dayIndex].isClosed}
-                                                                class="h-4 w-4"
-                                                                on:change={(e) => {
-																let hours = JSONHours;
-																hours[dayIndex].isClosed = e.target?.checked;
-
-																$hoursForm.operatingHours = JSON.stringify(hours);
-															}}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        {/each}
-                                        <input type="hidden" name="operatingHours" bind:value={stringifiedHours}/>
-                                        {#if $hoursErrors}
-                                            <div class="text-red-500 text-sm">
-                                                {#each Object.values($hoursErrors) as error}
-                                                    <p>{error}</p>
+                                    <div class="space-y-1.5">
+                                        <Label for="timezone">Timezone</Label>
+                                        <Select.Root
+                                                preventScroll={false}
+                                                selected={{ value: $locationForm.timezone || selectedTimezone, label: ($locationForm.timezone || selectedTimezone || 'Choose a timezone').replace('_', ' ') }}
+                                                onSelectedChange={(v) => { v && ($locationForm.timezone = String(v.value)); }}
+                                        >
+                                            <Select.Trigger id="timezone"><Select.Value/></Select.Trigger>
+                                            <Select.Content class="max-h-60 overflow-y-auto">
+                                                {#each Intl.supportedValuesOf('timeZone').filter((z) => z.startsWith('America')) as timezone}
+                                                    <Select.Item value={timezone}>{timezone.replace('_', ' ')}</Select.Item>
                                                 {/each}
-                                            </div>
-                                        {/if}
-                                        <div class="flex gap-2 pt-4">
-                                            <Button type="submit" size="sm"
-                                                    class="gap-2 bg-primary hover:bg-primary/90">
-                                                <Save class="h-4 w-4"/>
-                                                {#if $isHoursSubmitting}
-                                                    Saving...
-                                                {:else}
-                                                    Save Changes
-                                                {/if}
-                                            </Button>
-                                            <Button
-                                                    type="button"
-                                                    variant="destructiveOutline"
-                                                    size="sm"
-                                                    on:click={() => cancelEdit('hours')}
-                                                    class="gap-2 text-red-500 border-red-500 hover:bg-red-50 hover:text-red-500"
-                                            >
-                                                <X class="h-4 w-4"/>
-                                                Cancel
-                                            </Button>
-                                        </div>
-                                    </form>
-                                {:else}
-                                    <div class="space-y-3">
-                                        {#each Array.from({length: 7}, (_, i) => i) as dayIndex}
-                                            <div
-                                                    class="flex justify-between items-center py-2 border-b border-gray-100 last:border-0"
-                                            >
-												<span class="font-medium text-gray-700 w-24">
-													{getDayName(dayIndex)}
-												</span>
-                                                <span class="text-gray-600">
-													{#if location?.operatingHours?.[dayIndex]?.isClosed}
-														<span class="text-red-500 font-medium">Closed</span>
-													{:else if location?.operatingHours?.[dayIndex]?.openTime && location.operatingHours[dayIndex]?.closeTime}
-														<span class="font-medium">
-															{formatTimeForDisplay(location.operatingHours[dayIndex].openTime)}
-                                                            - {formatTimeForDisplay(
-                                                            location.operatingHours[dayIndex].closeTime
-                                                        )}
-														</span>
-													{:else}
-														<span class="text-muted-foreground">Hours not set</span>
-													{/if}
-												</span>
-                                            </div>
-                                        {/each}
-
-                                        {#if location?.timezone}
-                                            <div class="pt-2 text-xs text-muted-foreground border-t">
-                                                All times shown in {location.timezone.replace('_', ' ')}
-                                            </div>
-                                        {/if}
+                                            </Select.Content>
+                                        </Select.Root>
+                                        <input name="timezone" type="hidden" value={$locationForm.timezone}/>
                                     </div>
+                                    <div class="grid gap-4 sm:grid-cols-2">
+                                        <div class="space-y-2">
+                                            <Label for="companyPhone">Office phone</Label>
+                                            <PhoneInput id="companyPhone" name="companyPhone" bind:value={$locationForm.companyPhone}/>
+                                        </div>
+                                        <!-- Onboarding stores ONE number as cell or office; both need a field here. -->
+                                        <div class="space-y-2">
+                                            <Label for="cellPhone">Office cell</Label>
+                                            <PhoneInput id="cellPhone" name="cellPhone" bind:value={$locationForm.cellPhone}/>
+                                        </div>
+                                    </div>
+                                    <div class="space-y-2">
+                                        <Label for="email">Email</Label>
+                                        <Input id="email" name="email" type="email" bind:value={$locationForm.email} placeholder="frontdesk@example.com"/>
+                                    </div>
+                                    <div class="space-y-2">
+                                        <Label for="website">Website</Label>
+                                        <Input id="website" name="website" type="url" bind:value={$locationForm.website} placeholder="https://example.com"/>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2">
+                                        <Button type="submit" disabled={$isAddressSubmitting}>{$isAddressSubmitting ? 'Saving…' : 'Save changes'}</Button>
+                                        <Button variant="outline" on:click={() => cancelEdit('location')}>Cancel</Button>
+                                    </div>
+                                </form>
+                            {:else}
+                                <div class="space-y-4">
+                                    <address class="not-italic">{location.completeAddress || 'No address on file'}</address>
+                                    <FactGrid columns={2} facts={[
+                                        { label: 'Office phone', value: location.companyPhone || '—' },
+                                        { label: 'Office cell', value: location.cellPhone || '—' },
+                                        { label: 'Email', value: location.email || '—' },
+                                        { label: 'Website', value: location.website || '—' },
+                                        { label: 'Timezone', value: location.timezone?.replace('_', ' ') || 'Not set' },
+                                        { label: 'Practice', value: company?.companyName || '—' }
+                                    ]}/>
+                                </div>
+                            {/if}
+                        </Section>
+
+                        <Section title="Operating hours" flush={!editingHours}>
+                            {#snippet actions()}
+                                {#if !editingHours}
+                                    <Button variant="outline" size="sm" class="gap-2" aria-label="Edit operating hours" on:click={() => (editingHours = true)}><Pencil class="size-4" aria-hidden="true"/>Edit</Button>
                                 {/if}
-                            </CardContent>
-                        </Card>
+                            {/snippet}
+                            {#if editingHours}
+                                <form use:hoursEnhance method="POST" action="?/updateOperatingHours" class="space-y-4">
+                                    <ul class="divide-y rounded-lg border">
+                                        {#each Array.from({ length: 7 }, (_, i) => i) as dayIndex}
+                                            <li class="grid grid-cols-2 items-center gap-3 p-3">
+                                                <span class="font-semibold">{getDayName(dayIndex)}</span>
+                                                <div class="flex items-center justify-end gap-2">
+                                                    <Checkbox id={`closed-${dayIndex}`} checked={!!JSONHours[dayIndex]?.isClosed} onCheckedChange={(v) => setHours(dayIndex, { isClosed: v === true })}/>
+                                                    <Label for={`closed-${dayIndex}`} class="font-normal">Closed</Label>
+                                                </div>
+                                                <div class="space-y-1">
+                                                    <Label for={`open-${dayIndex}`} class="text-xs">Opens</Label>
+                                                    <Input id={`open-${dayIndex}`} type="time" value={formatTimeString(JSONHours[dayIndex]?.openTime) || ''} disabled={JSONHours[dayIndex]?.isClosed}
+                                                           on:change={(e) => setHours(dayIndex, { openTime: formatTimeString(e.currentTarget.value) })}/>
+                                                </div>
+                                                <div class="space-y-1">
+                                                    <Label for={`close-${dayIndex}`} class="text-xs">Closes</Label>
+                                                    <Input id={`close-${dayIndex}`} type="time" value={formatTimeString(JSONHours[dayIndex]?.closeTime) || ''} disabled={JSONHours[dayIndex]?.isClosed}
+                                                           on:change={(e) => setHours(dayIndex, { closeTime: formatTimeString(e.currentTarget.value) })}/>
+                                                </div>
+                                            </li>
+                                        {/each}
+                                    </ul>
+                                    <input type="hidden" name="operatingHours" value={stringifiedHours}/>
+                                    {#if $hoursErrors && Object.keys($hoursErrors).length}
+                                        <Notice tone="negative" alert>{#each Object.values($hoursErrors) as error}<p>{error}</p>{/each}</Notice>
+                                    {/if}
+                                    <div class="flex flex-wrap gap-2">
+                                        <Button type="submit" disabled={$isHoursSubmitting}>{$isHoursSubmitting ? 'Saving…' : 'Save hours'}</Button>
+                                        <Button variant="outline" on:click={() => cancelEdit('hours')}>Cancel</Button>
+                                    </div>
+                                </form>
+                            {:else if location.operatingHours}
+                                <ul class="divide-y">
+                                    {#each Array.from({ length: 7 }, (_, i) => i) as dayIndex}
+                                        {@const day = location.operatingHours[dayIndex]}
+                                        <li class="flex items-center justify-between gap-3 px-5 py-2.5 text-sm sm:px-6">
+                                            <span class="font-semibold">{getDayName(dayIndex)}</span>
+                                            {#if day?.isClosed}<span class="text-muted-foreground">Closed</span>
+                                            {:else if day?.openTime && day?.closeTime}<span class="tabular-nums">{formatTimeForDisplay(day.openTime)}–{formatTimeForDisplay(day.closeTime)}</span>
+                                            {:else}<span class="text-muted-foreground">Not set</span>{/if}
+                                        </li>
+                                    {/each}
+                                </ul>
+                            {:else}
+                                <p class="px-5 py-4 text-sm text-muted-foreground sm:px-6">Hours not set yet.</p>
+                            {/if}
+                        </Section>
                     </div>
-                </TabsContent>
-
-                <!-- Staff Tab -->
-                <TabsContent value="staff" class="mt-6">
-                    <Card class="w-full max-w-none">
-                        <CardHeader class="flex flex-row items-center justify-between">
-                            <CardTitle>Location Staff</CardTitle>
-                            <div class="flex gap-2">
-                                <InviteStaffToLocationDialog
-                                        bind:open={staffDialogOpen}
-                                        {allStaff}
-                                        {location}
-                                        {company}
-                                        {assignForm}
-                                />
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            {#if staffTableData.length === 0}
-                                <div class="text-center py-8">
-                                    <Users class="h-12 w-12 mx-auto text-gray-300"/>
-                                    <h3 class="mt-4 text-lg font-medium">No Staff Assigned</h3>
-                                    <p class="mt-2 text-sm text-gray-500">
-                                        This location doesn't have any staff assigned yet.
-                                    </p>
-                                    <InviteStaffToLocationDialog
-                                            bind:open={staffDialogOpen}
-                                            {allStaff}
-                                            {location}
-                                            {company}
-                                            {assignForm}
-                                    />
-                                </div>
-                            {:else}
-                                <div class="rounded-md border">
-                                    <Table>
-                                        <TableHeader>
-                                            {#each $staffTable.getHeaderGroups() as headerGroup}
-                                                <TableRow>
-                                                    {#each headerGroup.headers as header}
-                                                        <TableHead>
-                                                            <svelte:component
-                                                                    this={flexRender(
-																	header.column.columnDef.header,
-																	header.getContext()
-																)}
-                                                            />
-                                                        </TableHead>
-                                                    {/each}
-                                                </TableRow>
-                                            {/each}
-                                        </TableHeader>
-                                        <TableBody>
-                                            {#each $staffTable.getRowModel().rows as row}
-                                                <TableRow>
-                                                    {#each row.getVisibleCells() as cell}
-                                                        <TableCell>
-                                                            <svelte:component
-                                                                    this={flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                                            />
-                                                        </TableCell>
-                                                    {/each}
-                                                    <!-- Add Actions column -->
-                                                    <TableCell>
-                                                        <div class="flex justify-end gap-2 items-center">
-                                                            {#if row.original.isPrimary}
-                                                                <Badge value="Primary" class="bg-blue-100 text-blue-800 text-xs"/>
-                                                            {:else}
-                                                                <form method="POST" action="?/updateStaffOnLocation" use:enhance>
-                                                                    <input type="hidden" name="staffId" value={row.original.profile.id}/>
-                                                                    <input type="hidden" name="action" value="makePrimary"/>
-                                                                    <Button
-                                                                        type="submit"
-                                                                        variant="ghost"
-                                                                        size="icon"
-                                                                        class="h-8 w-8"
-                                                                        title="Make this their primary location"
-                                                                    >
-                                                                        <Star class="h-4 w-4"/>
-                                                                    </Button>
-                                                                </form>
-                                                            {/if}
-                                                            <form method="POST" action="?/updateStaffOnLocation" use:enhance>
-                                                                <input type="hidden" name="staffId" value={row.original.profile.id}/>
-                                                                <input type="hidden" name="action" value="remove"/>
-                                                                <Button
-                                                                    type="submit"
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    class="h-8 w-8 text-red-500"
-                                                                    title="Remove staff from this location"
-                                                                >
-                                                                    <UserMinus class="h-4 w-4"/>
-                                                                </Button>
-                                                            </form>
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            {/each}
-                                        </TableBody>
-                                    </Table>
-                                </div>
-                            {/if}
-
-                            {#if (data.pendingInvites?.length ?? 0) > 0}
-                                <div class="mt-6">
-                                    <h3 class="text-sm font-medium text-muted-foreground mb-2">
-                                        Pending Invites ({data.pendingInvites.length})
-                                    </h3>
-                                    <PendingInvitesTable
-                                        invites={data.pendingInvites}
-                                        resendAction="?/resendStaffInvite"
-                                        revokeAction="?/revokeStaffInvite"
-                                        showLocation={false}
-                                    />
-                                </div>
-                            {/if}
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-
-                <!-- Requisitions Tab -->
-                <TabsContent value="requisitions" class="mt-6">
-                    <Card class="w-full max-w-none">
-                        <CardHeader class="flex flex-row items-center justify-between">
-                            <CardTitle>Location Requisitions</CardTitle>
+                {:else if active === 'staff'}
+                    <div class="space-y-6">
+                        <Section title="Staff at this location" flush>
+                            {#snippet actions()}
+                                <InviteStaffToLocationDialog bind:open={staffDialogOpen} {allStaff} {location} {company} {assignForm}/>
+                            {/snippet}
+                            <StaffTable rows={staffRows} actions={staffActions} empty={emptyStaff} class="rounded-none border-0 shadow-none"/>
+                        </Section>
+                        {#if (data.pendingInvites?.length ?? 0) > 0}
+                            <Section title="Pending invites" flush>
+                                <PendingInvitesTable invites={data.pendingInvites} resendAction="?/resendStaffInvite" revokeAction="?/revokeStaffInvite" showLocation={false} embedded/>
+                            </Section>
+                        {/if}
+                    </div>
+                {:else if active === 'requisitions'}
+                    {#snippet emptyReqs()}
+                        <EmptyState icon={ClipboardList} title="No requisitions yet" description="Requests posted for this location show up here.">
                             {#if user?.role !== USER_ROLES.SUPERADMIN && data.canCreateRequisitions}
-                                <Button
-                                        on:click={() => {
-										drawerExpanded = true;
-									}}
-                                        class="bg-primary hover:bg-primary/90 text-white"
-                                >
-                                    <Plus class="inline mr-2" size={18}/>
-                                    New Requisition
-                                </Button>
-                            {:else if user?.role !== USER_ROLES.SUPERADMIN && data.clientStatus && !data.canCreateRequisitions}
-                                <span class="text-xs text-muted-foreground">
-                                    Account {String(data.clientStatus ?? 'PENDING').toLowerCase()} — posting disabled
-                                </span>
+                                <Button on:click={() => (drawerExpanded = true)}>Post the first request</Button>
                             {/if}
-                        </CardHeader>
-                        <CardContent>
-                            {#if requisitionTableData.length === 0}
-                                <div class="text-center py-8">
-                                    <ClipboardList class="h-12 w-12 mx-auto text-gray-300"/>
-                                    <h3 class="mt-4 text-lg font-medium">No Requisitions</h3>
-                                    <p class="mt-2 text-sm text-gray-500">
-                                        This location doesn't have any requisitions yet.
-                                    </p>
-                                    <Button variant="outline" class="mt-4 gap-1">
-                                        <Plus class="h-4 w-4"/>
-                                        Create First Requisition
-                                    </Button>
-                                </div>
-                            {:else}
-                                <div class="rounded-md border">
-                                    <Table>
-                                        <TableHeader>
-                                            {#each $requisitionsTable.getHeaderGroups() as headerGroup}
-                                                <TableRow>
-                                                    {#each headerGroup.headers as header}
-                                                        <TableHead>
-                                                            <svelte:component
-                                                                    this={flexRender(
-																	header.column.columnDef.header,
-																	header.getContext()
-																)}
-                                                            />
-                                                        </TableHead>
-                                                    {/each}
-                                                </TableRow>
-                                            {/each}
-                                        </TableHeader>
-                                        <TableBody>
-                                            {#each $requisitionsTable.getRowModel().rows as row}
-                                                <TableRow>
-                                                    {#each row.getVisibleCells() as cell}
-                                                        <TableCell>
-                                                            <svelte:component
-                                                                    this={flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                                            />
-                                                        </TableCell>
-                                                    {/each}
-                                                </TableRow>
-                                            {/each}
-                                        </TableBody>
-                                    </Table>
-                                </div>
-                            {/if}
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-            </Tabs>
-        </div>
-    </section>
+                        </EmptyState>
+                    {/snippet}
+                    <DataTable rows={requisitionRows} columns={requisitionColumns} key={(r) => r.id} rowHref={(r) => `/requisitions/${r.id}`}
+                               rowLabel={(r) => `Open requisition ${r.id}`} caption="Location requisitions" empty={emptyReqs}/>
+                {/if}
+            {/snippet}
+        </DetailTabs>
+    </Page>
     <AddRequisitionDrawer {user} bind:drawerExpanded {clientForm} {location}/>
 {:else}
-    <section
-            class="container mx-auto px-4 py-6 flex flex-col items-center text-center sm:justify-center gap-4 md:gap-6"
-    >
-        <div class="p-8 bg-gray-50 rounded-lg">
-            <AlertCircle class="h-12 w-12 mx-auto text-gray-400 mb-4"/>
-            <h2 class="text-2xl font-bold mb-2">No Location Found</h2>
-            <p class="text-gray-500 mb-6">The requested location could not be found in our system.</p>
-            <Button type="button" on:click={() => window.history.back()}>Go Back</Button>
-        </div>
-    </section>
+    <Page width="narrow">
+        <EmptyState icon={AlertCircle} title="Location not found" description="This location couldn't be found, or it isn't one of yours.">
+            <Button href="/locations">Back to locations</Button>
+        </EmptyState>
+    </Page>
 {/if}

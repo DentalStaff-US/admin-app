@@ -188,3 +188,55 @@ export function clientData(opts: { empty?: boolean; paper?: boolean } = {}) {
 		permanentRequisitions: [{ id: 1031, title: 'Office Manager', status: 'PAYMENT_REQUIRED' }]
 	};
 }
+
+const hours = Object.fromEntries(
+	Array.from({ length: 7 }, (_, i) => [i, { openTime: '08:00', closeTime: '17:00', isClosed: i === 0 || i === 6, timezone: 'America/New_York' }])
+);
+
+export function locationData(opts: { noCoords?: boolean } = {}) {
+	return {
+		client: {
+			profile: { id: 'c1' },
+			user: { firstName: 'Sandra', lastName: 'Keene', email: 'owner@brightsmiles.test', avatarUrl: null },
+			company: { companyName: 'Bright Smiles Dental', companyLogo: null, licenseNumber: 'FL-DEN-20419' }
+		},
+		location: {
+			id: 'l1', name: 'Tampa – Platt St', completeAddress: '1201 W Platt St, Tampa, FL 33606', city: 'Tampa', state: 'FL',
+			lat: opts.noCoords ? null : '27.9417', lon: opts.noCoords ? null : '-82.4746', timezone: 'America/New_York',
+			companyPhone: '(813) 555-0100', cellPhone: '(813) 555-0144', email: 'platt@brightsmiles.test', website: 'https://brightsmiles.test',
+			operatingHours: hours, createdAt: d('2025-11-03'), updatedAt: d('2026-10-30')
+		},
+		timezoneDrift: { requisitions: [{ id: 988, referenceTimezone: 'America/Chicago' }] },
+		contactDestinations: [
+			{ id: 'cd1', type: 'EMAIL', value: 'alerts@brightsmiles.test' },
+			{ id: 'cd2', type: 'SMS', value: '(813) 555-0177' }
+		],
+		addressForm: fakeSuperValidated({ lat: '', lon: '', completeAddress: '' }),
+		contactForm: fakeSuperValidated({ companyPhone: '(813) 555-0100', cellPhone: '', email: 'platt@brightsmiles.test', website: '' }),
+		operatingHoursForm: fakeSuperValidated({ operatingHours: JSON.stringify(hours) }),
+		locationForm: fakeSuperValidated({ timezone: 'America/New_York' }),
+		destinationForm: fakeSuperValidated({ type: 'EMAIL', value: '' })
+	};
+}
+
+export function practiceLocationData() {
+	const base = locationData();
+	return {
+		user: { id: 'u1', role: 'CLIENT' },
+		location: base.location,
+		company: { id: 'co1', companyName: 'Bright Smiles Dental' },
+		requisitions: [
+			{ id: 1042, status: 'OPEN', title: 'Temp Dental Hygienist', experienceLevel: '3–5 years', discipline: 'Dental Hygienist' },
+			{ id: 1007, status: 'FILLED', title: 'Temp Dental Assistant', experienceLevel: '0–2 years', discipline: 'Dental Assistant' }
+		],
+		locationStaff: staff.map((s, i) => ({ ...s, isPrimary: i === 0 })),
+		allStaff: staff,
+		assignForm: fakeSuperValidated({ companyId: 'co1', staffId: '', locationId: 'l1', isPrimary: false }),
+		clientForm: fakeSuperValidated({}),
+		locationForm: fakeSuperValidated({ timezone: 'America/New_York', companyPhone: '(813) 555-0100', cellPhone: '', email: '', website: '', lat: '', lon: '', completeAddress: '' }),
+		operatingHoursForm: base.operatingHoursForm,
+		pendingInvites: pendingInvites.slice(0, 1),
+		canCreateRequisitions: true,
+		clientStatus: 'ACTIVE'
+	};
+}

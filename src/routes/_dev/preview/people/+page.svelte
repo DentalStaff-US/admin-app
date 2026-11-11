@@ -21,6 +21,8 @@
 		StaffTable
 	} from '$features/people';
 	import * as fx from './fixtures';
+	import PracticeLocationPage from '../../../(protected)/locations/[id]/+page.svelte';
+	import AdminLocationPage from '../../../(protected)/clients/[id]/locations/[locationId]/+page.svelte';
 
 	// /_dev/preview/people?screen=pros|…&state=empty&dialog=add
 	const q = $derived(page.url.searchParams);
@@ -31,7 +33,7 @@
 	let staffOpen = $state(false);
 	let staffMember = $state<(typeof fx.staff)[number] | null>(null);
 	const path = $derived(
-		({ client: '/clients/c1', pro: '/professionals/p1', pros: '/professionals', clients: '/clients', staff: '/staff', locations: '/locations' } as Record<string, string>)[screen] ?? '/professionals'
+		({ plocation: '/locations', location: '/clients/c1', client: '/clients/c1', pro: '/professionals/p1', pros: '/professionals', clients: '/clients', staff: '/staff', locations: '/locations' } as Record<string, string>)[screen] ?? '/professionals'
 	);
 </script>
 
@@ -106,6 +108,10 @@
 		/>
 	{:else if screen === 'pro'}
 		<ProfessionalDetailPage data={fx.professionalData({ admin: q.get('role') !== 'client', empty })} />
+	{:else if screen === 'plocation'}
+		<PracticeLocationPage data={fx.practiceLocationData() as any} />
+	{:else if screen === 'location'}
+		<AdminLocationPage data={fx.locationData({ noCoords: q.get('coords') === '0' }) as any} />
 	{:else if screen === 'client'}
 		<ClientDetailPage data={fx.clientData({ empty, paper: q.get('paper') === '1' })} />
 	{:else if screen === 'clients'}

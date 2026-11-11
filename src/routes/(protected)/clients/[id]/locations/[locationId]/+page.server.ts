@@ -9,6 +9,7 @@ import {
 	updateCompanyLocation
 } from '$lib/server/database/queries/clients';
 import { buildLocationAddressPatch } from '$lib/server/address';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
 import { fail, redirect } from '@sveltejs/kit';
 import { setError, superValidate } from 'sveltekit-superforms/server';
 import type { PageServerLoad } from './$types';
@@ -400,10 +401,13 @@ export const actions = {
 		if (!user) {
 			redirect(302, '/auth/sign-in');
 		}
-		const form = await superValidate(event, RemoveLocationContactDestinationSchema);
+		const formData = await event.request.formData();
+		const form = await superValidate(formData, RemoveLocationContactDestinationSchema);
 		if (!form.valid) {
 			return fail(400, { form });
 		}
+		// Hard delete: the dialog makes the admin type DELETE, and so does this.
+		if (!hasTypedConfirmation(formData)) return fail(400, { form, error: 'Type DELETE to confirm' });
 		const { id, locationId } = event.params;
 		const client = await getClientProfileById(id);
 		const location = await getLocationByIdForCompany(locationId, client?.company?.id);
