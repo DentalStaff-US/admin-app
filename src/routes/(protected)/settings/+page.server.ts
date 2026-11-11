@@ -46,6 +46,7 @@ import {
 import { EmailService } from '$lib/server/email/emailService';
 import { syncStripeCustomerBillingEmail } from '$lib/server/billing/recipients';
 import { z } from 'zod';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
 
 const newStaffInvitesSchema = z.object({
 	invitees: z
@@ -659,6 +660,17 @@ export const actions = {
 		const formData = await event.request.formData();
 		const documentId = formData.get('documentId') as string;
 
+		// A hard delete: the dialog posts the typed word (03 › ConfirmDialog).
+		if (!hasTypedConfirmation(formData)) {
+			return fail(400, { error: 'Type DELETE to confirm.' });
+		}
+
+		const clientProfile =
+			user.role === USER_ROLES.CLIENT
+				? await getClientProfilebyUserId(user.id)
+				: await getClientProfileByStaffUserId(user.id);
+		if (!clientProfile) return fail(404, { error: 'Client profile not found' });
+
 		try {
 			// Fetch doc first to check adminOnly
 			const [doc] = await db
@@ -666,6 +678,8 @@ export const actions = {
 				.from(clientDocumentUploadsTable)
 				.where(eq(clientDocumentUploadsTable.id, documentId));
 
+			// Only this practice's own documents.
+			if (!doc || doc.clientId !== clientProfile.id) return fail(404, { error: 'Document not found' });
 			if (doc.adminOnly) return fail(403, { error: 'Cannot delete admin-locked document' });
 
 			await deleteClientDocument(documentId);

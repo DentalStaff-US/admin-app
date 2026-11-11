@@ -1,26 +1,28 @@
 <script lang="ts">
-	import * as Card from '$lib/components/ui/card';
-	import * as Alert from '$lib/components/ui/alert';
+	import { Check, Copy, Loader2, ShieldCheck, ShieldOff } from 'lucide-svelte';
+	import { invalidateAll } from '$app/navigation';
+	import ConfirmDialog from '$dtss/ConfirmDialog.svelte';
+	import Notice from '$dtss/Notice.svelte';
+	import Section from '$dtss/Section.svelte';
+	import { authClient } from '$lib/auth-client';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
-	import { Label } from '$lib/components/ui/label';
-	import { Loader2, AlertCircle, ShieldCheck, ShieldOff, Copy, Check } from 'lucide-svelte';
-	import { authClient } from '$lib/auth-client';
-	import { invalidateAll } from '$app/navigation';
+	import Field from './Field.svelte';
 
 	// Whether 2FA is currently enabled for the user (from data.user.twoFactorEnabled).
-	export let enabled: boolean = false;
+	let { enabled = false }: { enabled?: boolean } = $props();
 
 	type Mode = 'idle' | 'enable-password' | 'enable-verify' | 'disable-password';
-	let mode: Mode = 'idle';
-	let password = '';
-	let code = '';
-	let qrDataUrl = '';
-	let secret = '';
-	let backupCodes: string[] = [];
-	let error = '';
-	let loading = false;
-	let copied = false;
+	let mode = $state<Mode>('idle');
+	let password = $state('');
+	let code = $state('');
+	let qrDataUrl = $state('');
+	let secret = $state('');
+	let backupCodes = $state<string[]>([]);
+	let error = $state('');
+	let loading = $state(false);
+	let copied = $state(false);
+	let confirmDisable = $state(false);
 
 	function reset() {
 		mode = 'idle';
@@ -73,6 +75,7 @@
 	}
 
 	async function submitDisable() {
+		confirmDisable = false;
 		loading = true;
 		error = '';
 		const { error: err } = await authClient.twoFactor.disable({ password });
@@ -85,6 +88,18 @@
 		reset();
 	}
 
+	function onPasswordSubmit(event: SubmitEvent) {
+		event.preventDefault();
+		// Turning it off is consequential: confirm first (03 › Which overlay).
+		if (mode === 'enable-password') submitEnablePassword();
+		else confirmDisable = true;
+	}
+
+	function onVerifySubmit(event: SubmitEvent) {
+		event.preventDefault();
+		submitVerify();
+	}
+
 	async function copyBackupCodes() {
 		await navigator.clipboard.writeText(backupCodes.join('\n'));
 		copied = true;
@@ -92,144 +107,110 @@
 	}
 </script>
 
-<Card.Root class="border-slate-200/80">
-	<Card.Header>
-		<Card.Title class="flex items-center gap-2 text-xl">
-			<ShieldCheck class="h-5 w-5 text-primary" />
-			Two-factor authentication
-		</Card.Title>
-		<Card.Description>
-			Add an extra layer of security by requiring a code from your authenticator app when you sign
-			in.
-		</Card.Description>
-	</Card.Header>
-	<Card.Content class="grid gap-4">
-		{#if error}
-			<Alert.Root variant="destructive">
-				<AlertCircle class="h-4 w-4" />
-				<Alert.Description>{error}</Alert.Description>
-			</Alert.Root>
-		{/if}
+<Section
+	title="Two-factor sign-in"
+	description="Ask for a code from your authenticator app as well as your password when you sign in."
+>
+	<div class="space-y-4">
+		{#if error}<Notice tone="negative" alert>{error}</Notice>{/if}
 
 		{#if enabled && mode === 'idle'}
-			<div
-				class="flex items-center gap-2 rounded-md bg-green-50 px-3 py-2 text-sm font-medium text-green-700"
-			>
-				<ShieldCheck class="h-4 w-4" /> Two-factor authentication is on.
-			</div>
-			<div>
-				<Button variant="outline" on:click={() => (mode = 'disable-password')}>
-					<ShieldOff class="mr-2 h-4 w-4" /> Disable two-factor
+			<div class="flex flex-wrap items-center justify-between gap-3">
+				<p class="inline-flex items-center gap-2 text-sm font-semibold text-status-positive-fg">
+					<ShieldCheck class="size-4" aria-hidden="true" /> Two-factor sign-in is on.
+				</p>
+				<Button variant="destructiveOutline" on:click={() => (mode = 'disable-password')}>
+					<ShieldOff class="mr-2 size-4" aria-hidden="true" /> Turn off…
 				</Button>
 			</div>
 		{:else if mode === 'idle'}
-			<div>
-				<Button class="bg-primary hover:bg-primary/90" on:click={() => (mode = 'enable-password')}>
-					<ShieldCheck class="mr-2 h-4 w-4" /> Enable two-factor
+			<div class="flex flex-wrap items-center justify-between gap-3">
+				<p class="text-sm text-muted-foreground">Two-factor sign-in is off.</p>
+				<Button on:click={() => (mode = 'enable-password')}>
+					<ShieldCheck class="mr-2 size-4" aria-hidden="true" /> Turn on
 				</Button>
 			</div>
 		{/if}
 
 		{#if mode === 'enable-password' || mode === 'disable-password'}
-			<form
-				on:submit|preventDefault={mode === 'enable-password'
-					? submitEnablePassword
-					: submitDisable}
-				class="grid max-w-sm gap-3"
-			>
-				<div class="grid gap-1.5">
-					<Label for="tf-password">Confirm your password</Label>
+			<form onsubmit={onPasswordSubmit} class="max-w-sm space-y-4">
+				<Field id="tf-password" label="Confirm your password">
 					<Input id="tf-password" type="password" bind:value={password} autocomplete="current-password" />
-				</div>
-				<div class="flex gap-2">
-					<Button
-						type="submit"
-						class={mode === 'enable-password'
-							? 'bg-primary hover:bg-primary/90'
-							: 'bg-destructive hover:bg-destructive/90'}
-						disabled={loading || !password}
-					>
+				</Field>
+				<div class="flex flex-wrap gap-2">
+					<Button type="submit" variant={mode === 'enable-password' ? 'default' : 'destructiveOutline'} disabled={loading || !password}>
 						{#if loading}
-							<Loader2 class="mr-2 h-4 w-4 animate-spin" /> Please wait
+							<Loader2 class="mr-2 size-4 animate-spin" aria-hidden="true" /> Please wait…
 						{:else}
-							{mode === 'enable-password' ? 'Continue' : 'Disable'}
+							{mode === 'enable-password' ? 'Continue' : 'Turn off two-factor'}
 						{/if}
 					</Button>
-					<Button type="button" variant="destructiveOutline" on:click={reset}>Cancel</Button>
+					<Button type="button" variant="outline" on:click={reset}>Cancel</Button>
 				</div>
 			</form>
 		{/if}
 
 		{#if mode === 'enable-verify'}
-			<div class="grid gap-4">
+			<div class="space-y-4">
 				<p class="text-sm text-muted-foreground">
-					Scan this QR code with your authenticator app (Google Authenticator, 1Password, Authy…),
-					then enter the 6-digit code it shows.
+					Scan this QR code with your authenticator app (Google Authenticator, 1Password, Authy…), then
+					enter the 6-digit code it shows.
 				</p>
 				<div class="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
 					{#if qrDataUrl}
-						<img src={qrDataUrl} alt="2FA QR code" class="h-44 w-44 rounded-lg border bg-white p-2" />
+						<!-- The QR needs a white quiet zone to scan in dark mode too. -->
+						<img src={qrDataUrl} alt="Two-factor QR code" class="size-44 rounded-lg border bg-white p-2" />
 					{/if}
 					<div class="text-sm">
-						<p class="text-muted-foreground">Can't scan it? Enter this key manually:</p>
-						<code class="mt-1 block break-all rounded bg-muted px-2 py-1 font-mono text-xs">
-							{secret}
-						</code>
+						<p class="text-muted-foreground">Can't scan it? Enter this key instead:</p>
+						<code class="mt-1 block break-all rounded bg-muted px-2 py-1 font-mono text-xs">{secret}</code>
 					</div>
 				</div>
 
 				{#if backupCodes.length}
-					<div class="rounded-md border border-amber-200 bg-amber-50 p-3">
-						<div class="mb-2 flex items-center justify-between">
-							<p class="text-sm font-semibold text-amber-900">
-								Save your backup codes
-							</p>
-							<button
-								type="button"
-								class="flex items-center gap-1 text-xs text-amber-800 hover:underline"
-								on:click={copyBackupCodes}
-							>
-								{#if copied}<Check class="h-3 w-3" /> Copied{:else}<Copy class="h-3 w-3" /> Copy{/if}
-							</button>
+					<div class="rounded-xl border border-status-warning-border bg-status-warning-bg p-4 text-status-warning-fg">
+						<div class="flex items-center justify-between gap-3">
+							<p class="text-sm font-bold">Save your backup codes</p>
+							<Button type="button" variant="ghost" size="sm" on:click={copyBackupCodes}>
+								{#if copied}<Check class="mr-1 size-4" aria-hidden="true" /> Copied{:else}<Copy class="mr-1 size-4" aria-hidden="true" /> Copy{/if}
+							</Button>
 						</div>
-						<p class="mb-2 text-xs text-amber-800">
-							Each code can be used once if you lose access to your authenticator. Store them
-							somewhere safe.
+						<p class="mt-1 text-sm">
+							Each code works once, if you lose your authenticator. Keep them somewhere safe.
 						</p>
-						<div class="grid grid-cols-2 gap-1 font-mono text-xs text-amber-900 sm:grid-cols-3">
-							{#each backupCodes as bc}
-								<span>{bc}</span>
-							{/each}
+						<div class="mt-3 grid grid-cols-2 gap-1 font-mono text-xs sm:grid-cols-3">
+							{#each backupCodes as backupCode (backupCode)}<span>{backupCode}</span>{/each}
 						</div>
 					</div>
 				{/if}
 
-				<form on:submit|preventDefault={submitVerify} class="grid max-w-xs gap-2">
-					<Label for="tf-code">Verification code</Label>
-					<Input
-						id="tf-code"
-						bind:value={code}
-						placeholder="123456"
-						inputmode="numeric"
-						autocomplete="one-time-code"
-						class="tracking-widest"
-					/>
-					<div class="flex gap-2">
-						<Button
-							type="submit"
-							class="bg-primary hover:bg-primary/90"
-							disabled={loading || !code}
-						>
+				<form onsubmit={onVerifySubmit} class="max-w-xs space-y-4">
+					<Field id="tf-code" label="Verification code">
+						<Input id="tf-code" bind:value={code} placeholder="123456" inputmode="numeric" autocomplete="one-time-code" class="tracking-widest" />
+					</Field>
+					<div class="flex flex-wrap gap-2">
+						<Button type="submit" disabled={loading || !code}>
 							{#if loading}
-								<Loader2 class="mr-2 h-4 w-4 animate-spin" /> Verifying…
+								<Loader2 class="mr-2 size-4 animate-spin" aria-hidden="true" /> Verifying…
 							{:else}
-								Verify &amp; enable
+								Verify and turn on
 							{/if}
 						</Button>
-						<Button type="button" variant="destructiveOutline" on:click={reset}>Cancel</Button>
+						<Button type="button" variant="outline" on:click={reset}>Cancel</Button>
 					</div>
 				</form>
 			</div>
 		{/if}
-	</Card.Content>
-</Card.Root>
+	</div>
+</Section>
+
+<ConfirmDialog
+	bind:open={confirmDisable}
+	title="Turn off two-factor sign-in?"
+	description="Your account will only need your password to sign in. Your authenticator app and backup codes stop working for this account."
+	cancelLabel="Keep it on"
+>
+	{#snippet confirm()}
+		<Button variant="destructive" class="min-h-11 sm:min-h-10" on:click={submitDisable}>Turn off</Button>
+	{/snippet}
+</ConfirmDialog>
