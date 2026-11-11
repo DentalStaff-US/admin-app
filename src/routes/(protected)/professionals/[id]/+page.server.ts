@@ -1,4 +1,5 @@
 import { candidateDocumentUploadsTable } from './../../../../lib/server/database/schemas/candidate';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 import { syncAffiliateEligibility } from '$lib/server/database/queries/affiliates';
 import type { PageServerLoad } from './$types';
 import {
@@ -63,6 +64,12 @@ export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
 	if (!user) {
 		redirect(302, '/auth/sign-in');
+	}
+	// A professional's full profile (documents, notes, history) is DTSS-admin
+	// only; nothing in the practice portal links here. Previously any signed-in
+	// user could open any profile by id.
+	if (!checkIsAdmin(user.role)) {
+		redirect(302, '/dashboard');
 	}
 
 	const { id } = event.params;
@@ -541,6 +548,10 @@ export const actions = {
 
 		if (!user) {
 			return redirect(302, '/sign-in');
+		}
+		// Same gate as this page's other write actions.
+		if (user.role !== USER_ROLES.SUPERADMIN) {
+			return fail(403, { message: 'Only admins can upload documents for a professional' });
 		}
 
 		const candidateId = event.params.id;

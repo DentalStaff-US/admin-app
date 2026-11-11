@@ -1,4 +1,5 @@
-import { redirect } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
+import { practiceCompanyId } from '$features/people/server/locationAccess';
 import { buildLocationAddressPatch } from '$lib/server/address';
 import type { PageServerLoad } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
@@ -12,6 +13,7 @@ import {
 	getClientCompanyByClientId,
 	getClientProfileByStaffUserId,
 	getClientProfilebyUserId,
+	getClientStaffProfilebyUserId,
 	getPaginatedLocationsByCompanyId
 } from '$lib/server/database/queries/clients';
 import { setFlash } from 'sveltekit-flash-message/server';
@@ -102,7 +104,6 @@ export const actions = {
 			return { form };
 		}
 
-		console.log({ form });
 		const user = event.locals.user;
 
 		if (!user) {
@@ -110,10 +111,17 @@ export const actions = {
 		}
 
 		if (user.role === USER_ROLES.CLIENT || user.role === USER_ROLES.CLIENT_STAFF) {
-			const client = await getClientProfilebyUserId(user.id);
-			const clientCompany = await getClientCompanyByClientId(client.id);
+			// The location goes on the user's own practice, never a company id from
+			// the form. Staff were looked up as owners (and crashed); they now resolve
+			// through their staff profile.
+			if (user.role === USER_ROLES.CLIENT_STAFF) {
+				// Only office admins manage locations (05 › navigation by role).
+				const staff = await getClientStaffProfilebyUserId(user.id);
+				if (staff?.staffRole !== 'CLIENT_ADMIN') return fail(403, { form });
+			}
+			const companyId = await practiceCompanyId(user);
 
-			if (!clientCompany) {
+			if (!companyId) {
 				return { form };
 			}
 
@@ -124,7 +132,7 @@ export const actions = {
 				name: form.data.name,
 				companyPhone: form.data.companyPhone,
 				email: form.data.email || null,
-				companyId: form.data.companyId,
+				companyId,
 				// Routed through the shared helper so a hand-typed "Texas" or a zip+4
 				// is canonicalized before it becomes a filter facet on the clients index.
 				...buildLocationAddressPatch(form.data).patch,

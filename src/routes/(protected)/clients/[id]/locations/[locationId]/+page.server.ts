@@ -10,7 +10,7 @@ import {
 } from '$lib/server/database/queries/clients';
 import { buildLocationAddressPatch } from '$lib/server/address';
 import { hasTypedConfirmation } from '$lib/server/confirmation';
-import { fail, redirect } from '@sveltejs/kit';
+import { fail, redirect, error } from '@sveltejs/kit';
 import { setError, superValidate } from 'sveltekit-superforms/server';
 import type { PageServerLoad } from './$types';
 import { setFlash } from 'sveltekit-flash-message/server';
@@ -98,6 +98,8 @@ export const actions = {
 		if (!user) {
 			redirect(302, '/auth/sign-in');
 		}
+		// Same as the page: admin only. Any signed-in user could post here before.
+		if (user.role !== 'SUPERADMIN') error(403, 'Forbidden');
 		const form = await superValidate(event, NewAddressSchema);
 
 		if (!form.valid) {
@@ -162,6 +164,8 @@ export const actions = {
 		if (!user) {
 			redirect(302, '/auth/sign-in');
 		}
+		// Same as the page: admin only. Any signed-in user could post here before.
+		if (user.role !== 'SUPERADMIN') error(403, 'Forbidden');
 		const form = await superValidate(event, ContactSchema);
 		if (!form.valid) {
 			return fail(400, { form });
@@ -203,6 +207,8 @@ export const actions = {
 		if (!user) {
 			redirect(302, '/auth/sign-in');
 		}
+		// Same as the page: admin only. Any signed-in user could post here before.
+		if (user.role !== 'SUPERADMIN') error(403, 'Forbidden');
 		const form = await superValidate(event, OperatingHoursSchema);
 
 		if (!form.valid) {
@@ -264,6 +270,8 @@ export const actions = {
 		if (!user) {
 			redirect(302, '/auth/sign-in');
 		}
+		// Same as the page: admin only. Any signed-in user could post here before.
+		if (user.role !== 'SUPERADMIN') error(403, 'Forbidden');
 		const form = await superValidate(event, LocationSchema);
 		if (!form.valid) {
 			return fail(400, { form });
@@ -364,6 +372,8 @@ export const actions = {
 		if (!user) {
 			redirect(302, '/auth/sign-in');
 		}
+		// Same as the page: admin only. Any signed-in user could post here before.
+		if (user.role !== 'SUPERADMIN') error(403, 'Forbidden');
 		const form = await superValidate(event, LocationContactDestinationSchema);
 		if (!form.valid) {
 			return fail(400, { destinationForm: form });
@@ -401,6 +411,8 @@ export const actions = {
 		if (!user) {
 			redirect(302, '/auth/sign-in');
 		}
+		// Same as the page: admin only. Any signed-in user could post here before.
+		if (user.role !== 'SUPERADMIN') error(403, 'Forbidden');
 		const formData = await event.request.formData();
 		const form = await superValidate(formData, RemoveLocationContactDestinationSchema);
 		if (!form.valid) {

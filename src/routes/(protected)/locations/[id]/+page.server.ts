@@ -36,6 +36,7 @@ import db from '$lib/server/database/drizzle';
 import { companyOfficeLocationTable } from '$lib/server/database/schemas/client';
 import { eq } from 'drizzle-orm';
 import { assertCanAccessLocation } from '$lib/server/scoping';
+import { assertLocationAccess, assertStaffInCompany } from '$features/people/server/locationAccess';
 import { syncRequisitionTimezonesForLocation } from '$lib/server/requisitions/referenceTimezone';
 
 const assignStaffToLocationSchema = z.object({
@@ -334,19 +335,24 @@ export const actions = {
 		const currentUser = event.locals.user;
 
 		if (!currentUser) {
-			fail(401);
+			return fail(401);
 		}
 
 		const form = await superValidate(event, assignStaffToLocationSchema);
 
 		if (!form.valid) {
-			fail(400, { form });
+			return fail(400, { form });
 		}
+
+		// The company comes from the location the user may act on, never from the
+		// form, and the staff member must belong to that same company.
+		const { companyId } = await assertLocationAccess(currentUser, form.data.locationId);
+		await assertStaffInCompany(form.data.staffId, companyId);
 
 		try {
 			const values = {
 				id: crypto.randomUUID(),
-				companyId: form.data.companyId,
+				companyId,
 				staffId: form.data.staffId,
 				locationId: form.data.locationId,
 				isPrimary: form.data.isPrimary
@@ -378,9 +384,9 @@ export const actions = {
 		if (!user) {
 			redirect(302, '/auth/sign-in');
 		}
+		await assertLocationAccess(user, event.params.id);
 		const form = await superValidate(event, ClientLocationDetailsSchema);
 
-		console.log(form);
 		if (!form.valid) {
 			return fail(400, { form });
 		}
@@ -467,6 +473,7 @@ export const actions = {
 		if (!user) {
 			redirect(302, '/auth/sign-in');
 		}
+		await assertLocationAccess(user, event.params.id);
 		const form = await superValidate(event, OperatingHoursSchema);
 
 		if (!form.valid) {
