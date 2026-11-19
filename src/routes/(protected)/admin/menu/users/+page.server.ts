@@ -4,9 +4,9 @@ import { setFlash } from 'sveltekit-flash-message/server';
 import {
 	countActiveSuperadmins,
 	getPaginatedUsers,
-	deleteAdminUser,
 	UserHasRecordsError
 } from '$lib/server/database/queries/admin';
+import { deleteAccount } from '$lib/server/accounts';
 import { getUserById } from '$lib/server/database/queries/users';
 import { can, guardAccountAction } from '$lib/authz';
 import { auth } from '$lib/server/auth';
@@ -84,7 +84,8 @@ export const actions = {
 		}
 
 		try {
-			await deleteAdminUser(id);
+			// Also removes their stored files and records the delete.
+			await deleteAccount(id, user.id);
 			setFlash({ type: 'success', message: 'User deleted' }, event);
 			return { success: true };
 		} catch (err) {

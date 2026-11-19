@@ -44,6 +44,21 @@ vi.mock('$lib/server/database/queries/campaigns', () => ({}));
 vi.mock('$lib/server/database/queries/config', () => ({}));
 vi.mock('$lib/server/email/emailService', () => ({ EmailService: vi.fn() }));
 vi.mock('$lib/server/database/queries/users', () => ({ getUserByEmail: vi.fn(async () => null) }));
+vi.mock('$lib/server/auth', () => ({ auth: { api: { banUser: dbWrites, unbanUser: dbWrites } } }));
+vi.mock('$lib/server/accounts', async () => {
+	const { EMPTY_COUNTS } = await import('$features/admin/components/people/accountControls');
+	return {
+		AccountActionError: class extends Error {},
+		getAccountOverview: vi.fn(async (id: string) => ({
+			account: { id, role: id.startsWith('super') ? 'SUPERADMIN' : 'CLIENT', email: `${id}@x.test` },
+			counts: EMPTY_COUNTS
+		})),
+		switchAccountRole: dbWrites,
+		anonymizeAccount: dbWrites,
+		deleteAccount: dbWrites,
+		revokeAllSessions: dbWrites
+	};
+});
 
 const SUPER = { id: 'super-1', role: 'SUPERADMIN', email: 's@x.test' };
 const ADMIN = { id: 'admin-1', role: 'ADMIN', email: 'a@x.test' };
@@ -163,6 +178,48 @@ describe('team invites and roles (admins.manage, AZ-4)', async () => {
 
 	it('a SUPERADMIN cannot change their own role', async () => {
 		const result = await run(detail.actions.setRole, detailEvent(SUPER, 'super-1', { role: 'ADMIN' }));
+		expect(result).toMatchObject({ status: 400 });
+		expect(dbWrites).not.toHaveBeenCalled();
+	});
+});
+
+describe('user account controls (users.changeRole, users.delete, sessions.revoke)', async () => {
+	const { actions } = await import('../../routes/(protected)/admin/menu/users/[id]/+page.server');
+
+	function userEvent(user: unknown, id: string, form: Record<string, string> = {}) {
+		const e = event(user, form) as any;
+		e.params = { id };
+		return e as never;
+	}
+
+	it('refuses an ADMIN every destructive action', async () => {
+		for (const name of ['switchRole', 'anonymize', 'deleteUser', 'revokeSessions', 'banUser'] as const) {
+			const result = await run(actions[name], userEvent(ADMIN, 'client-1', { confirm: 'DELETE', to: 'CANDIDATE' }));
+			expect(result, name).toMatchObject({ status: 403 });
+		}
+		expect(dbWrites).not.toHaveBeenCalled();
+	});
+
+	it('a SUPERADMIN must type SWITCH to switch a role', async () => {
+		const result = await run(actions.switchRole, userEvent(SUPER, 'client-1', { confirm: 'DELETE', to: 'CANDIDATE' }));
+		expect(result).toMatchObject({ status: 400 });
+		expect(dbWrites).not.toHaveBeenCalled();
+	});
+
+	it('a SUPERADMIN can switch a practice owner to a professional', async () => {
+		const result = await run(actions.switchRole, userEvent(SUPER, 'client-1', { confirm: 'SWITCH', to: 'CANDIDATE' }));
+		expect(result).toEqual({ success: true });
+		expect(dbWrites).toHaveBeenCalledWith('client-1', 'CANDIDATE', 'super-1');
+	});
+
+	it('refuses a forged target role', async () => {
+		const result = await run(actions.switchRole, userEvent(SUPER, 'client-1', { confirm: 'SWITCH', to: 'SUPERADMIN' }));
+		expect(result).toMatchObject({ status: 400 });
+		expect(dbWrites).not.toHaveBeenCalled();
+	});
+
+	it('nobody acts on their own account from here', async () => {
+		const result = await run(actions.anonymize, userEvent(SUPER, 'super-1', { confirm: 'DELETE' }));
 		expect(result).toMatchObject({ status: 400 });
 		expect(dbWrites).not.toHaveBeenCalled();
 	});

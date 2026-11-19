@@ -107,13 +107,9 @@
 {#snippet onboardedCell(r: UserRow)}{@render yesNo(r.completedOnboarding, 'Onboarded')}{/snippet}
 
 {#snippet nameCell(r: UserRow)}
-	{@const href = profileHref(r)}
 	<div class="flex flex-wrap items-center gap-2">
-		{#if href}
-			<a {href} class="font-semibold text-primary-dark hover:underline">{sortableName(r)}</a>
-		{:else}
-			<span class="font-semibold">{sortableName(r)}</span>
-		{/if}
+		<!-- The account page: profile, related records and account controls. -->
+		<a href="/admin/menu/users/{r.id}" class="font-semibold text-primary-dark hover:underline">{sortableName(r)}</a>
 		{#if r.banned}<StatusBadge status="ON_HOLD" label="Suspended" hint={r.banReason ?? undefined} />{/if}
 	</div>
 	<span class="block text-sm text-muted-foreground">{r.email}</span>

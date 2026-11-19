@@ -65,14 +65,15 @@ export function guardStaffChange(
 }
 
 /**
- * Account actions on ANY user (suspend, delete) from the All users screen.
+ * Account actions on ANY user (suspend, delete, anonymize, switch role, sign
+ * out) from the All users screens.
  * Non-staff targets need only the permission; staff targets also go through
  * guardStaffChange, so an ADMIN can never touch a SUPERADMIN.
  */
 export function guardAccountAction(
 	actor: Actor,
 	target: Target,
-	permission: 'users.ban' | 'users.delete',
+	permission: 'users.ban' | 'users.delete' | 'users.changeRole' | 'sessions.revoke',
 	superadminCount: number
 ): GuardResult {
 	if (!can(actor, permission)) return refuse(403, 'You don’t have permission to do that.');

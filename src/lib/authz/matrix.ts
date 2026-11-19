@@ -61,10 +61,12 @@ export const SUPERADMIN_ONLY = [
 	/** Affiliate commission, rate overrides, ledger adjustments, flagged referrals. */
 	'payouts.manage',
 	'blacklist.remove',
-	/** Suspend/reinstate, delete accounts, revoke sessions. */
+	/** Suspend/reinstate, delete or anonymize accounts, revoke sessions. */
 	'users.ban',
 	'users.delete',
 	'sessions.revoke',
+	/** Switch a practice owner to a professional or back (deletes the old profile). */
+	'users.changeRole',
 	'users.impersonate',
 	/** Invite, edit, change the role of, or remove DTSS admins. */
 	'admins.manage',

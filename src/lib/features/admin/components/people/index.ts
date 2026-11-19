@@ -1,5 +1,6 @@
 // Public API for the admin People screens: users, admins, affiliates, user import.
 export { default as UsersTable } from './UsersTable.svelte';
+export { default as UserAccountPage } from './UserAccountPage.svelte';
 export { default as AdminsTable } from './AdminsTable.svelte';
 export { default as InviteAdminDialog } from './InviteAdminDialog.svelte';
 export { default as StaffRoleField } from './StaffRoleField.svelte';

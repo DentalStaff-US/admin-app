@@ -26,6 +26,7 @@ const ROWS: [string, Permission[], boolean][] = [
 	['Partner payouts, wages marked paid', ['payouts.manage', 'wages.markPaid'], false],
 	['Blacklist: remove', ['blacklist.remove'], false],
 	['Ban or delete users, revoke sessions', ['users.ban', 'users.delete', 'sessions.revoke'], false],
+	['Switch a user between practice and professional', ['users.changeRole'], false],
 	['Impersonate', ['users.impersonate'], false],
 	['Manage admins and roles', ['admins.manage'], false],
 	['Audit log (record-history)', ['audit.read'], true],
