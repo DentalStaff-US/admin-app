@@ -1,6 +1,7 @@
 <script lang="ts">
 	import * as Card from '$lib/components/ui/card';
 	import * as Alert from '$lib/components/ui/alert';
+	import { TERMS_PRIVACY_WEBSITE } from '$lib/config/constants';
 	import { userSchema } from '$lib/config/zod-schemas';
 	import { Loader2, AlertCircle } from 'lucide-svelte';
 	import { superForm } from 'sveltekit-superforms/client';
@@ -104,9 +105,9 @@
 							<Label for="terms" id="terms-label">I accept the terms and privacy policy.</Label>
 							<div class="text-slate-500">
 								You agree to the
-								<a href="/terms" class="text-primary underline">terms</a>
+								<a href="{TERMS_PRIVACY_WEBSITE}/terms" target="_blank" rel="noopener" class="text-primary underline">terms</a>
 								and
-								<a href="/privacy" class="text-primary underline">privacy policy</a>.
+								<a href="{TERMS_PRIVACY_WEBSITE}/privacy" target="_blank" rel="noopener" class="text-primary underline">privacy policy</a>.
 							</div>
 						</div>
 					</div>
