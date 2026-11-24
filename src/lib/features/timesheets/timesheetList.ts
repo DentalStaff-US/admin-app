@@ -21,7 +21,8 @@ export type TimesheetListRow = {
 };
 
 export const TIMESHEET_TABS = [
-	{ value: 'review', label: 'To review' },
+	{ value: 'draft', label: 'Draft' },
+	{ value: 'review', label: 'Pending' },
 	{ value: 'discrepancies', label: 'Discrepancies' },
 	{ value: 'approved', label: 'Approved' },
 	{ value: 'paid', label: 'Paid' },
@@ -62,6 +63,8 @@ export function inTab(row: Pick<TimesheetListRow, 'status' | 'wagesStatus'>, tab
 	if (tab === 'voided') return row.status === 'VOID';
 	if (row.status === 'VOID') return false;
 	switch (tab) {
+		case 'draft':
+			return row.status === 'DRAFT';
 		case 'review':
 			return row.status === 'PENDING';
 		case 'discrepancies':
@@ -80,6 +83,9 @@ export function countTabs(rows: Pick<TimesheetListRow, 'status' | 'wagesStatus'>
 	for (const row of rows) for (const t of TIMESHEET_TABS) if (inTab(row, t.value)) counts[t.value]++;
 	return counts;
 }
+
+/** The stages a timesheet moves through, as the list's tabs name them. */
+export const TIMESHEET_STAGES = ['draft', 'review', 'discrepancies', 'approved', 'paid'] as const satisfies readonly TimesheetTab[];
 
 export type TimesheetListQuery = {
 	tab: TimesheetTab;

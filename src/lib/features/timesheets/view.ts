@@ -2,6 +2,7 @@
  * Derived state both timesheet views read from the page data, so the admin
  * and practice components can't drift on what "hours", "rate" or "total" mean.
  */
+import type { PracticeLedgerEntry } from './history';
 import {
 	billingSummary,
 	buildDayTable,
@@ -26,6 +27,8 @@ export type TimesheetPageData = {
 	unfinishedWorkdayCount?: number;
 	priorWeekHours?: number;
 	auditHistory?: any[];
+	/** Practices' cut of the ledger; admins get auditHistory. */
+	practiceLedger?: PracticeLedgerEntry[];
 	invoiceMethod?: 'PAPER' | 'STRIPE' | null;
 };
 

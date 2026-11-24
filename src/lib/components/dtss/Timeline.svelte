@@ -9,6 +9,8 @@
 		/** Who did it, bolded before the text. */
 		actor?: string | null;
 		text?: string;
+		/** What they wrote, quoted under the line. */
+		note?: string | null;
 		body?: Snippet;
 		tone?: StatusTone;
 	};
@@ -39,6 +41,7 @@
 				<div class="text-sm">
 					{#if entry.actor}<b class="font-bold">{entry.actor}</b>{' '}{/if}{#if entry.body}{@render entry.body()}{:else}{entry.text}{/if}
 				</div>
+				{#if entry.note}<p class="mt-1.5 whitespace-pre-wrap break-words rounded-md bg-muted px-3 py-2 text-sm">{entry.note}</p>{/if}
 				<time class="text-caption text-muted-foreground" datetime={new Date(entry.at).toISOString()}>{fmt(entry.at)}</time>
 			</li>
 		{/each}

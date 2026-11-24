@@ -20,10 +20,12 @@
 	import HistorySection from './HistorySection.svelte';
 	import RecordHeader from './RecordHeader.svelte';
 	import TimesheetBillingSection from './TimesheetBillingSection.svelte';
+	import TimesheetCommentForm from './TimesheetCommentForm.svelte';
 	import TimesheetDayTable from './TimesheetDayTable.svelte';
 	import TimesheetExpensesSection from './TimesheetExpensesSection.svelte';
 	import TimesheetFacts from './TimesheetFacts.svelte';
 	import TimesheetHoursSheet from './TimesheetHoursSheet.svelte';
+	import { COMMENT_MAX_LENGTH } from '../history';
 	import {
 		entriesFromHoursRaw,
 		hoursText,
@@ -127,7 +129,7 @@
 			: v.isPending
 				? 'Waiting for the practice to approve. You can approve on their behalf or send it back.'
 				: v.isDiscrepancy
-					? 'Sent back with a discrepancy. Edit the hours and resubmit.'
+					? 'Sent back with a discrepancy. Edit the hours, then resubmit with a comment for the practice.'
 					: v.isVoid
 						? 'Voided and its workdays released. A corrected draft regenerates automatically.'
 						: v.isRejected
@@ -155,7 +157,7 @@
 	{:else if v.isDiscrepancy}
 		<Notice tone="warning" title="Sent back with a discrepancy">
 			<p class="whitespace-pre-wrap">{t.discrepancyNote || 'No note was given.'}</p>
-			<p class="mt-1">Edit the hours and resubmit.</p>
+			<p class="mt-1">Edit the hours, then resubmit. You can add a comment for the practice when you do.</p>
 		</Notice>
 	{:else if v.isPending && data.hasUnfinishedWorkdays}
 		<Notice tone="pending" title="Approval isn’t open yet">
@@ -186,10 +188,12 @@
 				professional={v.name}
 			/>
 			<HistorySection
-				description="Every view and action recorded against this timesheet and its expenses."
+				description="Every view, action and comment recorded against this timesheet and its expenses."
 				audit={data.auditHistory ?? []}
 				empty="No views or changes recorded yet."
-			/>
+			>
+				{#snippet before()}<TimesheetCommentForm admin />{/snippet}
+			</HistorySection>
 		</div>
 
 		<div class="order-first space-y-6 lg:order-none">
@@ -216,7 +220,7 @@
 						</Button>
 						{#if !v.isPending}
 							<Button disabled={!canSubmitOnBehalf} on:click={() => (submitOpen = true)}>
-								<Send class="mr-2 size-4" aria-hidden="true" /> Submit on behalf…
+								<Send class="mr-2 size-4" aria-hidden="true" /> {v.isDiscrepancy ? 'Resubmit to the practice…' : 'Submit on behalf…'}
 							</Button>
 							{#if submitHint}<p class="text-sm text-muted-foreground">{submitHint}</p>{/if}
 						{/if}
@@ -270,6 +274,7 @@
 	timeZoneLabel={v.timeZoneLabel}
 	total={totalHours}
 	{dirty}
+	saveLabel={v.isDiscrepancy ? 'Save changes' : 'Save draft'}
 	canSaveDraft={canSaveDraft}
 	canSubmit={canSubmitOnBehalf}
 	{submitHint}
@@ -280,10 +285,13 @@
 <!-- Posts natively, like the old page did, so the result is a full reload. -->
 <ActionConfirmDialog
 	bind:open={submitOpen}
-	title="Submit {v.name}'s timesheet?"
+	title="{v.isDiscrepancy ? 'Resubmit' : 'Submit'} {v.name}'s timesheet?"
 	description="Sends {hoursText(totalHours)} hours for {v.week} to {t.clientCompanyName ?? 'the practice'} for approval, on the professional's behalf. The practice is notified."
 	action={submitAction}
-	confirmLabel="Submit timesheet"
+	confirmLabel={v.isDiscrepancy ? 'Resubmit timesheet' : 'Submit timesheet'}
+	reason={v.isDiscrepancy
+		? { name: 'comment', label: 'Comment to the practice', maxLength: COMMENT_MAX_LENGTH, placeholder: 'We confirmed Wednesday’s start time with the professional and corrected it.' }
+		: undefined}
 	hidden={{ entries: JSON.stringify(entries), totalHours: String(totalHours) }}
 	native
 />

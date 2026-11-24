@@ -39,7 +39,7 @@
 		tone?: 'default' | 'success' | 'destructive';
 		hidden?: Record<string, string | number>;
 		/** A textarea posted as `name`. */
-		reason?: { name: string; label: string; placeholder?: string; required?: boolean };
+		reason?: { name: string; label: string; placeholder?: string; required?: boolean; maxLength?: number };
 		/** Extra inputs above the reason. */
 		fields?: Snippet;
 		/** Post without `use:enhance` (a full navigation), as some flows always have. */
@@ -98,6 +98,7 @@
 						bind:value={text}
 						placeholder={reason.placeholder}
 						rows={3}
+						maxlength={reason.maxLength}
 						required={reason.required}
 					/>
 				</div>

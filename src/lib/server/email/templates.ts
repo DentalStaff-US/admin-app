@@ -1063,6 +1063,8 @@ ${daysText}
 			workdayStart: string;
 			workdayEnd: string;
 			requisitionNumber: string;
+			/** DTSS's comment when it resubmits a corrected sheet. */
+			comment?: string;
 		}
 	) => {
 		return {
@@ -1070,7 +1072,7 @@ ${daysText}
             Hello ${workdayDetails.clientName},
 
             A timesheet has been completed for Requisition Number: ${workdayDetails.requisitionNumber}. You can access and review the associated timesheet at ${workdayDetails.timesheetUrl}.
-            
+${workdayDetails.comment ? `\n            Comment from Dental Temps Staffing Solutions:\n            ${workdayDetails.comment}\n` : ''}            
             Please accept or dispute by clicking "Approve" or "Reject". Any discrepancies will be addressed by a system administrator, prior to processing of any payments. 
             
             Note: If you have not validated and signed the stated invoice within 24 hours, the amount due may be charged to your form of payment currently on file.

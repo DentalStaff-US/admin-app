@@ -6,6 +6,8 @@
 import { and, count, eq, gte, inArray, lt, notInArray, sql } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import { actionHistoryTable } from '$lib/server/database/schemas/admin';
+import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
+import { clientCompanyTable } from '$lib/server/database/schemas/client';
 import {
 	candidateRequisitionSavesTable,
 	invoiceTable,
@@ -24,6 +26,7 @@ import {
 	sum
 } from '../kpis';
 import type { AdminKpis, DashboardScope, KpiWindow, PermPipeline, Receivables, ShiftPipeline } from '../types';
+import { timesheetStages } from '../timesheetStages';
 import { kpiWindowBounds, type WindowBounds } from '../window';
 import { settle } from './settle';
 import { getShiftPipelineSummaryBetween } from './shiftPipeline';
@@ -196,5 +199,25 @@ export function permPipeline(scope: DashboardScope) {
 			recommended: Number(recommended.count),
 			hired: Number(hired.count)
 		};
+	});
+}
+
+/** Timesheets grouped for the stages card, with the joins /timesheets lists by. */
+export function timesheetStageCounts(scope: DashboardScope) {
+	requireAll(scope);
+	return settle('timesheetStages', async () => {
+		const rows = await db
+			.select({
+				status: timeSheetTable.status,
+				wagesStatus: timeSheetTable.wagesStatus,
+				count: count(),
+				hours: sql<number>`coalesce(sum(${timeSheetTable.totalHoursWorked}), 0)`.mapWith(Number)
+			})
+			.from(timeSheetTable)
+			.innerJoin(requisitionTable, eq(requisitionTable.id, timeSheetTable.requisitionId))
+			.innerJoin(clientCompanyTable, eq(clientCompanyTable.id, requisitionTable.companyId))
+			.innerJoin(candidateProfileTable, eq(candidateProfileTable.id, timeSheetTable.associatedCandidateId))
+			.groupBy(timeSheetTable.status, timeSheetTable.wagesStatus);
+		return timesheetStages(rows);
 	});
 }

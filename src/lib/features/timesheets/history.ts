@@ -16,7 +16,22 @@ export type HistoryEntry = {
 	actor?: string | null;
 	text: string;
 	tone: StatusTone;
+	/** A comment or reason someone wrote. */
+	note?: string | null;
 };
+
+export const COMMENT_MAX_LENGTH = 2000;
+
+/** The words a person left on a ledger row: a comment, or why it was sent back, voided or rejected. */
+function noteOf(metadata: ActivityEntry['metadata']): string | null {
+	for (const key of ['comment', 'discrepancyNote', 'reason']) {
+		const value = metadata?.[key];
+		if (typeof value === 'string' && value.trim()) return value.trim();
+	}
+	return null;
+}
+
+const isInternal = (metadata: ActivityEntry['metadata']) => metadata?.visibility === 'INTERNAL';
 
 const ROLE_LABELS: Record<string, string> = {
 	SUPERADMIN: 'Admin',
@@ -70,8 +85,9 @@ export function auditToTimeline(
 				id: e.id,
 				at: e.createdAt,
 				actor: role ? `${name} (${role})` : name,
-				text: `${label} ${noun}${by}`,
-				tone: auditTone(e.action)
+				text: `${label} ${noun}${isInternal(e.metadata) ? ' (DTSS only)' : ''}${by}`,
+				tone: auditTone(e.action),
+				note: noteOf(e.metadata)
 			};
 		})
 		.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
@@ -100,9 +116,51 @@ const STATUS_EVENT: Record<string, { text: string; tone: StatusTone }> = {
 	VOID: { text: 'Voided', tone: 'negative' }
 };
 
+/** The ledger actions a practice gets to see on its own timesheet. */
+export const PRACTICE_LEDGER_ACTIONS = ['SUBMIT', 'RESUBMIT', 'REJECT', 'APPROVE', 'VOID', 'COMMENT'] as const;
+
+/** A ledger row cut down to what a practice may see: no ids, addresses or DTSS names. */
+export type PracticeLedgerEntry = { id: string; at: Date; action: string; by: string; fromDtss: boolean; note: string | null };
+
+export function toPracticeLedger(entries: ActivityEntry[]): PracticeLedgerEntry[] {
+	return entries
+		.filter((e) => e.entityType === 'TIMESHEETS' && (PRACTICE_LEDGER_ACTIONS as readonly string[]).includes(e.action))
+		// A comment is only passed on when it was explicitly shared.
+		.filter((e) => (e.action === 'COMMENT' ? e.metadata?.visibility === 'SHARED' : !isInternal(e.metadata)))
+		.map((e) => {
+			const fromDtss = !['CLIENT', 'CLIENT_STAFF', 'CANDIDATE'].includes(e.actorRole ?? '');
+			return {
+				id: e.id,
+				at: e.createdAt,
+				action: e.action,
+				by: fromDtss ? 'DTSS' : (e.actorName ?? 'Deleted user'),
+				fromDtss,
+				note: e.action === 'VOID' ? null : noteOf(e.metadata)
+			};
+		})
+		.sort((a, b) => b.at.getTime() - a.at.getTime());
+}
+
+/** DTSS's newest words since the practice last sent the sheet back, if any. */
+export function replySinceSentBack(ledger: PracticeLedgerEntry[]): string | null {
+	const sentBack = ledger.findIndex((e) => e.action === 'REJECT');
+	if (sentBack < 0) return null;
+	return ledger.slice(0, sentBack).find((e) => e.fromDtss && e.note)?.note ?? null;
+}
+
+const LEDGER_TEXT: Record<string, string> = {
+	SUBMIT: 'submitted this timesheet for review',
+	RESUBMIT: 'corrected and resubmitted this timesheet',
+	REJECT: 'sent this timesheet back for correction',
+	APPROVE: 'approved this timesheet',
+	VOID: 'voided this timesheet',
+	COMMENT: 'commented'
+};
+
 /**
- * What a practice can see happened to its timesheet, from the sheet itself:
- * created, the latest status change, and each expense. Newest first.
+ * What a practice can see happened to its timesheet: created, every submission,
+ * send-back and comment, and each expense. Sheets from before the ledger only
+ * know their latest status. Newest first.
  */
 export function practiceTimeline(
 	timesheet: {
@@ -111,11 +169,15 @@ export function practiceTimeline(
 		status?: string | null;
 		discrepancyNote?: string | null;
 	} | null | undefined,
-	expenses: ExpenseLike[] = []
+	expenses: ExpenseLike[] = [],
+	ledger: PracticeLedgerEntry[] = []
 ): HistoryEntry[] {
 	const out: HistoryEntry[] = [];
 	if (timesheet?.createdAt) out.push({ id: 'created', at: timesheet.createdAt, text: 'Timesheet created', tone: 'neutral' });
-	const event = timesheet?.status ? STATUS_EVENT[timesheet.status] : undefined;
+	for (const e of ledger)
+		out.push({ id: e.id, at: e.at, actor: e.by, text: LEDGER_TEXT[e.action] ?? 'updated this timesheet', tone: auditTone(e.action), note: e.note });
+	const derived = !ledger.some((e) => e.action !== 'COMMENT');
+	const event = derived && timesheet?.status ? STATUS_EVENT[timesheet.status] : undefined;
 	if (event && timesheet?.updatedAt) {
 		const note = timesheet.status === 'DISCREPANCY' && timesheet.discrepancyNote ? `: “${timesheet.discrepancyNote}”` : '';
 		out.push({ id: 'status', at: timesheet.updatedAt, text: `${event.text}${note}`, tone: event.tone });

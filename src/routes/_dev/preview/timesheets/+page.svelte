@@ -15,6 +15,7 @@
 		TimesheetsListPage,
 		readTimesheetListQuery,
 		shapeTimesheetList,
+		toPracticeLedger,
 		toTimesheetListRow,
 		type TimesheetPageData
 	} from '$features/timesheets';
@@ -150,11 +151,18 @@
 			priorWeekHours: 8,
 			auditHistory: [
 				audit('a1', 0, 'VIEW', 'Shannon Carter', 'SUPERADMIN'),
+				audit('c2', 0.1, 'COMMENT', 'Shannon Carter', 'SUPERADMIN', { metadata: { comment: 'Maria agrees she arrived at 8:25. Saturday was cover the practice asked for by phone.', visibility: 'INTERNAL' } }),
+				audit('c1', 0.5, 'REJECT', 'Dana Whitfield', 'CLIENT', { metadata: { discrepancyNote: 'Wednesday she arrived at 8:25, not 8:00.' } }),
 				audit('a2', 1, 'SUBMIT', 'Maria Lopez', 'CANDIDATE'),
 				audit('a3', 2, 'CREATE', 'Maria Lopez', 'CANDIDATE', { metadata: { kind: 'TIMESHEET_EXPENSE' } }),
 				audit('a4', 3, 'VIEW', 'Dana Whitfield', 'CLIENT'),
 				audit('a5', 6, 'CREATE', null as unknown as string, '', { userId: null })
 			],
+			practiceLedger: toPracticeLedger([
+				audit('p3', 0.2, 'RESUBMIT', 'Shannon Carter', 'SUPERADMIN', { metadata: { comment: 'We corrected Wednesday’s start to 8:25.' } }),
+				audit('p2', 0.5, 'REJECT', 'Dana Whitfield', 'CLIENT', { metadata: { discrepancyNote: 'Wednesday she arrived at 8:25, not 8:00.' } }),
+				audit('p1', 1, 'SUBMIT', 'Maria Lopez', 'CANDIDATE')
+			]),
 			invoiceMethod: method
 		};
 	});

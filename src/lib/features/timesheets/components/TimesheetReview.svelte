@@ -16,10 +16,11 @@
 	import HistorySection from './HistorySection.svelte';
 	import RecordHeader from './RecordHeader.svelte';
 	import TimesheetBillingSection from './TimesheetBillingSection.svelte';
+	import TimesheetCommentForm from './TimesheetCommentForm.svelte';
 	import TimesheetDayTable from './TimesheetDayTable.svelte';
 	import TimesheetExpensesSection from './TimesheetExpensesSection.svelte';
 	import TimesheetFacts from './TimesheetFacts.svelte';
-	import { practiceTimeline } from '../history';
+	import { practiceTimeline, replySinceSentBack } from '../history';
 	import { usd } from '../timesheets';
 	import { timesheetView, type TimesheetPageData } from '../view';
 
@@ -29,6 +30,8 @@
 	const t = $derived(data.timesheet ?? {});
 	// The experience survey is for practices; admins approving on their behalf skip it.
 	const canSurvey = $derived(data.user?.role === 'CLIENT' || data.user?.role === 'CLIENT_STAFF');
+	const ledger = $derived(data.practiceLedger ?? []);
+	const reply = $derived(v.isPending ? replySinceSentBack(ledger) : null);
 	const blocked = $derived(v.isDiscrepancy || !!data.hasUnfinishedWorkdays);
 
 	let approveOpen = $state(false);
@@ -69,6 +72,11 @@
 		{/snippet}
 	</RecordHeader>
 
+	{#if reply}
+		<Notice tone="info" title="DTSS replied to the problem you reported">
+			<p class="whitespace-pre-wrap break-words">{reply}</p>
+		</Notice>
+	{/if}
 	{#if v.isPending && data.hasUnfinishedWorkdays}
 		<Notice tone="pending" title="You can approve once the week's shifts are over">
 			{data.unfinishedWorkdayCount} assigned workday{data.unfinishedWorkdayCount === 1 ? ' hasn’t' : 's haven’t'} ended yet. You can still report a problem now.
@@ -126,7 +134,9 @@
 				approvedExpenseCount={v.approvedExpenses.length}
 				pendingExpenseCount={v.pendingExpenses.length}
 			/>
-			<HistorySection entries={practiceTimeline(t, v.expenses)} />
+			<HistorySection entries={practiceTimeline(t, v.expenses, ledger)}>
+				{#snippet before()}<TimesheetCommentForm />{/snippet}
+			</HistorySection>
 		</div>
 	</div>
 </Page>

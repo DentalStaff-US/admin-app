@@ -22,6 +22,7 @@
 		ShiftPipeline
 	} from '../types';
 	import type { AgreementStatus } from '../agreements';
+	import type { TimesheetStageCount } from '../timesheetStages';
 	import type { AdminTrends } from '../trends';
 	import { BUSINESS_TIMEZONE } from '../window';
 	import AddUserDialog from './AddUserDialog.svelte';
@@ -40,6 +41,7 @@
 	import ReceivablesAgeing from './ReceivablesAgeing.svelte';
 	import SectionSkeleton from './SectionSkeleton.svelte';
 	import ShiftStatusChart from './ShiftStatusChart.svelte';
+	import TimesheetStagesCard from './TimesheetStagesCard.svelte';
 	import TopPracticesList from './TopPracticesList.svelte';
 	import WindowSelect from './WindowSelect.svelte';
 
@@ -58,6 +60,7 @@
 		permPipeline: MaybePromise<Metric<PermPipeline>>;
 		trends: MaybePromise<Metric<AdminTrends>>;
 		agreements: MaybePromise<Metric<AgreementStatus>>;
+		timesheets: MaybePromise<Metric<TimesheetStageCount[]>>;
 		adminForm: SuperValidated<AdminRequisitionSchema> | null;
 		newProfessionalForm: SuperValidated<AdminNewUserSchema> | null;
 		newClientForm: SuperValidated<AdminNewUserSchema> | null;
@@ -163,6 +166,12 @@
 		</div>
 		<AttentionSummary groups={data.attention} {now} />
 	</div>
+
+	{#await data.timesheets}
+		<SectionSkeleton label="timesheets" rows={1} />
+	{:then t}
+		{#if t.ok}<TimesheetStagesCard stages={t.value} />{:else}<FailedLine what="timesheets by stage" />{/if}
+	{/await}
 
 	{#await data.trends}
 		<div class="grid gap-6 lg:grid-cols-2">

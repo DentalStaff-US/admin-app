@@ -22,6 +22,7 @@
 		timeZoneLabel,
 		total,
 		dirty = false,
+		saveLabel = 'Save draft',
 		canSaveDraft,
 		canSubmit,
 		submitHint,
@@ -35,6 +36,7 @@
 		timeZoneLabel: string;
 		total: number;
 		dirty?: boolean;
+		saveLabel?: string;
 		canSaveDraft: boolean;
 		canSubmit: boolean;
 		/** Why Submit is disabled, when it is. */
@@ -100,7 +102,7 @@
 				onDiscard?.();
 				open = false;
 			}}>Cancel</Button>
-		<Button type="submit" form="timesheet-hours" variant="outline" class="min-h-11 sm:min-h-10" disabled={!canSaveDraft}>Save draft</Button>
+		<Button type="submit" form="timesheet-hours" variant="outline" class="min-h-11 sm:min-h-10" disabled={!canSaveDraft}>{saveLabel}</Button>
 		<Button class="min-h-11 sm:min-h-10" disabled={!canSubmit} on:click={onSubmit}>Submit on behalf…</Button>
 	{/snippet}
 </FormSheet>

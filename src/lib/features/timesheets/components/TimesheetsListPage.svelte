@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * Timesheets list (06 › Timesheets): DataTable with tabs (To review,
+	 * Timesheets list (06 › Timesheets): DataTable with tabs (Draft, Pending,
 	 * Discrepancies, Approved, Paid, plus All and Voided so nothing goes
 	 * missing), a URL-backed FilterBar with debounced search, and phone cards.
 	 */
@@ -33,9 +33,11 @@
 	} = $props();
 
 	const tabs = $derived(
-		TIMESHEET_TABS.map((t) => ({
+		// Drafts are the professional's until they're submitted, so practices get no tab for them.
+		TIMESHEET_TABS.filter((t) => isAdmin || t.value !== 'draft').map((t) => ({
 			value: t.value,
-			label: t.label,
+			// A practice's pending sheets are the ones it has to review.
+			label: t.value === 'review' && !isAdmin ? 'To review' : t.label,
 			href: withParam(url, 'tab', t.value),
 			count: list.counts[t.value],
 			tone: t.value === 'discrepancies' ? ('warning' as const) : t.value === 'review' ? ('pending' as const) : undefined

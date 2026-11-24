@@ -5,6 +5,7 @@
 	import AdminShell from '$shell/AdminShell.svelte';
 	import { AdminDashboardPage, ClientDashboardPage } from '$features/dashboard';
 	import { failed, ok } from '$lib/features/dashboard/types';
+	import { timesheetStages } from '$lib/features/dashboard/timesheetStages';
 	import * as fx from './fixtures';
 
 	const audience = $derived(page.url.searchParams.get('audience') ?? 'admin');
@@ -26,6 +27,7 @@
 		permPipeline: view === 'loading' ? never : fx.permPipeline,
 		trends: view === 'loading' ? never : view === 'failed' ? failed() : fx.trends,
 		agreements: view === 'loading' ? never : view === 'failed' ? failed() : fx.agreements,
+		timesheets: view === 'loading' ? never : view === 'failed' ? failed() : ok(timesheetStages([{ status: 'DRAFT', wagesStatus: null, count: 12, hours: 84 }, { status: 'PENDING', wagesStatus: null, count: 5, hours: 162.5 }, { status: 'DISCREPANCY', wagesStatus: null, count: 2, hours: 61 }, { status: 'APPROVED', wagesStatus: 'WAGES_DUE', count: 8, hours: 240 }, { status: 'APPROVED', wagesStatus: 'WAGES_PAID', count: 431, hours: 13802 }])),
 		adminForm: null,
 		newProfessionalForm: null,
 		newClientForm: null

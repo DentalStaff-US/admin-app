@@ -33,6 +33,8 @@
 	} from 'lucide-svelte';
 	import { credentialBadge, formatCertDate } from '$lib/credentialStatusDisplay';
 	import type { CertState } from '$lib/credentialStatusDisplay';
+	import { groupByCategory } from '$lib/_helpers/skillGroups';
+	import { TONE_CLASSES } from '$tokens/status';
 
 	export let credential: {
 		candidateName: string;
@@ -88,6 +90,7 @@
 	$: showCert = credential && credential.certification.state !== 'NOT_REQUIRED';
 	$: skills = credential?.skills ?? { requirements: [], meetsRequirements: true, held: [] };
 	$: showSkills = skills.requirements.length > 0 || skills.held.length > 0;
+	$: heldByCategory = groupByCategory(skills.held);
 	$: requiredSkillIds = new Set(skills.requirements.flatMap((r) => r.skills.map((x) => x.id)));
 	/** A required skill whose certificate has lapsed is as loud as a lapsed license. */
 	$: skillsAlarming =
@@ -289,16 +292,21 @@
 					<p class="mt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 						Required for this position
 					</p>
-					<ul class="mt-1 space-y-1">
+					<ul class="mt-2 space-y-3">
 						{#each skills.requirements as r (r.categoryId)}
-							<li class="text-sm text-foreground">
-								<span class="font-medium">{r.categoryName}</span>
-								<span class="text-xs text-muted-foreground">({r.matchMode === 'ALL' ? 'all of' : 'any of'})</span>:
-								{#each r.skills as x, i (x.id)}
-									<span class={x.held ? 'text-status-positive-fg' : 'text-status-negative-fg'}
-										>{x.held ? '✓' : '✗'} {x.name}</span
-									>{i < r.skills.length - 1 ? ', ' : ''}
-								{/each}
+							<li>
+								<p class="text-sm font-semibold">
+									{r.categoryName}
+									<span class="text-xs font-normal text-muted-foreground">({r.matchMode === 'ALL' ? 'all of' : 'any of'})</span>
+								</p>
+								<ul class="mt-1 flex flex-wrap gap-2">
+									{#each r.skills as x (x.id)}
+										<li class="rounded-full border px-2 py-0.5 text-xs {x.held ? TONE_CLASSES.positive : r.met ? 'bg-card text-muted-foreground' : TONE_CLASSES.negative}">
+											{#if x.held}<span aria-hidden="true">✓</span>{:else if !r.met}<span aria-hidden="true">✗</span>{/if}
+											{x.name}<span class="sr-only">: {x.held ? 'has it' : r.met ? 'doesn’t have it' : 'missing'}</span>
+										</li>
+									{/each}
+								</ul>
 							</li>
 						{/each}
 					</ul>
@@ -311,48 +319,58 @@
 
 				{#if skills.held.length > 0}
 					<p class="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">On profile</p>
-					<ul class="mt-1 space-y-2">
-						{#each skills.held as h (h.skillId)}
-							<li class="flex items-start justify-between gap-4">
-								<div class="min-w-0 flex-1">
-									<p class="text-sm text-foreground">
-										{h.name}
-										<span class="text-xs text-muted-foreground">· {h.categoryName}</span>
-										{#if requiredSkillIds.has(h.skillId)}
-											<span class="ml-1 rounded-full bg-primary-soft px-1.5 text-[11px] text-primary-dark">required</span>
-										{/if}
-									</p>
-									{#if h.requiresCertificate}
-										<p class="text-xs {bad(h.certState) ? 'font-medium text-status-negative-fg' : 'text-muted-foreground'}">
-											{#if h.certState === 'MISSING'}
-												Certificate required — none on file.
-											{:else if h.certState === 'EXPIRED'}
-												Certificate expired {formatCertDate(h.certExpiresOn)}.
-											{:else}
-												Certificate valid through {formatCertDate(h.certExpiresOn)}.
+					<ul class="mt-2 space-y-3">
+						{#each heldByCategory as group (group.name)}
+							<li>
+								<p class="text-sm font-semibold">{group.name}</p>
+								<ul class="mt-1 flex flex-wrap gap-2">
+									{#each group.skills as h (h.skillId)}
+										<li class="inline-flex items-center gap-1 rounded-full border bg-card px-2 py-0.5 text-xs">
+											{h.name}
+											{#if requiredSkillIds.has(h.skillId)}
+												<span class="rounded-full bg-primary-soft px-1.5 text-primary-dark">required</span>
 											{/if}
-										</p>
-										{#if h.document?.filename}
-											<p class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-												<FileText class="h-3 w-3" />
-												{h.document.filename}
+										</li>
+									{/each}
+								</ul>
+								<!-- Only skills with a certificate to show or chase have more to say. -->
+								{#each group.skills.filter((h) => h.requiresCertificate || h.document) as h (h.skillId)}
+									<div class="mt-2 flex items-start justify-between gap-4">
+										<div class="min-w-0 flex-1">
+											<p class="text-xs {bad(h.certState) ? 'font-medium text-status-negative-fg' : 'text-muted-foreground'}">
+												{h.name}:
+												{#if !h.requiresCertificate}
+													certificate on file.
+												{:else if h.certState === 'MISSING'}
+													certificate required, none on file.
+												{:else if h.certState === 'EXPIRED'}
+													certificate expired {formatCertDate(h.certExpiresOn)}.
+												{:else}
+													certificate valid through {formatCertDate(h.certExpiresOn)}.
+												{/if}
 											</p>
+											{#if h.document?.filename}
+												<p class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+													<FileText class="h-3 w-3 flex-shrink-0" />
+													<span class="min-w-0 break-all">{h.document.filename}</span>
+												</p>
+											{/if}
+										</div>
+										{#if h.document}
+											<Button
+												href={`/api/credentials/${h.document.id}/download?workdayId=${workdayId}`}
+												target="_blank"
+												rel="noopener noreferrer"
+												variant="outline"
+												size="sm"
+												class="flex-shrink-0"
+											>
+												<Download class="mr-2 h-4 w-4" />
+												View
+											</Button>
 										{/if}
-									{/if}
-								</div>
-								{#if h.document}
-									<Button
-										href={`/api/credentials/${h.document.id}/download?workdayId=${workdayId}`}
-										target="_blank"
-										rel="noopener noreferrer"
-										variant="outline"
-										size="sm"
-										class="flex-shrink-0"
-									>
-										<Download class="mr-2 h-4 w-4" />
-										View
-									</Button>
-								{/if}
+									</div>
+								{/each}
 							</li>
 						{/each}
 					</ul>

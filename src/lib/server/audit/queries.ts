@@ -4,7 +4,7 @@
  * users still show as they were), falling back to the live users row for
  * legacy rows written before snapshots existed.
  */
-import { and, count, desc, eq, gte, ilike, lte, or, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, gte, ilike, inArray, lte, or, sql, type SQL } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import { actionHistoryTable } from '$lib/server/database/schemas/admin';
 import { userTable } from '$lib/server/database/schemas/auth';
@@ -81,12 +81,13 @@ function baseQuery() {
  * Timeline for one entity, newest first. `relatedKey` also pulls rows whose
  * metadata points at this entity — e.g. `'timesheetId'` brings in the expense
  * rows under a timesheet, `'requisitionId'` brings in the workday/application
- * rows under a requisition.
+ * rows under a requisition. `actions` narrows it, e.g. so views can't use up
+ * the limit.
  */
 export async function getActivityForEntity(
 	entityType: string,
 	entityId: string,
-	opts: { limit?: number; relatedKey?: 'timesheetId' | 'requisitionId' } = {}
+	opts: { limit?: number; relatedKey?: 'timesheetId' | 'requisitionId'; actions?: readonly string[] } = {}
 ): Promise<ActivityEntry[]> {
 	const limit = opts.limit ?? 200;
 	const direct = and(
@@ -98,7 +99,7 @@ export async function getActivityForEntity(
 		: direct;
 
 	const rows = await baseQuery()
-		.where(where)
+		.where(opts.actions ? and(where, inArray(actionHistoryTable.action, [...opts.actions])) : where)
 		.orderBy(desc(actionHistoryTable.createdAt))
 		.limit(limit);
 	return rows.map(shape);

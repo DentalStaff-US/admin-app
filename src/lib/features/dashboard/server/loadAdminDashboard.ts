@@ -10,7 +10,7 @@ import { getComplianceItems } from '$lib/server/compliance/queries';
 import { adminSummaryLine } from '../attention';
 import { complianceSection } from '../compliance';
 import { nextBusinessDays, parseKpiWindow } from '../window';
-import { adminKpis, permPipeline, receivables, shiftPipeline } from './adminMetrics';
+import { adminKpis, permPipeline, receivables, shiftPipeline, timesheetStageCounts } from './adminMetrics';
 import { adminAgreements, adminTrends } from './adminTrends';
 import { shiftsOnDays } from './coverage';
 import { adminAttention, complianceGroups } from './needsAttention';
@@ -33,6 +33,7 @@ export async function loadAdminDashboard(url: URL, role?: string) {
 	const perm = permPipeline(scope);
 	const trends = adminTrends(scope, now);
 	const agreements = adminAgreements(scope);
+	const timesheets = timesheetStageCounts(scope);
 
 	const [compliance, groups, adminForm, newProfessionalForm, newClientForm] = await Promise.all([
 		settle('compliance', getComplianceItems),
@@ -60,6 +61,7 @@ export async function loadAdminDashboard(url: URL, role?: string) {
 		permPipeline: perm,
 		trends,
 		agreements,
+		timesheets,
 		adminForm,
 		newProfessionalForm,
 		newClientForm

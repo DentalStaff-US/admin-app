@@ -80,6 +80,8 @@ import { superValidate } from 'sveltekit-superforms/server';
 import { addExpenseSchema } from '$lib/config/zod-schemas';
 import { hasTypedConfirmation } from '$lib/server/confirmation';
 import { getClientInvoiceMethod } from '$features/timesheets/server/invoiceMethod';
+import { COMMENT_MAX_LENGTH } from '$features/timesheets/history';
+import { getPracticeLedger } from '$features/timesheets/server/history';
 import { assertTimesheetActionAccess } from '$features/timesheets/server/access';
 import { can } from '$lib/authz';
 import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
@@ -232,6 +234,7 @@ export const load = async (event: RequestEvent) => {
 			hasUnfinishedWorkdays,
 			unfinishedWorkdayCount,
 			priorWeekHours,
+			practiceLedger: await getPracticeLedger(id),
 			invoiceMethod
 		};
 	}
@@ -272,6 +275,7 @@ export const load = async (event: RequestEvent) => {
 			hasUnfinishedWorkdays,
 			unfinishedWorkdayCount,
 			priorWeekHours,
+			practiceLedger: await getPracticeLedger(id),
 			invoiceMethod
 		};
 	}
@@ -636,8 +640,9 @@ export const actions = {
 				.set({
 					totalHoursWorked: totalHours.toString(),
 					hoursRaw: formattedEntries,
-					// Keep/return to DRAFT — this is a save, not a submission.
-					status: 'DRAFT',
+					// A save, not a submission. A sheet that was sent back stays a
+					// discrepancy until it's resubmitted, so its note isn't lost.
+					status: timesheet.status === 'DISCREPANCY' ? 'DISCREPANCY' : 'DRAFT',
 					updatedAt: new Date()
 				})
 				.where(eq(timeSheetTable.id, id))
@@ -650,10 +655,10 @@ export const actions = {
 				table: 'TIMESHEETS',
 				beforeState: timesheet,
 				afterState: result,
-				metadata: { editType: 'ADMIN_SAVE_DRAFT', draft: true }
+				metadata: { editType: 'ADMIN_SAVE_DRAFT', draft: result.status === 'DRAFT' }
 			});
 
-			setFlash({ type: 'success', message: 'Draft saved' }, event);
+			setFlash({ type: 'success', message: result.status === 'DRAFT' ? 'Draft saved' : 'Hours saved' }, event);
 			return { success: true };
 		} catch (err) {
 			console.error('Error saving timesheet draft:', err);
@@ -673,6 +678,8 @@ export const actions = {
 		const formData = await event.request.formData();
 		const entries = JSON.parse(formData.get('entries') as string);
 		const totalHours = parseFloat(formData.get('totalHours') as string);
+		// What DTSS wants the practice to know; optional.
+		const comment = String(formData.get('comment') ?? '').trim().slice(0, COMMENT_MAX_LENGTH);
 
 		try {
 			const [timesheet] = await db
@@ -773,10 +780,10 @@ export const actions = {
 				table: 'TIMESHEETS',
 				beforeState: timesheet,
 				afterState: result,
-				metadata: { status: 'PENDING', onBehalfOfCandidate: true }
+				metadata: { status: 'PENDING', onBehalfOfCandidate: true, ...(comment && { comment }) }
 			});
 
-			await notifyTimesheetSubmitted(result.id);
+			await notifyTimesheetSubmitted(result.id, { comment });
 
 			setFlash(
 				{ type: 'success', message: 'Timesheet corrected and resubmitted successfully!' },
@@ -788,6 +795,39 @@ export const actions = {
 			setFlash({ type: 'error', message: 'Failed to resubmit timesheet' }, event);
 			return fail(500, { error: 'Failed to resubmit timesheet' });
 		}
+	},
+
+	// A comment on the timesheet's history. Practices' comments are always shared;
+	// admins choose. The ledger is append-only, so comments can't be edited.
+	addComment: async (event: RequestEvent) => {
+		const { user } = event.locals;
+		if (!user) redirect(302, '/auth/sign-in');
+
+		const { id } = event.params;
+		const admin = can(user, 'timesheets.approve');
+		if (!admin && user.role !== USER_ROLES.CLIENT && user.role !== USER_ROLES.CLIENT_STAFF) {
+			return fail(403, { error: 'Forbidden' });
+		}
+		await assertTimesheetActionAccess(user, id);
+
+		const formData = await event.request.formData();
+		const comment = String(formData.get('comment') ?? '').trim();
+		if (!comment || comment.length > COMMENT_MAX_LENGTH) {
+			const message = comment ? `Comments can be up to ${COMMENT_MAX_LENGTH} characters` : 'Write a comment first';
+			setFlash({ type: 'error', message }, event);
+			return fail(400, { error: message });
+		}
+		// Anything but an explicit "share" from an admin stays internal.
+		const visibility = admin && formData.get('visibility') !== 'SHARED' ? 'INTERNAL' : 'SHARED';
+
+		try {
+			await recordAction({ entityType: 'TIMESHEETS', entityId: id, action: 'COMMENT', metadata: { comment, visibility } });
+		} catch {
+			setFlash({ type: 'error', message: 'Failed to add the comment' }, event);
+			return fail(500, { error: 'Failed to add the comment' });
+		}
+		setFlash({ type: 'success', message: 'Comment added' }, event);
+		return { success: true };
 	},
 
 	rejectTimesheet: async (event: RequestEvent) => {

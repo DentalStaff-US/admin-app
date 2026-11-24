@@ -4,6 +4,7 @@
 	 * views are hidden behind a toggle; given derived entries (practice), they
 	 * render as-is. Shared by timesheets and invoices.
 	 */
+	import type { Snippet } from 'svelte';
 	import type { ActivityEntry } from '$lib/audit/constants';
 	import Section from '$dtss/Section.svelte';
 	import Timeline from '$dtss/Timeline.svelte';
@@ -16,13 +17,16 @@
 		description,
 		audit,
 		entries,
-		empty = 'Nothing has happened yet.'
+		empty = 'Nothing has happened yet.',
+		before
 	}: {
 		title?: string;
 		description?: string;
 		audit?: ActivityEntry[] | null;
 		entries?: HistoryEntry[];
 		empty?: string;
+		/** Shown above the timeline, e.g. a comment form. */
+		before?: Snippet;
 	} = $props();
 
 	let includeViews = $state(false);
@@ -40,5 +44,6 @@
 {/snippet}
 
 <Section {title} {description} actions={audit ? toggle : undefined}>
+	{@render before?.()}
 	<Timeline entries={shown} {empty} />
 </Section>

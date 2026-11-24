@@ -15,6 +15,7 @@ import db from '$lib/server/database/drizzle';
 import { sms } from '$lib/server/sms/smsService';
 import { EmailService } from '$lib/server/email/emailService';
 import { EMAIL_TEMPLATES } from '$lib/server/email/templates';
+import { escapeHtml } from '$lib/server/campaigns/render';
 import {
 	getRequisitionByWorkdayId,
 	getRecurrenceDayByWorkdayId,
@@ -1115,7 +1116,7 @@ export async function notifyWorkday48HrReminder(args: {
  * Candidate (or admin acting on their behalf) submitted a timesheet for
  * client review — email the client. (No matching SMS template.)
  */
-export async function notifyTimesheetSubmitted(timesheetId: string): Promise<void> {
+export async function notifyTimesheetSubmitted(timesheetId: string, { comment }: { comment?: string } = {}): Promise<void> {
 	try {
 		const [row] = await db
 			.select({
@@ -1168,13 +1169,14 @@ export async function notifyTimesheetSubmitted(timesheetId: string): Promise<voi
 						date: row.timesheet.weekBeginDate,
 						workdayStart: '',
 						workdayEnd: '',
-						requisitionNumber: String(row.requisition.id)
+						requisitionNumber: String(row.requisition.id),
+						comment
 					}
 				);
 				return emailService.sendEmail({
 					to: [{ email: row.clientUser.email }],
 					subject: t.subject,
-					html: t.htmlEmail || `<p>${t.textEmail.replace(/\n/g, '<br>')}</p>`,
+					html: t.htmlEmail || `<p>${escapeHtml(t.textEmail).replace(/\n/g, '<br>')}</p>`,
 					text: t.textEmail
 				});
 			})

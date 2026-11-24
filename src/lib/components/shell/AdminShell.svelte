@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
 	import { ChevronRight, ChevronsLeft, ChevronsRight, Menu, Search } from 'lucide-svelte';
 	import logo from '$lib/assets/white-dtss-logo.png';
 	import mark from '$lib/assets/dtss-mark.png';
@@ -64,6 +64,11 @@
 
 	let mobileOpen = $state(false);
 	let paletteOpen = $state(false);
+	// The server can't know the platform; most practices are on Windows.
+	let shortcut = $state('Ctrl K');
+	onMount(() => {
+		if (/Mac|iPhone|iPad/.test(navigator.platform)) shortcut = '⌘K';
+	});
 
 	function toggleSidebar() {
 		sidebar = rail ? 'expanded' : 'rail';
@@ -141,7 +146,7 @@
 		</aside>
 
 		<div class="flex min-w-0 flex-1 flex-col">
-			<header class="sticky top-[var(--top-banner)] z-30 flex h-14 shrink-0 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur md:px-6">
+			<header class="sticky top-[var(--top-banner)] z-30 flex h-14 shrink-0 items-center gap-3 border-b bg-background px-4 md:px-6">
 				<button
 					type="button"
 					class="-ml-2 flex size-11 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
@@ -170,11 +175,12 @@
 				<button
 					type="button"
 					onclick={() => (paletteOpen = true)}
-					class="flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					aria-label="Search"
+					class="flex h-10 w-10 shrink-0 items-center justify-center gap-2 rounded-md border bg-background text-sm text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-56 sm:justify-start sm:px-3 lg:w-72"
 				>
-					<Search class="size-4" aria-hidden="true" />
-					<span class="hidden sm:inline">Search</span>
-					<kbd class="hidden rounded border bg-muted px-1.5 font-sans text-xs font-semibold md:inline">⌘K</kbd>
+					<Search class="size-4 shrink-0" aria-hidden="true" />
+					<span class="hidden min-w-0 flex-1 truncate text-left sm:inline">Search</span>
+					<kbd class="hidden shrink-0 whitespace-nowrap rounded border bg-muted px-1.5 font-sans text-xs font-semibold sm:inline">{shortcut}</kbd>
 				</button>
 
 				<UserMenu {name} {email} {avatarUrl} {initials} />

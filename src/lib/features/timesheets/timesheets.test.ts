@@ -19,7 +19,7 @@ import {
 	toTimesheetListRow,
 	type TimesheetListRow
 } from './timesheetList';
-import { auditToTimeline, countViews, practiceTimeline } from './history';
+import { auditToTimeline, countViews, practiceTimeline, replySinceSentBack, toPracticeLedger } from './history';
 
 const TZ = 'America/New_York';
 // 8:00am–4:30pm EST on Nov 3 2026 (UTC−5), 12:00–12:30 lunch.
@@ -198,7 +198,7 @@ describe('timesheet list', () => {
 	});
 
 	it('counts each tab, keeping voided sheets out of the rest', () => {
-		expect(countTabs(rows)).toEqual({ review: 1, discrepancies: 1, approved: 1, paid: 1, all: 5, voided: 1 });
+		expect(countTabs(rows)).toEqual({ draft: 1, review: 1, discrepancies: 1, approved: 1, paid: 1, all: 5, voided: 1 });
 		expect(inTab(rows[4], 'all')).toBe(false);
 	});
 
@@ -254,6 +254,41 @@ describe('history', () => {
 		expect(tl[1]).toMatchObject({ text: 'submitted this timesheet', tone: 'pending' });
 		expect(auditToTimeline(entries, { includeViews: true })).toHaveLength(3);
 		expect(countViews(entries)).toBe(1);
+	});
+
+	it('shows what people wrote, and marks internal comments', () => {
+		const tl = auditToTimeline([
+			entry('1', 'REJECT', { metadata: { discrepancyNote: 'Half day' } }),
+			entry('2', 'COMMENT', { metadata: { comment: 'Called them', visibility: 'INTERNAL' } })
+		]);
+		expect(tl.map((e) => [e.text, e.note])).toEqual([
+			['commented on this timesheet (DTSS only)', 'Called them'],
+			['rejected this timesheet', 'Half day']
+		]);
+	});
+
+	it('gives a practice the shared conversation and nothing else', () => {
+		const shared = { comment: 'Fixed Tuesday', visibility: 'SHARED' };
+		const rows = [
+			entry('1', 'REJECT', { actorRole: 'CLIENT', actorName: 'Dana Whitfield', metadata: { discrepancyNote: 'Half day' } }),
+			entry('2', 'COMMENT', { metadata: { comment: 'Called them', visibility: 'INTERNAL' } }),
+			entry('3', 'COMMENT', { metadata: { comment: 'No visibility recorded' } }),
+			entry('4', 'VIEW'),
+			entry('5', 'UPDATE'),
+			entry('6', 'COMMENT', { metadata: shared, ipAddress: '1.2.3.4', impersonatedBy: 'x' }),
+			entry('7', 'VOID', { metadata: { reason: 'internal reason' } })
+		];
+		const ledger = toPracticeLedger(rows);
+		expect(ledger.map((e) => [e.id, e.by, e.note])).toEqual([
+			['7', 'DTSS', null],
+			['6', 'DTSS', 'Fixed Tuesday'],
+			['1', 'Dana Whitfield', 'Half day']
+		]);
+		expect(Object.keys(ledger[1]).sort()).toEqual(['action', 'at', 'by', 'fromDtss', 'id', 'note']);
+		expect(replySinceSentBack(ledger)).toBe('Fixed Tuesday');
+		expect(replySinceSentBack(ledger.slice(0, 2))).toBeNull();
+		// The ledger replaces the single status line worked out from the sheet.
+		expect(practiceTimeline({ status: 'DISCREPANCY', updatedAt: '2026-11-08T10:00:00Z' }, [], ledger)).toHaveLength(3);
 	});
 
 	it('derives the practice trail from the sheet and its expenses', () => {
