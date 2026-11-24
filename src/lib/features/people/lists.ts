@@ -87,6 +87,9 @@ export type LocationRow = {
 	city?: string | null;
 	state?: string | null;
 	company_phone?: string | null;
+	cell_phone?: string | null;
+	email?: string | null;
+	website?: string | null;
 };
 
 /** `?sortOn=&sortBy=` (the locations list's own URL contract) → a DataTable sort. */

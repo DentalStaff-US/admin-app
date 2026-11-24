@@ -603,14 +603,41 @@ export const OperatingHoursSchema = z.object({
 	operatingHours: z.string()
 });
 
+/** Trimmed, so a name of only spaces is refused. */
+const locationName = z
+	.string()
+	.trim()
+	.min(1, 'Location name is required')
+	.max(120, 'Use 120 characters or fewer');
+
+/** Quick edit from a locations table. Blank clears everything but the name. */
+export const LocationInfoSchema = z.object({
+	name: locationName,
+	companyPhone: usPhoneField(),
+	cellPhone: usPhoneField(),
+	email: z
+		.union([z.literal(''), z.string().trim().email('Invalid email address')])
+		.transform((v) => v || null),
+	website: z
+		.string()
+		.trim()
+		.transform((v) => v || null)
+});
+
 export const LocationSchema = z.object({
+	name: locationName,
 	timezone: z.string().min(1, 'Timezone is required')
 });
 
 export const ClientLocationDetailsSchema = NewAddressSchema.merge(ContactSchema).merge(
 	z.object({
-		name: z.string().min(1, 'Location name is required'),
-		timezone: z.string().min(1, 'Timezone is required')
+		name: locationName,
+		timezone: z.string().min(1, 'Timezone is required'),
+		// Posted only when a new address is picked: a location without an address
+		// or coordinates must still be able to save its name and contact details.
+		completeAddress: z.string().optional(),
+		lat: z.number().optional(),
+		lon: z.number().optional()
 	})
 );
 export const CandidateStatusSchema = z.object({ status: z.string().min(1), id: z.string().min(1) });

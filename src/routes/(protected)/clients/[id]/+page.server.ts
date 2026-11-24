@@ -6,6 +6,7 @@ import {
 	getAllClientStaffProfiles,
 	getCalendarEventsForClient,
 	getClientCompanyByClientId,
+	getLocationByIdForCompany,
 	getClientProfileById,
 	getClientSubscription,
 	getPendingInvitesForCompany,
@@ -91,6 +92,7 @@ import {
 	toggleClientDocumentLock
 } from '$lib/server/database/queries/clients';
 import { can } from '$lib/authz';
+import { saveLocationInfo } from '$features/people/server/locationInfo';
 
 const LineItemSchema = z.array(
 	z.object({
@@ -642,6 +644,23 @@ export const actions = {
 				return { form, error: 'Failed to create location' };
 			}
 		}
+	},
+	/** Name and contact details, from the locations table row's Edit dialog. */
+	updateLocationInfo: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || !can(user, 'practices.manage')) return fail(403, { locationErrors: { name: ['You can’t edit this location.'] } });
+
+		const formData = await event.request.formData();
+		const locationId = String(formData.get('locationId') ?? '');
+		const company = await getClientCompanyByClientId(event.params.id);
+		const location = company ? await getLocationByIdForCompany(locationId, company.id) : null;
+		if (!location) return fail(404, { locationErrors: { name: ['This location isn’t one of this practice’s.'] } });
+
+		const result = await saveLocationInfo(location.id, formData);
+		if ('locationSaved' in result) {
+			setFlash({ type: 'success', message: `${result.locationSaved} updated` }, event);
+		}
+		return result;
 	},
 	updateClient: async (event: RequestEvent) => {
 		const user = event.locals.user;

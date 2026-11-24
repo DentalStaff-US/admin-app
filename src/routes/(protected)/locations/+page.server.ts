@@ -1,5 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { practiceCompanyId } from '$features/people/server/locationAccess';
+import { assertLocationAccess, practiceCompanyId } from '$features/people/server/locationAccess';
+import { saveLocationInfo } from '$features/people/server/locationInfo';
 import { buildLocationAddressPatch } from '$lib/server/address';
 import type { PageServerLoad } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
@@ -97,6 +98,22 @@ export const load: PageServerLoad = async (event) => {
 };
 
 export const actions = {
+	/** Name and contact details, from the table row's Edit dialog. */
+	updateLocationInfo: async (event) => {
+		const user = event.locals.user;
+		if (!user) redirect(302, '/auth/sign-in');
+
+		const formData = await event.request.formData();
+		const locationId = String(formData.get('locationId') ?? '');
+		// Same rule as the location page: its own practice, within staff scope.
+		await assertLocationAccess(user, locationId);
+
+		const result = await saveLocationInfo(locationId, formData);
+		if ('locationSaved' in result) {
+			setFlash({ type: 'success', message: `${result.locationSaved} updated` }, event);
+		}
+		return result;
+	},
 	createLocation: async (event) => {
 		const form = await superValidate(event, newClientCompanyLocationSchema);
 
@@ -132,6 +149,7 @@ export const actions = {
 				name: form.data.name,
 				companyPhone: form.data.companyPhone,
 				email: form.data.email || null,
+				website: form.data.website || null,
 				companyId,
 				// Routed through the shared helper so a hand-typed "Texas" or a zip+4
 				// is canonicalized before it becomes a filter facet on the clients index.

@@ -39,6 +39,7 @@
 	<LocationsTable
 		{rows}
 		hrefFor={(r) => `/locations/${r.id}`}
+		editAction="?/updateLocationInfo"
 		sort={readLocationSort(page.url)}
 		sortHref={(column) => locationSortHref(page.url, column)}
 		pagination={{

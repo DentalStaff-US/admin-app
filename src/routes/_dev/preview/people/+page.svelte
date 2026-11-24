@@ -138,6 +138,7 @@
 			<LocationsTable
 				rows={empty ? [] : fx.locations}
 				hrefFor={(r) => `/locations/${r.id}`}
+				editAction="?/updateLocationInfo"
 				sort={{ column: 'location_name', direction: 'asc' }}
 				sortHref={(c) => `?screen=locations&sortOn=${c}`}
 				pagination={{ page: 1, pageSize: 10, total: 12, href: (p) => `?screen=locations&skip=${(p - 1) * 10}` }}

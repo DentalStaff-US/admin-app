@@ -83,7 +83,8 @@
 	const {
 		form: locationForm,
 		enhance: locationEnhance,
-		submitting: isLocationSubmitting
+		submitting: isLocationSubmitting,
+		errors: locationErrors
 	} = superForm(data.locationForm, {
 		onResult: ({ result }) => {
 			if (result.type === 'success') {
@@ -137,7 +138,8 @@
 				break;
 			case 'settings':
 				editingLocation = false;
-
+				// Back to what's stored, so Cancel really discards.
+				locationForm.set({ ...data.locationForm.data }, { taint: false });
 				break;
 		}
 	}
@@ -475,39 +477,19 @@
 			</div>
 
 			<div class="space-y-6">
-				<Section title="Practice">
-					<div class="space-y-4">
-						<div class="flex items-center gap-3">
-							<PersonAvatar
-								name="{client.user.firstName} {client.user.lastName}"
-								src={client.user.avatarUrl}
-								initials={initialsOf(client.user.firstName, client.user.lastName)}
-								size="md"
-							/>
-							<div class="min-w-0">
-								<p class="font-semibold">{client.user.firstName} {client.user.lastName}</p>
-								<p class="truncate text-sm text-muted-foreground">{client.user.email}</p>
-							</div>
-						</div>
-						<FactGrid
-							columns={2}
-							facts={[
-								{ label: 'Practice', value: client.company.companyName },
-								...(client.company.licenseNumber ? [{ label: 'License', value: client.company.licenseNumber }] : [])
-							]}
-						/>
-						<Button variant="outline" size="sm" href={`/clients/${client.profile.id}`}>View practice</Button>
-					</div>
-				</Section>
-
-				<Section title="Location settings">
+				<Section title="Name & timezone">
 					{#snippet actions()}
 						{#if !editingLocation}
-							<Button variant="outline" size="sm" class="gap-2" aria-label="Edit location settings" on:click={() => (editingLocation = true)}><Pencil class="size-4" aria-hidden="true" />Edit</Button>
+							<Button variant="outline" size="sm" class="gap-2" aria-label="Edit location name and timezone" on:click={() => (editingLocation = true)}><Pencil class="size-4" aria-hidden="true" />Edit</Button>
 						{/if}
 					{/snippet}
 					{#if editingLocation}
 						<form use:locationEnhance method="POST" action="?/updateLocation" class="space-y-4">
+							<div class="space-y-1.5">
+								<Label for="name">Location name</Label>
+								<Input id="name" name="name" required maxlength={120} bind:value={$locationForm.name} aria-invalid={$locationErrors.name ? 'true' : undefined} />
+								{#if $locationErrors.name}<p class="text-sm text-destructive">{$locationErrors.name}</p>{/if}
+							</div>
 							<div class="space-y-1.5">
 								<Label for="timezone">Timezone</Label>
 								<Select.Root
@@ -534,6 +516,7 @@
 							<FactGrid
 								columns={2}
 								facts={[
+									{ label: 'Name', value: location.name },
 									{ label: 'Timezone', value: timezoneLabel(location.timezone) },
 									{ label: 'Created', value: format(location.createdAt, 'PP') },
 									{ label: 'Updated', value: format(location.updatedAt, 'PP') }
@@ -565,6 +548,31 @@
 							{/if}
 						</div>
 					{/if}
+				</Section>
+
+				<Section title="Practice">
+					<div class="space-y-4">
+						<div class="flex items-center gap-3">
+							<PersonAvatar
+								name="{client.user.firstName} {client.user.lastName}"
+								src={client.user.avatarUrl}
+								initials={initialsOf(client.user.firstName, client.user.lastName)}
+								size="md"
+							/>
+							<div class="min-w-0">
+								<p class="font-semibold">{client.user.firstName} {client.user.lastName}</p>
+								<p class="truncate text-sm text-muted-foreground">{client.user.email}</p>
+							</div>
+						</div>
+						<FactGrid
+							columns={2}
+							facts={[
+								{ label: 'Practice', value: client.company.companyName },
+								...(client.company.licenseNumber ? [{ label: 'License', value: client.company.licenseNumber }] : [])
+							]}
+						/>
+						<Button variant="outline" size="sm" href={`/clients/${client.profile.id}`}>View practice</Button>
+					</div>
 				</Section>
 			</div>
 		</div>

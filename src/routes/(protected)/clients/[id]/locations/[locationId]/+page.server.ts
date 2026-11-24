@@ -71,6 +71,7 @@ export const load: PageServerLoad = async (event) => {
 	};
 
 	locationForm.data = {
+		name: location.name || '',
 		timezone: location.timezone || 'America/New_York'
 	};
 
@@ -278,11 +279,12 @@ export const actions = {
 			return fail(400, { form });
 		}
 		const { locationId } = event.params;
-		const { timezone } = form.data;
+		const { name, timezone } = form.data;
 
 		try {
 			const previousTimezone = await getLocationTimezone(locationId);
 			await updateCompanyLocation(locationId, {
+				name,
 				timezone
 			});
 

@@ -21,7 +21,10 @@
 			id: l.id,
 			location_name: l.name,
 			complete_address: l.completeAddress,
-			company_phone: l.companyPhone ?? null
+			company_phone: l.companyPhone ?? null,
+			cell_phone: l.cellPhone ?? null,
+			email: l.email ?? null,
+			website: l.website ?? null
 		}))
 	);
 </script>
@@ -34,5 +37,5 @@
 	{#snippet actions()}
 		{#if isAdmin}<AddLocationDrawer newLocationForm={locationForm} {company} bind:open={drawerOpen} />{/if}
 	{/snippet}
-	<LocationsTable {rows} hrefFor={(r) => `/clients/${clientId}/locations/${r.id}`} caption="Practice locations" {empty} class="rounded-none border-0 shadow-none" />
+	<LocationsTable {rows} hrefFor={(r) => `/clients/${clientId}/locations/${r.id}`} caption="Practice locations" editAction={isAdmin ? '?/updateLocationInfo' : undefined} {empty} class="rounded-none border-0 shadow-none" />
 </Section>

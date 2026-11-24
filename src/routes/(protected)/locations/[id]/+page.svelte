@@ -98,6 +98,7 @@
         onResult: ({result}) => {
             if (result.type === 'success') {
                 editingLocation = false;
+                selectedAddress = null;
             }
         }
     });
@@ -123,6 +124,9 @@
         switch (section) {
             case 'location':
                 editingLocation = false;
+                selectedAddress = null;
+                // Back to what's stored, so Cancel really discards.
+                locationForm.set({ ...data.locationForm!.data }, { taint: false });
                 break;
             case 'hours':
                 editingHours = false;
@@ -231,6 +235,10 @@
                                         <Notice tone="negative" alert>{#each Object.values($addressErrors) as error}<p>{error}</p>{/each}</Notice>
                                     {/if}
                                     <div class="space-y-2">
+                                        <Label for="name">Location name</Label>
+                                        <Input id="name" name="name" required maxlength={120} bind:value={$locationForm.name} aria-invalid={$addressErrors.name ? 'true' : undefined}/>
+                                    </div>
+                                    <div class="space-y-2">
                                         <Label for="address-search">Street address</Label>
                                         <p class="text-sm text-muted-foreground">On file: {location.completeAddress || 'none'}</p>
                                         <AddressSearchAutocomplete
@@ -241,10 +249,12 @@
                                                 country="us"
                                                 maxResults={8}
                                         />
-                                        <input type="hidden" name="lat" value={$locationForm.lat}/>
-                                        <input type="hidden" name="lon" value={$locationForm.lon}/>
-                                        <input type="hidden" name="completeAddress" value={$locationForm.completeAddress}/>
-                                        <input type="hidden" name="name" value={location.name}/>
+                                        <!-- Only a newly picked address is sent; leaving it blank keeps the one on file. -->
+                                        {#if selectedAddress}
+                                            <input type="hidden" name="lat" value={$locationForm.lat}/>
+                                            <input type="hidden" name="lon" value={$locationForm.lon}/>
+                                            <input type="hidden" name="completeAddress" value={$locationForm.completeAddress}/>
+                                        {/if}
                                     </div>
                                     <div class="space-y-1.5">
                                         <Label for="timezone">Timezone</Label>

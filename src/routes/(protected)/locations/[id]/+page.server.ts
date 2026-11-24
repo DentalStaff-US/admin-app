@@ -93,8 +93,8 @@ export const load: PageServerLoad = async (event) => {
 			email: location.email || '',
 			website: location.website || '',
 			completeAddress: location.completeAddress || '',
-			lat: parseFloat(location.lat as string),
-			lon: parseFloat(location.lon as string)
+			lat: location.lat ? parseFloat(location.lat) : undefined,
+			lon: location.lon ? parseFloat(location.lon) : undefined
 		};
 		operatingHoursForm.data = {
 			operatingHours: JSON.stringify(location.operatingHours || {})
@@ -143,8 +143,8 @@ export const load: PageServerLoad = async (event) => {
 			email: location.email || '',
 			website: location.website || '',
 			completeAddress: location.completeAddress || '',
-			lat: parseFloat(location.lat as string),
-			lon: parseFloat(location.lon as string)
+			lat: location.lat ? parseFloat(location.lat) : undefined,
+			lon: location.lon ? parseFloat(location.lon) : undefined
 		};
 		operatingHoursForm.data = {
 			operatingHours: JSON.stringify(location.operatingHours || {})
@@ -408,14 +408,16 @@ export const actions = {
 
 		const details = {
 			...address.patch,
-			completeAddress,
+			// Absent unless a new address was picked; undefined leaves the column alone.
+			completeAddress: completeAddress || undefined,
 			lat: lat?.toString(),
 			lon: lon?.toString(),
 			timezone,
 			companyPhone,
 			cellPhone,
-			email,
-			website,
+			// A cleared field parses to undefined, which would skip the column.
+			email: email || null,
+			website: website || null,
 			name
 		};
 

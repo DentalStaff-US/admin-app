@@ -842,7 +842,8 @@ export async function getPaginatedLocationsByCompanyId(
 		`);
 
 		if (Array.isArray(locationIds)) {
-			query.append(sql` AND l.id = ANY(${locationIds})`);
+			// A drizzle array expands to ($1, $2, …): right for IN, invalid inside ANY().
+			query.append(sql` AND l.id IN ${locationIds}`);
 		}
 
 		if (orderSelector && orderBy) {
