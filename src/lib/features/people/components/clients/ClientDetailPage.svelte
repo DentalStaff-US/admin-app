@@ -162,7 +162,7 @@
 	</Page>
 
 	{#if isAdmin}
-		<ClientProfileSheet bind:open={profileOpen} form={data.updateClientForm} />
+		<ClientProfileSheet bind:open={profileOpen} form={data.updateClientForm} logo={client.company?.companyLogo} />
 		<ClientBillingSheet bind:open={billingOpen} form={data.updateClientForm} accountEmail={client.user.email} hasStripeCustomer={!!client.subscription?.stripeCustomerId} />
 	{/if}
 	<InvoiceSheet

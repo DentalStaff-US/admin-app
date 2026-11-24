@@ -39,6 +39,7 @@ import { assertCanAccessLocation } from '$lib/server/scoping';
 import { assertLocationAccess, assertStaffInCompany } from '$features/people/server/locationAccess';
 import { syncRequisitionTimezonesForLocation } from '$lib/server/requisitions/referenceTimezone';
 import { can } from '$lib/authz';
+import { saveLocationInfo } from '$features/people/server/locationInfo';
 import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 const assignStaffToLocationSchema = z.object({
@@ -170,6 +171,19 @@ export const load: PageServerLoad = async (event) => {
 };
 
 export const actions = {
+	/** The title block: avatar, name and contact details. */
+	updateLocationInfo: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) redirect(302, '/auth/sign-in');
+		const id = event.params.id as string;
+		await assertLocationAccess(user, id);
+
+		const result = await saveLocationInfo(id, await event.request.formData());
+		if ('locationSaved' in result) {
+			setFlash({ type: 'success', message: `${result.locationSaved} updated` }, event);
+		}
+		return result;
+	},
 	/**
 	 * Per-staff toggle on THIS location. Supports two operations:
 	 *   - 'remove'      → drop this location from the staff's set

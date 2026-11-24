@@ -9,7 +9,7 @@ import { APIError } from 'better-auth/api';
 
 import { userSchema } from '$lib/config/zod-schemas';
 import db from '$lib/server/database/drizzle';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import {
 	companyStaffInviteLocations,
 	userInviteTable,
@@ -106,7 +106,19 @@ export const actions = {
 					setFlash({ type: 'error', message: 'This invitation is invalid or has expired.' }, event);
 					return setError(form, 'email', 'This invitation is invalid or has expired.');
 				}
-				inviteData = { ...inviteData, invitedRole: row.invitedRole, companyId: row.companyId, staffRole: row.staffRole };
+				// Same for the locations, which decide what they can see. Primary first.
+				const granted = await db
+					.select({ locationId: companyStaffInviteLocations.locationId })
+					.from(companyStaffInviteLocations)
+					.where(eq(companyStaffInviteLocations.token, String(inviteData.token ?? '')))
+					.orderBy(desc(companyStaffInviteLocations.isPrimary));
+				inviteData = {
+					...inviteData,
+					invitedRole: row.invitedRole,
+					companyId: row.companyId,
+					staffRole: row.staffRole,
+					locations: granted.map((g) => g.locationId)
+				};
 			}
 
 			const email = form.data.email.toLowerCase();
@@ -177,12 +189,12 @@ export const actions = {
 							.returning();
 
 						await tx.insert(clientStaffLocationTable).values(
-							inviteData.locations.map((locationId: string) => ({
+							inviteData.locations.map((locationId: string, i: number) => ({
 								id: crypto.randomUUID(),
 								companyId: inviteData.companyId,
 								staffId: staffProfile.id,
 								locationId,
-								isPrimary: true
+								isPrimary: i === 0
 							}))
 						);
 

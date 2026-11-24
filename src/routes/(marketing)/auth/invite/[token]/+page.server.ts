@@ -1,5 +1,5 @@
 // src/routes/auth/invite/[token]/+page.server.ts
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { fail, redirect } from '@sveltejs/kit';
 import db from '$lib/server/database/drizzle.js';
 import {
@@ -61,7 +61,8 @@ export async function load(event: RequestEvent) {
 			const locationAssignments = await db
 				.select()
 				.from(companyStaffInviteLocations)
-				.where(eq(companyStaffInviteLocations.token, token));
+				.where(eq(companyStaffInviteLocations.token, token))
+				.orderBy(desc(companyStaffInviteLocations.isPrimary));
 
 			const company = await getClientCompanyById(invite.companyId);
 
@@ -163,7 +164,8 @@ export const actions = {
 			const locationAssignments = await db
 				.select()
 				.from(companyStaffInviteLocations)
-				.where(eq(companyStaffInviteLocations.token, token));
+				.where(eq(companyStaffInviteLocations.token, token))
+				.orderBy(desc(companyStaffInviteLocations.isPrimary));
 
 			const inviteData = {
 				token,

@@ -6,7 +6,7 @@
 	import Notice from '$dtss/Notice.svelte';
 	import EmptyState from '$dtss/EmptyState.svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
-	import { ConfirmAction, DetailHeader, PersonAvatar, initialsOf } from '$features/people';
+	import { ConfirmAction, DetailHeader, EditLocationDialog, PersonAvatar, initialsOf, locationRowOf } from '$features/people';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import PhoneInput from '$lib/components/PhoneInput.svelte';
@@ -109,6 +109,7 @@
 	let editingHours = false;
 	let editingLocation = false;
 	let geocodingLocation = false;
+	let editOpen = false;
 
 	$: timezoneLabel = (value: string | null | undefined) =>
 		TIMEZONES.find((t) => t.name === value)?.label ?? value?.replace('_', ' ') ?? 'Not set';
@@ -179,7 +180,7 @@
 		<DetailHeader
 			title={location.name}
 			subtitle={client.company.companyName}
-			avatar={{ src: client.company.companyLogo, initials: (client.company.companyName?.[0] ?? '?').toUpperCase(), kind: 'org' }}
+			avatar={{ src: location.logo ?? client.company.companyLogo, initials: (location.name?.[0] ?? '?').toUpperCase(), kind: 'org' }}
 			back={{ href: `/clients/${client.profile.id}?tab=locations`, label: client.company.companyName ?? "Practice" }}
 		>
 			{#snippet meta()}
@@ -191,6 +192,7 @@
 				{/if}
 			{/snippet}
 			{#snippet actions()}
+				<Button variant="outline" class="gap-2" on:click={() => (editOpen = true)}><Pencil class="size-4" aria-hidden="true" />Edit</Button>
 				{#if location.companyPhone}
 					<Button variant="outline" class="gap-2" href={`tel:${location.companyPhone}`}><Phone class="size-4" aria-hidden="true" />Call office</Button>
 				{/if}
@@ -577,6 +579,7 @@
 			</div>
 		</div>
 	</Page>
+	<EditLocationDialog bind:open={editOpen} location={locationRowOf(location)} practiceLogo={client.company.companyLogo} />
 {:else}
 	<Page width="narrow">
 		<EmptyState icon={AlertCircle} title="Location not found" description="This location couldn't be found. It may have been removed.">

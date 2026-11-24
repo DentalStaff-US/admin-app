@@ -6,6 +6,7 @@
 	import FormSheet from '$dtss/FormSheet.svelte';
 	import { updateClientSchema } from '$lib/config/zod-schemas';
 	import FormPhoneInput from '../FormPhoneInput.svelte';
+	import LogoUpload from '../LogoUpload.svelte';
 
 	/**
 	 * Owner and practice identity. Posts to the existing `updateClient`
@@ -15,8 +16,9 @@
 	let {
 		open = $bindable(false),
 		form,
+		logo = null,
 		action = '?/updateClient'
-	}: { open?: boolean; form: SuperValidated<any>; action?: string } = $props();
+	}: { open?: boolean; form: SuperValidated<any>; logo?: string | null; action?: string } = $props();
 
 	// svelte-ignore state_referenced_locally
 	const sf = superForm(
@@ -34,18 +36,21 @@
 	const config = { form: sf, schema: updateClientSchema };
 
 	// Opening re-seeds from what's stored, so Cancel really discards.
+	let editedLogo = $state<string | null>(null);
 	let wasOpen = false;
 	$effect(() => {
 		if (open && !wasOpen) {
 			values.set({ ...form.data });
 			tainted.set(undefined);
+			editedLogo = logo;
 		}
 		wasOpen = open;
 	});
 </script>
 
-<FormSheet bind:open title="Edit practice & owner" description="The practice name and the account owner's details." dirty={Boolean($tainted)}>
+<FormSheet bind:open title="Edit practice & owner" description="The practice name and the account owner's details." dirty={Boolean($tainted) || editedLogo !== logo}>
 	<Form.Root form={sf} controlled schema={updateClientSchema} {action} id="client-profile-form" class="space-y-5">
+		<LogoUpload bind:value={editedLogo} saved={logo} name="companyLogo" label="Avatar" initials={($values.companyName?.[0] ?? '?').toUpperCase()} />
 		<Form.Field {config} name="companyName">
 			<Form.Item>
 				<Form.Label>Practice name</Form.Label>

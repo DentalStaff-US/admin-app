@@ -33,6 +33,7 @@ import {
 } from '$lib/server/requisitions/referenceTimezone';
 import { logger } from '$lib/server/logger';
 import { can } from '$lib/authz';
+import { saveLocationInfo } from '$features/people/server/locationInfo';
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
@@ -95,6 +96,21 @@ export const load: PageServerLoad = async (event) => {
 };
 
 export const actions = {
+	/** The title block: avatar, name and contact details. */
+	updateLocationInfo: async (event) => {
+		const user = event.locals.user;
+		if (!user) redirect(302, '/auth/sign-in');
+		if (!can(user, 'practices.manage')) error(403, 'Forbidden');
+		const client = await getClientProfileById(event.params.id);
+		const location = await getLocationByIdForCompany(event.params.locationId, client?.company?.id);
+		if (!location) return fail(404, { locationErrors: { name: ['This location isn’t one of this practice’s.'] } });
+
+		const result = await saveLocationInfo(location.id, await event.request.formData());
+		if ('locationSaved' in result) {
+			setFlash({ type: 'success', message: `${result.locationSaved} updated` }, event);
+		}
+		return result;
+	},
 	updateAddress: async (event) => {
 		const user = event.locals.user;
 		if (!user) {

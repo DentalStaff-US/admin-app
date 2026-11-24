@@ -6,25 +6,31 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import type { LocationRow } from '../../lists';
+	import LogoUpload from '../LogoUpload.svelte';
 
 	/**
-	 * Quick edit from a locations table: the name and contact details. Address,
-	 * timezone and hours stay on the location page. Posts to an
+	 * Edits a location's title block, from a locations table or the location
+	 * page: avatar, name and contact details. Address, timezone and hours stay on
+	 * the location page. Posts to an
 	 * `updateLocationInfo` action (see server/locationInfo.ts).
 	 */
 	let {
 		open = $bindable(false),
 		location,
 		action = '?/updateLocationInfo',
-		href
+		href,
+		practiceLogo = null
 	}: {
 		open?: boolean;
 		location: LocationRow | null;
 		action?: string;
 		/** The location page, for everything this dialog doesn't cover. */
 		href?: string;
+		/** Shown until the location has an avatar of its own. */
+		practiceLogo?: string | null;
 	} = $props();
 
+	let logo = $state<string | null>(null);
 	let name = $state('');
 	let companyPhone = $state('');
 	let cellPhone = $state('');
@@ -37,6 +43,7 @@
 	let wasOpen = false;
 	$effect(() => {
 		if (open && !wasOpen && location) {
+			logo = location.logo ?? null;
 			name = location.location_name ?? '';
 			companyPhone = location.company_phone ?? '';
 			cellPhone = location.cell_phone ?? '';
@@ -57,7 +64,7 @@
 		<Dialog.Header>
 			<Dialog.Title>Edit location</Dialog.Title>
 			<Dialog.Description>
-				The name and contact details.
+				The avatar, name and contact details.
 				{#if href}<a {href} class="font-semibold text-primary-dark hover:underline">Open the location</a> to change its address, timezone or hours.{/if}
 			</Dialog.Description>
 		</Dialog.Header>
@@ -80,6 +87,10 @@
 			}}
 		>
 			<input type="hidden" name="locationId" value={location?.id ?? ''} />
+			<div class="grid gap-2">
+				<LogoUpload bind:value={logo} saved={location?.logo} name="logo" label="Avatar" initials={(name[0] ?? '?').toUpperCase()} fallback={practiceLogo} />
+				{@render fieldError('logo')}
+			</div>
 			<div class="grid gap-2">
 				<Label for="location-name">Location name</Label>
 				<Input id="location-name" name="name" required maxlength={120} bind:value={name} aria-invalid={errors.name ? 'true' : undefined} aria-describedby={errors.name ? 'location-name-error' : undefined} />

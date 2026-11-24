@@ -19,13 +19,11 @@
 		staff = [],
 		pendingInvites = [],
 		companyLocations = [],
-		staffInviteForm,
 		asPage = false
 	}: {
 		staff?: StaffMember[] | null;
 		pendingInvites?: any[];
 		companyLocations?: Array<{ id: string; name: string | null }>;
-		staffInviteForm: any;
 		/** On /team the heading is the page's h1 rather than a settings section h2. */
 		asPage?: boolean;
 	} = $props();
@@ -149,7 +147,7 @@
 	</SettingsPanel>
 {/if}
 
-<InviteStaffDialog bind:open={inviteOpen} {staffInviteForm} />
+<InviteStaffDialog bind:open={inviteOpen} locations={companyLocations} />
 
 <Dialog.Root bind:open={detailsOpen}>
 	<Dialog.Content class="max-w-lg rounded-2xl">

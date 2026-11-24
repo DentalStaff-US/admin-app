@@ -11,6 +11,5 @@
 		staff={data.staff}
 		pendingInvites={data.pendingInvites}
 		companyLocations={data.companyLocations}
-		staffInviteForm={data.inviteForm}
 	/>
 </Page>

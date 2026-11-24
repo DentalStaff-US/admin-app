@@ -1,5 +1,13 @@
 import { z } from 'zod';
 import { isValidUSPhone, usPhoneField } from '$lib/_helpers/phone';
+import { UPLOADS_ORIGIN } from '$lib/config/constants';
+
+/** An image we host, or blank to remove it. Never an arbitrary URL. */
+const ownImage = z
+	.string()
+	.trim()
+	.refine((v) => v === '' || v.startsWith(`${UPLOADS_ORIGIN}/`), 'Upload the image again.')
+	.transform((v) => v || null);
 
 export type Primitive = string | number | boolean | null;
 
@@ -610,9 +618,11 @@ const locationName = z
 	.min(1, 'Location name is required')
 	.max(120, 'Use 120 characters or fewer');
 
-/** Quick edit from a locations table. Blank clears everything but the name. */
+/** Quick edit of a location's title block. Blank clears everything but the name. */
 export const LocationInfoSchema = z.object({
 	name: locationName,
+	// Absent leaves the avatar alone.
+	logo: ownImage.optional(),
 	companyPhone: usPhoneField(),
 	cellPhone: usPhoneField(),
 	email: z
@@ -784,6 +794,7 @@ export const updateClientSchema = z
 			.optional()
 			.nullable(),
 		companyName: z.string().min(1, 'Company name is required').optional(),
+		companyLogo: ownImage.optional().nullable(),
 		baseLocation: z.string().optional().nullable(),
 		website: z.string().optional().nullable(),
 		cellPhone: usPhoneField().nullable().optional(),

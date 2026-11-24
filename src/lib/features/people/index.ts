@@ -23,5 +23,6 @@ export { default as ProfessionalDetailPage } from './components/professionals/Pr
 export { default as ClientsTable } from './components/clients/ClientsTable.svelte';
 export { default as ClientDetailPage } from './components/clients/ClientDetailPage.svelte';
 export { default as StaffTable } from './components/staff/StaffTable.svelte';
+export { default as EditLocationDialog } from './components/locations/EditLocationDialog.svelte';
 export { default as LocationsTable } from './components/locations/LocationsTable.svelte';
 export { default as StaffDetailsDialog } from './components/staff/StaffDetailsDialog.svelte';

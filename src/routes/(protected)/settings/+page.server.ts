@@ -25,7 +25,6 @@ import {
 	getClientStaffProfilebyClientId,
 	getClientStaffProfilebyUserId,
 	getPendingInvitesForCompany,
-	getPrimaryLocationForCompany,
 	getStaffLocationsWithMeta,
 	inviteStaffUsersToAccount,
 	resendInvite,
@@ -48,6 +47,7 @@ import { syncStripeCustomerBillingEmail } from '$lib/server/billing/recipients';
 import { z } from 'zod';
 import { hasTypedConfirmation } from '$lib/server/confirmation';
 import { newStaffInvitesSchema } from '$lib/features/settings/server/team';
+import { resolveInviteLocations } from '$features/people/inviteLocations';
 import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 const avatarUrlSchema = z.object({ url: z.string(), isForUser: z.boolean().default(true) });
@@ -133,7 +133,6 @@ export async function load(event) {
 		const userProfileForm = await superValidate(event, userProfileSchema);
 		const subscriptionForm = null;
 		const passwordForm = await superValidate(event, userUpdatePasswordSchema);
-		const inviteForm = await superValidate(newStaffInvitesSchema);
 		const billingContactForm = await superValidate(event, billingContactSchema);
 
 		const documents = await getClientDocuments(clientProfile?.id);
@@ -197,7 +196,6 @@ export async function load(event) {
 			staff: staffWithLocations,
 			companyLocations,
 			pendingInvites,
-			inviteForm,
 			avatarForm,
 			documents: documents || [],
 			signatureRequests
@@ -535,10 +533,13 @@ export const actions = {
 					: await getClientProfileByStaffUserId(user.id);
 			if (!client) throw new Error('Client profile not found');
 			const company = await getClientCompanyByClientId(client.id);
-			const location = await getPrimaryLocationForCompany(company.id);
-
-			if (!location) {
-				throw new Error('Primary location not found');
+			const locations = resolveInviteLocations(
+				formData.get('locationIds')?.toString(),
+				formData.get('primaryLocationId')?.toString(),
+				await getAllClientLocationsByCompanyId(company.id)
+			);
+			if (!locations.ok) {
+				return fail(400, { form, inviteError: locations.message });
 			}
 
 			// Format invites for our invite function
@@ -553,7 +554,7 @@ export const actions = {
 			}));
 
 			// Send invites
-			const results = await inviteStaffUsersToAccount(location.id, invites);
+			const results = await inviteStaffUsersToAccount(locations.locationIds, invites);
 
 			// Check for any failures
 			const failedInvites = results.filter((result) => !result.success);
@@ -590,7 +591,7 @@ export const actions = {
 
 			return fail(500, {
 				form,
-				error: 'Failed to send invitations'
+				inviteError: 'The invitations could not be sent. Please try again.'
 			});
 		}
 

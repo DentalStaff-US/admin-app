@@ -28,7 +28,7 @@
     import DataTable from '$dtss/DataTable.svelte';
     import StatusBadge from '$dtss/StatusBadge.svelte';
     import {page} from '$app/stores';
-    import {ConfirmAction, DetailHeader, DetailTabs, StaffTable, readTab, type StaffRow} from '$features/people';
+    import {ConfirmAction, DetailHeader, DetailTabs, EditLocationDialog, StaffTable, locationRowOf, readTab, type StaffRow} from '$features/people';
 
     type StaffProfileData = {
         profile: {
@@ -119,6 +119,7 @@
     // Edit state tracking
     let editingLocation = false;
     let editingHours = false;
+    let editOpen = false;
 
     function cancelEdit(section: 'location' | 'hours') {
         switch (section) {
@@ -207,8 +208,9 @@
 
 {#if location}
     <Page>
-        <DetailHeader title={location.name} subtitle={company?.companyName ?? 'Office location'} back={{ href: '/locations', label: 'Locations' }}>
+        <DetailHeader title={location.name} subtitle={company?.companyName ?? 'Office location'} avatar={{ src: location.logo ?? company?.companyLogo, initials: (location.name?.[0] ?? '?').toUpperCase(), kind: 'org' }} back={{ href: '/locations', label: 'Locations' }}>
             {#snippet actions()}
+                <Button variant="outline" class="gap-2" on:click={() => (editOpen = true)}><Pencil class="size-4" aria-hidden="true"/>Edit</Button>
                 {#if !checkIsAdmin(user?.role) && data.canCreateRequisitions}
                     <Button class="gap-2" on:click={() => (drawerExpanded = true)}><Plus class="size-4" aria-hidden="true"/>New requisition</Button>
                 {/if}
@@ -394,6 +396,7 @@
             {/snippet}
         </DetailTabs>
     </Page>
+    <EditLocationDialog bind:open={editOpen} location={locationRowOf(location)} practiceLogo={company?.companyLogo}/>
     <AddRequisitionDrawer {user} bind:drawerExpanded {clientForm} {location}/>
 {:else}
     <Page width="narrow">

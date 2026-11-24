@@ -40,6 +40,7 @@
 		{rows}
 		hrefFor={(r) => `/locations/${r.id}`}
 		editAction="?/updateLocationInfo"
+		practiceLogo={(data.company as { companyLogo?: string | null } | undefined)?.companyLogo}
 		sort={readLocationSort(page.url)}
 		sortHref={(column) => locationSortHref(page.url, column)}
 		pagination={{

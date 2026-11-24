@@ -9,6 +9,8 @@ export const DOMAIN = 'https://internal.dtstaffingsolutions.com';
 WERE CREATED BY CHATGPT AS AN EXAMPLE ONLY.
 CONSULT A LAWYER AND DEVELOP YOUR OWN TERMS AND PRIVACY POLICY!!! */
 export const TERMS_PRIVACY_CONTACT_EMAIL = 'dtss@dtstaffingsolutions.com';
+/** Where uploaded files are served from (see storageUrlForKey). */
+export const UPLOADS_ORIGIN = 'https://dentalstaffusdocs.nyc3.cdn.digitaloceanspaces.com';
 export const TERMS_PRIVACY_WEBSITE = 'https://www.dtstaffingsolutions.com';
 export const TERMS_PRIVACY_COMPANY = 'Dental Temps Staffing Solutions';
 export const TERMS_PRIVACY_EFFECTIVE_DATE = 'January 1, 2023';

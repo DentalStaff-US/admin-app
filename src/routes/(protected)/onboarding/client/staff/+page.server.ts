@@ -108,7 +108,7 @@ export const actions = {
 			}));
 
 			// Send invites
-			const results = await inviteStaffUsersToAccount(location.id, invites);
+			const results = await inviteStaffUsersToAccount([location.id], invites);
 
 			// Check for any failures
 			const failedInvites = results.filter((result) => !result.success);

@@ -37,6 +37,7 @@
 		isOwner: audience === 'owner',
 		clientStatus: view === 'pending' ? 'PENDING' : 'ACTIVE',
 		canCreateRequisitions: view !== 'pending',
+		affiliate: ok({ programEnabled: true, eligible: true, enrolled: view !== 'join', status: 'ACTIVE' as const, linkActive: true, connectComplete: view !== 'setup', referralCode: 'DANA', referralUrl: 'https://partners.dtstaffingsolutions.com/r/DANA', ratePercent: '2.50', activity: view === 'join' ? null : { clicks: 48, referralsActive: 3, referralsPending: 1, earningsUnpaid: 182.4, earningsPaid: 640 } }),
 		notice: view === 'pending' ? { kind: 'account' as const, status: 'PENDING' } : view === 'billing' ? { kind: 'billing' as const } : null,
 		clientForm: null,
 		noLocations: audience === 'nolocations',

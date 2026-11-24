@@ -20,6 +20,8 @@
 	import { showLocationColumn } from '../scope';
 	import type { AttentionGroup, CoverageShift, DashboardScope, Metric, PracticeBilling } from '../types';
 	import { BUSINESS_TIMEZONE } from '../window';
+	import type { AffiliateOverview } from '$lib/server/affiliate/status';
+	import AffiliateCard from './AffiliateCard.svelte';
 	import AtAGlance from './AtAGlance.svelte';
 	import AttentionQueue from './AttentionQueue.svelte';
 	import { keepFresh } from './live';
@@ -48,6 +50,7 @@
 		attention: AttentionGroup[];
 		upcoming: MaybePromise<Metric<CoverageShift[]>> | null;
 		glance: MaybePromise<Glance> | null;
+		affiliate?: MaybePromise<Metric<AffiliateOverview>>;
 	};
 
 	let {
@@ -183,6 +186,10 @@
 						<AtAGlance {glance} />
 						{#if glance.balance}<PracticeBillingCard billing={glance.balance} />{/if}
 					{/if}
+				{/await}
+				<!-- Hidden while it loads and if it fails: most practices won't have one. -->
+				{#await data.affiliate then affiliate}
+					{#if affiliate?.ok}<AffiliateCard overview={affiliate.value} />{/if}
 				{/await}
 			</div>
 		</div>

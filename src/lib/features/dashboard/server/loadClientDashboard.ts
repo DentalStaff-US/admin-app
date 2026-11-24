@@ -8,8 +8,10 @@ import { eq } from 'drizzle-orm';
 import { superValidate } from 'sveltekit-superforms/server';
 import { clientCanCreateRequisitions, USER_ROLES, type ClientStatus } from '$lib/config/constants';
 import { clientRequisitionSchema } from '$lib/config/zod-schemas';
+import { PARTNER_PORTAL_URL } from '$lib/config/portal';
 import { hasBillingSetup } from '$lib/_helpers/billing';
 import type { AppUser } from '$lib/server/auth';
+import { getAffiliateOverview } from '$lib/server/affiliate/status';
 import db from '$lib/server/database/drizzle';
 import { clientSubscriptionTable } from '$lib/server/database/schemas/client';
 import { monthBounds, pickNotice } from '../practice';
@@ -57,6 +59,8 @@ export async function loadClientDashboard(user: AppUser & { completedOnboarding?
 		clientStatus,
 		canCreateRequisitions,
 		notice,
+		// Their own partner activity. Streamed: it never holds up the dashboard.
+		affiliate: settle('affiliate', () => getAffiliateOverview(user.id, user.role, PARTNER_PORTAL_URL)),
 		clientForm: canCreateRequisitions && scope.can.postRequests ? await superValidate(clientRequisitionSchema) : null
 	};
 

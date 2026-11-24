@@ -114,7 +114,6 @@
 				companyForm={f.companyForm}
 				billingContactForm={f.billingContactForm}
 				billingInfo={q.get('billing') === 'setup' ? fx.billing.setup : fx.billing.card}
-				staffInviteForm={f.inviteForm}
 				staff={empty ? [] : [...fx.staff]}
 				companyLocations={fx.locations}
 				pendingInvites={empty ? [] : fx.pendingInvites}

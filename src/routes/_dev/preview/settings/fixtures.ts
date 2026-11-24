@@ -56,8 +56,7 @@ export const forms = () => ({
 		billingCity: 'Tampa',
 		billingState: 'FL',
 		billingZipcode: '33629'
-	}),
-	inviteForm: fakeForm({ invitees: [] as { email: string; staffRole: string }[] })
+	})
 });
 
 const daysAgo = (d: number) => new Date(Date.now() - d * 864e5);

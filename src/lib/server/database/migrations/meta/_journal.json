@@ -512,6 +512,13 @@
       "when": 1794372565039,
       "tag": "0072_daffy_ken_ellis",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1795552991727,
+      "tag": "0073_slim_photon",
+      "breakpoints": true
     }
   ]
 }

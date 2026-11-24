@@ -66,7 +66,6 @@
 				companyForm={data.companyForm}
 				billingContactForm={data.billingContactForm}
 				billingInfo={data.billingInfo}
-				staffInviteForm={data.inviteForm}
 				staff={data.staff}
 				companyLocations={data.companyLocations ?? []}
 				pendingInvites={data.pendingInvites ?? []}

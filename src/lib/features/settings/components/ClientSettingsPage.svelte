@@ -22,7 +22,6 @@
 		companyForm,
 		billingContactForm,
 		billingInfo,
-		staffInviteForm,
 		staff = [],
 		companyLocations = [],
 		pendingInvites = [],
@@ -41,7 +40,6 @@
 		companyForm: any;
 		billingContactForm: any;
 		billingInfo: any;
-		staffInviteForm: any;
 		staff?: any[] | null;
 		companyLocations?: Array<{ id: string; name: string | null }>;
 		pendingInvites?: any[];
@@ -60,7 +58,7 @@
 {:else if activeId === TABS.COMPANY}
 	<CompanySection {companyForm} {company} onAvatarUpdated={handleAvatarUpdated} />
 {:else if activeId === TABS.STAFF}
-	<TeamSection {staff} {pendingInvites} {companyLocations} {staffInviteForm} />
+	<TeamSection {staff} {pendingInvites} {companyLocations} />
 {:else if activeId === TABS.BILLING}
 	<BillingSection {user} {billingInfo} {billingContactForm} />
 {:else if activeId === TABS.DOCUMENTS}

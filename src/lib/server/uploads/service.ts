@@ -7,6 +7,7 @@ import {
 import { s3Client, BUCKET_NAME } from './config';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { logger } from '$lib/server/logger';
+import { UPLOADS_ORIGIN } from '$lib/config/constants';
 
 export type FileType = {
 	mimetype: string;
@@ -27,7 +28,7 @@ const sanitizeFileName = (name: string) => name.replace(/[#?&%]/g, '_');
  * and be served through a signed-URL download route.
  */
 export const storageUrlForKey = (key: string) =>
-	`https://dentalstaffusdocs.nyc3.cdn.digitaloceanspaces.com/${key}`;
+	`${UPLOADS_ORIGIN}/${key}`;
 
 export const uploadFile = async ({ file, location }: { file: FileType; location?: string }) => {
 	const safeName = sanitizeFileName(file.fileName);

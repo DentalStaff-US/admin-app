@@ -5,6 +5,7 @@
 	import DataTable from '$dtss/DataTable.svelte';
 	import type { DataColumn, Pagination, SortState } from '$dtss/tableState';
 	import type { LocationRow } from '../../lists';
+	import PersonAvatar from '../PersonAvatar.svelte';
 	import EditLocationDialog from './EditLocationDialog.svelte';
 
 	let {
@@ -16,6 +17,7 @@
 		empty,
 		caption = 'Office locations',
 		editAction,
+		practiceLogo = null,
 		class: className
 	}: {
 		rows: LocationRow[];
@@ -27,6 +29,8 @@
 		caption?: string;
 		/** Form action for the row's Edit button; without one the table is read-only. */
 		editAction?: string;
+		/** The practice's logo, for locations without an avatar of their own. */
+		practiceLogo?: string | null;
 		class?: string;
 	} = $props();
 
@@ -34,12 +38,19 @@
 	let editing = $state<LocationRow | null>(null);
 
 	const columns: DataColumn<LocationRow>[] = $derived([
-		{ id: 'location_name', header: 'Name', value: (r) => r.location_name || 'Unnamed location', sortable: true },
+		{ id: 'location_name', header: 'Name', cell: nameCell, sortable: true },
 		{ id: 'complete_address', header: 'Address', value: (r) => r.complete_address || '—', sortable: true },
 		{ id: 'company_phone', header: 'Phone', value: (r) => r.company_phone || '—', class: 'whitespace-nowrap tabular-nums' },
 		...(editAction ? [{ id: 'actions', header: 'Actions', srOnlyHeader: true, cell: actionsCell, class: 'text-right' }] : [])
 	]);
 </script>
+
+{#snippet nameCell(r: LocationRow)}
+	<span class="inline-flex items-center gap-3">
+		<PersonAvatar name="" src={r.logo ?? practiceLogo} initials={(r.location_name?.[0] ?? '?').toUpperCase()} kind="org" />
+		{r.location_name || 'Unnamed location'}
+	</span>
+{/snippet}
 
 {#snippet actionsCell(r: LocationRow)}
 	<Button
@@ -71,5 +82,5 @@
 />
 
 {#if editAction}
-	<EditLocationDialog bind:open={editOpen} location={editing} action={editAction} href={editing ? hrefFor(editing) : undefined} />
+	<EditLocationDialog bind:open={editOpen} location={editing} action={editAction} href={editing ? hrefFor(editing) : undefined} {practiceLogo} />
 {/if}

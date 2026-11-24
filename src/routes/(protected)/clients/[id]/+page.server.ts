@@ -92,6 +92,7 @@ import {
 	toggleClientDocumentLock
 } from '$lib/server/database/queries/clients';
 import { can } from '$lib/authz';
+import { resolveInviteLocations } from '$features/people/inviteLocations';
 import { saveLocationInfo } from '$features/people/server/locationInfo';
 
 const LineItemSchema = z.array(
@@ -314,7 +315,6 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 };
 
 const InviteStaffSchema = z.object({
-	locationId: z.string().min(1, 'Location is required'),
 	invitees: z
 		.string()
 		.transform((val) => {
@@ -711,6 +711,7 @@ export const actions = {
 			if (posted('billingState')) companyUpdate.billingState = form.data.billingState || null;
 			if (posted('billingZipcode')) companyUpdate.billingZipcode = form.data.billingZipcode || null;
 			if (posted('companyName')) companyUpdate.companyName = form.data.companyName;
+			if (posted('companyLogo')) companyUpdate.companyLogo = form.data.companyLogo || null;
 			if (posted('baseLocation')) companyUpdate.baseLocation = form.data.baseLocation || null;
 			if (posted('website')) companyUpdate.website = form.data.website || null;
 			if (posted('cellPhone')) profileUpdate.cellPhone = form.data.cellPhone || null;
@@ -772,7 +773,6 @@ export const actions = {
 
 		const formData = await event.request.formData();
 		const parsed = InviteStaffSchema.safeParse({
-			locationId: formData.get('locationId'),
 			invitees: formData.get('invitees')
 		});
 		if (!parsed.success) {
@@ -785,11 +785,14 @@ export const actions = {
 				return fail(404, { error: 'Client not found' });
 			}
 
-			// Validate the chosen location belongs to this client's company.
+			// The chosen locations must belong to this client's company.
 			const ownedLocations = await getAllClientLocationsByCompanyId(client.company.id);
-			if (!ownedLocations.some((l) => l.id === parsed.data.locationId)) {
-				return fail(400, { error: 'Location does not belong to this client' });
-			}
+			const locations = resolveInviteLocations(
+				formData.get('locationIds')?.toString(),
+				formData.get('primaryLocationId')?.toString(),
+				ownedLocations
+			);
+			if (!locations.ok) return fail(400, { inviteError: locations.message });
 
 			const INVITE_EXPIRATION_DAYS = 7;
 			const expiresAt = new Date();
@@ -805,7 +808,7 @@ export const actions = {
 				expiresAt
 			}));
 
-			const results = await inviteStaffUsersToAccount(parsed.data.locationId, invites);
+			const results = await inviteStaffUsersToAccount(locations.locationIds, invites);
 			const failures = results.filter((r) => !r.success);
 
 			if (failures.length === invites.length) {

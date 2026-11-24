@@ -1,3 +1,4 @@
+import { groupInvites } from '$features/people/inviteLocations';
 import {
 	asc,
 	desc,
@@ -1292,7 +1293,7 @@ export async function getPrimaryLocationForCompany(companyId: string) {
  * name so the table can render directly.
  */
 export async function getPendingInvitesForCompany(companyId: string) {
-	return await db
+	const rows = await db
 		.select({
 			id: userInviteTable.id,
 			email: userInviteTable.email,
@@ -1314,7 +1315,8 @@ export async function getPendingInvitesForCompany(companyId: string) {
 			eq(companyOfficeLocationTable.id, companyStaffInviteLocations.locationId)
 		)
 		.where(and(eq(userInviteTable.companyId, companyId), isNotNull(userInviteTable.token)))
-		.orderBy(desc(userInviteTable.createdAt));
+		.orderBy(desc(userInviteTable.createdAt), desc(companyStaffInviteLocations.isPrimary));
+	return groupInvites(rows);
 }
 
 /**
@@ -1504,7 +1506,10 @@ export async function setStaffLocations(args: {
 	});
 }
 
-export async function inviteStaffUsersToAccount(locationId: string, invitees: NewUserInvite[]) {
+/** Invites to one or more of a company's locations; the first is the primary. */
+export async function inviteStaffUsersToAccount(locationIds: string[], invitees: NewUserInvite[]) {
+	const [locationId] = locationIds;
+	if (!locationId) throw new Error('A location is required');
 	const [location] = await db
 		.select()
 		.from(companyOfficeLocationTable)
@@ -1551,12 +1556,10 @@ export async function inviteStaffUsersToAccount(locationId: string, invitees: Ne
 						})
 						.returning();
 
-					// Create the location association
-					await tx.insert(companyStaffInviteLocations).values({
-						token,
-						locationId,
-						isPrimary: true
-					});
+					// Create the location associations
+					await tx.insert(companyStaffInviteLocations).values(
+						locationIds.map((id, i) => ({ token, locationId: id, isPrimary: i === 0 }))
+					);
 
 					// Send the invite email
 					try {

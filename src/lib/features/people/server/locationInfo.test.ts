@@ -41,6 +41,17 @@ describe('saveLocationInfo', () => {
 		expect(update).not.toHaveBeenCalled();
 	});
 
+	it('sets, clears or leaves the avatar, and only takes images we host', async () => {
+		const url = 'https://dentalstaffusdocs.nyc3.cdn.digitaloceanspaces.com/images/a.png';
+		await saveLocationInfo('loc', fd({ ...blank, logo: url }));
+		expect(update.mock.calls[0][1].logo).toBe(url);
+		await saveLocationInfo('loc', fd({ ...blank, logo: '' }));
+		expect(update.mock.calls[1][1].logo).toBeNull();
+		await saveLocationInfo('loc', fd(blank));
+		expect('logo' in update.mock.calls[2][1]).toBe(false);
+		expect(await saveLocationInfo('loc', fd({ ...blank, logo: 'https://evil.test/x.png' }))).toMatchObject({ status: 400 });
+	});
+
 	it('answers 404 for a location that is gone', async () => {
 		update.mockResolvedValue(null);
 		expect(await saveLocationInfo('loc', fd(blank))).toMatchObject({ status: 404 });

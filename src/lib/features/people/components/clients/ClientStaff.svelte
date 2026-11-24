@@ -5,7 +5,7 @@
 	import Hint from '$dtss/Hint.svelte';
 	import Section from '$dtss/Section.svelte';
 	import ImpersonateButton from '$lib/components/admin/ImpersonateButton.svelte';
-	import InviteStaffDialog from '$lib/components/dialogs/inviteStaffDialog.svelte';
+	import InviteStaffDialog from '$features/settings/components/InviteStaffDialog.svelte';
 	import StaffLocationsDialog from '$lib/components/dialogs/staffLocationsDialog.svelte';
 	import PendingInvitesTable from '$lib/components/PendingInvitesTable.svelte';
 	import StaffDetailsDialog from '../staff/StaffDetailsDialog.svelte';
@@ -96,8 +96,7 @@
 		bind:open={inviteOpen}
 		action="?/inviteStaff"
 		{locations}
-		dialogTitle="Invite staff for {companyName}"
-		dialogDescription="An invite email goes out with a sign-up link tied to the primary location you pick. You can add more locations after they accept."
+		description="Each person gets an email invite to set up their own sign-in for {companyName}."
 	/>
 {/if}
 {#if manage}

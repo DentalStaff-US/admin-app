@@ -1,11 +1,15 @@
+<script module lang="ts">
+	import type { CLIENT_STAFF_ROLES as Roles } from '$lib/config/constants';
+
+	export type Invitee = { email: string; staffRole: keyof typeof Roles };
+</script>
+
 <script lang="ts">
 	import { Plus, X } from 'lucide-svelte';
 	import { CLIENT_STAFF_ROLES, STAFF_ROLE_ENUM } from '$lib/config/constants';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import * as Select from '$lib/components/ui/select';
-
-	export type Invitee = { email: string; staffRole: keyof typeof CLIENT_STAFF_ROLES };
 
 	// The invitee list behind the staff-invite forms (settings › Team and
 	// onboarding › Staff). Both post the list as hidden fields and as JSON.

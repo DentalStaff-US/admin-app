@@ -83,6 +83,8 @@ export function staffForTab<T extends StaffRow>(rows: readonly T[], tab: StaffTa
 export type LocationRow = {
 	id: string;
 	location_name: string;
+	/** The location's own avatar; null shows the practice's. */
+	logo?: string | null;
 	complete_address: string | null;
 	city?: string | null;
 	state?: string | null;
@@ -91,6 +93,29 @@ export type LocationRow = {
 	email?: string | null;
 	website?: string | null;
 };
+
+/** A location as the detail pages load it → the row the edit dialog takes. */
+export function locationRowOf(l: {
+	id: string;
+	name: string;
+	logo?: string | null;
+	completeAddress?: string | null;
+	companyPhone?: string | null;
+	cellPhone?: string | null;
+	email?: string | null;
+	website?: string | null;
+}): LocationRow {
+	return {
+		id: l.id,
+		location_name: l.name,
+		logo: l.logo ?? null,
+		complete_address: l.completeAddress ?? null,
+		company_phone: l.companyPhone ?? null,
+		cell_phone: l.cellPhone ?? null,
+		email: l.email ?? null,
+		website: l.website ?? null
+	};
+}
 
 /** `?sortOn=&sortBy=` (the locations list's own URL contract) → a DataTable sort. */
 export function readLocationSort(url: URL): { column: string; direction: 'asc' | 'desc' } | undefined {
