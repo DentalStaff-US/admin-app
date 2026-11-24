@@ -3,4 +3,7 @@ export { default as ConversationList } from './components/ConversationList.svelt
 export { default as ConversationThread } from './components/ConversationThread.svelte';
 export { default as NewConversationDialog } from './components/NewConversationDialog.svelte';
 export { default as InboxPlaceholder } from './components/InboxPlaceholder.svelte';
+export { default as ConversationLogTable } from './components/ConversationLogTable.svelte';
+export { default as ConversationTranscript } from './components/ConversationTranscript.svelte';
 export * from './inbox';
+export * from './conversationLog';

@@ -8,14 +8,16 @@ import { startPracticeConversation } from '$lib/server/inbox/practiceConversatio
 import { authenticateUser } from '$lib/server/serverUtils';
 import { logger } from '$lib/server/logger';
 
-const bodySchema = z.object({
-	timesheetId: z.string().min(1),
-	body: z.string().trim().min(1).max(5000)
-});
+const messageBody = z.string().trim().min(1).max(5000);
+const bodySchema = z.union([
+	z.object({ timesheetId: z.string().min(1), body: messageBody }),
+	z.object({ workdayId: z.string().min(1), body: messageBody })
+]);
 
 /**
- * A professional messages a practice from one of their timesheets. Opens a
- * conversation, or posts into the one they already have with that practice.
+ * A professional messages a practice from one of their timesheets or claimed
+ * shifts. Opens a conversation, or posts into the one they already have with
+ * that practice.
  */
 export const POST: RequestHandler = async ({ request }) => {
 	try {
@@ -33,7 +35,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		const result = await startPracticeConversation({
 			userId: user.id,
 			candidateId: candidate.id,
-			timesheetId: parsed.data.timesheetId,
+			link:
+				'timesheetId' in parsed.data
+					? { timesheetId: parsed.data.timesheetId }
+					: { workdayId: parsed.data.workdayId },
 			body: parsed.data.body
 		});
 		if (!result.ok) throw error(result.status, result.message);

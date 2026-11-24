@@ -48,6 +48,7 @@ const TITLES: Record<string, string> = {
 	'/admin/menu/affiliates': 'Affiliate Program',
 	'/admin/menu/exports': 'Exports',
 	'/admin/menu/application-settings': 'Application Settings',
+	'/admin/menu/conversations': 'Conversation Log',
 	'/admin/menu/blacklists': 'Candidate Blacklists',
 	'/admin/menu/disciplines': 'Disciplines',
 	'/admin/menu/documents': 'Documents',

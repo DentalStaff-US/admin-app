@@ -548,6 +548,21 @@ export class InboxService {
 			);
 	}
 
+	async isActiveParticipant(conversationId: string, userId: string): Promise<boolean> {
+		const [row] = await db
+			.select({ userId: conversationParticipantsTable.userId })
+			.from(conversationParticipantsTable)
+			.where(
+				and(
+					eq(conversationParticipantsTable.conversationId, conversationId),
+					eq(conversationParticipantsTable.userId, userId),
+					eq(conversationParticipantsTable.isActive, true)
+				)
+			)
+			.limit(1);
+		return !!row;
+	}
+
 	async getUnreadCount(conversationId: string, userId: string): Promise<number> {
 		const [participant] = await db
 			.select({ lastRead: conversationParticipantsTable.latestMessageId })

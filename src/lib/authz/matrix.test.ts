@@ -28,6 +28,7 @@ const ROWS: [string, Permission[], boolean][] = [
 	['Ban or delete users, revoke sessions', ['users.ban', 'users.delete', 'sessions.revoke'], false],
 	['Switch a user between practice and professional', ['users.changeRole'], false],
 	['Impersonate', ['users.impersonate'], false],
+	['Conversation log: read others’ threads', ['inbox.monitor'], false],
 	['Manage admins and roles', ['admins.manage'], false],
 	['Audit log (record-history)', ['audit.read'], true],
 	['Bulk PII exports, user import', ['exports.run', 'users.import'], false],

@@ -1,6 +1,6 @@
 import { newMessageSchema } from '$lib/config/zod-schemas';
 import { InboxService, sendMessageSchema, type SendMessageParams } from '$lib/server/inbox';
-import { fail, isRedirect, redirect, type RequestEvent } from '@sveltejs/kit';
+import { error as httpError, fail, isRedirect, redirect, type RequestEvent } from '@sveltejs/kit';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import type { PageServerLoad } from './$types';
@@ -18,6 +18,11 @@ export const load: PageServerLoad = async (event) => {
 
 	const form = await superValidate(event, newMessageSchema);
 	const inboxService = new InboxService();
+	// Participants only, as in the professional app's API. DTSS reads other
+	// people's threads through the conversation log, which records it.
+	if (!(await inboxService.isActiveParticipant(chatId, user.id))) {
+		httpError(404, 'Conversation not found');
+	}
 	const conversation = await inboxService.getConversationDetails(chatId, user.id);
 
 	const lastMessage = conversation.messages[conversation.messages.length - 1];
@@ -105,11 +110,16 @@ export const actions = {
 			});
 		}
 		const inboxService = new InboxService();
+		const user = event.locals.user;
+		if (!user) redirect(301, '/auth/sign-in');
+		if (!(await inboxService.isActiveParticipant(chatId, user.id))) {
+			httpError(404, 'Conversation not found');
+		}
 		try {
 			const newMessageData: SendMessageParams = {
 				conversationId: chatId,
 				body: form.data.body,
-				senderId: event.locals.user!.id,
+				senderId: user.id,
 				isSystemMessage: form.data.isSystemMessage
 			};
 			await inboxService.sendMessage(newMessageData);

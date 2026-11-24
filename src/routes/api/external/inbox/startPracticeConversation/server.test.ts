@@ -49,9 +49,20 @@ describe('POST /api/external/inbox/startPracticeConversation', () => {
 		expect(start).toHaveBeenCalledWith({
 			userId: 'u-pro',
 			candidateId: 'c-pro',
-			timesheetId: 'ts-1',
+			link: { timesheetId: 'ts-1' },
 			body: 'Hi there'
 		});
+	});
+
+	it('also starts from a claimed shift, and needs one or the other', async () => {
+		start.mockResolvedValue({ ok: true, conversationId: 'conv-2', created: true });
+		await send({ workdayId: 'wd-1', body: 'Where do I park?' });
+		expect(start).toHaveBeenCalledWith(
+			expect.objectContaining({ link: { workdayId: 'wd-1' }, body: 'Where do I park?' })
+		);
+		start.mockClear();
+		expect(await statusOf(send({ body: 'hi' }))).toBe(400);
+		expect(start).not.toHaveBeenCalled();
 	});
 
 	it('passes through not-found and blocked refusals', async () => {

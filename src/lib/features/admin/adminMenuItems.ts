@@ -11,6 +11,7 @@ import {
 	History,
 	LifeBuoy,
 	Megaphone,
+	MessagesSquare,
 	Settings2,
 	Shield,
 	ShieldCheck,
@@ -43,6 +44,7 @@ export const ADMIN_MENU_ITEMS: AdminMenuItem<typeof Shield>[] = [
 	// Communication
 	{ area: 'Communication', label: 'Mass notifications', href: '/admin/menu/mass-notifications', permission: 'comms.massSend', icon: Megaphone, description: 'Email and SMS campaigns to chosen audiences.' },
 	{ area: 'Communication', label: 'Support tickets', href: '/support', permission: 'support.manage', icon: LifeBuoy, description: 'Questions and problems raised by users.' },
+	{ area: 'Communication', label: 'Conversation log', href: '/admin/menu/conversations', permission: 'inbox.monitor', icon: MessagesSquare, description: 'Read message threads with practices and professionals.' },
 
 	// Data
 	{ area: 'Data', label: 'Requisitions', href: '/requisitions', permission: 'requisitions.manage', icon: Briefcase, description: 'Every temp and permanent requisition.' },

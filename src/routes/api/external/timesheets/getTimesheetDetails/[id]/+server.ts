@@ -56,6 +56,7 @@ export const GET: RequestHandler = async ({ params, request }) => {
 					hoursRaw: timeSheetTable.hoursRaw,
 					hourlyRate: requisitionTable.hourlyRate,
 					status: timeSheetTable.status,
+					wagesStatus: timeSheetTable.wagesStatus,
 					discrepancyNote: timeSheetTable.discrepancyNote
 				},
 				requisition: {

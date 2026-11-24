@@ -1,4 +1,4 @@
-import { and, desc, eq, or } from 'drizzle-orm';
+import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import { candidateBlacklistTable } from '$lib/server/database/schemas/candidate';
 import { clientCompanyTable, clientProfileTable } from '$lib/server/database/schemas/client';
@@ -9,7 +9,8 @@ import {
 import {
 	requisitionApplicationTable,
 	requisitionTable,
-	timeSheetTable
+	timeSheetTable,
+	workdayTable
 } from '$lib/server/database/schemas/requisition';
 import { InboxService } from './service';
 
@@ -82,9 +83,48 @@ export type StartPracticeConversationResult =
 	| { ok: true; conversationId: string; created: boolean }
 	| { ok: false; status: 403 | 404; message: string };
 
+/** What ties the professional to the practice: their timesheet, or a shift they hold. */
+export type PracticeLink = { timesheetId: string } | { workdayId: string };
+
+/** The practice behind a timesheet or claimed shift, only when it's this professional's. */
+async function practiceFor(candidateId: string, link: PracticeLink) {
+	const practice = { companyId: requisitionTable.companyId, ownerUserId: clientProfileTable.userId };
+	const [row] =
+		'timesheetId' in link
+			? await db
+					.select(practice)
+					.from(timeSheetTable)
+					.innerJoin(requisitionTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
+					.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
+					.innerJoin(clientProfileTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
+					.where(
+						and(
+							eq(timeSheetTable.id, link.timesheetId),
+							eq(timeSheetTable.associatedCandidateId, candidateId)
+						)
+					)
+					.limit(1)
+			: await db
+					.select(practice)
+					.from(workdayTable)
+					.innerJoin(requisitionTable, eq(workdayTable.requisitionId, requisitionTable.id))
+					.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
+					.innerJoin(clientProfileTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
+					.where(
+						and(
+							eq(workdayTable.id, link.workdayId),
+							eq(workdayTable.candidateId, candidateId),
+							// A cancelled shift is no longer theirs.
+							isNull(workdayTable.cancelledAt)
+						)
+					)
+					.limit(1);
+	return row ?? null;
+}
+
 /**
- * A professional messages a practice they've worked for. Having a timesheet
- * with the practice is the proof of a working relationship, so the timesheet
+ * A professional messages a practice they've worked for or claimed a shift
+ * with. Their timesheet or their shift is the proof of the relationship, so it
  * must be theirs. Reuses an existing thread rather than opening a second one.
  * The practice owner is the other participant, matching how practices start
  * application threads.
@@ -92,33 +132,29 @@ export type StartPracticeConversationResult =
 export async function startPracticeConversation({
 	userId,
 	candidateId,
-	timesheetId,
+	link,
 	body
 }: {
 	userId: string;
 	candidateId: string;
-	timesheetId: string;
+	link: PracticeLink;
 	body: string;
 }): Promise<StartPracticeConversationResult> {
-	const [sheet] = await db
-		.select({ companyId: requisitionTable.companyId, ownerUserId: clientProfileTable.userId })
-		.from(timeSheetTable)
-		.innerJoin(requisitionTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
-		.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
-		.innerJoin(clientProfileTable, eq(clientCompanyTable.clientId, clientProfileTable.id))
-		.where(
-			and(eq(timeSheetTable.id, timesheetId), eq(timeSheetTable.associatedCandidateId, candidateId))
-		)
-		.limit(1);
+	const practice = await practiceFor(candidateId, link);
+	if (!practice?.companyId) {
+		return {
+			ok: false,
+			status: 404,
+			message: 'timesheetId' in link ? 'Timesheet not found' : 'Shift not found'
+		};
+	}
 
-	if (!sheet?.companyId) return { ok: false, status: 404, message: 'Timesheet not found' };
-
-	if (await isBlockedFromPractice({ candidateId, companyId: sheet.companyId })) {
+	if (await isBlockedFromPractice({ candidateId, companyId: practice.companyId })) {
 		return { ok: false, status: 403, message: "You can't message this practice" };
 	}
 
 	const inbox = new InboxService();
-	const existing = await findPracticeConversationId({ userId, companyId: sheet.companyId });
+	const existing = await findPracticeConversationId({ userId, companyId: practice.companyId });
 	if (existing) {
 		await inbox.sendMessage({ conversationId: existing, senderId: userId, body });
 		return { ok: true, conversationId: existing, created: false };
@@ -126,11 +162,11 @@ export async function startPracticeConversation({
 
 	const conversationId = await inbox.createConversation({
 		type: 'CLIENT_CANDIDATE',
-		companyId: sheet.companyId,
+		companyId: practice.companyId,
 		// The sender first: createConversation posts the initial message as them.
 		participants: [
 			{ userId, participantType: 'CANDIDATE' },
-			{ userId: sheet.ownerUserId, participantType: 'CLIENT' }
+			{ userId: practice.ownerUserId, participantType: 'CLIENT' }
 		],
 		initialMessage: body
 	});

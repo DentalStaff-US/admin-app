@@ -45,7 +45,8 @@ export const AUDIT_ENTITY_TYPES = [
 	'SUPPORT_TICKETS',
 	'CANDIDATES',
 	'USERS',
-	'SIGNATURE_REQUESTS'
+	'SIGNATURE_REQUESTS',
+	'CONVERSATIONS'
 ] as const;
 export type AuditEntityType = (typeof AUDIT_ENTITY_TYPES)[number];
 
@@ -103,7 +104,8 @@ export const ENTITY_LABELS: Record<AuditEntityType, string> = {
 	SUPPORT_TICKETS: 'support ticket',
 	CANDIDATES: 'professional',
 	USERS: 'user',
-	SIGNATURE_REQUESTS: 'signature request'
+	SIGNATURE_REQUESTS: 'signature request',
+	CONVERSATIONS: 'conversation'
 };
 
 export const SOURCE_LABELS: Record<AuditSource, string> = {

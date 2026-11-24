@@ -13,10 +13,13 @@ import {
 } from '$lib/server/database/schemas/requisition';
 import {
 	clientCompanyTable,
-	clientProfileTable,
 	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
+import {
+	findPracticeConversationId,
+	isBlockedFromPractice
+} from '$lib/server/inbox/practiceConversation';
 
 const corsHeaders = {
 	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
@@ -63,15 +66,22 @@ export const GET: RequestHandler = async ({ request, params }) => {
 		.select({
 			workday: { ...workdayTable },
 			recurrenceDay: { ...recurrenceDayTable },
-			timesheet: { ...timeSheetTable },
+			// The professional's own sheet for this shift, and only what the page needs:
+			// the full row carries admin fee columns.
+			timesheet: {
+				id: timeSheetTable.id,
+				status: timeSheetTable.status,
+				totalHoursWorked: timeSheetTable.totalHoursWorked
+			},
 			requisition: {
 				...requisitionTable,
 				companyName: clientCompanyTable.companyName,
 				disciplineName: disciplineTable.name
 			},
-			client: {
-				...clientProfileTable,
-				...clientCompanyTable
+			company: {
+				id: clientCompanyTable.id,
+				name: clientCompanyTable.companyName,
+				logo: clientCompanyTable.companyLogo
 			},
 			location: {
 				...companyOfficeLocationTable
@@ -80,14 +90,13 @@ export const GET: RequestHandler = async ({ request, params }) => {
 		.from(workdayTable)
 		.innerJoin(requisitionTable, eq(requisitionTable.id, workdayTable.requisitionId))
 		.innerJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
-		.leftJoin(timeSheetTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
+		.leftJoin(timeSheetTable, eq(timeSheetTable.id, workdayTable.timesheetId))
 		.innerJoin(recurrenceDayTable, eq(recurrenceDayTable.id, workdayTable.recurrenceDayId))
 		.innerJoin(
 			companyOfficeLocationTable,
 			eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 		)
 		.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
-		.innerJoin(clientProfileTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
 		.where(and(eq(workdayTable.id, id), eq(workdayTable.candidateId, candidateProfile.id)));
 
 	if (!workday) {
@@ -110,5 +119,21 @@ export const GET: RequestHandler = async ({ request, params }) => {
 		}
 	});
 
-	return json({ success: true, data: workday }, { headers: corsHeaders });
+	// Claiming the shift is what opens the line to the practice.
+	const [conversationId, practiceBlocked] = await Promise.all([
+		findPracticeConversationId({ userId: user.id, companyId: workday.company.id }),
+		isBlockedFromPractice({ candidateId: candidateProfile.id, companyId: workday.company.id })
+	]);
+
+	return json(
+		{
+			success: true,
+			data: {
+				...workday,
+				conversationId,
+				canMessagePractice: !practiceBlocked && !workday.workday.cancelledAt
+			}
+		},
+		{ headers: corsHeaders }
+	);
 };

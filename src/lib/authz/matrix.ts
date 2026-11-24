@@ -73,6 +73,8 @@ export const SUPERADMIN_ONLY = [
 	/** Bulk PII exports and CSV user import. */
 	'exports.run',
 	'users.import',
+	/** Read other people's message threads (read-only; every open is recorded). */
+	'inbox.monitor',
 	/** Mass notifications, SMS and email tools. */
 	'comms.massSend',
 	/** Reference data and app settings: skills, disciplines, experience levels, fees. */
