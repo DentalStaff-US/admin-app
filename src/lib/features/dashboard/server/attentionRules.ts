@@ -7,9 +7,10 @@ import { KIND_META } from '../attention';
 import {
 	daysPast,
 	formatAge,
-	formatDateOnly,
 	formatMoney,
 	formatTimeRange,
+	formatWeek,
+	fullName,
 	plural,
 	relativeDay,
 	shortName
@@ -70,11 +71,11 @@ function hours(value: string | number | null): string {
 }
 
 export function discrepancyItem(row: TimesheetRow): AttentionItem {
-	const who = shortName(row.candidateFirstName, row.candidateLastName);
+	const who = fullName(row.candidateFirstName, row.candidateLastName);
 	return {
 		...base('TIMESHEET_DISCREPANCY', row.id),
-		title: `Timesheet discrepancy · ${who}`,
-		detail: [row.companyName, `wk ${formatDateOnly(row.weekBeginDate, 'MMM d')}`, hours(row.totalHoursWorked)]
+		title: `Timesheet discrepancy · ${who} · ${formatWeek(row.weekBeginDate)}`,
+		detail: [row.companyName, row.disciplineName, hours(row.totalHoursWorked)]
 			.filter(Boolean)
 			.join(' · '),
 		since: row.since,
@@ -96,13 +97,13 @@ export type PendingTimesheetOptions = {
  * discrepancy by definition, so it can be approved inline (10 §3.1).
  */
 export function pendingTimesheetItem(row: TimesheetRow, opts: PendingTimesheetOptions): AttentionItem {
-	const who = shortName(row.candidateFirstName, row.candidateLastName);
-	const week = formatDateOnly(row.weekBeginDate, 'MMM d');
+	const who = fullName(row.candidateFirstName, row.candidateLastName);
+	const week = formatWeek(row.weekBeginDate);
 	const h = hours(row.totalHoursWorked);
-	const parts = opts.audience === 'admin' ? [row.companyName, `wk ${week}`, h] : [row.disciplineName, `wk ${week}`, h];
+	const parts = opts.audience === 'admin' ? [row.companyName, row.disciplineName, h] : [row.disciplineName, h];
 	const item: AttentionItem = {
 		...base('TIMESHEET_PENDING', row.id),
-		title: `Timesheet · ${who}`,
+		title: `Timesheet · ${who} · ${week}`,
 		detail: parts.filter(Boolean).join(' · '),
 		since: row.since,
 		href: `/timesheets/${row.id}`,
@@ -118,7 +119,7 @@ export function pendingTimesheetItem(row: TimesheetRow, opts: PendingTimesheetOp
 				fields: { timesheetId: row.id },
 				confirm: {
 					title: `Approve ${who}'s hours?`,
-					description: `${h} for the week of ${week}${row.companyName && opts.audience === 'admin' ? ` at ${row.companyName}` : ''} will be locked and added to this week's invoice.`,
+					description: `${h} for ${week}${row.companyName && opts.audience === 'admin' ? ` at ${row.companyName}` : ''} will be locked and added to this week's invoice.`,
 					confirmLabel: 'Approve hours'
 				}
 			}
@@ -144,7 +145,19 @@ export type InvoiceRow = {
 	/** client_profiles.client_invoice_method. PAPER overrides a live Stripe customer. */
 	invoiceMethod?: string | null;
 	locationName?: string | null;
+	/** The timesheet it bills, when it bills one. */
+	candidateFirstName?: string | null;
+	candidateLastName?: string | null;
+	weekBeginDate?: string | null;
 };
+
+/** Whose hours and which week, matching the timesheet's own title. */
+function invoiceFor(row: InvoiceRow): string[] {
+	const who = [row.candidateFirstName, row.candidateLastName].some(Boolean)
+		? [fullName(row.candidateFirstName, row.candidateLastName)]
+		: [];
+	return row.weekBeginDate ? [...who, formatWeek(row.weekBeginDate)] : who;
+}
 
 function payAction(row: InvoiceRow) {
 	// A PAPER client never gets a Stripe pay link, even if one exists.
@@ -159,7 +172,11 @@ export function overdueInvoiceItem(row: InvoiceRow, audience: Audience, now: Dat
 	const amount = formatMoney(Number(row.amountRemaining ?? 0));
 	return {
 		...base('INVOICE_OVERDUE', row.id),
-		title: audience === 'admin' ? `Invoice #${row.invoiceNumber} overdue · ${row.companyName ?? 'Unknown practice'}` : `Invoice #${row.invoiceNumber} · overdue`,
+		title: [
+			`Invoice #${row.invoiceNumber} overdue`,
+			...(audience === 'admin' ? [row.companyName ?? 'Unknown practice'] : []),
+			...invoiceFor(row)
+		].join(' · '),
 		detail: `${amount} · ${plural(late, 'day')} past due`,
 		since: row.dueDate ?? row.createdAt,
 		dueAt: row.dueDate,
@@ -174,7 +191,7 @@ export function dueInvoiceItem(row: InvoiceRow, now: Date = new Date()): Attenti
 	const when = inDays === null ? 'no due date' : inDays === 0 ? 'due today' : `due in ${plural(inDays, 'day')}`;
 	return {
 		...base('INVOICE_DUE', row.id),
-		title: `Invoice #${row.invoiceNumber}`,
+		title: [`Invoice #${row.invoiceNumber}`, ...invoiceFor(row)].join(' · '),
 		detail: `${formatMoney(Number(row.amountRemaining ?? 0))} · ${when}`,
 		since: row.createdAt,
 		dueAt: row.dueDate,

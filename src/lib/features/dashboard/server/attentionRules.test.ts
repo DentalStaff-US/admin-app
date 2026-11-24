@@ -51,7 +51,8 @@ describe('pendingTimesheetItem', () => {
 		const i = pendingTimesheetItem(sheet, { audience: 'practice', canApprove: true });
 		expect(i.action.form?.action).toBe('?/approveTimesheet');
 		expect(i.action.form?.fields).toEqual({ timesheetId: 'ts1' });
-		expect(i.action.form?.confirm?.title).toBe("Approve M. Chen's hours?");
+		expect(i.action.form?.confirm?.title).toBe("Approve Maria Chen's hours?");
+		expect(i.title).toBe('Timesheet · Maria Chen · Nov 1–7');
 		expect(i.secondary?.href).toBe('/timesheets/ts1');
 	});
 
@@ -76,6 +77,7 @@ describe('invoices', () => {
 
 	it('offers the Stripe pay link to Stripe-billed practices', () => {
 		const i = dueInvoiceItem({ ...row, invoiceMethod: 'STRIPE' }, NOW);
+		expect(i.title).toBe('Invoice #1043'); // not for a timesheet
 		expect(i.detail).toBe('$820.00 · due in 3 days');
 		expect(i.action).toMatchObject({ label: 'Pay invoice', external: true });
 	});
@@ -88,6 +90,13 @@ describe('invoices', () => {
 	it('says how late an overdue invoice is', () => {
 		const i = overdueInvoiceItem({ ...row, dueDate: new Date('2026-10-20T15:00:00Z'), companyName: 'Coastal Dental' }, 'admin', NOW);
 		expect(i.title).toBe('Invoice #1043 overdue · Coastal Dental');
+		expect(
+			overdueInvoiceItem(
+				{ ...row, companyName: 'Coastal Dental', candidateFirstName: 'Maria', candidateLastName: 'Chen', weekBeginDate: '2026-11-01' },
+				'admin',
+				NOW
+			).title
+		).toBe('Invoice #1043 overdue · Coastal Dental · Maria Chen · Nov 1–7');
 		expect(i.detail).toBe('$820.00 · 21 days past due');
 	});
 });

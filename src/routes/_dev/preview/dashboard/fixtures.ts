@@ -246,8 +246,8 @@ export function practiceGroups(scope: DashboardScope): AttentionGroup[] {
 	];
 	if (scope.can.viewBilling) {
 		groups.push(
-			g('INVOICE_DUE', [dueInvoiceItem({ id: 'i2', invoiceNumber: 'INV-1043', amountRemaining: '820.00', dueDate: d(3), createdAt: d(-27), companyName: null, hostedUrl: 'https://invoice.stripe.com/example', invoiceMethod: 'STRIPE' }, NOW)]),
-			g('INVOICE_OVERDUE', [overdueInvoiceItem({ id: 'i1', invoiceNumber: 'INV-1031', amountRemaining: '1560.00', dueDate: d(-4), createdAt: d(-34), companyName: null, hostedUrl: null, invoiceMethod: 'STRIPE' }, 'practice', NOW)])
+			g('INVOICE_DUE', [dueInvoiceItem({ id: 'i2', invoiceNumber: 'INV-1043', amountRemaining: '820.00', dueDate: d(3), createdAt: d(-27), companyName: null, candidateFirstName: 'Maria', candidateLastName: 'Chen', weekBeginDate: '2026-10-18', hostedUrl: 'https://invoice.stripe.com/example', invoiceMethod: 'STRIPE' }, NOW)]),
+			g('INVOICE_OVERDUE', [overdueInvoiceItem({ id: 'i1', invoiceNumber: 'INV-1031', amountRemaining: '1560.00', dueDate: d(-4), createdAt: d(-34), companyName: null, candidateFirstName: 'Maria', candidateLastName: 'Chen', weekBeginDate: '2026-10-18', hostedUrl: null, invoiceMethod: 'STRIPE' }, 'practice', NOW)])
 		);
 	}
 	if (scope.can.manageStaff) {

@@ -7,6 +7,7 @@
 import { and, asc, count, eq, gte, inArray, lt, notExists, sql, type SQL } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import { userTable } from '$lib/server/database/schemas/auth';
+import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { clientStaffLocationTable, clientStaffProfileTable } from '$lib/server/database/schemas/client';
 import {
 	invoiceTable,
@@ -29,6 +30,8 @@ import {
 import {
 	FETCH_PER_KIND,
 	group,
+	invoiceForFields,
+	invoiceForJoins,
 	permApplicantCount,
 	permApplicantRows,
 	permApplicantsWhere,
@@ -50,6 +53,9 @@ type InvoiceQueueRow = {
 	dueDate: Date | null;
 	createdAt: Date | null;
 	hostedUrl: string | null;
+	candidateFirstName: string | null;
+	candidateLastName: string | null;
+	weekBeginDate: string | null;
 };
 
 /** Location condition on the requisition behind a row; false when the scope covers nothing. */
@@ -131,9 +137,13 @@ function invoiceGroup(
 							amountRemaining: invoiceTable.amountRemaining,
 							dueDate: invoiceTable.dueDate,
 							createdAt: invoiceTable.createdAt,
-							hostedUrl: invoiceTable.stripeHostedUrl
+							hostedUrl: invoiceTable.stripeHostedUrl,
+							...invoiceForFields
 						})
-						.from(invoiceTable);
+						.from(invoiceTable)
+						.leftJoin(timeSheetTable, invoiceForJoins.timesheet)
+						.leftJoin(candidateProfileTable, invoiceForJoins.candidate)
+						.leftJoin(userTable, invoiceForJoins.user);
 					return (scoped ? q.leftJoin(requisitionTable, eq(requisitionTable.id, invoiceTable.requisitionId)) : q)
 						.where(where)
 						.orderBy(asc(invoiceTable.dueDate))

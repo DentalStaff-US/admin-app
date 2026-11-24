@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { failed, ok } from './types';
-import { formatAge, formatDuration, formatMetric, formatMoneyTile, percentChange, shortName } from './format';
+import { formatAge, formatDuration, formatMetric, formatMoneyTile, formatWeek, fullName, percentChange, shortName } from './format';
 
 describe('formatMoneyTile', () => {
 	it('uses whole dollars below $10k and compacts above', () => {
@@ -51,5 +51,21 @@ describe('shortName', () => {
 	it('abbreviates the first name', () => {
 		expect(shortName('Maria', 'Chen')).toBe('M. Chen');
 		expect(shortName(null, null)).toBe('Unknown');
+	});
+});
+
+describe('formatWeek', () => {
+	it('shortens within a month and spells out across one', () => {
+		expect(formatWeek('2026-11-01')).toBe('Nov 1–7');
+		expect(formatWeek('2026-10-29')).toBe('Oct 29–Nov 4');
+		expect(formatWeek('2026-12-27')).toBe('Dec 27–Jan 2');
+	});
+});
+
+describe('fullName', () => {
+	it('joins what there is', () => {
+		expect(fullName('Maria', 'Chen')).toBe('Maria Chen');
+		expect(fullName(null, 'Chen')).toBe('Chen');
+		expect(fullName(' ', null)).toBe('Unknown');
 	});
 });

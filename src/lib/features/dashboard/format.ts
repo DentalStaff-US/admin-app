@@ -107,6 +107,20 @@ export function plural(n: number, one: string, many = `${one}s`): string {
 	return `${n} ${n === 1 ? one : many}`;
 }
 
+/** "Maria Chen", or "Unknown". */
+export function fullName(first: string | null | undefined, last: string | null | undefined): string {
+	return [first, last].map((n) => (n ?? '').trim()).filter(Boolean).join(' ') || 'Unknown';
+}
+
+/** The seven days from a week's first date: "Nov 1–7", "Oct 29–Nov 4". */
+export function formatWeek(weekBeginDate: string): string {
+	const end = new Date(`${weekBeginDate}T12:00:00Z`);
+	end.setUTCDate(end.getUTCDate() + 6);
+	const endDate = end.toISOString().slice(0, 10);
+	const sameMonth = weekBeginDate.slice(0, 7) === endDate.slice(0, 7);
+	return `${formatDateOnly(weekBeginDate, 'MMM d')}–${formatDateOnly(endDate, sameMonth ? 'd' : 'MMM d')}`;
+}
+
 /** "M. Chen" from first/last name. */
 export function shortName(first: string | null | undefined, last: string | null | undefined): string {
 	const f = (first ?? '').trim();

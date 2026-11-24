@@ -6,7 +6,7 @@
  * Every function takes the DashboardScope as a required argument (10 §4.2 rule 1).
  * The admin kinds require `kind: 'all'`; practices use practiceAttention.ts.
  */
-import { and, asc, count, countDistinct, eq, gt, lt, min, ne, notInArray, sql, type AnyColumn, type SQL } from 'drizzle-orm';
+import { and, asc, count, countDistinct, eq, getTableName, gt, lt, min, ne, notInArray, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import db from '$lib/server/database/drizzle';
 import { userTable } from '$lib/server/database/schemas/auth';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
@@ -66,8 +66,25 @@ function requireAll(scope: DashboardScope) {
 }
 
 /** Company name for a client profile without fanning out on the non-unique client_id. */
-export const companyNameForClient = (clientIdColumn: AnyColumn) =>
-	sql<string | null>`(select ${clientCompanyTable.companyName} from ${clientCompanyTable} where ${clientCompanyTable.clientId} = ${clientIdColumn} limit 1)`;
+export const companyNameForClient = (clientIdColumn: AnyColumn) => {
+	// Qualified by hand: Drizzle drops table names in a single-table select, which
+	// turned this into client_id = client_id and returned an arbitrary practice.
+	const outer = sql`${sql.identifier(getTableName(clientIdColumn.table))}.${sql.identifier(clientIdColumn.name)}`;
+	return sql<string | null>`(select cc.company_name from client_companies cc where cc.client_id = ${outer} order by cc.created_at limit 1)`;
+};
+
+/** Whose hours an invoice bills and for which week; nulls when it isn't a timesheet's. */
+export const invoiceForFields = {
+	candidateFirstName: userTable.firstName,
+	candidateLastName: userTable.lastName,
+	weekBeginDate: timeSheetTable.weekBeginDate
+};
+/** One row each, so joining them never changes what a query counts or lists. */
+export const invoiceForJoins = {
+	timesheet: eq(timeSheetTable.id, invoiceTable.timesheetId),
+	candidate: sql`${candidateProfileTable.id} = coalesce(${invoiceTable.candidateId}, ${timeSheetTable.associatedCandidateId})`,
+	user: eq(userTable.id, candidateProfileTable.userId)
+};
 
 // --- UNFILLED_SOON -----------------------------------------------------------
 
@@ -192,9 +209,13 @@ export function overdueInvoices(scope: DashboardScope, now = new Date()) {
 					amountRemaining: invoiceTable.amountRemaining,
 					dueDate: invoiceTable.dueDate,
 					createdAt: invoiceTable.createdAt,
-					companyName: companyNameForClient(invoiceTable.clientId)
+					companyName: companyNameForClient(invoiceTable.clientId),
+					...invoiceForFields
 				})
 				.from(invoiceTable)
+				.leftJoin(timeSheetTable, invoiceForJoins.timesheet)
+				.leftJoin(candidateProfileTable, invoiceForJoins.candidate)
+				.leftJoin(userTable, invoiceForJoins.user)
 				.where(where)
 				.orderBy(asc(invoiceTable.dueDate))
 				.limit(FETCH_PER_KIND),
