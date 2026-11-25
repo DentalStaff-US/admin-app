@@ -71,7 +71,8 @@ export const GET: RequestHandler = async ({ request, params }) => {
 			timesheet: {
 				id: timeSheetTable.id,
 				status: timeSheetTable.status,
-				totalHoursWorked: timeSheetTable.totalHoursWorked
+				totalHoursWorked: timeSheetTable.totalHoursWorked,
+				adjustedHourlyRate: timeSheetTable.adjustedHourlyRate
 			},
 			requisition: {
 				...requisitionTable,

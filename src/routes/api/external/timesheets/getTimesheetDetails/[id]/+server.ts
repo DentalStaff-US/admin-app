@@ -55,6 +55,8 @@ export const GET: RequestHandler = async ({ params, request }) => {
 					weekBeginDate: timeSheetTable.weekBeginDate,
 					hoursRaw: timeSheetTable.hoursRaw,
 					hourlyRate: requisitionTable.hourlyRate,
+					// Set by an admin on this sheet; wins over the requisition's rate.
+					adjustedHourlyRate: timeSheetTable.adjustedHourlyRate,
 					status: timeSheetTable.status,
 					wagesStatus: timeSheetTable.wagesStatus,
 					discrepancyNote: timeSheetTable.discrepancyNote
