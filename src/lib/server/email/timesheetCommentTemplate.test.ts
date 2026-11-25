@@ -27,6 +27,17 @@ describe('timesheetCommentEmail', () => {
 		expect(t.textEmail).not.toMatch(/sent back|waiting for/);
 	});
 
+	it('a send-back says so, gives the reason and asks for a correction', () => {
+		const t = EMAIL_TEMPLATES.timesheetCommentEmail({ ...base, author: 'Al Kim (Bright Dental)', sentBack: true });
+		expect(t.subject).toContain('Sent back: Dana Reyes’s timesheet');
+		for (const part of [t.textEmail, t.htmlEmail]) {
+			for (const s of ['sent back Dana Reyes', 'for correction', 'Please check Tuesday.', 'resubmit', 'Review timesheet']) {
+				expect(part).toContain(s);
+			}
+			expect(part).not.toContain('commented on');
+		}
+	});
+
 	it('escapes what people typed and keeps the subject on one line', () => {
 		const t = EMAIL_TEMPLATES.timesheetCommentEmail({
 			...base,

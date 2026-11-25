@@ -71,6 +71,7 @@ import { writeActionHistory } from '$lib/server/database/queries/admin';
 import { recordAction, recordView } from '$lib/server/audit/audit';
 import { getActivityForEntity } from '$lib/server/audit/queries';
 import {
+	notifyAdminsOfTimesheetSentBack,
 	notifyInvoiceCreated,
 	notifyTimesheetComment,
 	notifyTimesheetSubmitted
@@ -873,6 +874,10 @@ export const actions = {
 
 		try {
 			await rejectTimesheet(id, user.id, discrepancyNote.trim());
+			// DTSS corrects and resubmits it, so tell them. An admin sending it back already knows.
+			if (!can(user, 'timesheets.approve')) {
+				await notifyAdminsOfTimesheetSentBack({ timesheetId: id, reason: discrepancyNote.trim(), sentBackBy: user });
+			}
 			setFlash({ type: 'success', message: 'Timesheet rejected' }, event);
 			return { success: true };
 		} catch (error) {
