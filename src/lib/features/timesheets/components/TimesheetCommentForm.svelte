@@ -40,14 +40,14 @@
 			<fieldset class="flex flex-wrap gap-x-5 gap-y-2 text-sm">
 				<legend class="sr-only">Who can see this comment</legend>
 				<label class="flex min-h-11 items-center gap-2 sm:min-h-0">
-					<input type="radio" name="visibility" value="SHARED" bind:group={visibility} class="size-4 text-primary" /> Share with the practice
+					<input type="radio" name="visibility" value="SHARED" bind:group={visibility} class="size-4 text-primary" /> Share with the practice and email them
 				</label>
 				<label class="flex min-h-11 items-center gap-2 sm:min-h-0">
 					<input type="radio" name="visibility" value="INTERNAL" bind:group={visibility} class="size-4 text-primary" /> DTSS only
 				</label>
 			</fieldset>
 		{:else}
-			<p class="text-sm text-muted-foreground">DTSS sees this. The professional doesn’t.</p>
+			<p class="text-sm text-muted-foreground">DTSS gets this by email. The professional doesn’t see it.</p>
 		{/if}
 		<Button type="submit" variant="outline" class="min-h-11 sm:min-h-10" disabled={busy || !text.trim()}>
 			{#if busy}<Loader2 class="mr-2 size-4 animate-spin" aria-hidden="true" />{/if}

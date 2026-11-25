@@ -3,7 +3,8 @@ import { can } from '$lib/authz';
 
 /**
  * Pure rules for the requisition comment thread, kept apart from the DB code so
- * the visibility/notification decisions are unit-tested.
+ * the visibility/notification decisions are unit-tested. Timesheet comments use
+ * the same recipient rule.
  */
 
 /** Only DTSS staff (requisitions.manage) may write an internal (client-hidden) note; anyone else's flag is ignored. */

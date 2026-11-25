@@ -10,6 +10,7 @@
 import { format, parseISO } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import { and, count, eq, inArray, ne } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { BASE_URL, CANDIDATE_APP_DOMAIN } from '$env/static/private';
 import db from '$lib/server/database/drizzle';
 import { sms } from '$lib/server/sms/smsService';
@@ -43,6 +44,7 @@ import { getUnavailabilityForCandidates } from '$lib/server/availability/queries
 import { selectNotifiableCandidates } from '$lib/server/availability/availability';
 import { wantsTempWork } from '$lib/server/workPreference';
 import { resolveBillingRecipient } from '$lib/server/billing/recipients';
+import { actionHistoryTable } from '$lib/server/database/schemas/admin';
 import { userTable } from '$lib/server/database/schemas/auth';
 import {
 	candidateProfileTable,
@@ -60,10 +62,12 @@ import { disciplineTable, experienceLevelTable } from '$lib/server/database/sche
 import {
 	clientCompanyTable,
 	clientProfileTable,
+	clientStaffProfileTable,
 	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
 import { APP_NAME, USER_ROLES } from '$lib/config/constants';
 import { recordAction } from '$lib/server/audit/audit';
+import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
 import { pickCommentRecipients } from '$lib/server/requisitions/commentRules';
 import type { AuditEntityType } from '$lib/audit/constants';
 import { STAFF_ROLES } from '$lib/authz';
@@ -1184,6 +1188,163 @@ export async function notifyTimesheetSubmitted(timesheetId: string, { comment }:
 	} catch (e) {
 		console.error('[transactional:timesheetSubmitted] top-level error:', e);
 	}
+}
+
+/**
+ * New comment in a timesheet's history — email the other side.
+ *
+ *   - DTSS-only comment → nobody.
+ *   - DTSS author       → the practice owner, plus staff who already acted or
+ *                         commented on this sheet and can still open it.
+ *   - practice author   → admins with receiveEmail=true.
+ *
+ * A resubmission's comment isn't sent here: it travels in the resubmission
+ * email. `commentId` is the COMMENT row in the ledger, which is the authority on
+ * whether it was shared. Never throws.
+ */
+export async function notifyTimesheetComment(commentId: string): Promise<void> {
+	const label = 'timesheetComment';
+	try {
+		const [comment] = await db
+			.select()
+			.from(actionHistoryTable)
+			.where(
+				and(
+					eq(actionHistoryTable.id, commentId),
+					eq(actionHistoryTable.entityType, 'TIMESHEETS'),
+					eq(actionHistoryTable.action, 'COMMENT')
+				)
+			)
+			.limit(1);
+		if (!comment?.userId) {
+			console.warn(`[transactional:${label}] aborted: comment ${commentId} not found`);
+			return;
+		}
+		// Only an explicit share leaves the building.
+		const body = comment.metadata?.comment;
+		if (comment.metadata?.visibility !== 'SHARED' || typeof body !== 'string') return;
+
+		const candidateUser = alias(userTable, 'candidate_user');
+		const [sheet] = await db
+			.select({
+				id: timeSheetTable.id,
+				status: timeSheetTable.status,
+				weekBeginDate: timeSheetTable.weekBeginDate,
+				clientId: timeSheetTable.associatedClientId,
+				owner: { userId: userTable.id, email: userTable.email, banned: userTable.banned },
+				professional: { firstName: candidateUser.firstName, lastName: candidateUser.lastName },
+				companyName: clientCompanyTable.companyName,
+				locationId: requisitionTable.locationId,
+				locationName: companyOfficeLocationTable.name
+			})
+			.from(timeSheetTable)
+			.innerJoin(clientProfileTable, eq(timeSheetTable.associatedClientId, clientProfileTable.id))
+			.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
+			.innerJoin(candidateProfileTable, eq(timeSheetTable.associatedCandidateId, candidateProfileTable.id))
+			.innerJoin(candidateUser, eq(candidateProfileTable.userId, candidateUser.id))
+			// Via the requisition, not client_id, which isn't unique on companies.
+			.leftJoin(requisitionTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
+			.leftJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
+			.leftJoin(companyOfficeLocationTable, eq(requisitionTable.locationId, companyOfficeLocationTable.id))
+			.where(eq(timeSheetTable.id, comment.entityId))
+			.limit(1);
+		if (!sheet) {
+			console.warn(`[transactional:${label}] aborted: timesheet ${comment.entityId} not found`);
+			return;
+		}
+
+		const authorIsAdmin = checkIsAdmin(comment.actorRole);
+		const recipients = pickCommentRecipients({
+			internal: false,
+			authorId: comment.userId,
+			authorIsAdmin,
+			owner: sheet.owner.banned ? null : sheet.owner,
+			clientCommenters: authorIsAdmin
+				? await getTimesheetStaffParticipants(sheet.id, sheet.clientId, sheet.locationId)
+				: [],
+			adminEmails: authorIsAdmin
+				? []
+				: (
+						await db
+							.select({ email: userTable.email })
+							.from(userTable)
+							.where(
+								and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true))
+							)
+					).map((a) => a.email)
+		});
+		if (recipients.length === 0) {
+			console.warn(`[transactional:${label}] no recipients for comment ${commentId}`);
+			return;
+		}
+
+		const authorName =
+			`${comment.actorSnapshot?.firstName ?? ''} ${comment.actorSnapshot?.lastName ?? ''}`.trim() || 'Someone';
+		const template = EMAIL_TEMPLATES.timesheetCommentEmail({
+			timesheetId: sheet.id,
+			professionalName:
+				`${sheet.professional.firstName ?? ''} ${sheet.professional.lastName ?? ''}`.trim() || 'A professional',
+			weekOf: format(parseISO(sheet.weekBeginDate), 'MMM d, yyyy'),
+			place: sheet.locationName ?? sheet.companyName ?? '',
+			// Practices see "DTSS" in the history, so the email doesn't name staff either.
+			author: authorIsAdmin ? 'DTSS' : `${authorName}${sheet.companyName ? ` (${sheet.companyName})` : ''}`,
+			body,
+			status: sheet.status
+		});
+
+		await dispatch(
+			label,
+			recipients.map((to) =>
+				safeEmail(
+					label,
+					to,
+					() =>
+						emailService.sendEmail({
+							to: [{ email: to }],
+							subject: template.subject,
+							html: template.htmlEmail,
+							text: template.textEmail
+						}),
+					{ entityType: 'TIMESHEETS', entityId: sheet.id, metadata: { commentId } }
+				)
+			)
+		);
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
+	}
+}
+
+/**
+ * Practice staff who have acted or commented on a timesheet and could still
+ * open it: same practice, not suspended, and the location still in their scope.
+ */
+async function getTimesheetStaffParticipants(
+	timesheetId: string,
+	clientId: string,
+	locationId: string | null
+): Promise<{ userId: string; email: string | null }[]> {
+	const staff = await db
+		.selectDistinct({ userId: userTable.id, email: userTable.email, role: userTable.role, banned: userTable.banned })
+		.from(actionHistoryTable)
+		.innerJoin(userTable, eq(actionHistoryTable.userId, userTable.id))
+		.innerJoin(clientStaffProfileTable, eq(clientStaffProfileTable.userId, userTable.id))
+		.where(
+			and(
+				eq(actionHistoryTable.entityType, 'TIMESHEETS'),
+				eq(actionHistoryTable.entityId, timesheetId),
+				inArray(actionHistoryTable.action, ['COMMENT', 'REJECT', 'APPROVE']),
+				eq(userTable.role, USER_ROLES.CLIENT_STAFF),
+				eq(clientStaffProfileTable.clientId, clientId)
+			)
+		);
+	const allowed = await Promise.all(
+		staff.map(async (s) => {
+			if (s.banned || !locationId) return false;
+			const scope = await getClientStaffScopedLocationIds({ id: s.userId, role: s.role });
+			return scope === null || scope.includes(locationId);
+		})
+	);
+	return staff.filter((_, i) => allowed[i]);
 }
 
 /**

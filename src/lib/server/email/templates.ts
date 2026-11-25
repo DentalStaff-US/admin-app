@@ -531,6 +531,59 @@ export const EMAIL_TEMPLATES: Record<
 
 		return { textEmail, htmlEmail, subject };
 	},
+	// A shared comment on a timesheet — sent to the other side (practice or DTSS).
+	timesheetCommentEmail: (details: {
+		timesheetId: string;
+		professionalName: string;
+		/** Already formatted, e.g. "Nov 16, 2026". */
+		weekOf: string;
+		place: string;
+		/** "DTSS" to a practice; the person and their practice to DTSS. */
+		author: string;
+		body: string;
+		status: string;
+	}) => {
+		const { timesheetId, professionalName, weekOf, place, author, body, status } = details;
+		const url = `${BASE_URL}/timesheets/${timesheetId}`;
+		const sheet = `${professionalName}’s timesheet for the week of ${weekOf}`;
+		const about = `${sheet}${place ? ` at ${place}` : ''}`;
+		// Only worth saying while someone still has to act on the sheet.
+		const state =
+			status === 'PENDING'
+				? 'This timesheet is waiting for the practice’s review.'
+				: status === 'DISCREPANCY'
+					? 'This timesheet was sent back for correction.'
+					: '';
+
+		const textEmail = [
+			`${author} commented on ${about}.`,
+			body,
+			...(state ? [state] : []),
+			`View and reply:\n${url}`
+		].join('\n\n');
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>New timesheet comment</h2>
+                <p style="color: #374151;"><strong>${escapeHtml(author)}</strong> commented on ${escapeHtml(about)}:</p>
+                <div style="background-color: #F9FAFB; border-left: 3px solid #D1D5DB; padding: 12px 16px; margin: 16px 0;">${textToHtml(body)}</div>
+                ${state ? `<p style="color: #374151;">${state}</p>` : ''}
+                <p style="margin: 24px 0;">
+                    <a href="${url}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        View &amp; Reply
+                    </a>
+                </p>
+                <p style="color: #6B7280; font-size: 14px;">Or open it directly: ${url}</p>
+            </div>
+        `.trim();
+
+		// Header injection guard: names are user-entered.
+		const subject = `[${APP_NAME}] New comment on ${sheet}`.replace(/[\r\n]+/g, ' ');
+
+		return { textEmail, htmlEmail, subject };
+	},
 	// Admin put a vetted professional forward on a perm requisition — tell the client.
 	// The professional's name is fine here: clients already see applicants in full.
 	recommendedCandidateClientEmail: (details: {

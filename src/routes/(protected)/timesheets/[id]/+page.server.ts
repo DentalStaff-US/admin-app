@@ -72,6 +72,7 @@ import { recordAction, recordView } from '$lib/server/audit/audit';
 import { getActivityForEntity } from '$lib/server/audit/queries';
 import {
 	notifyInvoiceCreated,
+	notifyTimesheetComment,
 	notifyTimesheetSubmitted
 } from '$lib/server/notifications/transactional';
 import { resolveBillingRecipient } from '$lib/server/billing/recipients';
@@ -821,7 +822,8 @@ export const actions = {
 		const visibility = admin && formData.get('visibility') !== 'SHARED' ? 'INTERNAL' : 'SHARED';
 
 		try {
-			await recordAction({ entityType: 'TIMESHEETS', entityId: id, action: 'COMMENT', metadata: { comment, visibility } });
+			const row = await recordAction({ entityType: 'TIMESHEETS', entityId: id, action: 'COMMENT', metadata: { comment, visibility } });
+			if (visibility === 'SHARED') await notifyTimesheetComment(row.id);
 		} catch {
 			setFlash({ type: 'error', message: 'Failed to add the comment' }, event);
 			return fail(500, { error: 'Failed to add the comment' });
