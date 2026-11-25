@@ -80,7 +80,9 @@ export const GET: RequestHandler = async ({ request, params }) => {
 		.from(workdayTable)
 		.innerJoin(requisitionTable, eq(requisitionTable.id, workdayTable.requisitionId))
 		.innerJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
-		.leftJoin(timeSheetTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
+		// The sheet this shift is on. Joining by requisition returned whichever sheet
+		// came first, including other professionals'.
+		.leftJoin(timeSheetTable, eq(timeSheetTable.id, workdayTable.timesheetId))
 		.innerJoin(recurrenceDayTable, eq(recurrenceDayTable.id, workdayTable.recurrenceDayId))
 		.innerJoin(
 			companyOfficeLocationTable,
