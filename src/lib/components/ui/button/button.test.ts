@@ -12,8 +12,7 @@ describe('Button', () => {
 	it('fires on:click when clicked', async () => {
 		const user = userEvent.setup({ pointerEventsCheck: 0 });
 		let clicks = 0;
-		const { component } = render(Button);
-		component.$on('click', () => clicks++);
+		render(Button, { events: { click: () => clicks++ } });
 		await user.click(screen.getByRole('button'));
 		expect(clicks).toBe(1);
 	});

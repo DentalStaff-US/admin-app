@@ -15,10 +15,15 @@
 	import { cn } from '$lib/utils';
 	import { tick } from 'svelte';
 	import SkillRequirementsPicker from '$lib/components/requisitions/SkillRequirementsPicker.svelte';
+	import Notice from '$dtss/Notice.svelte';
+	import * as Select from '$lib/components/ui/select';
+	import { Textarea } from '$lib/components/ui/textarea';
 
 	export let form: SuperValidated<AdminRequisitionSchema>;
 	export let drawerExpanded: boolean;
 	export let currentCompanyID: string | null = null;
+	/** Unsaved changes, for the sheet's "Discard changes?" prompt. */
+	export let dirty = false;
 
 	let openClient = false;
 	let openLocation = false;
@@ -28,13 +33,13 @@
 	let locations: any[] = [];
 	let disciplines: any[] = [];
 	let experienceLevels: any[] = [];
-	let selectedLocation = null;
+	let selectedLocation: any = null;
 	let selectedCompany: {
 		value: string;
 		label: string;
 		sublabel: string;
 	} | null = null;
-	let selectedDiscipline = null;
+	let selectedDiscipline: any = null;
 
 	$: sortedExperienceLevels = [...experienceLevels].sort(
 		(a, b) => (a.order ?? 0) - (b.order ?? 0)
@@ -47,7 +52,7 @@
 		message,
 		submitting,
 		reset,
-		isTainted
+		tainted
 	} = superForm(form, {
 		// Validate only the user-facing required fields here (not the whole schema)
 		// so submit stays reliable — superforms v1's full-schema client validation
@@ -110,7 +115,7 @@
 		if (!clients.length) {
 			const req = await fetch('/api/admin/fetchAllClients', { method: 'GET' });
 			const clientsRes = await req.json();
-			clients = clientsRes.sort((a, b) =>
+			clients = clientsRes.sort((a: any, b: any) =>
 				a.company.companyName.localeCompare(b.company.companyName)
 			);
 		}
@@ -181,7 +186,7 @@
 	}
 
 	function handleBeforeUnload(event: BeforeUnloadEvent) {
-		if (isTainted()) {
+		if ($tainted && Object.keys($tainted).length > 0) {
 			event.preventDefault();
 			event.returnValue = '';
 		}
@@ -204,295 +209,266 @@
 		}
 	}
 
-	$: console.log({ currentCompanyID, selectedCompany });
+	$: dirty = !!$tainted && Object.keys($tainted).length > 0;
+
+	// shadcn Selects (bits-ui 0.x) take a {value,label} pair; hidden inputs post
+	// the same values the native selects did.
+	$: experienceSelected = (() => {
+		const l = experienceLevels.find((x) => x.id === $formObj.experienceLevelId);
+		return l ? { value: l.id, label: l.value } : { value: '', label: 'No preference' };
+	})();
+	$: typeSelected =
+		String($formObj.permanentPosition) === 'true'
+			? { value: 'true', label: 'Permanent' }
+			: { value: 'false', label: 'Temporary' };
 </script>
 
-<form
-	use:enhance
-	method="POST"
-	action="/requisitions?/admin"
-	class="grow flex flex-col h-full max-h-[calc(100vh_-_70px)]"
->
+<form use:enhance method="POST" action="/requisitions?/admin" class="space-y-5">
 	<input type="hidden" bind:value={$formObj.timezone} name="timezone" />
 	<input type="hidden" bind:value={$formObj.clientId} name="clientId" />
 	<input type="hidden" bind:value={$formObj.locationId} name="locationId" />
 	<input type="hidden" bind:value={$formObj.disciplineId} name="disciplineId" />
+	<input type="hidden" name="experienceLevelId" value={$formObj.experienceLevelId ?? ''} />
+	<input type="hidden" name="permanentPosition" value={String($formObj.permanentPosition ?? false)} />
 
-	<div class="grow p-4 overflow-y-auto">
-		{#if $message}
-			<!-- Server-side rejection (e.g. billing not set up). Shown here as well
-			     as via the toast so it's visible next to the form that failed. -->
-			<div
-				class="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
-				role="alert"
-			>
-				{$message}
-			</div>
-		{/if}
-		<!-- Associated Client Combobox -->
-		<div class="mb-4">
-			<Label for="clientId">Associated Client <span class="text-red-600">*</span></Label>
-			<Popover.Root bind:open={openClient} let:ids>
-				<Popover.Trigger asChild let:builder>
-					<Button
-						builders={[builder]}
-						variant="outline"
-						role="combobox"
-						aria-expanded={openClient}
-						class={cn('w-full justify-between', $errors.clientId && 'border-red-500')}
-						tabindex={drawerExpanded ? 0 : -1}
-					>
-						{selectedCompany?.label ?? 'Select Client'}
-						<ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
-					</Button>
-				</Popover.Trigger>
-				<Popover.Content class="p-0 max-h-[300px] overflow-auto" align="start" sameWidth>
-					<Command.Root>
-						<Command.Input placeholder="Search client..." />
-						<Command.Empty>No Client Found.</Command.Empty>
-						<Command.Group>
-							{#each clients as client}
-								<Command.Item
-									value={`${client.company.companyName} ${client.user.lastName} ${client.user.firstName}`}
-									onSelect={() => {
-										$formObj.clientId = client.company.id;
-										handleGetLocations(client.company.id);
-										selectedCompany = {
-											value: client.company.id,
-											label: client.company.companyName,
-											sublabel: `${client.user.lastName}, ${client.user.firstName}`
-										};
-										openClient = false;
-										closeAndFocusTrigger(ids.trigger);
-									}}
-								>
-									<Check
-										class={cn(
-											'mr-2 h-4 w-4',
-											$formObj.clientId !== client.company.id && 'text-transparent'
-										)}
-									/>
-									<div class="flex flex-col">
-										<span>{client.company.companyName}</span>
-										<span class="text-sm text-muted-foreground">
-											{client.user.lastName}, {client.user.firstName}
-										</span>
-									</div>
-								</Command.Item>
-							{/each}
-						</Command.Group>
-					</Command.Root>
-				</Popover.Content>
-			</Popover.Root>
-			{#if $errors.clientId}<p class="text-xs text-red-600 mt-1">{$errors.clientId}</p>{/if}
+
+	{#if $message}
+		<!-- Server-side rejection (e.g. billing not set up), next to the form that failed. -->
+		<Notice tone="negative" alert>{$message}</Notice>
+	{/if}
+	<!-- Associated Client Combobox -->
+	<div class="space-y-1.5">
+		<Label for="clientId" class="text-sm font-semibold">Practice <span class="text-destructive">*</span></Label>
+		<Popover.Root bind:open={openClient} let:ids>
+			<Popover.Trigger asChild let:builder>
+				<Button
+					builders={[builder]}
+					variant="outline"
+					role="combobox"
+					aria-expanded={openClient}
+					class={cn('w-full justify-between font-normal', $errors.clientId && 'border-destructive')}
+				>
+					{selectedCompany?.label ?? 'Select a practice'}
+					<ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
+				</Button>
+			</Popover.Trigger>
+			<Popover.Content class="p-0 max-h-[300px] overflow-auto" align="start" sameWidth>
+				<Command.Root>
+					<Command.Input placeholder="Search practices…" />
+					<Command.Empty>No practice found.</Command.Empty>
+					<Command.Group>
+						{#each clients as client}
+							<Command.Item
+								value={`${client.company.companyName} ${client.user.lastName} ${client.user.firstName}`}
+								onSelect={() => {
+									$formObj.clientId = client.company.id;
+									handleGetLocations(client.company.id);
+									selectedCompany = {
+										value: client.company.id,
+										label: client.company.companyName,
+										sublabel: `${client.user.lastName}, ${client.user.firstName}`
+									};
+									openClient = false;
+									closeAndFocusTrigger(ids.trigger);
+								}}
+							>
+								<Check
+									class={cn(
+										'mr-2 h-4 w-4',
+										$formObj.clientId !== client.company.id && 'text-transparent'
+									)}
+								/>
+								<div class="flex flex-col">
+									<span>{client.company.companyName}</span>
+									<span class="text-sm text-muted-foreground">
+										{client.user.lastName}, {client.user.firstName}
+									</span>
+								</div>
+							</Command.Item>
+						{/each}
+					</Command.Group>
+				</Command.Root>
+			</Popover.Content>
+		</Popover.Root>
+		{#if $errors.clientId}<p class="text-sm text-destructive">{$errors.clientId}</p>{/if}
+	</div>
+
+	<!-- Location Combobox -->
+	<div class="space-y-1.5">
+		<Label for="locationId" class="text-sm font-semibold">Location <span class="text-destructive">*</span></Label>
+		<Popover.Root bind:open={openLocation} let:ids>
+			<Popover.Trigger asChild let:builder>
+				<Button
+					builders={[builder]}
+					variant="outline"
+					role="combobox"
+					aria-expanded={openLocation}
+					class={cn('w-full justify-between font-normal', $errors.locationId && 'border-destructive')}
+					disabled={!locations.length}
+				>
+					{selectedLocation?.name ?? 'Select a location'}
+					<ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
+				</Button>
+			</Popover.Trigger>
+			<Popover.Content class="p-0  max-h-[300px] overflow-auto" align="start" sameWidth>
+				<Command.Root>
+					<Command.Input placeholder="Search locations…" />
+					<Command.Empty>No location found.</Command.Empty>
+					<Command.Group>
+						{#each locations as location}
+							<Command.Item
+								value={location.name}
+								onSelect={() => {
+									$formObj.locationId = location.id;
+									selectedLocation = location;
+									$formObj.timezone = location.timezone;
+									openLocation = false;
+									closeAndFocusTrigger(ids.trigger);
+								}}
+							>
+								<Check
+									class={cn(
+										'mr-2 h-4 w-4',
+										$formObj.locationId !== location.id && 'text-transparent'
+									)}
+								/>
+								{location.name}
+							</Command.Item>
+						{/each}
+					</Command.Group>
+				</Command.Root>
+			</Popover.Content>
+		</Popover.Root>
+		{#if $errors.locationId}<p class="text-sm text-destructive">{$errors.locationId}</p>{/if}
+	</div>
+
+	<!-- Discipline Combobox -->
+	<div class="space-y-1.5">
+		<Label for="disciplineId" class="text-sm font-semibold">Discipline <span class="text-destructive">*</span></Label>
+		<Popover.Root bind:open={openDiscipline} let:ids>
+			<Popover.Trigger asChild let:builder>
+				<Button
+					builders={[builder]}
+					variant="outline"
+					role="combobox"
+					aria-expanded={openDiscipline}
+					class={cn('w-full justify-between font-normal', $errors.disciplineId && 'border-destructive')}
+				>
+					{selectedDiscipline?.name ?? 'Select a discipline'}
+					<ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
+				</Button>
+			</Popover.Trigger>
+			<Popover.Content class="p-0 max-h-[300px] overflow-auto" align="start" sameWidth>
+				<Command.Root>
+					<Command.Input placeholder="Search disciplines…" />
+					<Command.Empty>No discipline found.</Command.Empty>
+					<Command.Group>
+						{#each disciplines as discipline}
+							<Command.Item
+								value={discipline.name}
+								onSelect={() => {
+									$formObj.disciplineId = discipline.id;
+									selectedDiscipline = discipline;
+									openDiscipline = false;
+									closeAndFocusTrigger(ids.trigger);
+								}}
+							>
+								<Check
+									class={cn(
+										'mr-2 h-4 w-4',
+										$formObj.disciplineId !== discipline.id && 'text-transparent'
+									)}
+								/>
+								{discipline.name}
+							</Command.Item>
+						{/each}
+					</Command.Group>
+				</Command.Root>
+			</Popover.Content>
+		</Popover.Root>
+		{#if $errors.disciplineId}<p class="text-sm text-destructive">{$errors.disciplineId}</p>{/if}
+	</div>
+
+	<div class="grid gap-5 sm:grid-cols-2">
+		<div class="space-y-1.5">
+			<Label for="permanentPosition" class="text-sm font-semibold">Type</Label>
+			<Select.Root selected={typeSelected} onSelectedChange={(v) => v && ($formObj.permanentPosition = v.value === 'true')}>
+				<Select.Trigger id="permanentPosition"><Select.Value /></Select.Trigger>
+				<Select.Content>
+					<Select.Item value="false" label="Temporary">Temporary</Select.Item>
+					<Select.Item value="true" label="Permanent">Permanent</Select.Item>
+				</Select.Content>
+			</Select.Root>
 		</div>
-
-		<!-- Location Combobox -->
-		<div class="mb-4">
-			<Label for="locationId">Location <span class="text-red-600">*</span></Label>
-			<Popover.Root bind:open={openLocation} let:ids>
-				<Popover.Trigger asChild let:builder>
-					<Button
-						builders={[builder]}
-						variant="outline"
-						role="combobox"
-						aria-expanded={openLocation}
-						class={cn('w-full justify-between', $errors.locationId && 'border-red-500')}
-						tabindex={drawerExpanded ? 0 : -1}
-						disabled={!locations.length}
-					>
-						{selectedLocation?.name ?? 'Select Location'}
-						<ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
-					</Button>
-				</Popover.Trigger>
-				<Popover.Content class="p-0  max-h-[300px] overflow-auto" align="start" sameWidth>
-					<Command.Root>
-						<Command.Input placeholder="Search location..." />
-						<Command.Empty>No Location Found.</Command.Empty>
-						<Command.Group>
-							{#each locations as location}
-								<Command.Item
-									value={location.name}
-									onSelect={() => {
-										$formObj.locationId = location.id;
-										selectedLocation = location;
-										$formObj.timezone = location.timezone;
-										console.log('location.timezone:', location.timezone);
-										console.log('formObj.timezone:', $formObj.timezone);
-										openLocation = false;
-										closeAndFocusTrigger(ids.trigger);
-									}}
-								>
-									<Check
-										class={cn(
-											'mr-2 h-4 w-4',
-											$formObj.locationId !== location.id && 'text-transparent'
-										)}
-									/>
-									{location.name}
-								</Command.Item>
-							{/each}
-						</Command.Group>
-					</Command.Root>
-				</Popover.Content>
-			</Popover.Root>
-			{#if $errors.locationId}<p class="text-xs text-red-600 mt-1">{$errors.locationId}</p>{/if}
-		</div>
-
-		<!-- Discipline Combobox -->
-		<div class="mb-4">
-			<Label for="disciplineId">Discipline <span class="text-red-600">*</span></Label>
-			<Popover.Root bind:open={openDiscipline} let:ids>
-				<Popover.Trigger asChild let:builder>
-					<Button
-						builders={[builder]}
-						variant="outline"
-						role="combobox"
-						aria-expanded={openDiscipline}
-						class={cn('w-full justify-between', $errors.disciplineId && 'border-red-500')}
-						tabindex={drawerExpanded ? 0 : -1}
-					>
-						{selectedDiscipline?.name ?? 'Select Discipline'}
-						<ChevronsUpDown class="ml-2 h-4 w-4 shrink-0 opacity-50" />
-					</Button>
-				</Popover.Trigger>
-				<Popover.Content class="p-0 max-h-[300px] overflow-auto" align="start" sameWidth>
-					<Command.Root>
-						<Command.Input placeholder="Search discipline..." />
-						<Command.Empty>No Discipline Found.</Command.Empty>
-						<Command.Group>
-							{#each disciplines as discipline}
-								<Command.Item
-									value={discipline.name}
-									onSelect={() => {
-										$formObj.disciplineId = discipline.id;
-										selectedDiscipline = discipline;
-										openDiscipline = false;
-										closeAndFocusTrigger(ids.trigger);
-									}}
-								>
-									<Check
-										class={cn(
-											'mr-2 h-4 w-4',
-											$formObj.disciplineId !== discipline.id && 'text-transparent'
-										)}
-									/>
-									{discipline.name}
-								</Command.Item>
-							{/each}
-						</Command.Group>
-					</Command.Root>
-				</Popover.Content>
-			</Popover.Root>
-			{#if $errors.disciplineId}<p class="text-xs text-red-600 mt-1">{$errors.disciplineId}</p>{/if}
-		</div>
-
-		<!-- Experience Level (native select) -->
-		<div class="mb-4">
-			<Label for="experienceLevelId">Experience Level</Label>
-			<select
-				id="experienceLevelId"
-				name="experienceLevelId"
-				bind:value={$formObj.experienceLevelId}
-				class="w-full p-2 border rounded"
-			>
-				<option value="">No Preference</option>
-				{#each sortedExperienceLevels as level}
-					<option value={level.id}>{level.value}</option>
-				{/each}
-			</select>
-		</div>
-
-		<!-- Skill requirements: per category, No Preference / all / any -->
-		<div class="mb-4">
-			<SkillRequirementsPicker disciplineId={$formObj.disciplineId} />
-		</div>
-
-		<!-- Requisition Type - kept as native select -->
-		<div class="mb-4">
-			<Label for="permanentPosition">Requisition Type</Label>
-			<select
-				id="permanentPosition"
-				name="permanentPosition"
-				bind:value={$formObj.permanentPosition}
-				class="w-full p-2 border rounded"
-				tabindex={drawerExpanded ? 0 : -1}
-			>
-				<option value={false}>Temporary</option>
-				<option value={true}>Permanent</option>
-			</select>
-		</div>
-
-		<div class="mb-4">
-			<Label for="hourlyRate">Hourly Rate <span class="text-red-600">*</span></Label>
-			<Input
-				type="number"
-				id="hourlyRate"
-				name="hourlyRate"
-				bind:value={$formObj.hourlyRate}
-				tabindex={drawerExpanded ? 0 : -1}
-				class={$errors.hourlyRate ? 'border-red-500' : ''}
-			/>
-			{#if $errors.hourlyRate}<p class="text-xs text-red-600 mt-1">{$errors.hourlyRate}</p>{/if}
-		</div>
-
-		<div class="mb-4">
-			<Label for="purchaseOrderNumber">Purchase Order #</Label>
-			<Input
-				type="text"
-				id="purchaseOrderNumber"
-				name="purchaseOrderNumber"
-				bind:value={$formObj.purchaseOrderNumber}
-				tabindex={drawerExpanded ? 0 : -1}
-			/>
-		</div>
-
-		<div class="mb-4">
-			<Label for="jobDescription">Job Description <span class="text-red-600">*</span></Label>
-			<textarea
-				id="jobDescription"
-				name="jobDescription"
-				bind:value={$formObj.jobDescription}
-				class={cn('w-full p-2 border rounded', $errors.jobDescription && 'border-red-500')}
-				rows="4"
-				tabindex={drawerExpanded ? 0 : -1}
-			></textarea>
-			{#if $errors.jobDescription}<p class="text-xs text-red-600 mt-1">{$errors.jobDescription}</p>{/if}
-		</div>
-
-		<div class="mb-4">
-			<Label for="specialInstructions">Special Instructions</Label>
-			<textarea
-				id="specialInstructions"
-				name="specialInstructions"
-				bind:value={$formObj.specialInstructions}
-				class="w-full p-2 border rounded"
-				rows="4"
-				tabindex={drawerExpanded ? 0 : -1}
-			></textarea>
+		<div class="space-y-1.5">
+			<Label for="experienceLevelId" class="text-sm font-semibold">Experience</Label>
+			<Select.Root selected={experienceSelected} onSelectedChange={(v) => v && ($formObj.experienceLevelId = String(v.value))}>
+				<Select.Trigger id="experienceLevelId"><Select.Value /></Select.Trigger>
+				<Select.Content class="max-h-72 overflow-y-auto">
+					<Select.Item value="" label="No preference">No preference</Select.Item>
+					{#each sortedExperienceLevels as level (level.id)}
+						<Select.Item value={level.id} label={level.value}>{level.value}</Select.Item>
+					{/each}
+				</Select.Content>
+			</Select.Root>
 		</div>
 	</div>
 
-	<div class="flex justify-end gap-4 p-4 border-t border-t-gray-200">
-		<Button
-			tabindex={drawerExpanded ? 0 : -1}
-			type="button"
-			on:click={handleDrawerClose}
-			class="bg-white hover:bg-destructive/90 hover:text-white border border-red-500 text-red-500 rounded-md"
-		>
-			Cancel
-		</Button>
-		<Button
-			tabindex={drawerExpanded ? 0 : -1}
-			type="submit"
-			disabled={$submitting}
-			class="px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-md"
-		>
+	<!-- Skill requirements: per category, No Preference / all / any -->
+	<div class="space-y-1.5">
+		<SkillRequirementsPicker disciplineId={$formObj.disciplineId} />
+	</div>
+
+	<div class="grid gap-5 sm:grid-cols-2">
+		<div class="space-y-1.5">
+			<Label for="hourlyRate" class="text-sm font-semibold">Hourly rate <span class="text-destructive">*</span></Label>
+			<div class="relative">
+				<span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground" aria-hidden="true">$</span>
+				<Input
+					type="number"
+					id="hourlyRate"
+					name="hourlyRate"
+					inputmode="decimal"
+					bind:value={$formObj.hourlyRate}
+					aria-invalid={$errors.hourlyRate ? 'true' : undefined}
+					class={cn('pl-7 tabular-nums', $errors.hourlyRate && 'border-destructive')}
+				/>
+			</div>
+			{#if $errors.hourlyRate}<p class="text-sm text-destructive">{$errors.hourlyRate}</p>{/if}
+		</div>
+		<div class="space-y-1.5">
+			<Label for="purchaseOrderNumber" class="text-sm font-semibold">Purchase order # <span class="font-normal text-muted-foreground">(optional)</span></Label>
+			<Input type="text" id="purchaseOrderNumber" name="purchaseOrderNumber" bind:value={$formObj.purchaseOrderNumber} />
+		</div>
+	</div>
+
+	<div class="space-y-1.5">
+		<Label for="jobDescription" class="text-sm font-semibold">Job description <span class="text-destructive">*</span></Label>
+		<Textarea
+			id="jobDescription"
+			name="jobDescription"
+			bind:value={$formObj.jobDescription}
+			rows={4}
+			aria-invalid={$errors.jobDescription ? 'true' : undefined}
+			class={cn($errors.jobDescription && 'border-destructive')}
+		/>
+		{#if $errors.jobDescription}<p class="text-sm text-destructive">{$errors.jobDescription}</p>{/if}
+	</div>
+
+	<div class="space-y-1.5">
+		<Label for="specialInstructions" class="text-sm font-semibold">Special instructions <span class="font-normal text-muted-foreground">(optional)</span></Label>
+		<Textarea id="specialInstructions" name="specialInstructions" bind:value={$formObj.specialInstructions} rows={4} />
+	</div>
+
+	<!-- Sheet footer: pinned to the bottom of the scrolling sheet body. -->
+	<div class="sticky -bottom-5 -mx-6 -mb-5 flex flex-col-reverse gap-3 border-t bg-background px-6 py-4 sm:flex-row sm:justify-end">
+		<Button type="button" variant="outline" on:click={handleDrawerClose}>Cancel</Button>
+		<Button type="submit" disabled={$submitting}>
 			{#if $submitting}
-				<Loader2 class="mr-2 h-4 w-4 animate-spin" />
-				Please wait
+				<Loader2 class="animate-spin" aria-hidden="true" />
+				Creating…
 			{:else}
-				Create Requisition
+				Create requisition
 			{/if}
 		</Button>
 	</div>

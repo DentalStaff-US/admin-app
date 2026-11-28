@@ -27,6 +27,16 @@ import { recordAction } from '$lib/server/audit/audit';
 
 export type CancellationRole = 'SUPERADMIN' | 'CLIENT' | 'CLIENT_STAFF' | 'CANDIDATE';
 
+/**
+ * The cancelled_by_role pgEnum predates the ADMIN role and has no 'ADMIN' value
+ * (adding one is a migration). It records "DTSS cancelled this", and the actor's
+ * user id is stored alongside, so any DTSS staff role is stored as SUPERADMIN.
+ * Callers cast users.role, so an ADMIN's 'ADMIN' arrives here at runtime.
+ */
+export function toCancellationRole(role: string): CancellationRole {
+	return role === 'ADMIN' ? 'SUPERADMIN' : (role as CancellationRole);
+}
+
 interface RecordCancellationArgs {
 	recurrenceDayId: string;
 	requisitionId: number;
@@ -77,7 +87,7 @@ export async function recordRecurrenceDayCancellation(
 		recurrenceDayId: args.recurrenceDayId,
 		requisitionId: args.requisitionId,
 		cancelledByUserId: args.cancelledByUserId,
-		cancelledByRole: args.cancelledByRole,
+		cancelledByRole: toCancellationRole(args.cancelledByRole),
 		candidateId: args.candidateId ?? null,
 		shiftStart,
 		hoursBeforeShift,

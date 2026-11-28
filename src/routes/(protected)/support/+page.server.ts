@@ -11,6 +11,7 @@ import { newSupportTicketSchema } from '$lib/config/zod-schemas';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { getPostHogClient } from '$lib/server/posthog';
 import { notifySupportTicketCreated } from '$lib/server/notifications/transactional';
+import { can } from '$lib/authz';
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
@@ -21,7 +22,7 @@ export const load: PageServerLoad = async (event) => {
 	}
 	const form = await superValidate(event, newSupportTicketSchema);
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (can(user, 'support.manage')) {
 		const supportTickets = await getAllSupportTickets(search);
 
 		return {
@@ -31,7 +32,8 @@ export const load: PageServerLoad = async (event) => {
 		};
 	}
 
-	const supportTickets = await getSupportTicketsForUser(user.id);
+	// Search now filters a practice's own tickets too (the query always took it).
+	const supportTickets = await getSupportTicketsForUser(user.id, search);
 
 	return {
 		form,
@@ -46,7 +48,7 @@ export const actions = {
 		let newId;
 
 		if (!form.valid) {
-			fail(400, { form });
+			return fail(400, { form });
 		}
 
 		try {

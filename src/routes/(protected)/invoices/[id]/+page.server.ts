@@ -31,6 +31,8 @@ import { voidInvoiceAndNotify } from '$lib/server/invoices/voidNotify';
 import { writeActionHistory } from '$lib/server/database/queries/admin';
 import { recordView } from '$lib/server/audit/audit';
 import { getActivityForEntity } from '$lib/server/audit/queries';
+import { can } from '$lib/authz';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 const RecordTransactionSchema = z.object({
 	invoiceId: z.string().min(1),
@@ -64,7 +66,7 @@ export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
 	if (!user) redirect(302, '/auth/sign-in');
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (checkIsAdmin(user.role)) {
 		const invoiceDetails = await getInvoiceByIdAdmin(event.params.id);
 		const transactionForm = await superValidate(RecordTransactionSchema);
 		const paperTransactions = await getPaperTransactionsByInvoiceId(event.params.id);
@@ -139,7 +141,7 @@ export const actions = {
 	adminProcessInvoice: async (event: RequestEvent) => {
 		const id = event.params.id;
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/auth/sign-in');
+		if (!user || !can(user, 'payments.record')) redirect(302, '/auth/sign-in');
 
 		const invoice = await getInvoiceByIdAdmin(id);
 		if (!invoice) redirect(302, '/invoices');
@@ -217,7 +219,7 @@ export const actions = {
 
 	recordPaperTransaction: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/auth/sign-in');
+		if (!user || !can(user, 'payments.record')) redirect(302, '/auth/sign-in');
 
 		const form = await superValidate(event, RecordTransactionSchema);
 		if (!form.valid) {
@@ -367,7 +369,7 @@ export const actions = {
 	// reversal math (opposite direction to the generic ADJUSTMENT branch above).
 	reversePaperPayment: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/auth/sign-in');
+		if (!user || !can(user, 'payments.record')) redirect(302, '/auth/sign-in');
 
 		const form = await superValidate(event, ReversePaymentSchema);
 		if (!form.valid) {
@@ -496,7 +498,7 @@ export const actions = {
 	//  - One-off/manual: void the invoice only (Stripe via the API first, then DB).
 	voidInvoice: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/auth/sign-in');
+		if (!user || !can(user, 'invoices.void')) redirect(302, '/auth/sign-in');
 
 		const form = await superValidate(event, VoidInvoiceSchema);
 		if (!form.valid) {

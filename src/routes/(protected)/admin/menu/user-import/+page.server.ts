@@ -1,4 +1,4 @@
-import { redirect } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { USER_ROLES } from '$lib/config/constants.js';
 
@@ -17,14 +17,25 @@ import {
 import { geocodingQueue } from '$lib/server/geocode-queue';
 import { deleteUsersWithoutRecords } from '$lib/server/database/queries/admin';
 import { setFlash } from 'sveltekit-flash-message/server';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
+import { can } from '$lib/authz';
+
+/**
+ * Every action here needs users.import (SUPERADMIN), like the page. Previously only the
+ * load checked, so any signed-in user could post to these actions directly
+ * (including deleteAllUsers and the bulk import).
+ */
+function requireSuperadmin(locals: App.Locals) {
+	if (!can(locals.user, 'users.import')) throw error(403, 'Forbidden');
+}
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (!locals.user) {
 		redirect(301, '/login');
 	}
 
-	if (locals.user.role !== USER_ROLES.SUPERADMIN) {
+	if (!can(locals.user, 'users.import')) {
 		redirect(301, '/dashboard');
 	}
 };
@@ -44,6 +55,7 @@ interface ImportUser {
 
 export const actions: Actions = {
 	importUsers: async (event) => {
+		requireSuperadmin(event.locals);
 		const { request } = event;
 		const formData = await request.formData();
 		const role = formData.get('role') as UserRole;
@@ -142,7 +154,8 @@ export const actions: Actions = {
 		return results;
 	},
 
-	geocodePendingLocations: async () => {
+	geocodePendingLocations: async (event) => {
+		requireSuperadmin(event.locals);
 		try {
 			const pendingLocations = await db
 				.select({
@@ -184,7 +197,8 @@ export const actions: Actions = {
 			};
 		}
 	},
-	geocodePendingCandidates: async () => {
+	geocodePendingCandidates: async (event) => {
+		requireSuperadmin(event.locals);
 		try {
 			const pendingCandidates = await db
 				.select({
@@ -236,7 +250,8 @@ export const actions: Actions = {
 		}
 	},
 
-	getGeocodingStatus: async () => {
+	getGeocodingStatus: async (event) => {
+		requireSuperadmin(event.locals);
 		try {
 			const status = geocodingQueue.getQueueStatus();
 			console.log('Geocoding status:', status);
@@ -247,9 +262,15 @@ export const actions: Actions = {
 		}
 	},
 	deleteAllUsers: async (event) => {
+		requireSuperadmin(event.locals);
 		const { request } = event;
 		const formData = await request.formData();
 		const emailsJson = formData.get('emails') as string;
+
+		// Hard delete: the dialog makes the admin type DELETE; refuse anything else.
+		if (!hasTypedConfirmation(formData)) {
+			return fail(400, { error: 'Type DELETE to confirm' });
+		}
 
 		if (!emailsJson) {
 			return fail(400, { error: 'Missing emails data' });
@@ -291,7 +312,8 @@ export const actions: Actions = {
 			});
 		}
 	},
-	geocodeAllPending: async () => {
+	geocodeAllPending: async (event) => {
+		requireSuperadmin(event.locals);
 		try {
 			// Get pending locations
 			const pendingLocations = await db

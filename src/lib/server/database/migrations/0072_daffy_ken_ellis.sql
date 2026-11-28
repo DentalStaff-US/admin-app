@@ -1,0 +1,1 @@
+CREATE INDEX "candidate_requisition_saves_requisition_idx" ON "candidate_saved_requisitions" USING btree ("requisition_id");

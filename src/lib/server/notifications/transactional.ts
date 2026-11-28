@@ -9,12 +9,14 @@
 
 import { format, parseISO } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
-import { and, eq, inArray } from 'drizzle-orm';
-import { BASE_URL, CANDIDATE_APP_DOMAIN } from '$env/static/private';
+import { and, count, eq, inArray, ne } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
+import { BASE_URL, CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 import db from '$lib/server/database/drizzle';
 import { sms } from '$lib/server/sms/smsService';
 import { EmailService } from '$lib/server/email/emailService';
 import { EMAIL_TEMPLATES } from '$lib/server/email/templates';
+import { escapeHtml } from '$lib/server/campaigns/render';
 import {
 	getRequisitionByWorkdayId,
 	getRecurrenceDayByWorkdayId,
@@ -30,6 +32,10 @@ import {
 } from '$lib/server/database/queries/clients';
 import { logger } from '$lib/server/logger';
 import {
+	conversationParticipantsTable,
+	messageTable
+} from '$lib/server/database/schemas/messages';
+import {
 	getCandidateUserById,
 	getQualifiedProfessionalsForRequisition
 } from '$lib/server/database/queries/candidates';
@@ -38,6 +44,7 @@ import { getUnavailabilityForCandidates } from '$lib/server/availability/queries
 import { selectNotifiableCandidates } from '$lib/server/availability/availability';
 import { wantsTempWork } from '$lib/server/workPreference';
 import { resolveBillingRecipient } from '$lib/server/billing/recipients';
+import { actionHistoryTable } from '$lib/server/database/schemas/admin';
 import { userTable } from '$lib/server/database/schemas/auth';
 import {
 	candidateProfileTable,
@@ -55,12 +62,16 @@ import { disciplineTable, experienceLevelTable } from '$lib/server/database/sche
 import {
 	clientCompanyTable,
 	clientProfileTable,
+	clientStaffProfileTable,
 	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
 import { APP_NAME, USER_ROLES } from '$lib/config/constants';
 import { recordAction } from '$lib/server/audit/audit';
+import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
 import { pickCommentRecipients } from '$lib/server/requisitions/commentRules';
 import type { AuditEntityType } from '$lib/audit/constants';
+import { STAFF_ROLES } from '$lib/authz';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 const emailService = new EmailService();
 
@@ -634,6 +645,142 @@ export async function notifyQualifiedCandidatesOfNewWorkdays(
  * email + SMS — instead of blasting every qualified candidate. The day(s)
  * are already FILLED with workday rows by the caller.
  */
+// The first message of a conversation: email and text the other participants now.
+// Replies don't alert when sent. See inbox/alerts.ts.
+export async function notifyNewInboxMessage(args: {
+	conversationId: string;
+	messageId: number;
+	senderId: string;
+}): Promise<void> {
+	const label = 'newInboxMessage';
+	try {
+		const { conversationId, messageId, senderId } = args;
+		const [{ value: messageCount }] = await db
+			.select({ value: count() })
+			.from(messageTable)
+			.where(
+				and(eq(messageTable.conversationId, conversationId), eq(messageTable.isSystemMessage, false))
+			);
+		if (messageCount !== 1) return;
+
+		const recipients = await db
+			.select({
+				userId: userTable.id,
+				email: userTable.email,
+				firstName: userTable.firstName,
+				role: userTable.role,
+				candidatePhone: candidateProfileTable.cellPhone,
+				clientPhone: clientProfileTable.cellPhone
+			})
+			.from(conversationParticipantsTable)
+			.innerJoin(userTable, eq(userTable.id, conversationParticipantsTable.userId))
+			.leftJoin(candidateProfileTable, eq(candidateProfileTable.userId, userTable.id))
+			.leftJoin(clientProfileTable, eq(clientProfileTable.userId, userTable.id))
+			.where(
+				and(
+					eq(conversationParticipantsTable.conversationId, conversationId),
+					eq(conversationParticipantsTable.isActive, true),
+					ne(conversationParticipantsTable.userId, senderId)
+				)
+			);
+
+		// So the unread alert doesn't repeat this before they've opened it.
+		await db
+			.update(conversationParticipantsTable)
+			.set({ lastAlertedMessageId: messageId })
+			.where(
+				and(
+					eq(conversationParticipantsTable.conversationId, conversationId),
+					ne(conversationParticipantsTable.userId, senderId)
+				)
+			);
+
+		await dispatch(
+			label,
+			recipients.flatMap((recipient) => {
+				const url = `${inboxUrl(recipient.role)}/${conversationId}`;
+				const phone = recipient.candidatePhone ?? recipient.clientPhone;
+				return [
+					safeEmail(label, recipient.email, () => {
+						const t = EMAIL_TEMPLATES.newConversationEmail({ firstName: recipient.firstName }, { url });
+						return emailService.sendEmail({
+							to: [{ email: recipient.email as string }],
+							subject: t.subject,
+							html: t.htmlEmail,
+							text: t.textEmail
+						});
+					}),
+					...(phone
+						? [safeSms(label, phone, (p) => sms.sendTemplated(p, 'newConversationNotification', { url }))]
+						: [])
+				];
+			})
+		);
+	} catch (e) {
+		console.error('[transactional:newInboxMessage] top-level error:', e);
+	}
+}
+
+// Replies still unread after the delay: one email per person, however many
+// conversations it covers. Marked as alerted first, so a failed send is never repeated
+// to everyone else in the run on the next tick.
+export async function notifyUnreadInboxMessages(
+	byRecipient: Map<string, { conversationId: string; newestMessageId: number }[]>
+): Promise<void> {
+	const label = 'unreadInboxMessages';
+	if (!byRecipient.size) return;
+
+	const recipients = await db
+		.select({
+			userId: userTable.id,
+			email: userTable.email,
+			firstName: userTable.firstName,
+			role: userTable.role
+		})
+		.from(userTable)
+		.where(inArray(userTable.id, [...byRecipient.keys()]));
+
+	for (const [userId, alerts] of byRecipient) {
+		for (const { conversationId, newestMessageId } of alerts) {
+			await db
+				.update(conversationParticipantsTable)
+				.set({ lastAlertedMessageId: newestMessageId })
+				.where(
+					and(
+						eq(conversationParticipantsTable.conversationId, conversationId),
+						eq(conversationParticipantsTable.userId, userId)
+					)
+				);
+		}
+	}
+
+	await dispatch(
+		label,
+		recipients.map((recipient) => {
+			const alerts = byRecipient.get(recipient.userId) ?? [];
+			const inbox = inboxUrl(recipient.role);
+			const url = alerts.length === 1 ? `${inbox}/${alerts[0].conversationId}` : inbox;
+			return safeEmail(label, recipient.email, () => {
+				const t = EMAIL_TEMPLATES.unreadMessagesEmail(
+					{ firstName: recipient.firstName },
+					{ conversationCount: alerts.length, url }
+				);
+				return emailService.sendEmail({
+					to: [{ email: recipient.email as string }],
+					subject: t.subject,
+					html: t.htmlEmail,
+					text: t.textEmail
+				});
+			});
+		})
+	);
+}
+
+function inboxUrl(role: string | null): string {
+	const base = role === USER_ROLES.CANDIDATE ? CANDIDATE_APP_DOMAIN : BASE_URL;
+	return `${base.replace(/\/$/, '')}/inbox`;
+}
+
 export async function notifyCandidateAssignedToWorkdays(args: {
 	candidateId: string;
 	requisitionId: number;
@@ -973,7 +1120,7 @@ export async function notifyWorkday48HrReminder(args: {
  * Candidate (or admin acting on their behalf) submitted a timesheet for
  * client review — email the client. (No matching SMS template.)
  */
-export async function notifyTimesheetSubmitted(timesheetId: string): Promise<void> {
+export async function notifyTimesheetSubmitted(timesheetId: string, { comment }: { comment?: string } = {}): Promise<void> {
 	try {
 		const [row] = await db
 			.select({
@@ -1026,13 +1173,14 @@ export async function notifyTimesheetSubmitted(timesheetId: string): Promise<voi
 						date: row.timesheet.weekBeginDate,
 						workdayStart: '',
 						workdayEnd: '',
-						requisitionNumber: String(row.requisition.id)
+						requisitionNumber: String(row.requisition.id),
+						comment
 					}
 				);
 				return emailService.sendEmail({
 					to: [{ email: row.clientUser.email }],
 					subject: t.subject,
-					html: t.htmlEmail || `<p>${t.textEmail.replace(/\n/g, '<br>')}</p>`,
+					html: t.htmlEmail || `<p>${escapeHtml(t.textEmail).replace(/\n/g, '<br>')}</p>`,
 					text: t.textEmail
 				});
 			})
@@ -1040,6 +1188,221 @@ export async function notifyTimesheetSubmitted(timesheetId: string): Promise<voi
 	} catch (e) {
 		console.error('[transactional:timesheetSubmitted] top-level error:', e);
 	}
+}
+
+/**
+ * New comment in a timesheet's history — email the other side.
+ *
+ *   - DTSS-only comment → nobody.
+ *   - DTSS author       → the practice owner, plus staff who already acted or
+ *                         commented on this sheet and can still open it.
+ *   - practice author   → admins with receiveEmail=true.
+ *
+ * A resubmission's comment isn't sent here: it travels in the resubmission
+ * email. `commentId` is the COMMENT row in the ledger, which is the authority on
+ * whether it was shared. Never throws.
+ */
+export async function notifyTimesheetComment(commentId: string): Promise<void> {
+	const label = 'timesheetComment';
+	try {
+		const [comment] = await db
+			.select()
+			.from(actionHistoryTable)
+			.where(
+				and(
+					eq(actionHistoryTable.id, commentId),
+					eq(actionHistoryTable.entityType, 'TIMESHEETS'),
+					eq(actionHistoryTable.action, 'COMMENT')
+				)
+			)
+			.limit(1);
+		if (!comment?.userId) {
+			console.warn(`[transactional:${label}] aborted: comment ${commentId} not found`);
+			return;
+		}
+		// Only an explicit share leaves the building.
+		const body = comment.metadata?.comment;
+		if (comment.metadata?.visibility !== 'SHARED' || typeof body !== 'string') return;
+
+		const sheet = await loadTimesheetMailContext(comment.entityId);
+		if (!sheet) {
+			console.warn(`[transactional:${label}] aborted: timesheet ${comment.entityId} not found`);
+			return;
+		}
+
+		const authorIsAdmin = checkIsAdmin(comment.actorRole);
+		const recipients = pickCommentRecipients({
+			internal: false,
+			authorId: comment.userId,
+			authorIsAdmin,
+			owner: sheet.owner.banned ? null : sheet.owner,
+			clientCommenters: authorIsAdmin
+				? await getTimesheetStaffParticipants(sheet.id, sheet.clientId, sheet.locationId)
+				: [],
+			adminEmails: authorIsAdmin ? [] : await getAdminAlertEmails()
+		});
+		if (recipients.length === 0) {
+			console.warn(`[transactional:${label}] no recipients for comment ${commentId}`);
+			return;
+		}
+
+		await sendTimesheetNote(label, sheet, recipients, {
+			// Practices see "DTSS" in the history, so the email doesn't name staff either.
+			author: authorIsAdmin ? 'DTSS' : practiceAuthor(comment.actorSnapshot, sheet.companyName),
+			body,
+			metadata: { commentId }
+		});
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
+	}
+}
+
+/**
+ * A practice sent a submitted timesheet back with a reason — email the admins
+ * (receiveEmail=true), who have to correct and resubmit it. Never throws.
+ */
+export async function notifyAdminsOfTimesheetSentBack(args: {
+	timesheetId: string;
+	reason: string;
+	sentBackBy: { firstName?: string | null; lastName?: string | null };
+}): Promise<void> {
+	const label = 'timesheetSentBack';
+	try {
+		const sheet = await loadTimesheetMailContext(args.timesheetId);
+		if (!sheet) {
+			console.warn(`[transactional:${label}] aborted: timesheet ${args.timesheetId} not found`);
+			return;
+		}
+		const recipients = [
+			...new Set((await getAdminAlertEmails()).filter((e) => !!e).map((e) => e.toLowerCase()))
+		];
+		if (recipients.length === 0) {
+			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
+			return;
+		}
+		await sendTimesheetNote(label, sheet, recipients, {
+			author: practiceAuthor(args.sentBackBy, sheet.companyName),
+			body: args.reason,
+			sentBack: true
+		});
+	} catch (e) {
+		console.error(`[transactional:${label}] top-level error:`, e);
+	}
+}
+
+async function loadTimesheetMailContext(timesheetId: string) {
+	const candidateUser = alias(userTable, 'candidate_user');
+	const [sheet] = await db
+		.select({
+			id: timeSheetTable.id,
+			status: timeSheetTable.status,
+			weekBeginDate: timeSheetTable.weekBeginDate,
+			clientId: timeSheetTable.associatedClientId,
+			owner: { userId: userTable.id, email: userTable.email, banned: userTable.banned },
+			professional: { firstName: candidateUser.firstName, lastName: candidateUser.lastName },
+			companyName: clientCompanyTable.companyName,
+			locationId: requisitionTable.locationId,
+			locationName: companyOfficeLocationTable.name
+		})
+		.from(timeSheetTable)
+		.innerJoin(clientProfileTable, eq(timeSheetTable.associatedClientId, clientProfileTable.id))
+		.innerJoin(userTable, eq(clientProfileTable.userId, userTable.id))
+		.innerJoin(candidateProfileTable, eq(timeSheetTable.associatedCandidateId, candidateProfileTable.id))
+		.innerJoin(candidateUser, eq(candidateProfileTable.userId, candidateUser.id))
+		// Via the requisition, not client_id, which isn't unique on companies.
+		.leftJoin(requisitionTable, eq(timeSheetTable.requisitionId, requisitionTable.id))
+		.leftJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
+		.leftJoin(companyOfficeLocationTable, eq(requisitionTable.locationId, companyOfficeLocationTable.id))
+		.where(eq(timeSheetTable.id, timesheetId))
+		.limit(1);
+	return sheet ?? null;
+}
+
+type TimesheetMailContext = NonNullable<Awaited<ReturnType<typeof loadTimesheetMailContext>>>;
+
+async function getAdminAlertEmails(): Promise<string[]> {
+	const admins = await db
+		.select({ email: userTable.email })
+		.from(userTable)
+		.where(and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true)));
+	return admins.map((a) => a.email);
+}
+
+function practiceAuthor(
+	who: { firstName?: string | null; lastName?: string | null } | null,
+	companyName: string | null
+): string {
+	const name = `${who?.firstName ?? ''} ${who?.lastName ?? ''}`.trim() || 'Someone';
+	return companyName ? `${name} (${companyName})` : name;
+}
+
+async function sendTimesheetNote(
+	label: string,
+	sheet: TimesheetMailContext,
+	recipients: string[],
+	note: { author: string; body: string; sentBack?: boolean; metadata?: Record<string, unknown> }
+): Promise<void> {
+	const template = EMAIL_TEMPLATES.timesheetCommentEmail({
+		timesheetId: sheet.id,
+		professionalName:
+			`${sheet.professional.firstName ?? ''} ${sheet.professional.lastName ?? ''}`.trim() || 'A professional',
+		weekOf: format(parseISO(sheet.weekBeginDate), 'MMM d, yyyy'),
+		place: sheet.locationName ?? sheet.companyName ?? '',
+		author: note.author,
+		body: note.body,
+		status: sheet.status,
+		sentBack: note.sentBack
+	});
+	await dispatch(
+		label,
+		recipients.map((to) =>
+			safeEmail(
+				label,
+				to,
+				() =>
+					emailService.sendEmail({
+						to: [{ email: to }],
+						subject: template.subject,
+						html: template.htmlEmail,
+						text: template.textEmail
+					}),
+				{ entityType: 'TIMESHEETS', entityId: sheet.id, metadata: note.metadata }
+			)
+		)
+	);
+}
+
+/**
+ * Practice staff who have acted or commented on a timesheet and could still
+ * open it: same practice, not suspended, and the location still in their scope.
+ */
+async function getTimesheetStaffParticipants(
+	timesheetId: string,
+	clientId: string,
+	locationId: string | null
+): Promise<{ userId: string; email: string | null }[]> {
+	const staff = await db
+		.selectDistinct({ userId: userTable.id, email: userTable.email, role: userTable.role, banned: userTable.banned })
+		.from(actionHistoryTable)
+		.innerJoin(userTable, eq(actionHistoryTable.userId, userTable.id))
+		.innerJoin(clientStaffProfileTable, eq(clientStaffProfileTable.userId, userTable.id))
+		.where(
+			and(
+				eq(actionHistoryTable.entityType, 'TIMESHEETS'),
+				eq(actionHistoryTable.entityId, timesheetId),
+				inArray(actionHistoryTable.action, ['COMMENT', 'REJECT', 'APPROVE']),
+				eq(userTable.role, USER_ROLES.CLIENT_STAFF),
+				eq(clientStaffProfileTable.clientId, clientId)
+			)
+		);
+	const allowed = await Promise.all(
+		staff.map(async (s) => {
+			if (s.banned || !locationId) return false;
+			const scope = await getClientStaffScopedLocationIds({ id: s.userId, role: s.role });
+			return scope === null || scope.includes(locationId);
+		})
+	);
+	return staff.filter((_, i) => allowed[i]);
 }
 
 /**
@@ -1300,14 +1663,14 @@ export async function notifyInvoiceCreated(args: {
 // ---------- Support ----------
 
 /**
- * New support ticket — email every SUPERADMIN.
+ * New support ticket — email every DTSS admin (SUPERADMIN and ADMIN).
  */
 export async function notifySupportTicketCreated(): Promise<void> {
 	try {
 		const admins = await db
 			.select({ email: userTable.email })
 			.from(userTable)
-			.where(eq(userTable.role, USER_ROLES.SUPERADMIN));
+			.where(inArray(userTable.role, [...STAFF_ROLES]));
 
 		const recipients = admins.filter((a) => !!a.email);
 		if (recipients.length === 0) return;
@@ -1337,7 +1700,7 @@ export async function notifySupportTicketCreated(): Promise<void> {
 /**
  * A new support ticket was created (any path: admin /support page, external
  * candidate API, billing-help, in-app support modal). Fan out to every
- * SUPERADMIN with receiveEmail=true. Fire-and-forget — never throws to the
+ * DTSS admin (SUPERADMIN or ADMIN) with receiveEmail=true. Fire-and-forget — never throws to the
  * caller, so ticket creation isn't gated on email delivery.
  */
 export async function notifyAdminsOfNewSupportTicket(ticketId: string): Promise<void> {
@@ -1368,7 +1731,7 @@ export async function notifyAdminsOfNewSupportTicket(ticketId: string): Promise<
 		const admins = await db
 			.select({ email: userTable.email })
 			.from(userTable)
-			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+			.where(and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true)));
 
 		if (admins.length === 0) {
 			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
@@ -1442,7 +1805,7 @@ export async function notifyClientStatusChange(
 
 /**
  * New client just finished the company-onboarding step — notify every
- * SUPERADMIN (filtered by `receiveEmail`) so they can review the new business.
+ * DTSS admin (filtered by `receiveEmail`) so they can review the new business.
  * Pairs with the client-status enum: this surfaces PENDING client profiles
  * for approval.
  */
@@ -1464,7 +1827,7 @@ export async function notifyAdminsOfNewClient(clientId: string): Promise<void> {
 		const admins = await db
 			.select({ email: userTable.email })
 			.from(userTable)
-			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+			.where(and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true)));
 
 		if (admins.length === 0) {
 			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
@@ -1495,7 +1858,7 @@ export async function notifyAdminsOfNewClient(clientId: string): Promise<void> {
 }
 
 /**
- * A professional profile row was just created — notify every SUPERADMIN
+ * A professional profile row was just created — notify every DTSS admin
  * (filtered by `receiveEmail`).
  *
  * Keyed to the `candidate_profiles` INSERT in `setupCandidateProfile` (the first
@@ -1535,7 +1898,7 @@ export async function notifyAdminsOfCandidateProfileCreated(candidateId: string)
 		const admins = await db
 			.select({ email: userTable.email })
 			.from(userTable)
-			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+			.where(and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true)));
 
 		if (admins.length === 0) {
 			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
@@ -1598,7 +1961,7 @@ export async function notifyAdminsOfCandidateReadyForApproval(candidateId: strin
 		const admins = await db
 			.select({ email: userTable.email })
 			.from(userTable)
-			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+			.where(and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true)));
 
 		if (admins.length === 0) {
 			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
@@ -1744,7 +2107,7 @@ export async function notifyCertExpiring(args: {
 }
 
 /**
- * Weekly credential digest to every SUPERADMIN who accepts email.
+ * Weekly credential digest to every DTSS admin who accepts email.
  *
  * This is not a nicety: gating `getQualifiedProfessionalsForRequisition` on
  * certification also gates the new-workday notification blast, so an expired
@@ -1769,7 +2132,7 @@ export async function notifyAdminsOfCertExpiryDigest(sections: {
 		const admins = await db
 			.select({ email: userTable.email })
 			.from(userTable)
-			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+			.where(and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true)));
 
 		if (admins.length === 0) {
 			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
@@ -1944,23 +2307,14 @@ export async function notifyRequisitionComment(commentId: string): Promise<void>
 			return;
 		}
 
-		const authorIsAdmin = author.role === USER_ROLES.SUPERADMIN;
+		const authorIsAdmin = checkIsAdmin(author.role);
 		const recipients = pickCommentRecipients({
 			internal: comment.internal,
 			authorId: comment.authorId,
 			authorIsAdmin,
 			owner: { userId: req.ownerUserId, email: req.ownerEmail },
 			clientCommenters: authorIsAdmin ? await getClientCommenterEmails(req.id) : [],
-			adminEmails: authorIsAdmin
-				? []
-				: (
-						await db
-							.select({ email: userTable.email })
-							.from(userTable)
-							.where(
-								and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true))
-							)
-					).map((a) => a.email)
+			adminEmails: authorIsAdmin ? [] : await getAdminAlertEmails()
 		});
 		if (recipients.length === 0) {
 			console.warn(`[transactional:${label}] no recipients for comment ${commentId}`);
@@ -2310,7 +2664,7 @@ export async function notifyAdminsSignatureAlert(args: {
 		const admins = await db
 			.select({ email: userTable.email })
 			.from(userTable)
-			.where(and(eq(userTable.role, USER_ROLES.SUPERADMIN), eq(userTable.receiveEmail, true)));
+			.where(and(inArray(userTable.role, [...STAFF_ROLES]), eq(userTable.receiveEmail, true)));
 		if (admins.length === 0) {
 			console.warn(`[transactional:${label}] no admin recipients with receiveEmail=true`);
 			return;

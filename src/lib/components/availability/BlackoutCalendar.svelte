@@ -84,7 +84,7 @@
 		</span>
 		<span class="inline-flex items-center gap-1.5">
 			<span
-				class="inline-flex h-4 w-4 items-center justify-center rounded border border-sky-300 bg-sky-100 text-sky-700"
+				class="inline-flex h-4 w-4 items-center justify-center rounded border border-status-info-border bg-status-info-bg text-status-info-fg"
 				><Lock class="h-2.5 w-2.5" /></span
 			>{COPY.off.legendBooked}
 		</span>
@@ -136,8 +136,8 @@
 											class="mx-auto h-11 w-full max-w-11
 												data-[selected]:bg-destructive data-[selected]:text-destructive-foreground
 												data-[selected]:line-through
-												data-[unavailable]:border data-[unavailable]:border-sky-300
-												data-[unavailable]:bg-sky-100 data-[unavailable]:text-sky-800
+												data-[unavailable]:border data-[unavailable]:border-status-info-border
+												data-[unavailable]:bg-status-info-bg data-[unavailable]:text-status-info-fg
 												data-[unavailable]:no-underline data-[unavailable]:opacity-100"
 											title={bookedSet.has(iso) ? COPY.off.bookedTooltip(subject) : undefined}
 											let:selected={isSelected}

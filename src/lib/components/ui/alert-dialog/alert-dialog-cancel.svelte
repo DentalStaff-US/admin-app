@@ -12,7 +12,7 @@
 
 <AlertDialogPrimitive.Cancel
 	class={cn(
-		buttonVariants({ variant: "destructiveOutline" }),
+		buttonVariants({ variant: "outline" }),
 		"mt-2 sm:mt-0",
 		className
 	)}

@@ -1,6 +1,6 @@
 import sendEmail from '$lib/server/email-send';
 import { APP_NAME } from '$lib/config/constants';
-import { BASE_URL } from '$env/static/private';
+import { BASE_URL } from '$lib/server/appUrls';
 
 // Send an email to verify the user's address
 export const sendVerificationEmail = async (email: string, token: string) => {

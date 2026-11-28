@@ -102,13 +102,13 @@ export const actions = {
 				email: invitee.email.toLowerCase(),
 				staffRole: invitee.staffRole,
 				invitedRole: 'CLIENT_STAFF', // This is their platform role
-				referrerRole: user.role as 'CANDIDATE' | 'CLIENT_STAFF' | 'SUPERADMIN' | 'CLIENT',
+				referrerRole: user.role as 'CANDIDATE' | 'CLIENT_STAFF' | 'SUPERADMIN' | 'ADMIN' | 'CLIENT',
 				referrerId: user.id,
 				expiresAt: expiresAt
 			}));
 
 			// Send invites
-			const results = await inviteStaffUsersToAccount(location.id, invites);
+			const results = await inviteStaffUsersToAccount([location.id], invites);
 
 			// Check for any failures
 			const failedInvites = results.filter((result) => !result.success);

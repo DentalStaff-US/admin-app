@@ -16,7 +16,7 @@ import { credentialSelectFields } from '$lib/server/certifications/credentialGat
 import { authenticateUser } from '$lib/server/serverUtils';
 import { recordAction } from '$lib/server/audit/audit';
 import { and, eq } from 'drizzle-orm';
-import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
+import { CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 import { notifyWorkdayClaimed } from '$lib/server/notifications/transactional';
 import { checkCandidateQualified } from '$lib/server/qualifyCandidate';
 import { getSkillRequirements } from '$lib/server/skills/requisitionSkills';

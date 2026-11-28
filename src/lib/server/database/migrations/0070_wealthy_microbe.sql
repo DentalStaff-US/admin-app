@@ -1,0 +1,1 @@
+ALTER TABLE "conversation_participants" ADD COLUMN "last_alerted_message_id" integer;

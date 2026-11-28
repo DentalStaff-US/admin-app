@@ -694,7 +694,9 @@ export const candidateRequisitionSavesTable = pgTable(
 	},
 	(table) => {
 		return {
-			pk: primaryKey({ columns: [table.candidateId, table.requisitionId] })
+			pk: primaryKey({ columns: [table.candidateId, table.requisitionId] }),
+			// The pk leads with candidate_id; "interested" counts go by requisition.
+			requisitionIdx: index('candidate_requisition_saves_requisition_idx').on(table.requisitionId)
 		};
 	}
 );

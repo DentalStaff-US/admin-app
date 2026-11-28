@@ -15,11 +15,12 @@ import {
 	unsnoozeComplianceItem,
 	type ComplianceActionResult
 } from '$lib/server/compliance/actions';
+import { can } from '$lib/authz';
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
 	if (!user) redirect(302, '/auth/sign-in');
-	if (user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/dashboard');
+	if (!can(user, 'compliance.manage')) redirect(302, '/dashboard');
 
 	const q = event.url.searchParams;
 	const severityParam = q.get('severity');
@@ -48,7 +49,7 @@ export const load: PageServerLoad = async (event) => {
 
 function requireAdmin(event: RequestEvent) {
 	const user = event.locals.user;
-	return user && user.role === USER_ROLES.SUPERADMIN ? user : null;
+	return user && can(user, 'compliance.manage') ? user : null;
 }
 
 /** Posted from the widget and the page; both send candidateId + ruleKey. */

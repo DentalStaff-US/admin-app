@@ -6,7 +6,7 @@
 
 	let className: $$Props['class'] = undefined;
 	export { className as class };
-	export let click: MouseEventHandler<HTMLTableCellElement>;
+	export let click: MouseEventHandler<HTMLTableCellElement> | undefined = undefined;
 </script>
 
 <th

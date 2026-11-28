@@ -7,7 +7,7 @@ import type { HandleServerError } from '@sveltejs/kit';
 
 import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 import { USER_ROLES } from '$lib/config/constants';
-import { CANDIDATE_APP_DOMAIN } from '$env/static/private';
+import { CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 import { logger } from '$lib/server/logger';
 import { installConsoleGuard } from '$lib/server/consoleGuard';
 import { isBotScanPath } from '$lib/server/noise';

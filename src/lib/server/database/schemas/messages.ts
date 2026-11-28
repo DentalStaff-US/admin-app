@@ -12,6 +12,7 @@ import {
 import { userRolesEnum, userTable } from './auth';
 import { desc, sql } from 'drizzle-orm';
 import { requisitionApplicationTable } from './requisition';
+import { clientCompanyTable } from './client';
 import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
 
 // Enums remain the same
@@ -21,7 +22,10 @@ export const conversationTypeEnum = pgEnum('conversation_type', [
 	'INTERNAL',
 	'APPLICATION',
 	'ADMIN_CLIENT',
-	'ADMIN_CANDIDATE'
+	'ADMIN_CANDIDATE',
+	// A professional and a practice they've worked for, outside any application.
+	// Started from a timesheet; `company_id` names the practice.
+	'CLIENT_CANDIDATE'
 ]);
 
 // Core conversation table with indexes
@@ -32,6 +36,11 @@ export const conversationTable = pgTable(
 		type: conversationTypeEnum('type').notNull(),
 		applicationId: text('application_id').references(() => requisitionApplicationTable.id, {
 			onDelete: 'cascade'
+		}),
+		// The practice a CLIENT_CANDIDATE conversation is with. Null for other types,
+		// which get their practice through the application.
+		companyId: text('company_id').references(() => clientCompanyTable.id, {
+			onDelete: 'set null'
 		}),
 		createdAt: timestamp('created_at', {
 			withTimezone: true,
@@ -51,6 +60,7 @@ export const conversationTable = pgTable(
 	(table) => ({
 		typeIdx: index('conversation_type_idx').on(table.type),
 		applicationIdx: index('conversation_application_idx').on(table.applicationId),
+		companyIdx: index('conversation_company_idx').on(table.companyId),
 		updatedAtIdx: index('conversation_updated_at_idx').on(desc(table.updatedAt))
 	})
 );
@@ -104,7 +114,9 @@ export const conversationParticipantsTable = pgTable(
 		joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow().notNull(),
 		leftAt: timestamp('left_at', { withTimezone: true }),
 		isActive: boolean('is_active').notNull().default(true),
-		latestMessageId: integer('last_read_message_id').references(() => messageTable.id)
+		latestMessageId: integer('last_read_message_id').references(() => messageTable.id),
+		// The newest message an email or text has told them about. See inbox/alerts.ts.
+		lastAlertedMessageId: integer('last_alerted_message_id')
 	},
 	(table) => ({
 		pk: primaryKey({ columns: [table.conversationId, table.userId] }),

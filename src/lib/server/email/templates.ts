@@ -1,6 +1,6 @@
 import { APP_NAME, USER_ROLES } from '$lib/config/constants';
 import { escapeHtml, textToHtml } from '$lib/server/campaigns/render';
-import { BASE_URL } from '$env/static/private';
+import { BASE_URL } from '$lib/server/appUrls';
 import { env } from '$env/dynamic/private';
 import type { Invoice } from '../database/schemas/requisition';
 import { format } from 'date-fns';
@@ -531,6 +531,64 @@ export const EMAIL_TEMPLATES: Record<
 
 		return { textEmail, htmlEmail, subject };
 	},
+	// A shared comment on a timesheet, sent to the other side (practice or DTSS),
+	// or a practice's reason for sending it back, sent to DTSS.
+	timesheetCommentEmail: (details: {
+		timesheetId: string;
+		professionalName: string;
+		/** Already formatted, e.g. "Nov 16, 2026". */
+		weekOf: string;
+		place: string;
+		/** "DTSS" to a practice; the person and their practice to DTSS. */
+		author: string;
+		body: string;
+		status: string;
+		sentBack?: boolean;
+	}) => {
+		const { timesheetId, professionalName, weekOf, place, author, body, status, sentBack = false } = details;
+		const url = `${BASE_URL}/timesheets/${timesheetId}`;
+		const sheet = `${professionalName}’s timesheet for the week of ${weekOf}`;
+		const about = `${sheet}${place ? ` at ${place}` : ''}`;
+		// Only worth saying while someone still has to act on the sheet.
+		const state = sentBack
+			? 'Correct it and resubmit it to the practice for review.'
+			: status === 'PENDING'
+				? 'This timesheet is waiting for the practice’s review.'
+				: status === 'DISCREPANCY'
+					? 'This timesheet was sent back for correction.'
+					: '';
+		const did = sentBack ? 'sent back' : 'commented on';
+		const cta = sentBack ? 'Review timesheet' : 'View and reply';
+
+		const textEmail = [
+			`${author} ${did} ${about}${sentBack ? ' for correction' : ''}.`,
+			body,
+			...(state ? [state] : []),
+			`${cta}:\n${url}`
+		].join('\n\n');
+
+		const htmlEmail = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2>${sentBack ? 'Timesheet sent back' : 'New timesheet comment'}</h2>
+                <p style="color: #374151;"><strong>${escapeHtml(author)}</strong> ${did} ${escapeHtml(about)}${sentBack ? ' for correction' : ''}:</p>
+                <div style="background-color: #F9FAFB; border-left: 3px solid #D1D5DB; padding: 12px 16px; margin: 16px 0;">${textToHtml(body)}</div>
+                ${state ? `<p style="color: #374151;">${state}</p>` : ''}
+                <p style="margin: 24px 0;">
+                    <a href="${url}"
+                        style="background-color: #2a93d1; color: white; padding: 12px 24px;
+                        text-decoration: none; border-radius: 4px; display: inline-block;">
+                        ${cta}
+                    </a>
+                </p>
+                <p style="color: #6B7280; font-size: 14px;">Or open it directly: ${url}</p>
+            </div>
+        `.trim();
+
+		// Header injection guard: names are user-entered.
+		const subject = `[${APP_NAME}] ${sentBack ? 'Sent back:' : 'New comment on'} ${sheet}`.replace(/[\r\n]+/g, ' ');
+
+		return { textEmail, htmlEmail, subject };
+	},
 	// Admin put a vetted professional forward on a perm requisition — tell the client.
 	// The professional's name is fine here: clients already see applicants in full.
 	recommendedCandidateClientEmail: (details: {
@@ -933,6 +991,51 @@ ${daysText}
 			subject: `New Requisition Available | ${APP_NAME}`
 		};
 	},
+	// The message itself stays in the app: it may name a practice, and emails get
+	// forwarded. See the identity masking notes in the design docs' appendix.
+	newConversationEmail: (recipient: { firstName: string | null }, details: { url: string }) => {
+		const name = recipient.firstName ?? 'there';
+		return {
+			subject: `You have a new conversation | ${APP_NAME}`,
+			textEmail: `
+            Hello ${name},
+
+            Someone started a conversation with you on ${APP_NAME}.
+
+            Read it and reply here: ${details.url}
+            `,
+			htmlEmail: `
+            <p>Hello ${name},</p>
+            <p>Someone started a conversation with you on ${APP_NAME}.</p>
+            <p><a href="${details.url}">Read it and reply</a></p>
+            `
+		};
+	},
+	unreadMessagesEmail: (
+		recipient: { firstName: string | null },
+		details: { conversationCount: number; url: string }
+	) => {
+		const name = recipient.firstName ?? 'there';
+		const what =
+			details.conversationCount === 1
+				? 'an unread message'
+				: `unread messages in ${details.conversationCount} conversations`;
+		return {
+			subject: `You have unread messages | ${APP_NAME}`,
+			textEmail: `
+            Hello ${name},
+
+            You have ${what} on ${APP_NAME}.
+
+            Read and reply here: ${details.url}
+            `,
+			htmlEmail: `
+            <p>Hello ${name},</p>
+            <p>You have ${what} on ${APP_NAME}.</p>
+            <p><a href="${details.url}">Read and reply</a></p>
+            `
+		};
+	},
 	candidateAssignedNotificationEmail: (
 		candidateDetails: { firstName: string | null },
 		details: {
@@ -1018,6 +1121,8 @@ ${daysText}
 			workdayStart: string;
 			workdayEnd: string;
 			requisitionNumber: string;
+			/** DTSS's comment when it resubmits a corrected sheet. */
+			comment?: string;
 		}
 	) => {
 		return {
@@ -1025,7 +1130,7 @@ ${daysText}
             Hello ${workdayDetails.clientName},
 
             A timesheet has been completed for Requisition Number: ${workdayDetails.requisitionNumber}. You can access and review the associated timesheet at ${workdayDetails.timesheetUrl}.
-            
+${workdayDetails.comment ? `\n            Comment from Dental Temps Staffing Solutions:\n            ${workdayDetails.comment}\n` : ''}            
             Please accept or dispute by clicking "Approve" or "Reject". Any discrepancies will be addressed by a system administrator, prior to processing of any payments. 
             
             Note: If you have not validated and signed the stated invoice within 24 hours, the amount due may be charged to your form of payment currently on file.

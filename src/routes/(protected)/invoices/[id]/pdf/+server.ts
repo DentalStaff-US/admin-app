@@ -6,6 +6,7 @@ import { getClientProfilebyUserId } from '$lib/server/database/queries/clients';
 import { generateAndStoreInvoicePdf } from '$lib/server/invoices/generateInvoicePdf';
 import { recordAction } from '$lib/server/audit/audit';
 import { logger } from '$lib/server/logger';
+import { can } from '$lib/authz';
 
 // Authorized paper-invoice PDF download. Admins can fetch any invoice; a client
 // can only fetch their own (getInvoiceById is scoped by clientId and returns
@@ -18,7 +19,7 @@ export const GET: RequestHandler = async (event) => {
 	const id = event.params.id as string;
 
 	let invoice: InvoiceWithRelations | null = null;
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (can(user, 'invoices.read')) {
 		invoice = await getInvoiceByIdAdmin(id);
 	} else if (user.role === USER_ROLES.CLIENT) {
 		const client = await getClientProfilebyUserId(user.id);

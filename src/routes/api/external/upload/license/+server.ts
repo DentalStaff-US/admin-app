@@ -6,13 +6,13 @@ import {
 	candidateDocumentUploadsTable,
 	candidateProfileTable
 } from '$lib/server/database/schemas/candidate';
-import { env } from '$env/dynamic/private';
+import { CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { eq } from 'drizzle-orm';
 import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
-	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
+	'Access-Control-Allow-Origin': CANDIDATE_APP_DOMAIN,
 	'Access-Control-Allow-Methods': 'POST, OPTIONS',
 	'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 	'Access-Control-Allow-Credentials': 'true'

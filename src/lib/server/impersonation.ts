@@ -11,7 +11,7 @@
  *
  *   CLIENT / CLIENT_STAFF live in THIS app → Better Auth's native
  *     `impersonateUser`, which swaps the admin's own session cookie on this
- *     domain. The layout banner plus /admin/impersonation/stop exits it.
+ *     domain. The layout banner plus /impersonation/stop exits it (outside /admin, which the impersonated user can't reach).
  *
  *   CANDIDATE lives in the candidate app → the admin app's session hook actively
  *     bounces CANDIDATE-role sessions to CANDIDATE_APP_DOMAIN, so impersonating
@@ -27,13 +27,15 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { env } from '$env/dynamic/private';
+import { CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 import type { RequestEvent } from '@sveltejs/kit';
 import { auth } from '$lib/server/auth';
 import db from '$lib/server/database/drizzle';
 import { userTable } from '$lib/server/database/schemas/auth';
 import { USER_ROLES } from '$lib/config/constants';
 import { logger } from '$lib/server/logger';
+import { can } from '$lib/authz';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 /** Minutes the cross-app handoff token stays valid. Matches the one-time-token plugin. */
 const HANDOFF_TTL_MS = 3 * 60 * 1000;
@@ -70,8 +72,8 @@ export async function startImpersonation(
 	// restated here rather than relying on any caller having checked. Better Auth's
 	// admin plugin independently enforces `adminRoles: [SUPERADMIN]` on
 	// impersonateUser; this check also covers the cross-app branch, which bypasses
-	// that endpoint.
-	if (admin.role !== USER_ROLES.SUPERADMIN) {
+	// that endpoint. users.impersonate is SUPERADMIN-only in the role matrix.
+	if (!can(admin, 'users.impersonate')) {
 		return { ok: false, status: 403, message: 'Not authorized to impersonate' };
 	}
 
@@ -89,14 +91,14 @@ export async function startImpersonation(
 
 	if (!target) return { ok: false, status: 404, message: 'User not found' };
 
-	// Never impersonate another superadmin: it would let one admin act as another
-	// with only the first admin's name in the ledger.
-	if (target.role === USER_ROLES.SUPERADMIN) {
+	// Never impersonate DTSS staff (SUPERADMIN or ADMIN): it would let one admin act
+	// as another with only the first admin's name in the ledger.
+	if (checkIsAdmin(target.role)) {
 		return { ok: false, status: 403, message: 'Cannot impersonate an administrator' };
 	}
 
 	if (target.role === USER_ROLES.CANDIDATE) {
-		if (!env.CANDIDATE_APP_DOMAIN) {
+		if (!CANDIDATE_APP_DOMAIN) {
 			return {
 				ok: false,
 				status: 500,
@@ -128,7 +130,7 @@ export async function startImpersonation(
 			return {
 				ok: true,
 				mode: 'handoff',
-				handoffUrl: `${env.CANDIDATE_APP_DOMAIN}/auth/impersonate?token=${token}`
+				handoffUrl: `${CANDIDATE_APP_DOMAIN}/auth/impersonate?token=${token}`
 			};
 		} catch (err) {
 			logger.error('startImpersonation (candidate) failed', {

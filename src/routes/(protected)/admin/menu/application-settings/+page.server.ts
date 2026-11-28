@@ -7,6 +7,7 @@ import { superValidate, message } from 'sveltekit-superforms/server';
 import { z } from 'zod';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { eq } from 'drizzle-orm';
+import { can } from '$lib/authz';
 
 const SettingsSchema = z.object({
 	paymentFee: z.coerce
@@ -28,7 +29,7 @@ export const load: PageServerLoad = async (event) => {
 		redirect(303, '/auth/sign-in');
 	}
 
-	if (user.role !== USER_ROLES.SUPERADMIN) {
+	if (!can(user, 'platform.configure')) {
 		redirect(303, '/dashboard');
 	}
 
@@ -62,7 +63,7 @@ export const actions = {
 		if (!user) {
 			throw redirect(303, '/auth/sign-in');
 		}
-		if (user.role !== USER_ROLES.SUPERADMIN) {
+		if (!can(user, 'platform.configure')) {
 			throw error(401, 'Unauthorized');
 		}
 

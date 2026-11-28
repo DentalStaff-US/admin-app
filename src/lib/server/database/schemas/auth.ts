@@ -140,8 +140,9 @@ export const userInviteTable = pgTable('user_invites', {
 	companyId: text('company_id')
 });
 
+// One row per location the invite grants, so a token repeats.
 export const companyStaffInviteLocations = pgTable('staff_invite_locations', {
-	token: text('token').unique(),
+	token: text('token'),
 	locationId: text('location_id').notNull(),
 	isPrimary: boolean('is_primary').notNull().default(true)
 });

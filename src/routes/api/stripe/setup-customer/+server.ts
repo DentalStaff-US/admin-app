@@ -19,11 +19,13 @@ import {
 import { logger } from '$lib/server/logger';
 import { EmailService } from '$lib/server/email/emailService';
 import { EMAIL_TEMPLATES } from '$lib/server/email/templates';
+import { can } from '$lib/authz';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const user = locals.user;
 
-	if (!user || user.role !== 'SUPERADMIN') {
+	// Sends the practice its payment-setup link: practice onboarding, not a money movement.
+	if (!user || !can(user, 'practices.manage')) {
 		throw error(403, 'Unauthorized');
 	}
 

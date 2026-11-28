@@ -35,6 +35,12 @@ export const GET: RequestHandler = async ({ request, params }) => {
 
 		const conversations = await inboxService.getConversationDetails(conversationId, user.id);
 
+		// Same as the admin app's thread: opening it marks it read.
+		const lastMessage = conversations.messages?.[conversations.messages.length - 1];
+		if (lastMessage) {
+			await inboxService.markAsRead(conversationId, user.id, lastMessage.id);
+		}
+
 		return json(conversations);
 	} catch (err) {
 		if (isHttpError(err)) throw err;

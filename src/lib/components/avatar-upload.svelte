@@ -2,6 +2,7 @@
     import convertNameToInitials from '$lib/_helpers/convertNameToInitials';
     import * as Avatar from '$lib/components/ui/avatar';
     import { Pencil } from 'lucide-svelte';
+    import { uploadImage } from '$lib/_helpers/uploadImage';
 
     export let user;
     export let onAvatarUpdated: (newUrl: string, isForUser: boolean) => void = () => {};
@@ -52,30 +53,7 @@
         error = null;
 
         try {
-            // Create a FormData instance for the upload
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('location', 'images');
-
-            // Send directly to an endpoint in the current app
-            const response = await fetch('/api/uploadFile', {
-                method: 'POST',
-                body: formData
-                // No need for additional headers or CORS settings since it's same-origin
-            });
-
-            if (!response.ok) {
-                throw new Error(`Upload failed: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-
-            if (result.success && result.url) {
-                // Update the avatar URL in the UI
-                onAvatarUpdated(result.url as string, isForUser);
-            } else {
-                throw new Error(result.message || 'Upload failed');
-            }
+            onAvatarUpdated(await uploadImage(file), isForUser);
         } catch (err) {
             console.error('Avatar upload error:', err);
             error = err instanceof Error ? err.message : 'Failed to upload avatar';
@@ -112,7 +90,7 @@
 
         <label
                 for="avatar-upload"
-                class="absolute bottom-1 right-1 rounded-full bg-white text-gray-300 p-2 cursor-pointer shadow-sm transition-colors"
+                class="absolute bottom-1 right-1 rounded-full bg-card text-muted-foreground p-2 cursor-pointer shadow-sm transition-colors"
                 class:opacity-50={isUploading}
                 class:pointer-events-none={isUploading}
         >

@@ -1,178 +1,97 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
+	import { Loader2, Plus } from 'lucide-svelte';
+	import Page from '$dtss/Page.svelte';
+	import PageHeader from '$dtss/PageHeader.svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
+	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Input } from '$lib/components/ui/input';
-	import type { PageData } from './$types';
-	import { enhance } from '$app/forms';
-	import { goto } from '$app/navigation';
+	import { Label } from '$lib/components/ui/label';
 	import {
-		ArrowDown,
-		ArrowUp,
-		Archive,
-		ArchiveRestore,
-		Edit,
-		FolderOpen,
-		Loader2,
-		Trash
-	} from 'lucide-svelte';
+		TaxonomyConfirmDialog,
+		TaxonomySearchField,
+		SkillCategoriesTable,
+		type SkillCategoryRow
+	} from '$features/admin/components/taxonomy';
 
-	export let data: PageData;
+	let { data, form } = $props();
 
-	type Category = PageData['categories'][number];
-
-	let searchTerm = data.searchTerm ?? '';
-	let dialogOpen = false;
-	let saving = false;
+	let dialogOpen = $state(false);
+	let saving = $state(false);
 	/** null = adding a new category. */
-	let editing: Category | null = null;
-	let formName = '';
-	let formDescription = '';
-	let formDisciplineIds = new Set<string>();
+	let editing = $state<SkillCategoryRow | null>(null);
+	let formName = $state('');
+	let formDescription = $state('');
+	let formDisciplineIds = $state<string[]>([]);
 
-	$: categories = data.categories;
-	$: disciplineName = new Map(data.disciplines.map((d) => [d.id, d.abbreviation || d.name]));
+	let archiveOpen = $state(false);
+	let deleteOpen = $state(false);
+	let target = $state<SkillCategoryRow | null>(null);
+
+	const categories = $derived(data.categories as SkillCategoryRow[]);
+	const disciplineName = $derived(new Map(data.disciplines.map((d) => [d.id, d.abbreviation || d.name])));
 
 	function openAdd() {
 		editing = null;
 		formName = '';
 		formDescription = '';
-		formDisciplineIds = new Set();
+		formDisciplineIds = [];
 		dialogOpen = true;
 	}
 
-	function openEdit(c: Category) {
+	function openEdit(c: SkillCategoryRow) {
 		editing = c;
 		formName = c.name;
 		formDescription = c.description ?? '';
-		formDisciplineIds = new Set(c.disciplineIds);
+		formDisciplineIds = [...c.disciplineIds];
 		dialogOpen = true;
 	}
 
-	function toggleDiscipline(id: string) {
-		if (formDisciplineIds.has(id)) formDisciplineIds.delete(id);
-		else formDisciplineIds.add(id);
-		formDisciplineIds = formDisciplineIds;
-	}
-
-	/** The full order with `id` moved one step — posted to ?/reorder. */
-	function movedOrder(id: string, delta: -1 | 1): string[] {
-		const ids = categories.map((c) => c.id);
-		const i = ids.indexOf(id);
-		const j = i + delta;
-		if (i < 0 || j < 0 || j >= ids.length) return ids;
-		[ids[i], ids[j]] = [ids[j], ids[i]];
-		return ids;
-	}
-
-	function handleSearch() {
-		const q = searchTerm.trim();
-		goto(q ? `/admin/menu/skill-categories?search=${encodeURIComponent(q)}` : '/admin/menu/skill-categories');
+	function toggleDiscipline(id: string, on: boolean) {
+		formDisciplineIds = on ? [...formDisciplineIds, id] : formDisciplineIds.filter((d) => d !== id);
 	}
 </script>
 
-<section class="flex flex-col h-full p-6 pb-16 space-y-6">
-	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-		<div>
-			<h1 class="text-3xl font-bold tracking-tight">Skill Categories</h1>
-			<p class="text-muted-foreground">
-				Group skills, and choose which disciplines each category applies to. Clients set a
-				requirement (or No Preference) per category on each requisition.
-			</p>
-		</div>
-		<Button class="bg-primary hover:bg-primary/90" on:click={openAdd}>Add New Category</Button>
+<Page>
+	<PageHeader
+		title="Skill categories"
+		description="Group skills and choose which disciplines each category applies to. Practices set a requirement, or No preference, per category on each requisition."
+	>
+		{#snippet actions()}
+			<Button variant="outline" href="/admin/menu/skills">Manage skills</Button>
+			<Button on:click={openAdd}><Plus class="mr-2 size-4" aria-hidden="true" />Add category</Button>
+		{/snippet}
+	</PageHeader>
+
+	<div class="flex flex-wrap items-center gap-3">
+		<TaxonomySearchField label="Search categories" value={data.searchTerm ?? ''} />
+		{#if data.searchTerm}<p class="text-sm text-muted-foreground">Clear the search to reorder.</p>{/if}
 	</div>
 
-	<form on:submit|preventDefault={handleSearch} class="flex items-center gap-2">
-		<Input bind:value={searchTerm} placeholder="Search categories..." class="bg-white max-w-xs" />
-		<Button size="sm" type="submit" class="bg-primary hover:bg-primary/90">Search</Button>
-	</form>
-
-	<div class="bg-white rounded-lg shadow-sm border">
-		{#if categories.length === 0}
-			<div class="flex flex-col items-center justify-center py-12 text-center">
-				<div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-					<FolderOpen class="w-8 h-8 text-gray-400" />
-				</div>
-				<h3 class="text-lg font-medium text-gray-900 mb-2">No categories found</h3>
-				{#if !searchTerm}
-					<Button on:click={openAdd}>Add Your First Category</Button>
-				{/if}
-			</div>
-		{:else}
-			<ul class="divide-y">
-				{#each categories as c, i (c.id)}
-					<li class="flex flex-wrap items-center gap-3 px-4 py-3" class:opacity-60={!!c.archivedAt}>
-						<div class="flex flex-col">
-							<form method="POST" action="?/reorder" use:enhance>
-								{#each movedOrder(c.id, -1) as id}<input type="hidden" name="orderedIds" value={id} />{/each}
-								<button type="submit" disabled={i === 0 || !!searchTerm} class="disabled:opacity-30" aria-label="Move up">
-									<ArrowUp class="h-3 w-3" />
-								</button>
-							</form>
-							<form method="POST" action="?/reorder" use:enhance>
-								{#each movedOrder(c.id, 1) as id}<input type="hidden" name="orderedIds" value={id} />{/each}
-								<button type="submit" disabled={i === categories.length - 1 || !!searchTerm} class="disabled:opacity-30" aria-label="Move down">
-									<ArrowDown class="h-3 w-3" />
-								</button>
-							</form>
-						</div>
-
-						<div class="flex-1 min-w-[12rem]">
-							<div class="flex items-center gap-2">
-								<span class="font-medium">{c.name}</span>
-								{#if c.archivedAt}<span class="pill pill-secondary">Archived</span>{/if}
-							</div>
-							{#if c.description}
-								<p class="text-xs text-muted-foreground">{c.description}</p>
-							{/if}
-							<div class="mt-1 flex flex-wrap gap-1">
-								{#if c.disciplineIds.length === 0}
-									<span class="pill pill-outline">All disciplines</span>
-								{:else}
-									{#each c.disciplineIds as d}
-										<span class="pill pill-outline">{disciplineName.get(d) ?? d}</span>
-									{/each}
-								{/if}
-							</div>
-						</div>
-
-						<div class="text-xs text-muted-foreground w-40">
-							{c.skillCount} skill{c.skillCount === 1 ? '' : 's'} · used by {c.requisitionCount}
-							requisition{c.requisitionCount === 1 ? '' : 's'}
-						</div>
-
-						<div class="flex items-center gap-1">
-							<Button variant="ghost" size="sm" on:click={() => openEdit(c)} aria-label="Edit">
-								<Edit class="h-4 w-4" />
-							</Button>
-							<form method="POST" action="?/setArchived" use:enhance>
-								<input type="hidden" name="id" value={c.id} />
-								<input type="hidden" name="archived" value={c.archivedAt ? 'false' : 'true'} />
-								<Button type="submit" variant="ghost" size="sm" aria-label={c.archivedAt ? 'Restore' : 'Archive'}>
-									{#if c.archivedAt}<ArchiveRestore class="h-4 w-4" />{:else}<Archive class="h-4 w-4" />{/if}
-								</Button>
-							</form>
-							{#if c.skillCount === 0 && c.requisitionCount === 0}
-								<form method="POST" action="?/deleteCategory" use:enhance>
-									<input type="hidden" name="id" value={c.id} />
-									<Button type="submit" variant="destructive" size="sm" aria-label="Delete">
-										<Trash size={16} />
-									</Button>
-								</form>
-							{/if}
-						</div>
-					</li>
-				{/each}
-			</ul>
-		{/if}
-	</div>
-</section>
+	<SkillCategoriesTable
+		rows={categories}
+		{disciplineName}
+		search={data.searchTerm ?? ''}
+		onAdd={openAdd}
+		onEdit={openEdit}
+		onArchive={(c) => {
+			target = c;
+			archiveOpen = true;
+		}}
+		onDelete={(c) => {
+			target = c;
+			deleteOpen = true;
+		}}
+	/>
+</Page>
 
 <Dialog.Root bind:open={dialogOpen}>
-	<Dialog.Content class="sm:max-w-[480px]">
+	<Dialog.Content class="sm:max-w-lg">
 		<form
 			method="POST"
 			action={editing ? '?/editCategory' : '?/addCategory'}
+			class="space-y-6"
 			use:enhance={() => {
 				saving = true;
 				return async ({ result, update }) => {
@@ -183,68 +102,64 @@
 			}}
 		>
 			<Dialog.Header>
-				<Dialog.Title>{editing ? 'Edit Category' : 'Add New Skill Category'}</Dialog.Title>
+				<Dialog.Title class="text-h2">{editing ? 'Edit category' : 'Add skill category'}</Dialog.Title>
+				<Dialog.Description>Practices set one requirement per category on each requisition.</Dialog.Description>
 			</Dialog.Header>
 			{#if editing}<input type="hidden" name="id" value={editing.id} />{/if}
-			<div class="space-y-4 py-4">
-				<div class="space-y-1">
-					<label for="cat-name" class="text-sm font-medium">Name</label>
+			<div class="space-y-4">
+				<div class="space-y-1.5">
+					<Label for="cat-name" class="font-semibold">Name</Label>
 					<Input id="cat-name" name="name" bind:value={formName} required maxlength={80} />
 				</div>
-				<div class="space-y-1">
-					<label for="cat-desc" class="text-sm font-medium">Description (optional)</label>
+				<div class="space-y-1.5">
+					<Label for="cat-desc" class="font-semibold">Description <span class="font-normal text-muted-foreground">(optional)</span></Label>
 					<Input id="cat-desc" name="description" bind:value={formDescription} maxlength={300} />
 				</div>
-				<fieldset class="space-y-1">
-					<legend class="text-sm font-medium">Applies to disciplines</legend>
-					<p class="text-xs text-muted-foreground">Leave all unchecked to apply to every discipline.</p>
-					<div class="grid grid-cols-2 gap-1">
+				<fieldset class="space-y-2">
+					<legend class="text-sm font-semibold">Applies to disciplines</legend>
+					<p class="text-sm text-muted-foreground">Leave all unchecked to apply to every discipline.</p>
+					<div class="grid gap-2 sm:grid-cols-2">
 						{#each data.disciplines as d (d.id)}
-							<label class="flex items-center gap-2 text-sm">
-								<input
-									type="checkbox"
-									name="disciplineIds"
-									value={d.id}
-									checked={formDisciplineIds.has(d.id)}
-									on:change={() => toggleDiscipline(d.id)}
-								/>
-								{d.name}
-							</label>
+							{@const checked = formDisciplineIds.includes(d.id)}
+							<div class="flex items-center gap-2">
+								<Checkbox id="cat-discipline-{d.id}" {checked} onCheckedChange={(v) => toggleDiscipline(d.id, v === true)} />
+								<Label for="cat-discipline-{d.id}" class="font-normal">{d.name}</Label>
+								{#if checked}<input type="hidden" name="disciplineIds" value={d.id} />{/if}
+							</div>
 						{/each}
 					</div>
 				</fieldset>
+				{#if form?.message}<p class="text-sm text-destructive" role="alert">{form.message}</p>{/if}
 			</div>
-			<Dialog.Footer>
-				<Button variant="destructiveOutline" type="button" on:click={() => (dialogOpen = false)}>
-					Cancel
-				</Button>
-				<Button type="submit" class="bg-primary hover:bg-primary/90" disabled={saving}>
-					{#if saving}<Loader2 class="mr-2 h-4 w-4 animate-spin" />{/if}
-					{editing ? 'Save' : 'Add Category'}
+			<Dialog.Footer class="gap-2">
+				<Button variant="outline" on:click={() => (dialogOpen = false)}>Cancel</Button>
+				<Button type="submit" disabled={saving}>
+					{#if saving}<Loader2 class="mr-2 size-4 animate-spin" aria-hidden="true" />{/if}
+					{editing ? 'Save changes' : 'Add category'}
 				</Button>
 			</Dialog.Footer>
 		</form>
 	</Dialog.Content>
 </Dialog.Root>
 
-<style>
-	.pill {
-		display: inline-flex;
-		align-items: center;
-		border-radius: 9999px;
-		border-width: 1px;
-		padding: 0 0.5rem;
-		font-size: 0.75rem;
-		line-height: 1.25rem;
-		font-weight: 500;
-	}
-	.pill-outline {
-		border-color: rgb(229 231 235);
-		color: rgb(55 65 81);
-	}
-	.pill-secondary {
-		border-color: transparent;
-		background: rgb(243 244 246);
-		color: rgb(75 85 99);
-	}
-</style>
+<TaxonomyConfirmDialog
+	bind:open={archiveOpen}
+	title={target?.archivedAt ? `Restore ${target?.name}?` : `Archive ${target?.name ?? 'this category'}?`}
+	description={target?.archivedAt
+		? 'The category becomes available to choose again.'
+		: 'The category is hidden from new choices. Requisitions that already use it keep it, and you can restore it later.'}
+	action="?/setArchived"
+	fields={{ id: target?.id ?? '', archived: target?.archivedAt ? 'false' : 'true' }}
+	confirmLabel={target?.archivedAt ? 'Restore category' : 'Archive category'}
+	destructive={false}
+/>
+
+<TaxonomyConfirmDialog
+	bind:open={deleteOpen}
+	title="Delete {target?.name ?? 'this category'}?"
+	description="The category has no skills and isn't used by any requisition, so it's removed for good. This can't be undone."
+	action="?/deleteCategory"
+	fields={{ id: target?.id ?? '' }}
+	confirmLabel="Delete category"
+	confirmText="DELETE"
+/>

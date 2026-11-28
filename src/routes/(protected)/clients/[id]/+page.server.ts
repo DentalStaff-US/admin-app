@@ -6,6 +6,7 @@ import {
 	getAllClientStaffProfiles,
 	getCalendarEventsForClient,
 	getClientCompanyByClientId,
+	getLocationByIdForCompany,
 	getClientProfileById,
 	getClientSubscription,
 	getPendingInvitesForCompany,
@@ -50,6 +51,8 @@ import { z } from 'zod';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { getClientSignatureViews } from '$lib/server/signatures/view';
+import { getActivityForEntity } from '$lib/server/audit/queries';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
 import {
 	cancelSignatureRequest,
 	requestSignature,
@@ -88,6 +91,9 @@ import {
 	deleteClientDocument,
 	toggleClientDocumentLock
 } from '$lib/server/database/queries/clients';
+import { can } from '$lib/authz';
+import { resolveInviteLocations } from '$features/people/inviteLocations';
+import { saveLocationInfo } from '$features/people/server/locationInfo';
 
 const LineItemSchema = z.array(
 	z.object({
@@ -152,7 +158,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		redirect(302, '/auth/sign-in');
 	}
 
-	if (user.role !== USER_ROLES.SUPERADMIN) {
+	if (!can(user, 'practices.manage')) {
 		redirect(302, '/dashboard');
 	}
 
@@ -229,6 +235,9 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	);
 
 	const comments = await getCommentsForClient(id);
+	// History tab: the owner's account in the action_history ledger (sign-ins,
+	// impersonation). There is no client entity type in the ledger yet.
+	const activity = result?.user ? await getActivityForEntity('USERS', result.user.id, { limit: 100 }) : [];
 
 	// PAPER invoicing with an unused Stripe customer. This page is where the
 	// invoice method is both displayed and edited, and where one-off invoices are
@@ -274,6 +283,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 				updateClientForm,
 				statusForm,
 				comments,
+				activity,
 				documents,
 				signatureRequests,
 				signatureKinds: listSignatureKinds('CLIENT'),
@@ -305,7 +315,6 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 };
 
 const InviteStaffSchema = z.object({
-	locationId: z.string().min(1, 'Location is required'),
 	invitees: z
 		.string()
 		.transform((val) => {
@@ -351,7 +360,7 @@ export const actions = {
 		const user = event.locals.user;
 		const { id: clientId } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'practices.manage')) {
 			return fail(403, { error: 'Not authorized' });
 		}
 
@@ -408,7 +417,7 @@ export const actions = {
 		const user = request.locals.user;
 		const { id: clientId } = request.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'invoices.oneOff')) {
 			redirect(302, '/dashboard');
 		}
 
@@ -545,7 +554,7 @@ export const actions = {
 			return redirect(301, '/auth/sign-in');
 		}
 
-		if (user.role === USER_ROLES.SUPERADMIN) {
+		if (can(user, 'practices.manage')) {
 			const clientCompany = await getClientCompanyByClientId(id);
 
 			if (!clientCompany) {
@@ -636,11 +645,28 @@ export const actions = {
 			}
 		}
 	},
+	/** Name and contact details, from the locations table row's Edit dialog. */
+	updateLocationInfo: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user || !can(user, 'practices.manage')) return fail(403, { locationErrors: { name: ['You can’t edit this location.'] } });
+
+		const formData = await event.request.formData();
+		const locationId = String(formData.get('locationId') ?? '');
+		const company = await getClientCompanyByClientId(event.params.id);
+		const location = company ? await getLocationByIdForCompany(locationId, company.id) : null;
+		if (!location) return fail(404, { locationErrors: { name: ['This location isn’t one of this practice’s.'] } });
+
+		const result = await saveLocationInfo(location.id, formData);
+		if ('locationSaved' in result) {
+			setFlash({ type: 'success', message: `${result.locationSaved} updated` }, event);
+		}
+		return result;
+	},
 	updateClient: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		const { id: clientId } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'practices.manage')) {
 			redirect(302, '/dashboard');
 		}
 
@@ -685,6 +711,7 @@ export const actions = {
 			if (posted('billingState')) companyUpdate.billingState = form.data.billingState || null;
 			if (posted('billingZipcode')) companyUpdate.billingZipcode = form.data.billingZipcode || null;
 			if (posted('companyName')) companyUpdate.companyName = form.data.companyName;
+			if (posted('companyLogo')) companyUpdate.companyLogo = form.data.companyLogo || null;
 			if (posted('baseLocation')) companyUpdate.baseLocation = form.data.baseLocation || null;
 			if (posted('website')) companyUpdate.website = form.data.website || null;
 			if (posted('cellPhone')) profileUpdate.cellPhone = form.data.cellPhone || null;
@@ -740,13 +767,12 @@ export const actions = {
 		const user = event.locals.user;
 		const { id: clientId } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'practices.manage')) {
 			return fail(403, { error: 'Unauthorized' });
 		}
 
 		const formData = await event.request.formData();
 		const parsed = InviteStaffSchema.safeParse({
-			locationId: formData.get('locationId'),
 			invitees: formData.get('invitees')
 		});
 		if (!parsed.success) {
@@ -759,11 +785,14 @@ export const actions = {
 				return fail(404, { error: 'Client not found' });
 			}
 
-			// Validate the chosen location belongs to this client's company.
+			// The chosen locations must belong to this client's company.
 			const ownedLocations = await getAllClientLocationsByCompanyId(client.company.id);
-			if (!ownedLocations.some((l) => l.id === parsed.data.locationId)) {
-				return fail(400, { error: 'Location does not belong to this client' });
-			}
+			const locations = resolveInviteLocations(
+				formData.get('locationIds')?.toString(),
+				formData.get('primaryLocationId')?.toString(),
+				ownedLocations
+			);
+			if (!locations.ok) return fail(400, { inviteError: locations.message });
 
 			const INVITE_EXPIRATION_DAYS = 7;
 			const expiresAt = new Date();
@@ -774,12 +803,12 @@ export const actions = {
 				email: invitee.email.toLowerCase(),
 				staffRole: invitee.staffRole,
 				invitedRole: 'CLIENT_STAFF' as const,
-				referrerRole: user.role as 'CANDIDATE' | 'CLIENT_STAFF' | 'SUPERADMIN' | 'CLIENT',
+				referrerRole: user.role as 'CANDIDATE' | 'CLIENT_STAFF' | 'SUPERADMIN' | 'ADMIN' | 'CLIENT',
 				referrerId: user.id,
 				expiresAt
 			}));
 
-			const results = await inviteStaffUsersToAccount(parsed.data.locationId, invites);
+			const results = await inviteStaffUsersToAccount(locations.locationIds, invites);
 			const failures = results.filter((r) => !r.success);
 
 			if (failures.length === invites.length) {
@@ -815,7 +844,7 @@ export const actions = {
 	resendStaffInvite: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		const { id: clientId } = event.params;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'practices.manage')) {
 			return fail(403, { error: 'Unauthorized' });
 		}
 		const formData = await event.request.formData();
@@ -843,7 +872,7 @@ export const actions = {
 	revokeStaffInvite: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		const { id: clientId } = event.params;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'practices.manage')) {
 			return fail(403, { error: 'Unauthorized' });
 		}
 		const formData = await event.request.formData();
@@ -868,7 +897,7 @@ export const actions = {
 		const user = event.locals.user;
 		const { id: clientId } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'practices.manage')) {
 			return fail(403, { error: 'Unauthorized' });
 		}
 
@@ -913,7 +942,7 @@ export const actions = {
 
 	addComment: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 
 		const { id } = event.params;
 		const formData = await event.request.formData();
@@ -928,10 +957,12 @@ export const actions = {
 
 	deleteComment: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 
 		const formData = await event.request.formData();
 		const commentId = formData.get('commentId') as string;
+		// Hard delete: the dialog makes the admin type DELETE, and so does this.
+		if (!hasTypedConfirmation(formData)) return fail(400, { error: 'Type DELETE to confirm' });
 
 		await deleteComment(commentId, user.id);
 		setFlash({ type: 'success', message: 'Comment deleted' }, event);
@@ -939,7 +970,7 @@ export const actions = {
 	},
 	uploadClientDocument: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 
 		const { id } = event.params;
 		const formData = await event.request.formData();
@@ -961,10 +992,12 @@ export const actions = {
 
 	deleteClientDocument: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 
 		const formData = await event.request.formData();
 		const documentId = formData.get('documentId') as string;
+		// Hard delete: the dialog makes the admin type DELETE, and so does this.
+		if (!hasTypedConfirmation(formData)) return fail(400, { error: 'Type DELETE to confirm' });
 
 		try {
 			await deleteClientDocument(documentId);
@@ -979,7 +1012,7 @@ export const actions = {
 
 	toggleClientDocumentLock: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 
 		const formData = await event.request.formData();
 		const documentId = formData.get('documentId') as string;
@@ -1000,7 +1033,7 @@ export const actions = {
 	// (admin-created, bulk-imported) and re-sending after a cancel/decline/expiry.
 	sendSignatureRequest: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 		const kind = String((await event.request.formData()).get('kind') ?? '');
 		if (!SIGNATURE_KINDS.includes(kind)) return fail(400, { error: 'Unknown document' });
 
@@ -1028,7 +1061,7 @@ export const actions = {
 
 	resendSignatureRequest: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 		const requestId = String((await event.request.formData()).get('requestId') ?? '');
 		try {
 			await resendSigningInvite(requestId, user.id);
@@ -1043,7 +1076,7 @@ export const actions = {
 
 	cancelSignatureRequest: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'practices.manage')) return fail(403);
 		const formData = await event.request.formData();
 		const requestId = String(formData.get('requestId') ?? '');
 		const reason = String(formData.get('reason') ?? '').trim() || undefined;
@@ -1067,7 +1100,7 @@ export const actions = {
 	// Returns the match in the action result for the card to render.
 	searchBlacklistCandidate: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'blacklist.add')) return fail(403);
 
 		const formData = await event.request.formData();
 		const email = String(formData.get('email') ?? '')
@@ -1093,7 +1126,7 @@ export const actions = {
 
 	addBlacklist: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'blacklist.add')) return fail(403);
 
 		const { id } = event.params;
 		const formData = await event.request.formData();
@@ -1129,7 +1162,7 @@ export const actions = {
 
 	removeBlacklist: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'blacklist.remove')) return fail(403);
 
 		const { id } = event.params;
 		const formData = await event.request.formData();

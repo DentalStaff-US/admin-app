@@ -27,7 +27,7 @@ export type RecommendResult = { ok: true; applicationId: string } | { ok: false;
  * PAYMENT_REQUIRED billing all work unchanged. Consent is the admin's attestation
  * that the professional agreed in conversation; its timestamp is stored.
  *
- * Callers must already have authorised the admin (SUPERADMIN + requisition access).
+ * Callers must already have authorised the admin (requisitions.manage + requisition access).
  */
 export async function recommendCandidate(input: {
 	requisitionId: number;

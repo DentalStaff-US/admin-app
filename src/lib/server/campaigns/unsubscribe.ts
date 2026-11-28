@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { env } from '$env/dynamic/private';
+import { BASE_URL } from '$lib/server/appUrls';
 
 // Stateless email unsubscribe tokens. We HMAC the userId so the /unsubscribe
 // route can flip receive_email without storing a per-user token. Reuses
@@ -22,6 +23,6 @@ export function verifyUnsubscribe(userId: string, token: string | null | undefin
 }
 
 export function unsubscribeUrl(userId: string): string {
-	const base = (env.BASE_URL || '').replace(/\/$/, '');
+	const base = (BASE_URL || '').replace(/\/$/, '');
 	return `${base}/unsubscribe?u=${encodeURIComponent(userId)}&t=${signUnsubscribe(userId)}`;
 }

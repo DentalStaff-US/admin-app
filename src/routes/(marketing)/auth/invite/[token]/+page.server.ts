@@ -1,5 +1,5 @@
 // src/routes/auth/invite/[token]/+page.server.ts
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { fail, redirect } from '@sveltejs/kit';
 import db from '$lib/server/database/drizzle.js';
 import {
@@ -11,6 +11,7 @@ import { getClientCompanyById } from '$lib/server/database/queries/clients';
 import type { RequestEvent } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
 import { logger } from '$lib/server/logger';
+import { isStaffRole } from '$lib/authz';
 
 export async function load(event: RequestEvent) {
 	const token = event.params.token;
@@ -60,7 +61,8 @@ export async function load(event: RequestEvent) {
 			const locationAssignments = await db
 				.select()
 				.from(companyStaffInviteLocations)
-				.where(eq(companyStaffInviteLocations.token, token));
+				.where(eq(companyStaffInviteLocations.token, token))
+				.orderBy(desc(companyStaffInviteLocations.isPrimary));
 
 			const company = await getClientCompanyById(invite.companyId);
 
@@ -111,10 +113,15 @@ export const actions = {
 					message: 'Invalid or expired invitation'
 				});
 			}
+			// A team invite carries ADMIN or SUPERADMIN, chosen by the super admin
+			// who sent it. Anything else on a no-company invite is refused.
+			if (!isStaffRole(invite.invitedRole)) {
+				return fail(400, { message: 'Invalid or expired invitation' });
+			}
 			const inviteData = {
 				token,
 				email: invite.email,
-				invitedRole: 'SUPERADMIN'
+				invitedRole: invite.invitedRole
 			};
 			event.cookies.set('admin_invite', JSON.stringify(inviteData), {
 				path: '/',
@@ -126,7 +133,7 @@ export const actions = {
 			logger.event('invitation_accepted', {
 				distinctId: invite.referrerId ?? 'unknown',
 				invite_type: 'admin',
-				invited_role: 'SUPERADMIN'
+				invited_role: invite.invitedRole
 			});
 		} catch (error) {
 			logger.error('auth.invite.handleAdminInvite failed', { error, token });
@@ -157,7 +164,8 @@ export const actions = {
 			const locationAssignments = await db
 				.select()
 				.from(companyStaffInviteLocations)
-				.where(eq(companyStaffInviteLocations.token, token));
+				.where(eq(companyStaffInviteLocations.token, token))
+				.orderBy(desc(companyStaffInviteLocations.isPrimary));
 
 			const inviteData = {
 				token,

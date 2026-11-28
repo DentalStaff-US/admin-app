@@ -264,7 +264,7 @@
 
 <!-- Portal the dropdown to body to escape overflow constraints -->
 {#if open && (suggestions.length > 0 || loading || query.length >= minChars)}
-    <div style="position: fixed; z-index: 99999; background: white; border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-height: 300px; overflow-y: auto; min-width: 300px; {dropdownStyle}"
+    <div style="position: fixed; z-index: 99999; background: hsl(var(--popover)); color: hsl(var(--popover-foreground)); border: 1px solid hsl(var(--border)); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-height: 300px; overflow-y: auto; min-width: 300px; {dropdownStyle}"
          class="suggestions-dropdown">
         {#if loading}
             <div class="flex items-center gap-2 px-4 py-2">
@@ -279,20 +279,20 @@
         {#each suggestions as suggestion}
             <div
                     on:click={() => selectAddress(suggestion)}
-                    class="cursor-pointer px-4 py-2 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                    class="cursor-pointer px-4 py-2 hover:bg-muted border-b border-border last:border-b-0"
             >
                 <div class="flex flex-col gap-1">
                     <span class="font-medium text-sm">{suggestion.place_name}</span>
 
                     <!-- Show additional address components if available -->
                     {#if suggestion.address_components?.subpremise || suggestion.address_components?.secondary_address}
-                        <span class="text-xs text-blue-600">
+                        <span class="text-xs text-primary-dark">
                             Unit/Suite: {suggestion.address_components.subpremise || suggestion.address_components.secondary_address}
                         </span>
                     {/if}
 
                     {#if suggestion.context?.country}
-                        <span class="text-xs text-gray-600">
+                        <span class="text-xs text-muted-foreground">
                             {[
                                 suggestion.context.neighborhood,
                                 suggestion.context.locality,
@@ -307,7 +307,7 @@
         {/each}
 
         {#if !loading && suggestions.length === 0 && query.length >= minChars}
-            <div class="px-4 py-2 text-gray-600 text-sm">
+            <div class="px-4 py-2 text-muted-foreground text-sm">
                 No addresses found for "{query}"
             </div>
         {/if}

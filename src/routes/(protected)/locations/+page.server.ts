@@ -1,4 +1,6 @@
-import { redirect } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
+import { assertLocationAccess, practiceCompanyId } from '$features/people/server/locationAccess';
+import { saveLocationInfo } from '$features/people/server/locationInfo';
 import { buildLocationAddressPatch } from '$lib/server/address';
 import type { PageServerLoad } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
@@ -12,6 +14,7 @@ import {
 	getClientCompanyByClientId,
 	getClientProfileByStaffUserId,
 	getClientProfilebyUserId,
+	getClientStaffProfilebyUserId,
 	getPaginatedLocationsByCompanyId
 } from '$lib/server/database/queries/clients';
 import { setFlash } from 'sveltekit-flash-message/server';
@@ -19,12 +22,22 @@ import { redirectIfNotValidCustomer } from '$lib/server/database/queries/billing
 import { getPostHogClient } from '$lib/server/posthog';
 import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
 
+/**
+ * `getPaginatedLocationsByCompanyId` splices the sort column into the SQL with
+ * `sql.raw`, so only these known column names may ever reach it from the URL.
+ */
+const SORTABLE_LOCATION_COLUMNS = ['location_name', 'complete_address', 'created_at'];
+
 export const load: PageServerLoad = async (event) => {
-	const skip = Number(event.url.searchParams.get('skip'));
+	const rawSkip = Number(event.url.searchParams.get('skip'));
+	const skip = Number.isInteger(rawSkip) && rawSkip > 0 ? rawSkip : 0;
 	const sortBy = event.url.searchParams.get('sortBy')?.toString();
 	const sortOn = event.url.searchParams.get('sortOn')?.toString();
 
-	const orderBy = sortBy && sortOn ? { column: sortOn, direction: sortBy } : undefined;
+	const orderBy =
+		sortOn && SORTABLE_LOCATION_COLUMNS.includes(sortOn) && (sortBy === 'asc' || sortBy === 'desc')
+			? { column: sortOn, direction: sortBy }
+			: undefined;
 
 	const user = event.locals.user;
 
@@ -85,6 +98,22 @@ export const load: PageServerLoad = async (event) => {
 };
 
 export const actions = {
+	/** Name and contact details, from the table row's Edit dialog. */
+	updateLocationInfo: async (event) => {
+		const user = event.locals.user;
+		if (!user) redirect(302, '/auth/sign-in');
+
+		const formData = await event.request.formData();
+		const locationId = String(formData.get('locationId') ?? '');
+		// Same rule as the location page: its own practice, within staff scope.
+		await assertLocationAccess(user, locationId);
+
+		const result = await saveLocationInfo(locationId, formData);
+		if ('locationSaved' in result) {
+			setFlash({ type: 'success', message: `${result.locationSaved} updated` }, event);
+		}
+		return result;
+	},
 	createLocation: async (event) => {
 		const form = await superValidate(event, newClientCompanyLocationSchema);
 
@@ -92,7 +121,6 @@ export const actions = {
 			return { form };
 		}
 
-		console.log({ form });
 		const user = event.locals.user;
 
 		if (!user) {
@@ -100,10 +128,17 @@ export const actions = {
 		}
 
 		if (user.role === USER_ROLES.CLIENT || user.role === USER_ROLES.CLIENT_STAFF) {
-			const client = await getClientProfilebyUserId(user.id);
-			const clientCompany = await getClientCompanyByClientId(client.id);
+			// The location goes on the user's own practice, never a company id from
+			// the form. Staff were looked up as owners (and crashed); they now resolve
+			// through their staff profile.
+			if (user.role === USER_ROLES.CLIENT_STAFF) {
+				// Only office admins manage locations (05 › navigation by role).
+				const staff = await getClientStaffProfilebyUserId(user.id);
+				if (staff?.staffRole !== 'CLIENT_ADMIN') return fail(403, { form });
+			}
+			const companyId = await practiceCompanyId(user);
 
-			if (!clientCompany) {
+			if (!companyId) {
 				return { form };
 			}
 
@@ -114,7 +149,8 @@ export const actions = {
 				name: form.data.name,
 				companyPhone: form.data.companyPhone,
 				email: form.data.email || null,
-				companyId: form.data.companyId,
+				website: form.data.website || null,
+				companyId,
 				// Routed through the shared helper so a hand-typed "Texas" or a zip+4
 				// is canonicalized before it becomes a filter facet on the clients index.
 				...buildLocationAddressPatch(form.data).patch,

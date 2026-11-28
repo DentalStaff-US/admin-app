@@ -38,6 +38,7 @@ export const GET: RequestHandler = async ({ request }) => {
 					weekBeginDate: timeSheetTable.weekBeginDate,
 					hoursRaw: timeSheetTable.hoursRaw,
 					status: timeSheetTable.status,
+					wagesStatus: timeSheetTable.wagesStatus,
 					discrepancyNote: timeSheetTable.discrepancyNote
 				},
 				requisition: {

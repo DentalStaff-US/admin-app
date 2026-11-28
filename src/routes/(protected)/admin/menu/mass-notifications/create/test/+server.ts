@@ -3,6 +3,7 @@ import { USER_ROLES } from '$lib/config/constants';
 import { EmailService } from '$lib/server/email/emailService';
 import { sms } from '$lib/server/sms/smsService';
 import { renderTokens, textToHtml } from '$lib/server/campaigns/render';
+import { can } from '$lib/authz';
 
 const emailService = new EmailService();
 
@@ -10,7 +11,7 @@ const emailService = new EmailService();
 // Tokens render against the admin's name so they can eyeball personalization.
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const user = locals.user;
-	if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+	if (!user || !can(user, 'comms.massSend')) {
 		return json({ error: 'Unauthorized' }, { status: 403 });
 	}
 

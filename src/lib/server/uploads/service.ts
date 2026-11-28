@@ -1,7 +1,13 @@
-import { GetObjectCommand, PutObjectCommand, type PutObjectCommandInput } from '@aws-sdk/client-s3';
+import {
+	DeleteObjectsCommand,
+	GetObjectCommand,
+	PutObjectCommand,
+	type PutObjectCommandInput
+} from '@aws-sdk/client-s3';
 import { s3Client, BUCKET_NAME } from './config';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { logger } from '$lib/server/logger';
+import { UPLOADS_ORIGIN } from '$lib/config/constants';
 
 export type FileType = {
 	mimetype: string;
@@ -22,7 +28,7 @@ const sanitizeFileName = (name: string) => name.replace(/[#?&%]/g, '_');
  * and be served through a signed-URL download route.
  */
 export const storageUrlForKey = (key: string) =>
-	`https://dentalstaffusdocs.nyc3.cdn.digitaloceanspaces.com/${key}`;
+	`${UPLOADS_ORIGIN}/${key}`;
 
 export const uploadFile = async ({ file, location }: { file: FileType; location?: string }) => {
 	const safeName = sanitizeFileName(file.fileName);
@@ -72,6 +78,35 @@ export const uploadPrivateFile = async ({
 		});
 		throw err;
 	}
+};
+
+/**
+ * Delete stored objects by key, best effort: the database rows are already gone
+ * by the time this runs, so a failure is logged (with the keys, for a manual
+ * sweep) rather than thrown. Returns how many keys S3 reported deleted.
+ */
+export const deleteStoredObjects = async (keys: string[]): Promise<number> => {
+	const unique = [...new Set(keys.filter(Boolean))];
+	let deleted = 0;
+	// DeleteObjects takes at most 1000 keys per request.
+	for (let i = 0; i < unique.length; i += 1000) {
+		const batch = unique.slice(i, i + 1000);
+		try {
+			const result = await s3Client.send(
+				new DeleteObjectsCommand({
+					Bucket: BUCKET_NAME,
+					Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true }
+				})
+			);
+			deleted += batch.length - (result.Errors?.length ?? 0);
+			if (result.Errors?.length) {
+				logger.error('uploads.deleteStoredObjects partial failure', { errors: result.Errors });
+			}
+		} catch (err) {
+			logger.error('uploads.deleteStoredObjects failed', { error: err, keys: batch });
+		}
+	}
+	return deleted;
 };
 
 export const getSignedDownloadUrl = async (

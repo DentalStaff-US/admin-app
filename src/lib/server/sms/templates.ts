@@ -1,4 +1,7 @@
 export const SMS_TEMPLATES = {
+	newConversationNotification: (vars: { url: string }) => ({
+		textMessage: `You have a new message on DTSS. Read it and reply here: ${vars.url}`
+	}),
 	/**
 	 * "matches your credentials and availability" is a LOAD-BEARING claim, not
 	 * marketing. It became true when notifyQualifiedCandidatesOfNewWorkdays started
