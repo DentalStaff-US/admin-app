@@ -10,10 +10,12 @@
  */
 import {
 	getAffiliateByUserId,
+	getAffiliateSummary,
 	getPrimaryCode,
 	getAffiliateConfig,
 	getInternalProfileStatus
 } from '$lib/server/database/queries/affiliates';
+import { resolveCommissionRate } from '$lib/server/affiliate/commission';
 import { hasUsableLink, type AffiliateStatus } from '$lib/server/affiliate/eligibility';
 
 export type AffiliateSettingsStatus = {
@@ -70,5 +72,54 @@ export async function getAffiliateSettingsStatus(
 			linkActive && code?.code
 				? `${marketingBaseUrl.replace(/\/$/, '')}/r/${encodeURIComponent(code.code)}`
 				: null
+	};
+}
+
+/** The dashboard widget: the settings status plus this person's own activity. */
+export type AffiliateOverview = AffiliateSettingsStatus & {
+	/** Their rate, or the program's when they haven't joined. */
+	ratePercent: string | null;
+	/** Null until they've joined. Earnings are dollars. */
+	activity: {
+		clicks: number;
+		referralsActive: number;
+		referralsPending: number;
+		earningsUnpaid: number;
+		earningsPaid: number;
+	} | null;
+};
+
+/**
+ * Settings stays status-and-link only; the practice dashboard and the
+ * professional's Home show this summary, with the detail in the portal.
+ */
+export async function getAffiliateOverview(
+	userId: string,
+	role: string | null | undefined,
+	portalBaseUrl: string
+): Promise<AffiliateOverview> {
+	const status = await getAffiliateSettingsStatus(userId, role, portalBaseUrl);
+	// Ineligible accounts never learn the program exists, so there's nothing to add.
+	if (!status.programEnabled || !status.eligible) return { ...status, ratePercent: null, activity: null };
+
+	const [config, affiliate] = await Promise.all([getAffiliateConfig(), getAffiliateByUserId(userId)]);
+	const { ratePercent } = resolveCommissionRate({
+		affiliateOverride: affiliate?.commissionRateOverride ?? null,
+		programDefault: config.commissionRate
+	});
+	if (!affiliate) return { ...status, ratePercent: String(ratePercent), activity: null };
+
+	const summary = await getAffiliateSummary(affiliate.id);
+	return {
+		...status,
+		ratePercent: String(ratePercent),
+		activity: {
+			clicks: summary.clicks,
+			referralsActive: summary.referrals.qualified,
+			referralsPending: summary.referrals.pending,
+			// Pending and approved are both owed and not yet paid out.
+			earningsUnpaid: Number(summary.earnings.pending) + Number(summary.earnings.approved),
+			earningsPaid: Number(summary.earnings.paid)
+		}
 	};
 }

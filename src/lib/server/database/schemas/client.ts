@@ -213,6 +213,8 @@ export const companyOfficeLocationTable = pgTable(
 			.notNull()
 			.defaultNow(),
 		name: text('location_name').notNull(),
+		// This office's own avatar. NULL falls back to the company's logo.
+		logo: text('logo'),
 		streetOne: text('street_one'),
 		streetTwo: text('street_two'),
 		city: text('city'),

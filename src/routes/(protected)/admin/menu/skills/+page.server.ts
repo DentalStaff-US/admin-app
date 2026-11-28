@@ -12,6 +12,8 @@ import {
 	updateSkill
 } from '$lib/server/database/queries/skills';
 import { USER_ROLES } from '$lib/config/constants';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
+import { can } from '$lib/authz';
 
 /**
  * Skills within categories. `requiresCertificate` makes holding the skill depend
@@ -22,7 +24,7 @@ import { USER_ROLES } from '$lib/config/constants';
 function requireSuperadmin(event: RequestEvent) {
 	const user = event.locals.user;
 	if (!user) redirect(302, '/auth/sign-in');
-	return user.role === USER_ROLES.SUPERADMIN;
+	return can(user, 'platform.configure');
 }
 
 const skillFields = z.object({
@@ -120,6 +122,8 @@ export const actions = {
 		const fd = await event.request.formData();
 		const id = String(fd.get('id') ?? '');
 		if (!id) return fail(400, { message: 'Missing skill.' });
+		// Hard delete: the dialog posts the typed word (03 › ConfirmDialog).
+		if (!hasTypedConfirmation(fd)) return fail(400, { message: 'Type DELETE to confirm.' });
 
 		const outcome = await deleteSkillIfUnused(id);
 		if (outcome === 'IN_USE') {

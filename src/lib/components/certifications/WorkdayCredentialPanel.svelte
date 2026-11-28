@@ -33,6 +33,8 @@
 	} from 'lucide-svelte';
 	import { credentialBadge, formatCertDate } from '$lib/credentialStatusDisplay';
 	import type { CertState } from '$lib/credentialStatusDisplay';
+	import { groupByCategory } from '$lib/_helpers/skillGroups';
+	import { TONE_CLASSES } from '$tokens/status';
 
 	export let credential: {
 		candidateName: string;
@@ -88,6 +90,7 @@
 	$: showCert = credential && credential.certification.state !== 'NOT_REQUIRED';
 	$: skills = credential?.skills ?? { requirements: [], meetsRequirements: true, held: [] };
 	$: showSkills = skills.requirements.length > 0 || skills.held.length > 0;
+	$: heldByCategory = groupByCategory(skills.held);
 	$: requiredSkillIds = new Set(skills.requirements.flatMap((r) => r.skills.map((x) => x.id)));
 	/** A required skill whose certificate has lapsed is as loud as a lapsed license. */
 	$: skillsAlarming =
@@ -125,7 +128,7 @@
 </script>
 
 {#if credential && (showLicense || showCert || showSkills)}
-	<div class="rounded-lg border p-4 {alarming ? 'border-red-200 bg-red-50' : 'bg-white'}">
+	<div class="rounded-lg border p-4 {alarming ? 'border-status-negative-border bg-status-negative-bg' : 'bg-card'}">
 		<button
 			type="button"
 			class="flex w-full items-start justify-between gap-3 text-left"
@@ -140,14 +143,14 @@
 				</span>
 				{#if !expanded}
 					<span
-						class="mt-0.5 block text-xs {alarming ? 'font-medium text-red-700' : 'text-gray-600'}"
+						class="mt-0.5 block text-xs {alarming ? 'font-medium text-status-negative-fg' : 'text-muted-foreground'}"
 					>
 						{summary}
 					</span>
 				{/if}
 			</span>
 			<ChevronDown
-				class="h-4 w-4 flex-shrink-0 text-gray-500 transition-transform {expanded
+				class="h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform {expanded
 					? 'rotate-180'
 					: ''}"
 			/>
@@ -160,14 +163,14 @@
 				<div class="min-w-0 flex-1">
 					<div class="flex items-center gap-2">
 						{#if bad(credential.license.state)}
-							<AlertCircle class="h-4 w-4 flex-shrink-0 text-red-600" />
+							<AlertCircle class="h-4 w-4 flex-shrink-0 text-destructive" />
 						{:else}
-							<CheckCircle2 class="h-4 w-4 flex-shrink-0 text-green-600" />
+							<CheckCircle2 class="h-4 w-4 flex-shrink-0 text-status-positive-solid" />
 						{/if}
 						<span class="text-sm font-medium">License/Registration</span>
 					</div>
 
-					<p class="mt-1 text-sm text-gray-700">
+					<p class="mt-1 text-sm text-foreground">
 						{#if credential.license.state === 'MISSING' || credential.license.state === 'MISSING_GRACE'}
 							None on file{#if credential.license.graceDaysRemaining !== null}
 								— {credential.license.graceDaysRemaining} day{credential.license
@@ -182,13 +185,13 @@
 					</p>
 
 					{#if credential.license.state === 'EXPIRED'}
-						<p class="mt-2 text-sm font-medium text-red-700">
+						<p class="mt-2 text-sm font-medium text-status-negative-fg">
 							This professional is booked on a lapsed license/registration. Contact DTSS.
 						</p>
 					{/if}
 
 					{#if credential.license.document?.filename}
-						<p class="mt-2 flex items-center gap-1 text-xs text-gray-500">
+						<p class="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
 							<FileText class="h-3 w-3" />
 							{credential.license.document.filename}
 						</p>
@@ -216,14 +219,14 @@
 				<div class="min-w-0 flex-1">
 					<div class="flex items-center gap-2">
 						{#if bad(credential.certification.state)}
-							<AlertCircle class="h-4 w-4 flex-shrink-0 text-red-600" />
+							<AlertCircle class="h-4 w-4 flex-shrink-0 text-destructive" />
 						{:else}
-							<CheckCircle2 class="h-4 w-4 flex-shrink-0 text-green-600" />
+							<CheckCircle2 class="h-4 w-4 flex-shrink-0 text-status-positive-solid" />
 						{/if}
 						<span class="text-sm font-medium">Certification</span>
 					</div>
 
-					<p class="mt-1 text-sm text-gray-700">
+					<p class="mt-1 text-sm text-foreground">
 						{#if credential.certification.state === 'MISSING'}
 							Declared as required, but no certificate on file.
 						{:else if credential.certification.state === 'EXPIRED'}
@@ -234,7 +237,7 @@
 					</p>
 
 					{#if credential.certification.state === 'EXPIRED'}
-						<p class="mt-2 text-sm font-medium text-red-700">
+						<p class="mt-2 text-sm font-medium text-status-negative-fg">
 							This professional is booked on a lapsed certification. Contact DTSS.
 						</p>
 					{/if}
@@ -242,7 +245,7 @@
 					<!-- Full width, below the status: this is a sentence about where the
 					     information came from, and squeezing it into a tag beside the
 					     label wrapped it over three lines. -->
-					<p class="mt-1.5 flex items-start gap-1.5 text-xs text-gray-500">
+					<p class="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground">
 						<Info class="mt-0.5 h-3 w-3 flex-shrink-0" />
 						<span>
 							The professional reports that their state requires this certification. The
@@ -251,7 +254,7 @@
 					</p>
 
 					{#if credential.certification.document?.filename}
-						<p class="mt-2 flex items-center gap-1 text-xs text-gray-500">
+						<p class="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
 							<FileText class="h-3 w-3" />
 							{credential.certification.document.filename}
 						</p>
@@ -278,81 +281,96 @@
 			<div class="mt-3 border-t pt-3 {showLicense || showCert ? '' : 'border-t-0 pt-0'}">
 				<div class="flex items-center gap-2">
 					{#if skillsAlarming}
-						<AlertCircle class="h-4 w-4 flex-shrink-0 text-red-600" />
+						<AlertCircle class="h-4 w-4 flex-shrink-0 text-destructive" />
 					{:else}
-						<CheckCircle2 class="h-4 w-4 flex-shrink-0 text-green-600" />
+						<CheckCircle2 class="h-4 w-4 flex-shrink-0 text-status-positive-solid" />
 					{/if}
 					<span class="text-sm font-medium">Skills</span>
 				</div>
 
 				{#if skills.requirements.length > 0}
-					<p class="mt-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+					<p class="mt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
 						Required for this position
 					</p>
-					<ul class="mt-1 space-y-1">
+					<ul class="mt-2 space-y-3">
 						{#each skills.requirements as r (r.categoryId)}
-							<li class="text-sm text-gray-700">
-								<span class="font-medium">{r.categoryName}</span>
-								<span class="text-xs text-gray-500">({r.matchMode === 'ALL' ? 'all of' : 'any of'})</span>:
-								{#each r.skills as x, i (x.id)}
-									<span class={x.held ? 'text-green-700' : 'text-red-700'}
-										>{x.held ? '✓' : '✗'} {x.name}</span
-									>{i < r.skills.length - 1 ? ', ' : ''}
-								{/each}
+							<li>
+								<p class="text-sm font-semibold">
+									{r.categoryName}
+									<span class="text-xs font-normal text-muted-foreground">({r.matchMode === 'ALL' ? 'all of' : 'any of'})</span>
+								</p>
+								<ul class="mt-1 flex flex-wrap gap-2">
+									{#each r.skills as x (x.id)}
+										<li class="rounded-full border px-2 py-0.5 text-xs {x.held ? TONE_CLASSES.positive : r.met ? 'bg-card text-muted-foreground' : TONE_CLASSES.negative}">
+											{#if x.held}<span aria-hidden="true">✓</span>{:else if !r.met}<span aria-hidden="true">✗</span>{/if}
+											{x.name}<span class="sr-only">: {x.held ? 'has it' : r.met ? 'doesn’t have it' : 'missing'}</span>
+										</li>
+									{/each}
+								</ul>
 							</li>
 						{/each}
 					</ul>
 					{#if !skills.meetsRequirements}
-						<p class="mt-2 text-sm font-medium text-red-700">
+						<p class="mt-2 text-sm font-medium text-status-negative-fg">
 							This professional does not meet every skill requirement on this position.
 						</p>
 					{/if}
 				{/if}
 
 				{#if skills.held.length > 0}
-					<p class="mt-3 text-xs font-medium uppercase tracking-wide text-gray-500">On profile</p>
-					<ul class="mt-1 space-y-2">
-						{#each skills.held as h (h.skillId)}
-							<li class="flex items-start justify-between gap-4">
-								<div class="min-w-0 flex-1">
-									<p class="text-sm text-gray-700">
-										{h.name}
-										<span class="text-xs text-gray-500">· {h.categoryName}</span>
-										{#if requiredSkillIds.has(h.skillId)}
-											<span class="ml-1 rounded-full bg-blue-50 px-1.5 text-[11px] text-blue-700">required</span>
-										{/if}
-									</p>
-									{#if h.requiresCertificate}
-										<p class="text-xs {bad(h.certState) ? 'font-medium text-red-700' : 'text-gray-600'}">
-											{#if h.certState === 'MISSING'}
-												Certificate required — none on file.
-											{:else if h.certState === 'EXPIRED'}
-												Certificate expired {formatCertDate(h.certExpiresOn)}.
-											{:else}
-												Certificate valid through {formatCertDate(h.certExpiresOn)}.
+					<p class="mt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">On profile</p>
+					<ul class="mt-2 space-y-3">
+						{#each heldByCategory as group (group.name)}
+							<li>
+								<p class="text-sm font-semibold">{group.name}</p>
+								<ul class="mt-1 flex flex-wrap gap-2">
+									{#each group.skills as h (h.skillId)}
+										<li class="inline-flex items-center gap-1 rounded-full border bg-card px-2 py-0.5 text-xs">
+											{h.name}
+											{#if requiredSkillIds.has(h.skillId)}
+												<span class="rounded-full bg-primary-soft px-1.5 text-primary-dark">required</span>
 											{/if}
-										</p>
-										{#if h.document?.filename}
-											<p class="mt-0.5 flex items-center gap-1 text-xs text-gray-500">
-												<FileText class="h-3 w-3" />
-												{h.document.filename}
+										</li>
+									{/each}
+								</ul>
+								<!-- Only skills with a certificate to show or chase have more to say. -->
+								{#each group.skills.filter((h) => h.requiresCertificate || h.document) as h (h.skillId)}
+									<div class="mt-2 flex items-start justify-between gap-4">
+										<div class="min-w-0 flex-1">
+											<p class="text-xs {bad(h.certState) ? 'font-medium text-status-negative-fg' : 'text-muted-foreground'}">
+												{h.name}:
+												{#if !h.requiresCertificate}
+													certificate on file.
+												{:else if h.certState === 'MISSING'}
+													certificate required, none on file.
+												{:else if h.certState === 'EXPIRED'}
+													certificate expired {formatCertDate(h.certExpiresOn)}.
+												{:else}
+													certificate valid through {formatCertDate(h.certExpiresOn)}.
+												{/if}
 											</p>
+											{#if h.document?.filename}
+												<p class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+													<FileText class="h-3 w-3 flex-shrink-0" />
+													<span class="min-w-0 break-all">{h.document.filename}</span>
+												</p>
+											{/if}
+										</div>
+										{#if h.document}
+											<Button
+												href={`/api/credentials/${h.document.id}/download?workdayId=${workdayId}`}
+												target="_blank"
+												rel="noopener noreferrer"
+												variant="outline"
+												size="sm"
+												class="flex-shrink-0"
+											>
+												<Download class="mr-2 h-4 w-4" />
+												View
+											</Button>
 										{/if}
-									{/if}
-								</div>
-								{#if h.document}
-									<Button
-										href={`/api/credentials/${h.document.id}/download?workdayId=${workdayId}`}
-										target="_blank"
-										rel="noopener noreferrer"
-										variant="outline"
-										size="sm"
-										class="flex-shrink-0"
-									>
-										<Download class="mr-2 h-4 w-4" />
-										View
-									</Button>
-								{/if}
+									</div>
+								{/each}
 							</li>
 						{/each}
 					</ul>

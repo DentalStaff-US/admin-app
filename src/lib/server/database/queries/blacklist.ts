@@ -22,6 +22,7 @@ import { recurrenceDayTable, requisitionTable, workdayTable } from '../schemas/r
 import {
 	recordRecurrenceDayCancellation,
 	stripWorkdayFromTimesheet,
+	toCancellationRole,
 	type CancellationRole
 } from '$lib/server/cancellations';
 import { recordAction } from '$lib/server/audit/audit';
@@ -55,7 +56,7 @@ export async function addCandidateToBlacklist(
 	options: AddBlacklistOptions = {}
 ): Promise<{ cancelledWorkdays: number }> {
 	const actorUserId = options.actorUserId ?? null;
-	const actorRole: CancellationRole = options.actorRole ?? 'SUPERADMIN';
+	const actorRole: CancellationRole = toCancellationRole(options.actorRole ?? 'SUPERADMIN');
 
 	return db.transaction(async (tx) => {
 		await tx

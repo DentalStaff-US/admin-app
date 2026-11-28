@@ -9,6 +9,7 @@
 	import { enhance } from '$app/forms';
 	import { Button } from '$lib/components/ui/button';
 	import { Edit, Lock, Save, X } from 'lucide-svelte';
+	import { TONE_CLASSES } from '$tokens/status';
 
 	type CatalogSkill = {
 		id: string;
@@ -70,9 +71,9 @@
 	}
 
 	const toneClass = {
-		ok: 'bg-green-50 text-green-700 border-green-200',
-		warn: 'bg-amber-50 text-amber-700 border-amber-200',
-		bad: 'bg-red-50 text-red-700 border-red-200'
+		ok: TONE_CLASSES.positive,
+		warn: TONE_CLASSES.warning,
+		bad: TONE_CLASSES.negative
 	};
 </script>
 
@@ -128,7 +129,7 @@
 									value={skill.id}
 									checked={selected.has(skill.id)}
 									on:change={() => toggle(skill.id)}
-									class="h-4 w-4 rounded border-gray-300"
+									class="h-4 w-4 rounded border-input"
 								/>
 								<span class:line-through={!!skill.archivedAt}>{skill.name}</span>
 								{#if skill.requiresCertificate}

@@ -62,8 +62,13 @@ export function publicError(
 	return publicJson({ error: true, ...body }, { request, status, headers });
 }
 
-export function corsPreflight(request: Request): Response {
-	if (!isPublicJobBoardEnabled()) return publicError(request, 404, { message: 'Not found' });
+export function corsPreflight(
+	request: Request,
+	{ jobBoard = true }: { jobBoard?: boolean } = {}
+): Response {
+	if (jobBoard && !isPublicJobBoardEnabled()) {
+		return publicError(request, 404, { message: 'Not found' });
+	}
 	const headers = corsHeaders(request);
 	headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
 	headers.set('Access-Control-Allow-Headers', 'Content-Type, Accept');
@@ -148,11 +153,16 @@ function isTrustedServer(request: Request): boolean {
 	return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-/** Kill switch + rate limit. Returns a response to send, or null to proceed. */
+/**
+ * Kill switch + rate limit. Returns a response to send, or null to proceed.
+ * `jobBoard: false` skips the job-board kill switch for routes that aren't part
+ * of the board (e.g. /api/public/program), keeping the rate limit.
+ */
 export function guardPublicRequest(
-	event: Pick<RequestEvent, 'request' | 'getClientAddress'>
+	event: Pick<RequestEvent, 'request' | 'getClientAddress'>,
+	{ jobBoard = true }: { jobBoard?: boolean } = {}
 ): Response | null {
-	if (!isPublicJobBoardEnabled()) {
+	if (jobBoard && !isPublicJobBoardEnabled()) {
 		return publicError(event.request, 404, { message: 'Not found' });
 	}
 	if (isTrustedServer(event.request)) return null;

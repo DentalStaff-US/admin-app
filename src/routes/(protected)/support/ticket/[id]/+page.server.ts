@@ -3,12 +3,14 @@ import {
 	getSupportTicketDetails,
 	updateSupportTicket
 } from '$lib/server/database/queries/support';
-import { fail, redirect } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import type { RequestEvent } from './$types';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { z } from 'zod';
 import { setFlash } from 'sveltekit-flash-message/server';
 import { USER_ROLES } from '$lib/config/constants';
+import { assertTicketAccess } from '$features/support/server/access';
+import { can } from '$lib/authz';
 
 const newSupportTicketCommentSchema = z.object({
 	body: z.string().min(1, 'Comment cannot be empty')
@@ -21,11 +23,15 @@ export async function load(event: RequestEvent) {
 		redirect(302, '/auth/sign-in');
 	}
 
-	const supportTicket = await getSupportTicketDetails(id);
+	await assertTicketAccess(user, id);
+
+	// The query throws when the id doesn't exist; that's a 404, not a 500.
+	const supportTicket = await getSupportTicketDetails(id).catch(() => null);
+	if (!supportTicket) error(404, 'Ticket not found');
 
 	const commentForm = await superValidate(event, newSupportTicketCommentSchema);
 
-	return { user, ticket: supportTicket || null, commentForm };
+	return { user, ticket: supportTicket, commentForm };
 }
 
 export const actions = {
@@ -35,6 +41,7 @@ export const actions = {
 		if (!user) {
 			return redirect(302, '/auth/sign-in');
 		}
+		await assertTicketAccess(user, params.id);
 		try {
 			await updateSupportTicket(
 				params.id,
@@ -60,6 +67,7 @@ export const actions = {
 		if (!user) {
 			return redirect(302, '/auth/sign-in');
 		}
+		await assertTicketAccess(user, params.id);
 		try {
 			await updateSupportTicket(
 				params.id,
@@ -86,11 +94,12 @@ export const actions = {
 		if (!user) {
 			return fail(403);
 		}
+		await assertTicketAccess(user, params.id);
 
 		const form = await superValidate(request, newSupportTicketCommentSchema);
 
 		if (!form.valid) {
-			fail(400, { form });
+			return fail(400, { form });
 		}
 
 		try {
@@ -107,7 +116,7 @@ export const actions = {
 			};
 
 			const update =
-				user?.role === USER_ROLES.SUPERADMIN
+				can(user, 'support.manage')
 					? {
 							status: 'PENDING' as const
 						}

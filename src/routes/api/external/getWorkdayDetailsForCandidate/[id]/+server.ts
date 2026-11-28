@@ -2,7 +2,7 @@ import { authenticateUser } from '$lib/server/serverUtils';
 import { recordView } from '$lib/server/audit/audit';
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { and, eq } from 'drizzle-orm';
-import { env } from '$env/dynamic/private';
+import { CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 import db from '$lib/server/database/drizzle';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import {
@@ -13,13 +13,16 @@ import {
 } from '$lib/server/database/schemas/requisition';
 import {
 	clientCompanyTable,
-	clientProfileTable,
 	companyOfficeLocationTable
 } from '$lib/server/database/schemas/client';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
+import {
+	findPracticeConversationId,
+	isBlockedFromPractice
+} from '$lib/server/inbox/practiceConversation';
 
 const corsHeaders = {
-	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
+	'Access-Control-Allow-Origin': CANDIDATE_APP_DOMAIN,
 	'Access-Control-Allow-Methods': 'POST, OPTIONS',
 	'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 	'Access-Control-Allow-Credentials': 'true'
@@ -63,15 +66,23 @@ export const GET: RequestHandler = async ({ request, params }) => {
 		.select({
 			workday: { ...workdayTable },
 			recurrenceDay: { ...recurrenceDayTable },
-			timesheet: { ...timeSheetTable },
+			// The professional's own sheet for this shift, and only what the page needs:
+			// the full row carries admin fee columns.
+			timesheet: {
+				id: timeSheetTable.id,
+				status: timeSheetTable.status,
+				totalHoursWorked: timeSheetTable.totalHoursWorked,
+				adjustedHourlyRate: timeSheetTable.adjustedHourlyRate
+			},
 			requisition: {
 				...requisitionTable,
 				companyName: clientCompanyTable.companyName,
 				disciplineName: disciplineTable.name
 			},
-			client: {
-				...clientProfileTable,
-				...clientCompanyTable
+			company: {
+				id: clientCompanyTable.id,
+				name: clientCompanyTable.companyName,
+				logo: clientCompanyTable.companyLogo
 			},
 			location: {
 				...companyOfficeLocationTable
@@ -80,8 +91,6 @@ export const GET: RequestHandler = async ({ request, params }) => {
 		.from(workdayTable)
 		.innerJoin(requisitionTable, eq(requisitionTable.id, workdayTable.requisitionId))
 		.innerJoin(disciplineTable, eq(disciplineTable.id, requisitionTable.disciplineId))
-		// The sheet this shift is on. Joining by requisition returned whichever sheet
-		// came first, including other professionals'.
 		.leftJoin(timeSheetTable, eq(timeSheetTable.id, workdayTable.timesheetId))
 		.innerJoin(recurrenceDayTable, eq(recurrenceDayTable.id, workdayTable.recurrenceDayId))
 		.innerJoin(
@@ -89,7 +98,6 @@ export const GET: RequestHandler = async ({ request, params }) => {
 			eq(requisitionTable.locationId, companyOfficeLocationTable.id)
 		)
 		.innerJoin(clientCompanyTable, eq(requisitionTable.companyId, clientCompanyTable.id))
-		.innerJoin(clientProfileTable, eq(clientProfileTable.id, clientCompanyTable.clientId))
 		.where(and(eq(workdayTable.id, id), eq(workdayTable.candidateId, candidateProfile.id)));
 
 	if (!workday) {
@@ -112,5 +120,21 @@ export const GET: RequestHandler = async ({ request, params }) => {
 		}
 	});
 
-	return json({ success: true, data: workday }, { headers: corsHeaders });
+	// Claiming the shift is what opens the line to the practice.
+	const [conversationId, practiceBlocked] = await Promise.all([
+		findPracticeConversationId({ userId: user.id, companyId: workday.company.id }),
+		isBlockedFromPractice({ candidateId: candidateProfile.id, companyId: workday.company.id })
+	]);
+
+	return json(
+		{
+			success: true,
+			data: {
+				...workday,
+				conversationId,
+				canMessagePractice: !practiceBlocked && !workday.workday.cancelledAt
+			}
+		},
+		{ headers: corsHeaders }
+	);
 };

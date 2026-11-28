@@ -36,7 +36,11 @@ import db from '$lib/server/database/drizzle';
 import { companyOfficeLocationTable } from '$lib/server/database/schemas/client';
 import { eq } from 'drizzle-orm';
 import { assertCanAccessLocation } from '$lib/server/scoping';
+import { assertLocationAccess, assertStaffInCompany } from '$features/people/server/locationAccess';
 import { syncRequisitionTimezonesForLocation } from '$lib/server/requisitions/referenceTimezone';
+import { can } from '$lib/authz';
+import { saveLocationInfo } from '$features/people/server/locationInfo';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 const assignStaffToLocationSchema = z.object({
 	staffId: z.string(),
@@ -53,7 +57,8 @@ export const load: PageServerLoad = async (event) => {
 		redirect(301, '/auth/sign-in');
 	}
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	// Practice-only page: DTSS staff use /clients/[id]/locations instead.
+	if (checkIsAdmin(user.role)) {
 		redirect(301, '/dashboard');
 	}
 
@@ -89,8 +94,8 @@ export const load: PageServerLoad = async (event) => {
 			email: location.email || '',
 			website: location.website || '',
 			completeAddress: location.completeAddress || '',
-			lat: parseFloat(location.lat as string),
-			lon: parseFloat(location.lon as string)
+			lat: location.lat ? parseFloat(location.lat) : undefined,
+			lon: location.lon ? parseFloat(location.lon) : undefined
 		};
 		operatingHoursForm.data = {
 			operatingHours: JSON.stringify(location.operatingHours || {})
@@ -139,8 +144,8 @@ export const load: PageServerLoad = async (event) => {
 			email: location.email || '',
 			website: location.website || '',
 			completeAddress: location.completeAddress || '',
-			lat: parseFloat(location.lat as string),
-			lon: parseFloat(location.lon as string)
+			lat: location.lat ? parseFloat(location.lat) : undefined,
+			lon: location.lon ? parseFloat(location.lon) : undefined
 		};
 		operatingHoursForm.data = {
 			operatingHours: JSON.stringify(location.operatingHours || {})
@@ -166,6 +171,19 @@ export const load: PageServerLoad = async (event) => {
 };
 
 export const actions = {
+	/** The title block: avatar, name and contact details. */
+	updateLocationInfo: async (event: RequestEvent) => {
+		const user = event.locals.user;
+		if (!user) redirect(302, '/auth/sign-in');
+		const id = event.params.id as string;
+		await assertLocationAccess(user, id);
+
+		const result = await saveLocationInfo(id, await event.request.formData());
+		if ('locationSaved' in result) {
+			setFlash({ type: 'success', message: `${result.locationSaved} updated` }, event);
+		}
+		return result;
+	},
 	/**
 	 * Per-staff toggle on THIS location. Supports two operations:
 	 *   - 'remove'      → drop this location from the staff's set
@@ -174,7 +192,7 @@ export const actions = {
 	 * Both compute the new full set server-side and route through
 	 * setStaffLocations() so we always end up with at most one primary.
 	 *
-	 * Allowed for SUPERADMIN, CLIENT, and CLIENT_ADMIN client_staff.
+	 * Allowed for DTSS staff (practices.manage), CLIENT, and CLIENT_ADMIN client_staff.
 	 */
 	resendStaffInvite: async (event: RequestEvent) => {
 		const user = event.locals.user;
@@ -251,7 +269,7 @@ export const actions = {
 		const { id: locationId } = event.params;
 		if (!user) return fail(401, { error: 'Unauthorized' });
 
-		const isAdmin = user.role === USER_ROLES.SUPERADMIN;
+		const isAdmin = can(user, 'practices.manage');
 		const isClient = user.role === USER_ROLES.CLIENT;
 		const staffSelf =
 			user.role === USER_ROLES.CLIENT_STAFF ? await getClientStaffProfilebyUserId(user.id) : null;
@@ -334,19 +352,24 @@ export const actions = {
 		const currentUser = event.locals.user;
 
 		if (!currentUser) {
-			fail(401);
+			return fail(401);
 		}
 
 		const form = await superValidate(event, assignStaffToLocationSchema);
 
 		if (!form.valid) {
-			fail(400, { form });
+			return fail(400, { form });
 		}
+
+		// The company comes from the location the user may act on, never from the
+		// form, and the staff member must belong to that same company.
+		const { companyId } = await assertLocationAccess(currentUser, form.data.locationId);
+		await assertStaffInCompany(form.data.staffId, companyId);
 
 		try {
 			const values = {
 				id: crypto.randomUUID(),
-				companyId: form.data.companyId,
+				companyId,
 				staffId: form.data.staffId,
 				locationId: form.data.locationId,
 				isPrimary: form.data.isPrimary
@@ -378,9 +401,9 @@ export const actions = {
 		if (!user) {
 			redirect(302, '/auth/sign-in');
 		}
+		await assertLocationAccess(user, event.params.id);
 		const form = await superValidate(event, ClientLocationDetailsSchema);
 
-		console.log(form);
 		if (!form.valid) {
 			return fail(400, { form });
 		}
@@ -399,14 +422,16 @@ export const actions = {
 
 		const details = {
 			...address.patch,
-			completeAddress,
+			// Absent unless a new address was picked; undefined leaves the column alone.
+			completeAddress: completeAddress || undefined,
 			lat: lat?.toString(),
 			lon: lon?.toString(),
 			timezone,
 			companyPhone,
 			cellPhone,
-			email,
-			website,
+			// A cleared field parses to undefined, which would skip the column.
+			email: email || null,
+			website: website || null,
 			name
 		};
 
@@ -467,6 +492,7 @@ export const actions = {
 		if (!user) {
 			redirect(302, '/auth/sign-in');
 		}
+		await assertLocationAccess(user, event.params.id);
 		const form = await superValidate(event, OperatingHoursSchema);
 
 		if (!form.valid) {

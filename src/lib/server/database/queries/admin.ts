@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { sql, count, eq, desc, lt, and, ne, ilike, or, sum } from 'drizzle-orm';
+import { sql, count, eq, desc, lt, and, ne, ilike, or, sum, isNull } from 'drizzle-orm';
+import { STAFF_ROLES, type StaffRole } from '$lib/authz';
 import db from '../drizzle';
 import { userTable, type UpdateUser, type NewUser } from '$lib/server/database/schemas/auth';
 import { DEFAULT_MAX_RECORD_LIMIT, USER_ROLES } from '$lib/config/constants';
@@ -78,7 +79,7 @@ export async function getAdminUsers(searchTerm?: string) {
 			.from(userTable)
 			.where(
 				and(
-					eq(userTable.role, USER_ROLES.SUPERADMIN),
+					inArray(userTable.role, [...STAFF_ROLES]),
 					searchTerm
 						? or(
 								ilike(userTable.email, `%${searchTerm}%`),
@@ -110,7 +111,7 @@ export async function getPaginatedAdminUsers({
 		query.append(sql`
 			SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.avatar_url
 			FROM ${userTable} AS u
-			WHERE u.role = 'SUPERADMIN'
+			WHERE u.role IN ('SUPERADMIN', 'ADMIN')
 		`);
 
 		if (orderSelector && orderBy) {
@@ -140,7 +141,7 @@ export async function getPaginatedAdminUsers({
 		const countResult = await db
 			.select({ value: count() })
 			.from(userTable)
-			.where(eq(userTable.role, USER_ROLES.SUPERADMIN));
+			.where(inArray(userTable.role, [...STAFF_ROLES]));
 
 		const results = await db.execute(query);
 
@@ -290,8 +291,36 @@ export async function getAdminUserById(id: string) {
 			role: userTable.role
 		})
 		.from(userTable)
-		.where(and(eq(userTable.id, id), eq(userTable.role, USER_ROLES.SUPERADMIN)));
+		.where(and(eq(userTable.id, id), inArray(userTable.role, [...STAFF_ROLES])));
 
+	return result;
+}
+
+/**
+ * SUPERADMIN accounts that can still act (not suspended), for the last-SUPERADMIN
+ * guard in $lib/authz/guards. Identity check on purpose: it counts a role, it
+ * doesn't grant anything.
+ */
+export async function countActiveSuperadmins(): Promise<number> {
+	const [row] = await db
+		.select({ value: count() })
+		.from(userTable)
+		.where(
+			and(
+				eq(userTable.role, USER_ROLES.SUPERADMIN),
+				or(isNull(userTable.banned), eq(userTable.banned, false))
+			)
+		);
+	return Number(row?.value ?? 0);
+}
+
+/** Change a staff member's role between ADMIN and SUPERADMIN. Callers run guardStaffChange first. */
+export async function setStaffRole(id: string, role: StaffRole) {
+	const [result] = await db
+		.update(userTable)
+		.set({ role, updatedAt: new Date() })
+		.where(and(eq(userTable.id, id), inArray(userTable.role, [...STAFF_ROLES])))
+		.returning({ id: userTable.id, role: userTable.role });
 	return result;
 }
 
@@ -302,7 +331,7 @@ export async function updateAdminUserProfile(id: string, values: UpdateUser) {
 			...values,
 			updatedAt: new Date()
 		})
-		.where(and(eq(userTable.id, id), eq(userTable.role, USER_ROLES.SUPERADMIN)))
+		.where(and(eq(userTable.id, id), inArray(userTable.role, [...STAFF_ROLES])))
 		.returning();
 
 	return result;

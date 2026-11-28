@@ -1,4 +1,4 @@
-import { and, desc, asc, eq, gt, sql, inArray, count } from 'drizzle-orm';
+import { and, desc, asc, eq, gt, ne, sql, inArray, count } from 'drizzle-orm';
 import db from '../database/drizzle';
 import {
 	conversationTable,
@@ -14,6 +14,9 @@ import { requisitionApplicationTable, requisitionTable } from '../database/schem
 import { clientCompanyTable } from '../database/schemas/client';
 import { disciplineTable } from '../database/schemas/skill';
 import { error } from '@sveltejs/kit';
+import { logger } from '$lib/server/logger';
+import { notifyNewInboxMessage } from '$lib/server/notifications/transactional';
+import { INBOX_CHANNEL } from '../../../../ws/channel.js';
 
 export class InboxService {
 	// Conversation Management
@@ -21,17 +24,20 @@ export class InboxService {
 		type,
 		participants,
 		applicationId,
+		companyId,
 		initialMessage
 	}: {
 		type: ConversationType;
 		participants: { userId: string; participantType: ParticipantType }[];
 		applicationId?: string;
+		companyId?: string;
 		initialMessage?: string;
 	}) {
 		console.log(
 			`Creating conversation with data: ${JSON.stringify({ type, participants, applicationId })}`
 		);
 		const conversationId = crypto.randomUUID();
+		let initialMessageId: number | null = null;
 
 		await db.transaction(async (tx) => {
 			// Create conversation
@@ -39,6 +45,7 @@ export class InboxService {
 				id: conversationId,
 				type,
 				applicationId,
+				companyId,
 				isActive: true
 			});
 
@@ -54,14 +61,22 @@ export class InboxService {
 
 			// Add initial message if provided
 			if (initialMessage) {
-				await tx.insert(messageTable).values({
-					conversationId,
-					body: initialMessage,
-					senderId: participants[0].userId,
-					isSystemMessage: false
-				});
+				const [message] = await tx
+					.insert(messageTable)
+					.values({
+						conversationId,
+						body: initialMessage,
+						senderId: participants[0].userId,
+						isSystemMessage: false
+					})
+					.returning({ id: messageTable.id });
+				initialMessageId = message.id;
 			}
 		});
+
+		if (initialMessageId !== null) {
+			await this.announceMessage(conversationId, initialMessageId, participants[0].userId, false);
+		}
 
 		return conversationId;
 	}
@@ -166,7 +181,8 @@ export class InboxService {
 					participants: enhancedParticipants,
 					lastMessage,
 					unreadCount,
-					applicationData
+					applicationData,
+					practice: await this.getConversationPractice(conv.conversations.companyId)
 				};
 			})
 		);
@@ -279,7 +295,46 @@ export class InboxService {
 			})
 			.where(eq(conversationTable.id, conversationId));
 
+		// Replying means they've seen the thread, so nothing in it should alert them later.
+		if (!isSystemMessage) await this.markAsRead(conversationId, senderId, message.id);
+
+		await this.announceMessage(conversationId, message.id, senderId, isSystemMessage);
+
 		return message.id;
+	}
+
+	/**
+	 * Tells connected apps and alerts the recipients. Neither can fail the send: the
+	 * message is already saved, and the socket and polling catch people up regardless.
+	 */
+	private async announceMessage(
+		conversationId: string,
+		messageId: number,
+		senderId: string,
+		isSystemMessage: boolean
+	) {
+		try {
+			const participants = await db
+				.select({ userId: conversationParticipantsTable.userId })
+				.from(conversationParticipantsTable)
+				.where(
+					and(
+						eq(conversationParticipantsTable.conversationId, conversationId),
+						eq(conversationParticipantsTable.isActive, true)
+					)
+				);
+			const payload = JSON.stringify({
+				conversationId,
+				participantIds: participants.map((p) => p.userId)
+			});
+			await db.execute(sql`SELECT pg_notify(${INBOX_CHANNEL}, ${payload})`);
+		} catch (err) {
+			logger.error('inbox event publish failed', { error: err, conversationId });
+		}
+		if (!isSystemMessage) {
+			// Not awaited: a slow email provider shouldn't hold up sending a message.
+			void notifyNewInboxMessage({ conversationId, messageId, senderId });
+		}
 	}
 
 	async getMessages(input: z.infer<typeof messageQuerySchema>): Promise<Message[]> {
@@ -315,7 +370,8 @@ export class InboxService {
 					createdAt: conversationTable.createdAt,
 					updatedAt: conversationTable.updatedAt,
 					isActive: conversationTable.isActive,
-					applicationId: conversationTable.applicationId
+					applicationId: conversationTable.applicationId,
+					companyId: conversationTable.companyId
 				})
 				.from(conversationTable)
 				.where(and(eq(conversationTable.id, conversationId), eq(conversationTable.isActive, true)))
@@ -413,8 +469,24 @@ export class InboxService {
 			participants,
 			messages,
 			unreadCount,
-			applicationData
+			applicationData,
+			practice: await this.getConversationPractice(conversation.companyId)
 		};
+	}
+
+	/** The practice a CLIENT_CANDIDATE conversation is with, shaped like applicationData.company. */
+	private async getConversationPractice(companyId: string | null) {
+		if (!companyId) return null;
+		const [practice] = await db
+			.select({
+				id: clientCompanyTable.id,
+				name: clientCompanyTable.companyName,
+				logo: clientCompanyTable.companyLogo
+			})
+			.from(clientCompanyTable)
+			.where(eq(clientCompanyTable.id, companyId))
+			.limit(1);
+		return practice ?? null;
 	}
 
 	async addParticipant({
@@ -476,70 +548,78 @@ export class InboxService {
 			);
 	}
 
-	async getUnreadCount(conversationId: string, userId: string) {
-		const participant = await db
-			.select()
+	async isActiveParticipant(conversationId: string, userId: string): Promise<boolean> {
+		const [row] = await db
+			.select({ userId: conversationParticipantsTable.userId })
+			.from(conversationParticipantsTable)
+			.where(
+				and(
+					eq(conversationParticipantsTable.conversationId, conversationId),
+					eq(conversationParticipantsTable.userId, userId),
+					eq(conversationParticipantsTable.isActive, true)
+				)
+			)
+			.limit(1);
+		return !!row;
+	}
+
+	async getUnreadCount(conversationId: string, userId: string): Promise<number> {
+		const [participant] = await db
+			.select({ lastRead: conversationParticipantsTable.latestMessageId })
 			.from(conversationParticipantsTable)
 			.where(
 				and(
 					eq(conversationParticipantsTable.conversationId, conversationId),
 					eq(conversationParticipantsTable.userId, userId)
 				)
-			)
-			.then((rows) => rows[0]);
+			);
 
 		if (!participant) return 0;
 
-		const result = await db
-			.select({ count: sql<number>`count(*)` })
-			.from(messageTable)
-			.where(
-				and(
-					eq(messageTable.conversationId, conversationId),
-					gt(messageTable.id, participant.latestMessageId ?? 0)
-				)
-			);
-
-		return result[0]?.count ?? 0;
-	}
-
-	async getTotalUnreadCount(userId: string) {
-		const conversations = await db
-			.select({
-				conversationId: conversationParticipantsTable.conversationId,
-				latestMessageId: conversationParticipantsTable.latestMessageId
-			})
-			.from(conversationParticipantsTable)
-			.where(
-				and(
-					eq(conversationParticipantsTable.userId, userId),
-					eq(conversationParticipantsTable.isActive, true)
-				)
-			);
-		if (conversations.length === 0) return 0;
-		const conversationIds = conversations.map((c) => c.conversationId);
-		const latestMessageIds = conversations.map((c) => c.latestMessageId ?? 0);
-		const result = await db
+		// Your own messages are never unread to you.
+		const [result] = await db
 			.select({ count: count() })
 			.from(messageTable)
 			.where(
 				and(
-					inArray(messageTable.conversationId, conversationIds),
-					gt(
-						messageTable.id,
-						sql`ANY(ARRAY[
-					${latestMessageIds.join(',')}
-					]
-					:
-					:
-					int
-					[
-					]
-					)`
-					)
+					eq(messageTable.conversationId, conversationId),
+					gt(messageTable.id, participant.lastRead ?? 0),
+					ne(messageTable.senderId, userId),
+					eq(messageTable.isSystemMessage, false)
 				)
 			);
-		return result[0]?.count ?? 0;
+
+		return result?.count ?? 0;
+	}
+
+	async getTotalUnreadCount(userId: string): Promise<number> {
+		// Each message compares against its own conversation's read position.
+		const [result] = await db
+			.select({ count: count() })
+			.from(messageTable)
+			.innerJoin(
+				conversationParticipantsTable,
+				and(
+					eq(conversationParticipantsTable.conversationId, messageTable.conversationId),
+					eq(conversationParticipantsTable.userId, userId),
+					eq(conversationParticipantsTable.isActive, true)
+				)
+			)
+			.innerJoin(
+				conversationTable,
+				and(
+					eq(conversationTable.id, messageTable.conversationId),
+					eq(conversationTable.isActive, true)
+				)
+			)
+			.where(
+				and(
+					gt(messageTable.id, sql`COALESCE(${conversationParticipantsTable.latestMessageId}, 0)`),
+					ne(messageTable.senderId, userId),
+					eq(messageTable.isSystemMessage, false)
+				)
+			);
+		return result?.count ?? 0;
 	}
 
 	private async getLastMessage(conversationId: string) {

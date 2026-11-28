@@ -1,9 +1,9 @@
 <script lang="ts">
 	import type { LayoutData } from './$types';
+	import '@fontsource-variable/nunito';
 	import '../app.pcss';
 	import { page, updated } from '$app/stores';
 	import { beforeNavigate } from '$app/navigation';
-	import { ModeWatcher } from 'mode-watcher';
 	import { getFlash } from 'sveltekit-flash-message';
 	import { Toaster } from '$lib/components/ui/sonner';
 	import { toast } from 'svelte-sonner';
@@ -22,7 +22,6 @@
 	}
 
 	const flash = getFlash(page);
-	$: console.log('+layout.svelte root flash: ' + JSON.stringify($flash));
 	$: if ($flash) {
 		switch ($flash.type) {
 			case 'success':
@@ -35,8 +34,6 @@
 				break;
 		}
 	}
-	import { setMode } from 'mode-watcher';
-	setMode("light");
 
 	// If a newer deploy has shipped while this tab was open, do a full-page load on
 	// the next navigation instead of a client-side one. The fresh HTML references
@@ -57,8 +54,8 @@
 	<title>{pageTitle($page.url.pathname)}</title>
 </svelte:head>
 
-<ModeWatcher defaultMode="light" />
 <Toaster richColors />
-<div class="relative flex min-h-screen flex-col overflow-hidden">
+<!-- overflow-x-clip, not overflow-hidden: hidden would break the shell's sticky top bar and sidebar. -->
+<div class="relative flex min-h-screen flex-col overflow-x-clip">
 	<slot />
 </div>

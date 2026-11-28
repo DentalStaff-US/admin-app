@@ -9,7 +9,7 @@ import { APIError } from 'better-auth/api';
 
 import { userSchema } from '$lib/config/zod-schemas';
 import db from '$lib/server/database/drizzle';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import {
 	companyStaffInviteLocations,
 	userInviteTable,
@@ -87,6 +87,40 @@ export const actions = {
 				return setError(form, 'email', 'Please use the email address from your invitation.');
 			}
 
+			// The invite cookie is ours but unsigned, so its role is never trusted:
+			// re-read the invite row by token and take the role from there. A forged
+			// cookie could otherwise sign anyone up as SUPERADMIN.
+			if (inviteData) {
+				const [row] = await db
+					.select({
+						email: userInviteTable.email,
+						invitedRole: userInviteTable.invitedRole,
+						companyId: userInviteTable.companyId,
+						staffRole: userInviteTable.staffRole,
+						expiresAt: userInviteTable.expiresAt
+					})
+					.from(userInviteTable)
+					.where(eq(userInviteTable.token, String(inviteData.token ?? '')))
+					.limit(1);
+				if (!row || new Date() > new Date(row.expiresAt) || row.email.toLowerCase() !== form.data.email.toLowerCase()) {
+					setFlash({ type: 'error', message: 'This invitation is invalid or has expired.' }, event);
+					return setError(form, 'email', 'This invitation is invalid or has expired.');
+				}
+				// Same for the locations, which decide what they can see. Primary first.
+				const granted = await db
+					.select({ locationId: companyStaffInviteLocations.locationId })
+					.from(companyStaffInviteLocations)
+					.where(eq(companyStaffInviteLocations.token, String(inviteData.token ?? '')))
+					.orderBy(desc(companyStaffInviteLocations.isPrimary));
+				inviteData = {
+					...inviteData,
+					invitedRole: row.invitedRole,
+					companyId: row.companyId,
+					staffRole: row.staffRole,
+					locations: granted.map((g) => g.locationId)
+				};
+			}
+
 			const email = form.data.email.toLowerCase();
 			// Invited users get their invited role + are auto-verified (they arrived
 			// via an email link) and skip onboarding; everyone else is a CLIENT.
@@ -155,12 +189,12 @@ export const actions = {
 							.returning();
 
 						await tx.insert(clientStaffLocationTable).values(
-							inviteData.locations.map((locationId: string) => ({
+							inviteData.locations.map((locationId: string, i: number) => ({
 								id: crypto.randomUUID(),
 								companyId: inviteData.companyId,
 								staffId: staffProfile.id,
 								locationId,
-								isPrimary: true
+								isPrimary: i === 0
 							}))
 						);
 

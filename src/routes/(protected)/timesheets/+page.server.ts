@@ -6,15 +6,17 @@ import {
 } from '$lib/server/database/queries/clients';
 import {
 	getAllTimesheetsForClient,
-	getAllTimesheetsAdmin,
-	getRecurrenceDaysForRequisition,
-	getWorkdaysForRecurrenceDays,
-	validateTimesheet
+	getAllTimesheetsAdmin
 } from '$lib/server/database/queries/requisitions';
 import { redirect } from '@sveltejs/kit';
 import { getClientStaffScopedLocationIds } from '$lib/server/scoping';
+import {
+	readTimesheetListQuery,
+	shapeTimesheetList,
+	toTimesheetListRow
+} from '$features/timesheets/timesheetList';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
-// In your +page.server.ts
 export const load = async (event) => {
 	const { locals, url } = event;
 	const searchTerm = url.searchParams.get('search') || '';
@@ -26,7 +28,9 @@ export const load = async (event) => {
 
 	let timesheets: any = [];
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	// Scope is unchanged: admins see every sheet; a practice owner sees its
+	// client's sheets; client staff only those at their scoped locations.
+	if (checkIsAdmin(user.role)) {
 		timesheets = await getAllTimesheetsAdmin(searchTerm);
 	} else if (user.role === USER_ROLES.CLIENT) {
 		if (!user.completedOnboarding) {
@@ -42,51 +46,15 @@ export const load = async (event) => {
 		timesheets = await getAllTimesheetsForClient(client?.id, searchTerm, scopedLocationIds);
 	}
 
-	const enhancedTimesheets = await Promise.all(
-		(timesheets || []).map(async (timesheet) => {
-			try {
-				// Skip validation for DRAFT or already APPROVED timesheets
-				if (timesheet.timesheet.status === 'DRAFT' || timesheet.timesheet.status === 'APPROVED') {
-					return {
-						...timesheet,
-						recurrenceDays: [],
-						workdays: [],
-						discrepancies: [],
-						hasValidationIssues: false
-					};
-				}
-
-				const recurrenceDays = await getRecurrenceDaysForRequisition(timesheet.requisition?.id);
-				const recurrenceDayIds = recurrenceDays?.map((rd) => rd.id) || [];
-				const workdays =
-					recurrenceDayIds.length > 0 ? await getWorkdaysForRecurrenceDays(recurrenceDayIds) : [];
-
-				return {
-					...timesheet,
-					recurrenceDays,
-					workdays
-				};
-			} catch (error) {
-				console.error(`Error validating timesheet ${timesheet.timesheet.id}:`, error);
-				return {
-					...timesheet,
-					recurrenceDays: [],
-					workdays: [],
-					discrepancies: []
-				};
-			}
-		})
-	);
-
-	// Voided timesheets are segregated into their own table in the UI so the
-	// main list only shows actionable (active) sheets.
-	const activeTimesheets = enhancedTimesheets.filter((t) => t.timesheet.status !== 'VOID');
-	const voidedTimesheets = enhancedTimesheets.filter((t) => t.timesheet.status === 'VOID');
+	// Tab, filters, sort and page come from the URL; voided sheets get their own tab.
+	const query = readTimesheetListQuery(url);
+	const list = shapeTimesheetList((timesheets || []).map(toTimesheetListRow), query);
 
 	return {
 		user,
-		timesheets: activeTimesheets,
-		voidedTimesheets,
+		isAdmin: checkIsAdmin(user.role),
+		list,
+		query,
 		searchTerm
 	};
 };

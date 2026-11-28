@@ -7,6 +7,7 @@ import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { getRequestEvent } from '$app/server';
 import { Argon2id } from 'oslo/password';
 import { env } from '$env/dynamic/private';
+import { BASE_URL, CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 
 import db from '$lib/server/database/drizzle';
 import {
@@ -25,9 +26,9 @@ const SESSION_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 30; // 30 days (matches Lucia)
 
 export const auth = betterAuth({
 	appName: 'Dental Temps Staffing Solutions',
-	baseURL: env.BASE_URL,
+	baseURL: BASE_URL,
 	secret: env.BETTER_AUTH_SECRET,
-	trustedOrigins: [env.BASE_URL, env.CANDIDATE_APP_DOMAIN].filter(Boolean) as string[],
+	trustedOrigins: [BASE_URL, CANDIDATE_APP_DOMAIN].filter(Boolean) as string[],
 
 	database: drizzleAdapter(db, {
 		provider: 'pg',
@@ -156,7 +157,9 @@ export const auth = betterAuth({
 		admin({
 			ac,
 			roles,
-			// Only SUPERADMIN may call admin-plane endpoints (ban, impersonate, list users…).
+			// Only SUPERADMIN may call admin-plane endpoints (ban, impersonate, set role…).
+			// ADMIN is in `roles` with read-only statements and must stay out of this
+			// list: the matrix in $lib/authz denies it users.ban / users.impersonate.
 			adminRoles: [USER_ROLES.SUPERADMIN],
 			defaultRole: USER_ROLES.CANDIDATE,
 			// Shown to a banned user who attempts to sign in (static fallback; the

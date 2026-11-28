@@ -14,6 +14,10 @@ import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { eq, and, isNull } from 'drizzle-orm';
 import { logger } from '$lib/server/logger';
 import { getApprovedBilledHoursForWeek } from '$lib/server/database/queries/requisitions';
+import {
+	findPracticeConversationId,
+	isBlockedFromPractice
+} from '$lib/server/inbox/practiceConversation';
 
 export const GET: RequestHandler = async ({ params, request }) => {
 	const { id } = params;
@@ -54,6 +58,7 @@ export const GET: RequestHandler = async ({ params, request }) => {
 					// Set by an admin on this sheet; wins over the requisition's rate.
 					adjustedHourlyRate: timeSheetTable.adjustedHourlyRate,
 					status: timeSheetTable.status,
+					wagesStatus: timeSheetTable.wagesStatus,
 					discrepancyNote: timeSheetTable.discrepancyNote
 				},
 				requisition: {
@@ -97,16 +102,24 @@ export const GET: RequestHandler = async ({ params, request }) => {
 		// Hours already billed for this candidate's week on OTHER approved
 		// timesheets. Lets the candidate UI show the correct regular/overtime
 		// split when a week is split across timesheets (overtime is per-week).
-		const priorWeekHours = timesheet.requisition?.id
-			? await getApprovedBilledHoursForWeek({
-					candidateId: candidateProfile.id,
-					requisitionId: timesheet.requisition.id,
-					weekBeginDate: timesheet.timesheet.weekBeginDate,
-					excludeTimesheetId: id,
-					// Only count earlier sheets so an approved sheet's split stays stable.
-					createdBefore: timesheet.timesheet.createdAt
-				})
-			: 0;
+		const [priorWeekHours, conversationId, practiceBlocked] = timesheet.requisition?.id
+			? await Promise.all([
+					getApprovedBilledHoursForWeek({
+						candidateId: candidateProfile.id,
+						requisitionId: timesheet.requisition.id,
+						weekBeginDate: timesheet.timesheet.weekBeginDate,
+						excludeTimesheetId: id,
+						// Only count earlier sheets so an approved sheet's split stays stable.
+						createdBefore: timesheet.timesheet.createdAt
+					}),
+					// Lets the practice card open the existing thread, or offer to start one.
+					findPracticeConversationId({ userId: user.id, companyId: timesheet.company.id }),
+					isBlockedFromPractice({
+						candidateId: candidateProfile.id,
+						companyId: timesheet.company.id
+					})
+				])
+			: [0, null, true];
 
 		// Professional opened their own timesheet — JWT user is the actor
 		// (no session here), source resolves to CANDIDATE_APP from the path.
@@ -123,7 +136,10 @@ export const GET: RequestHandler = async ({ params, request }) => {
 
 		return json({
 			...timesheet,
-			timesheet: { ...timesheet.timesheet, priorWeekHours }
+			timesheet: { ...timesheet.timesheet, priorWeekHours },
+			conversationId,
+			// Whether the professional may start a thread with this practice.
+			canMessagePractice: !practiceBlocked
 		});
 	} catch (err) {
 		logger.error('timesheets.getTimesheetDetails failed', { error: err, timesheetId: params.id });

@@ -1,4 +1,4 @@
-import { env } from '$env/dynamic/private';
+import { CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 import type { RequestHandler } from './$types';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { json } from '@sveltejs/kit';
@@ -11,7 +11,7 @@ import { writeActionHistory } from '$lib/server/database/queries/admin';
 import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
-	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
+	'Access-Control-Allow-Origin': CANDIDATE_APP_DOMAIN,
 	'Access-Control-Allow-Methods': 'POST, OPTIONS',
 	'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 	'Access-Control-Allow-Credentials': 'true'

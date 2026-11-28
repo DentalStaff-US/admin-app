@@ -1,21 +1,40 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, RequestEvent } from './$types';
 import { setFlash } from 'sveltekit-flash-message/server';
-import { USER_ROLES } from '$lib/config/constants';
 import {
+	countActiveSuperadmins,
 	getPaginatedUsers,
-	deleteAdminUser,
 	UserHasRecordsError
 } from '$lib/server/database/queries/admin';
+import { deleteAccount } from '$lib/server/accounts';
+import { getUserById } from '$lib/server/database/queries/users';
+import { can, guardAccountAction } from '$lib/authz';
 import { auth } from '$lib/server/auth';
 import { startImpersonation } from '$lib/server/impersonation';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
 
 const DEFAULT_LIMIT = 25;
+
+/**
+ * AZ-4 on the account actions: staff targets go through the privilege guards
+ * (no touching a SUPERADMIN without admins.manage; never the last SUPERADMIN).
+ * Returns the refusal, or null when the action may go ahead.
+ */
+async function refuseAccountAction(
+	actor: { id: string; role: string },
+	targetId: string,
+	permission: 'users.ban' | 'users.delete'
+) {
+	const target = (await getUserById(targetId))?.user;
+	if (!target) return null; // Nothing to protect; the action itself reports not-found.
+	const result = guardAccountAction(actor, target, permission, await countActiveSuperadmins());
+	return result.ok ? null : result;
+}
 
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
 	if (!user) redirect(302, '/auth/sign-in');
-	if (user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/dashboard');
+	if (!can(user, 'users.read')) redirect(302, '/dashboard');
 
 	const search = event.url.searchParams.get('search') ?? '';
 	const page = Math.max(1, Number(event.url.searchParams.get('page')) || 1);
@@ -28,6 +47,11 @@ export const load: PageServerLoad = async (event) => {
 	});
 
 	return {
+		can: {
+			ban: can(user, 'users.ban'),
+			delete: can(user, 'users.delete'),
+			impersonate: can(user, 'users.impersonate')
+		},
 		users,
 		total: count,
 		page,
@@ -40,11 +64,18 @@ export const actions = {
 	deleteUser: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user) return fail(401);
-		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!can(user, 'users.delete')) return fail(403);
 
 		const formData = await event.request.formData();
 		const id = (formData.get('id') as string | null)?.trim();
 		if (!id) return fail(400, { error: 'Missing user id' });
+		const refused = await refuseAccountAction(user, id, 'users.delete');
+		if (refused) {
+			setFlash({ type: 'error', message: refused.message }, event);
+			return fail(refused.status, { error: refused.message });
+		}
+		// Hard delete: the dialog makes the admin type DELETE; refuse anything else.
+		if (!hasTypedConfirmation(formData)) return fail(400, { error: 'Type DELETE to confirm' });
 
 		// Defense-in-depth: never let an admin delete their own account from this UI.
 		if (id === user.id) {
@@ -53,7 +84,8 @@ export const actions = {
 		}
 
 		try {
-			await deleteAdminUser(id);
+			// Also removes their stored files and records the delete.
+			await deleteAccount(id, user.id);
 			setFlash({ type: 'success', message: 'User deleted' }, event);
 			return { success: true };
 		} catch (err) {
@@ -78,7 +110,7 @@ export const actions = {
 	banUser: async (event: RequestEvent) => {
 		const admin = event.locals.user;
 		if (!admin) return fail(401);
-		if (admin.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!can(admin, 'users.ban')) return fail(403);
 
 		const formData = await event.request.formData();
 		const id = (formData.get('id') as string | null)?.trim();
@@ -88,6 +120,11 @@ export const actions = {
 		if (id === admin.id) {
 			setFlash({ type: 'error', message: 'You cannot ban your own account' }, event);
 			return fail(400, { error: 'Cannot ban self' });
+		}
+		const refused = await refuseAccountAction(admin, id, 'users.ban');
+		if (refused) {
+			setFlash({ type: 'error', message: refused.message }, event);
+			return fail(refused.status, { error: refused.message });
 		}
 
 		try {
@@ -112,7 +149,7 @@ export const actions = {
 	unbanUser: async (event: RequestEvent) => {
 		const admin = event.locals.user;
 		if (!admin) return fail(401);
-		if (admin.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!can(admin, 'users.ban')) return fail(403);
 
 		const formData = await event.request.formData();
 		const id = (formData.get('id') as string | null)?.trim();
@@ -130,7 +167,7 @@ export const actions = {
 	},
 
 	// Impersonate a user. The two-path logic (same-app cookie swap vs cross-app
-	// handoff for candidates) and the SUPERADMIN gate live in
+	// handoff for candidates) and the users.impersonate gate live in
 	// $lib/server/impersonation, shared with /admin/impersonation/start and the
 	// Impersonate buttons on the professional and client profile headers.
 	//

@@ -3,6 +3,7 @@ import type { PageServerLoad } from './$types';
 import { USER_ROLES } from '$lib/config/constants';
 import { getActionHistoryPage } from '$lib/server/audit/queries';
 import { logger } from '$lib/server/logger';
+import { can } from '$lib/authz';
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
@@ -10,7 +11,7 @@ const MAX_PAGE_SIZE = 200;
 export const load: PageServerLoad = async (event) => {
 	const user = event.locals.user;
 	if (!user) redirect(302, '/auth/sign-in');
-	if (user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/dashboard');
+	if (!can(user, 'audit.read')) redirect(302, '/dashboard');
 
 	const q = event.url.searchParams;
 	const page = Math.max(1, Number(q.get('page')) || 1);

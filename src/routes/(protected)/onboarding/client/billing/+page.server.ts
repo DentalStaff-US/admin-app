@@ -37,10 +37,10 @@ export const load: PageServerLoad = async (event) => {
 		.where(eq(clientSubscriptionTable.clientId, client.id))
 		.limit(1);
 
-	// If they're already set up (e.g. came back to this page on purpose),
-	// don't pretend it's an action item.
+	// Already set up — including right after Stripe, when the page refreshes on
+	// return: finish on the completion screen rather than the action item.
 	if (hasBillingSetup(subscription ?? null)) {
-		redirect(302, '/dashboard');
+		redirect(302, '/onboarding/client/complete');
 	}
 
 	return {

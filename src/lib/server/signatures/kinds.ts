@@ -14,7 +14,7 @@
  * Full walkthrough: docs/E-SIGNATURES.md
  */
 import { env } from '$env/dynamic/private';
-import { BASE_URL } from '$env/static/private';
+import { BASE_URL } from '$lib/server/appUrls';
 import { format } from 'date-fns';
 import { getClientProfileById, uploadClientDocument } from '$lib/server/database/queries/clients';
 import { storageUrlForKey } from '$lib/server/uploads';

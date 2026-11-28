@@ -18,14 +18,14 @@ import { wantsPermanentWork } from '$lib/server/workPreference';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { recordAction } from '$lib/server/audit/audit';
 import { and, eq } from 'drizzle-orm';
-import { env } from '$env/dynamic/private';
+import { CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 import { getClientIdByCompanyId } from '$lib/server/database/queries/clients';
 import { isClientActiveByCompanyId } from '$lib/server/clientStatusGuards';
 import { getPostHogClient } from '$lib/server/posthog';
 import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
-	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
+	'Access-Control-Allow-Origin': CANDIDATE_APP_DOMAIN,
 	'Access-Control-Allow-Methods': 'POST, OPTIONS',
 	'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 	'Access-Control-Allow-Credentials': 'true'

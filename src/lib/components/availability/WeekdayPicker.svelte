@@ -73,7 +73,7 @@
 	{/if}
 
 	{#if conflicts.length}
-		<p class="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+		<p class="rounded-md border border-status-warning-border bg-status-warning-bg p-3 text-sm text-status-warning-fg">
 			{COPY.week.bookedConflict(
 				conflicts.length,
 				conflicts

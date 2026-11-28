@@ -12,13 +12,15 @@ import { USER_ROLES } from '$lib/config/constants';
 import db from '$lib/server/database/drizzle';
 import { disciplineTable } from '$lib/server/database/schemas/skill';
 import { eq } from 'drizzle-orm';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
+import { can } from '$lib/authz';
 
 export const load: PageServerLoad = async (event) => {
 	const searchTerm = event.url.searchParams.get('search') || '';
 	const user = event.locals.user;
 
 	if (!user) redirect(302, '/auth/sign-in');
-	if (user.role !== USER_ROLES.SUPERADMIN) redirect(302, '/dashboard');
+	if (!can(user, 'platform.configure')) redirect(302, '/dashboard');
 
 	const [form, editForm, deleteForm, disciplines] = await Promise.all([
 		superValidate(event, newDisciplineSchema),
@@ -43,7 +45,7 @@ export const actions = {
 		// visibility, so an unauthenticated write here has real consequences.
 		const user = event.locals.user;
 		if (!user) redirect(302, '/auth/sign-in');
-		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { message: 'Unauthorized.' });
+		if (!can(user, 'platform.configure')) return fail(403, { message: 'Unauthorized.' });
 
 		const form = await superValidate(event, newDisciplineSchema);
 
@@ -75,7 +77,7 @@ export const actions = {
 		const user = event.locals.user;
 
 		if (!user) redirect(302, '/auth/sign-in');
-		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { message: 'Unauthorized.' });
+		if (!can(user, 'platform.configure')) return fail(403, { message: 'Unauthorized.' });
 
 		const form = await superValidate(event, editDisciplineSchema);
 
@@ -110,11 +112,14 @@ export const actions = {
 		const user = event.locals.user;
 
 		if (!user) redirect(302, '/auth/sign-in');
-		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { message: 'Unauthorized.' });
+		if (!can(user, 'platform.configure')) return fail(403, { message: 'Unauthorized.' });
 
-		const form = await superValidate(event, deleteDisciplineSchema);
+		const formData = await event.request.formData();
+		const form = await superValidate(formData, deleteDisciplineSchema);
 
 		if (!form.valid) return fail(400, { form });
+		// Hard delete: the dialog posts the typed word (03 › ConfirmDialog).
+		if (!hasTypedConfirmation(formData)) return setError(form, 'Type DELETE to confirm.');
 
 		try {
 			await db.delete(disciplineTable).where(eq(disciplineTable.id, form.data.id));

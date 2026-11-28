@@ -110,7 +110,7 @@
 	{:else if loading}
 		<p class="text-xs text-muted-foreground">Loading skills…</p>
 	{:else if loadError}
-		<p class="text-xs text-red-600">{loadError}</p>
+		<p class="text-xs text-destructive">{loadError}</p>
 	{:else if catalog.length === 0}
 		<p class="text-xs text-muted-foreground">No skills are set up for this discipline.</p>
 	{:else}
@@ -127,7 +127,7 @@
 								aria-checked={mode === m}
 								class="px-2 py-1 first:rounded-l-md last:rounded-r-md {mode === m
 									? 'bg-primary text-primary-foreground'
-									: 'bg-white hover:bg-gray-50'}"
+									: 'bg-card hover:bg-muted'}"
 								on:click={() => setMode(category.id, m)}
 							>
 								{label}
@@ -143,7 +143,7 @@
 									type="checkbox"
 									checked={picked[category.id]?.has(skill.id) ?? false}
 									on:change={() => toggle(category.id, skill.id)}
-									class="h-4 w-4 rounded border-gray-300"
+									class="h-4 w-4 rounded border-input"
 								/>
 								<span class:line-through={!!skill.archivedAt}>{skill.name}</span>
 								{#if skill.requiresCertificate}
@@ -156,7 +156,7 @@
 			</div>
 		{/each}
 		{#if incomplete.length}
-			<p class="text-xs text-amber-700">
+			<p class="text-xs text-status-warning-fg">
 				Categories with no skills ticked are treated as No Preference.
 			</p>
 		{/if}

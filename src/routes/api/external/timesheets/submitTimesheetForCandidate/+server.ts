@@ -11,7 +11,7 @@ import { requisitionTable } from '$lib/server/database/schemas/requisition';
 import { workdayTable } from '$lib/server/database/schemas/requisition';
 import { authenticateUser } from '$lib/server/serverUtils';
 import { and, eq, inArray } from 'drizzle-orm';
-import { env } from '$env/dynamic/private';
+import { CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 import { getClientIdByCompanyId } from '$lib/server/database/queries/clients';
 import { getCandidateProfileByUserId } from '$lib/server/database/queries/candidates';
 import { z } from 'zod';
@@ -45,7 +45,7 @@ const newTimesheetSchema = z.object({
 });
 
 const corsHeaders = {
-	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
+	'Access-Control-Allow-Origin': CANDIDATE_APP_DOMAIN,
 	'Access-Control-Allow-Methods': 'POST, OPTIONS',
 	'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 	'Access-Control-Allow-Credentials': 'true'

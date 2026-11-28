@@ -39,6 +39,12 @@ export const jobs: JobDefinition[] = [
 		rule: () => ny({ minute: [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55] })
 	},
 	{
+		name: 'processUnreadMessageAlerts',
+		endpoint: '/jobs/inbox/processUnreadMessageAlerts',
+		schedule: 'every 5 minutes',
+		rule: () => ny({ minute: [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55] })
+	},
+	{
 		name: 'processTimesheetAutoApproval',
 		endpoint: '/jobs/timesheets/processTimesheetAutoApproval',
 		schedule: 'hourly on the hour',

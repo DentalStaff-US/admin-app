@@ -71,13 +71,22 @@ import { writeActionHistory } from '$lib/server/database/queries/admin';
 import { recordAction, recordView } from '$lib/server/audit/audit';
 import { getActivityForEntity } from '$lib/server/audit/queries';
 import {
+	notifyAdminsOfTimesheetSentBack,
 	notifyInvoiceCreated,
+	notifyTimesheetComment,
 	notifyTimesheetSubmitted
 } from '$lib/server/notifications/transactional';
 import { resolveBillingRecipient } from '$lib/server/billing/recipients';
 import { voidInvoiceAndNotify } from '$lib/server/invoices/voidNotify';
 import { superValidate } from 'sveltekit-superforms/server';
 import { addExpenseSchema } from '$lib/config/zod-schemas';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
+import { getClientInvoiceMethod } from '$features/timesheets/server/invoiceMethod';
+import { COMMENT_MAX_LENGTH } from '$features/timesheets/history';
+import { getPracticeLedger } from '$features/timesheets/server/history';
+import { assertTimesheetActionAccess } from '$features/timesheets/server/access';
+import { can } from '$lib/authz';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
 export const load = async (event: RequestEvent) => {
 	const user = event.locals.user;
@@ -129,6 +138,10 @@ export const load = async (event: RequestEvent) => {
 		frozen: rawTimesheet?.adminFeeSource != null
 	};
 
+	// Which invoice approval would create (PAPER overrides a Stripe customer),
+	// for the approve confirmation. Read-only.
+	const invoiceMethod = await getClientInvoiceMethod(rawTimesheet?.associatedClientId);
+
 	const unfinishedWorkdays = rawTimesheet ? await getUnfinishedWorkdaysForTimesheet(id) : [];
 	const hasUnfinishedWorkdays = unfinishedWorkdays.length > 0;
 	const unfinishedWorkdayCount = unfinishedWorkdays.length;
@@ -149,7 +162,7 @@ export const load = async (event: RequestEvent) => {
 				})
 			: 0;
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (checkIsAdmin(user.role)) {
 		const timesheet = await getTimesheetDetailsAdmin(id);
 		const requisition = await getRequisitionDetailsByIdAdmin(timesheet.requisitionId);
 		const recurrenceDays = await getRecurrenceDaysForTimesheet(timesheet);
@@ -181,7 +194,8 @@ export const load = async (event: RequestEvent) => {
 			hasUnfinishedWorkdays,
 			unfinishedWorkdayCount,
 			priorWeekHours,
-			auditHistory
+			auditHistory,
+			invoiceMethod
 		};
 	}
 
@@ -221,7 +235,9 @@ export const load = async (event: RequestEvent) => {
 			addExpenseForm,
 			hasUnfinishedWorkdays,
 			unfinishedWorkdayCount,
-			priorWeekHours
+			priorWeekHours,
+			practiceLedger: await getPracticeLedger(id),
+			invoiceMethod
 		};
 	}
 
@@ -260,7 +276,9 @@ export const load = async (event: RequestEvent) => {
 			addExpenseForm,
 			hasUnfinishedWorkdays,
 			unfinishedWorkdayCount,
-			priorWeekHours
+			priorWeekHours,
+			practiceLedger: await getPracticeLedger(id),
+			invoiceMethod
 		};
 	}
 
@@ -282,7 +300,7 @@ export const actions = {
 		const { user } = event.locals;
 		const { id } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'timesheets.approve')) {
 			return fail(403, { error: 'Only admins can adjust the hourly rate' });
 		}
 
@@ -330,7 +348,7 @@ export const actions = {
 		const { user } = event.locals;
 		const { id } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'timesheets.approve')) {
 			return fail(403, { error: 'Only admins can set the admin fee' });
 		}
 
@@ -423,7 +441,7 @@ export const actions = {
 		const { id } = event.params;
 		const { user } = event.locals;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'timesheets.approve')) {
 			throw error(401, 'Unauthorized');
 		}
 
@@ -550,7 +568,7 @@ export const actions = {
 		const { id } = event.params;
 		const { user } = event.locals;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'timesheets.approve')) {
 			throw error(401, 'Unauthorized');
 		}
 
@@ -624,8 +642,9 @@ export const actions = {
 				.set({
 					totalHoursWorked: totalHours.toString(),
 					hoursRaw: formattedEntries,
-					// Keep/return to DRAFT — this is a save, not a submission.
-					status: 'DRAFT',
+					// A save, not a submission. A sheet that was sent back stays a
+					// discrepancy until it's resubmitted, so its note isn't lost.
+					status: timesheet.status === 'DISCREPANCY' ? 'DISCREPANCY' : 'DRAFT',
 					updatedAt: new Date()
 				})
 				.where(eq(timeSheetTable.id, id))
@@ -638,10 +657,10 @@ export const actions = {
 				table: 'TIMESHEETS',
 				beforeState: timesheet,
 				afterState: result,
-				metadata: { editType: 'ADMIN_SAVE_DRAFT', draft: true }
+				metadata: { editType: 'ADMIN_SAVE_DRAFT', draft: result.status === 'DRAFT' }
 			});
 
-			setFlash({ type: 'success', message: 'Draft saved' }, event);
+			setFlash({ type: 'success', message: result.status === 'DRAFT' ? 'Draft saved' : 'Hours saved' }, event);
 			return { success: true };
 		} catch (err) {
 			console.error('Error saving timesheet draft:', err);
@@ -654,13 +673,15 @@ export const actions = {
 		const { id } = event.params;
 		const { user } = event.locals;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'timesheets.approve')) {
 			throw error(401, 'Unauthorized');
 		}
 
 		const formData = await event.request.formData();
 		const entries = JSON.parse(formData.get('entries') as string);
 		const totalHours = parseFloat(formData.get('totalHours') as string);
+		// What DTSS wants the practice to know; optional.
+		const comment = String(formData.get('comment') ?? '').trim().slice(0, COMMENT_MAX_LENGTH);
 
 		try {
 			const [timesheet] = await db
@@ -761,10 +782,10 @@ export const actions = {
 				table: 'TIMESHEETS',
 				beforeState: timesheet,
 				afterState: result,
-				metadata: { status: 'PENDING', onBehalfOfCandidate: true }
+				metadata: { status: 'PENDING', onBehalfOfCandidate: true, ...(comment && { comment }) }
 			});
 
-			await notifyTimesheetSubmitted(result.id);
+			await notifyTimesheetSubmitted(result.id, { comment });
 
 			setFlash(
 				{ type: 'success', message: 'Timesheet corrected and resubmitted successfully!' },
@@ -778,6 +799,40 @@ export const actions = {
 		}
 	},
 
+	// A comment on the timesheet's history. Practices' comments are always shared;
+	// admins choose. The ledger is append-only, so comments can't be edited.
+	addComment: async (event: RequestEvent) => {
+		const { user } = event.locals;
+		if (!user) redirect(302, '/auth/sign-in');
+
+		const { id } = event.params;
+		const admin = can(user, 'timesheets.approve');
+		if (!admin && user.role !== USER_ROLES.CLIENT && user.role !== USER_ROLES.CLIENT_STAFF) {
+			return fail(403, { error: 'Forbidden' });
+		}
+		await assertTimesheetActionAccess(user, id);
+
+		const formData = await event.request.formData();
+		const comment = String(formData.get('comment') ?? '').trim();
+		if (!comment || comment.length > COMMENT_MAX_LENGTH) {
+			const message = comment ? `Comments can be up to ${COMMENT_MAX_LENGTH} characters` : 'Write a comment first';
+			setFlash({ type: 'error', message }, event);
+			return fail(400, { error: message });
+		}
+		// Anything but an explicit "share" from an admin stays internal.
+		const visibility = admin && formData.get('visibility') !== 'SHARED' ? 'INTERNAL' : 'SHARED';
+
+		try {
+			const row = await recordAction({ entityType: 'TIMESHEETS', entityId: id, action: 'COMMENT', metadata: { comment, visibility } });
+			if (visibility === 'SHARED') await notifyTimesheetComment(row.id);
+		} catch {
+			setFlash({ type: 'error', message: 'Failed to add the comment' }, event);
+			return fail(500, { error: 'Failed to add the comment' });
+		}
+		setFlash({ type: 'success', message: 'Comment added' }, event);
+		return { success: true };
+	},
+
 	rejectTimesheet: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user) {
@@ -787,7 +842,7 @@ export const actions = {
 		// Only admins and clients may reject, and only a submitted (PENDING) sheet —
 		// you can't reject a draft, an already-approved, or a voided timesheet.
 		if (
-			user.role !== USER_ROLES.SUPERADMIN &&
+			!can(user, 'timesheets.approve') &&
 			user.role !== USER_ROLES.CLIENT &&
 			user.role !== USER_ROLES.CLIENT_STAFF
 		) {
@@ -795,6 +850,7 @@ export const actions = {
 		}
 
 		const { id } = event.params;
+		await assertTimesheetActionAccess(user, id);
 
 		const existing = await getTimesheetById(id);
 		if (!existing) {
@@ -818,6 +874,10 @@ export const actions = {
 
 		try {
 			await rejectTimesheet(id, user.id, discrepancyNote.trim());
+			// DTSS corrects and resubmits it, so tell them. An admin sending it back already knows.
+			if (!can(user, 'timesheets.approve')) {
+				await notifyAdminsOfTimesheetSentBack({ timesheetId: id, reason: discrepancyNote.trim(), sentBackBy: user });
+			}
 			setFlash({ type: 'success', message: 'Timesheet rejected' }, event);
 			return { success: true };
 		} catch (error) {
@@ -838,13 +898,14 @@ export const actions = {
 		// Only admins and clients may approve. (Status is guarded inside
 		// approveAndInvoiceTimesheet, which rejects anything not PENDING/DISCREPANCY.)
 		if (
-			user.role !== USER_ROLES.SUPERADMIN &&
+			!can(user, 'timesheets.approve') &&
 			user.role !== USER_ROLES.CLIENT &&
 			user.role !== USER_ROLES.CLIENT_STAFF
 		) {
 			return fail(403, { error: 'Forbidden' });
 		}
 
+		await assertTimesheetActionAccess(user, id);
 		const result = await approveAndInvoiceTimesheet(id, { actorUserId: user.id });
 
 		if (result.ok) {
@@ -885,13 +946,14 @@ export const actions = {
 			return fail(401, { error: 'Unauthorized' });
 		}
 		if (
-			user.role !== USER_ROLES.SUPERADMIN &&
+			!can(user, 'timesheets.approve') &&
 			user.role !== USER_ROLES.CLIENT &&
 			user.role !== USER_ROLES.CLIENT_STAFF
 		) {
 			return fail(403, { error: 'Forbidden' });
 		}
 
+		await assertTimesheetActionAccess(user, id);
 		const timesheet = await getTimesheetById(id);
 		if (!timesheet || !timesheet.requisitionId) {
 			return fail(404, { error: 'Timesheet not found' });
@@ -926,7 +988,7 @@ export const actions = {
 	// timesheet can regenerate.
 	voidTimesheet: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'invoices.void')) {
 			redirect(302, '/auth/sign-in');
 		}
 		const userId = user.id;
@@ -965,7 +1027,7 @@ export const actions = {
 	// disconnects its workdays (nulls timesheetId) so they regenerate a fresh timesheet.
 	deleteTimesheet: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'timesheets.approve')) {
 			redirect(302, '/auth/sign-in');
 		}
 		const { id } = event.params;
@@ -1010,7 +1072,7 @@ export const actions = {
 		if (event.locals.user === null) {
 			redirect(302, '/auth/sign-in');
 		}
-		if (event.locals.user?.role !== USER_ROLES.SUPERADMIN) {
+		if (!can(event.locals.user, 'timesheets.approve')) {
 			throw error(403, 'Forbidden');
 		}
 		const { user } = event.locals;
@@ -1313,7 +1375,7 @@ export const actions = {
 		const user = event.locals.user;
 		const { id } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'wages.markPaid')) {
 			return fail(403, { error: 'Unauthorized' });
 		}
 
@@ -1357,7 +1419,7 @@ export const actions = {
 		const user = event.locals.user;
 		const { id } = event.params;
 
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) {
+		if (!user || !can(user, 'wages.markPaid')) {
 			return fail(403, { error: 'Unauthorized' });
 		}
 
@@ -1428,7 +1490,7 @@ export const actions = {
 		// Only admin and the assigned candidate may add via this server action.
 		// Clients/staff don't add expenses — they approve/reject.
 		if (
-			user.role !== USER_ROLES.SUPERADMIN &&
+			!can(user, 'timesheets.approve') &&
 			!(user.role === USER_ROLES.CANDIDATE && timesheet.associatedCandidateId)
 		) {
 			return fail(403, { form });
@@ -1472,7 +1534,7 @@ export const actions = {
 		// Admin can edit any pending expense. Candidate can edit only their own.
 		const isOwnerCandidate =
 			user.role === USER_ROLES.CANDIDATE && existing.createdByUserId === user.id;
-		if (user.role !== USER_ROLES.SUPERADMIN && !isOwnerCandidate) {
+		if (!can(user, 'timesheets.approve') && !isOwnerCandidate) {
 			return fail(403, { error: 'Forbidden' });
 		}
 
@@ -1507,8 +1569,15 @@ export const actions = {
 
 		const isOwnerCandidate =
 			user.role === USER_ROLES.CANDIDATE && existing.createdByUserId === user.id;
-		if (user.role !== USER_ROLES.SUPERADMIN && !isOwnerCandidate) {
+		if (!can(user, 'timesheets.approve') && !isOwnerCandidate) {
 			return fail(403, { error: 'Forbidden' });
+		}
+
+		// A hard delete: the row is gone, so the dialog makes you type DELETE and
+		// a stray or replayed request without it is refused.
+		if (!hasTypedConfirmation(formData)) {
+			setFlash({ type: 'error', message: 'Type DELETE to confirm' }, event);
+			return fail(400, { error: 'Type DELETE to confirm' });
 		}
 
 		try {
@@ -1528,7 +1597,7 @@ export const actions = {
 
 		// Only admin, client, or client-staff may approve.
 		if (
-			user.role !== USER_ROLES.SUPERADMIN &&
+			!can(user, 'timesheets.approve') &&
 			user.role !== USER_ROLES.CLIENT &&
 			user.role !== USER_ROLES.CLIENT_STAFF
 		) {
@@ -1538,6 +1607,7 @@ export const actions = {
 		const formData = await event.request.formData();
 		const expenseId = String(formData.get('expenseId') ?? '');
 		if (!expenseId) return fail(400, { error: 'Missing expense id' });
+		await assertTimesheetActionAccess(user, event.params.id, { expenseId });
 
 		try {
 			await approveTimesheetExpense(expenseId, user.id);
@@ -1555,7 +1625,7 @@ export const actions = {
 		if (!user) redirect(302, '/auth/sign-in');
 
 		if (
-			user.role !== USER_ROLES.SUPERADMIN &&
+			!can(user, 'timesheets.approve') &&
 			user.role !== USER_ROLES.CLIENT &&
 			user.role !== USER_ROLES.CLIENT_STAFF
 		) {
@@ -1566,6 +1636,7 @@ export const actions = {
 		const expenseId = String(formData.get('expenseId') ?? '');
 		const reason = String(formData.get('reason') ?? '').trim();
 		if (!expenseId) return fail(400, { error: 'Missing expense id' });
+		await assertTimesheetActionAccess(user, event.params.id, { expenseId });
 		if (!reason) {
 			setFlash({ type: 'error', message: 'A rejection reason is required' }, event);
 			return fail(400, { error: 'Reason required' });

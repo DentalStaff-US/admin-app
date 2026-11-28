@@ -12,6 +12,7 @@
 
 import { differenceInCalendarDays, parseISO } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
+import { statusTone, TONE_CLASSES, type StatusTone } from '$tokens/status';
 
 export const CERT_TIMEZONE = 'America/New_York';
 export const CERT_EXPIRING_SOON_DAYS = 60;
@@ -82,6 +83,25 @@ const NOUN: Record<CredentialTrack, string> = {
 };
 
 /**
+ * Ring colour per tone. TONE_CLASSES sets a border colour, but these badges are
+ * drawn with a ring (no layout box), so the ring needs its own static class.
+ */
+const TONE_RING: Record<StatusTone, string> = {
+	positive: 'ring-status-positive-border',
+	info: 'ring-status-info-border',
+	pending: 'ring-status-pending-border',
+	warning: 'ring-status-warning-border',
+	negative: 'ring-status-negative-border',
+	neutral: 'ring-status-neutral-border'
+};
+
+/** Token classes for a credential state, via the shared status → tone map. */
+function badgeClass(state: CertState): string {
+	const tone = statusTone(state);
+	return `${TONE_CLASSES[tone]} ring-1 ${TONE_RING[tone]}`;
+}
+
+/**
  * Badge for one track. Null means render nothing — a track that does not apply
  * should produce no visual noise.
  *
@@ -102,13 +122,13 @@ export function credentialBadge(
 		case 'MISSING':
 			return {
 				label: `No ${noun.toLowerCase()} on file`,
-				class: 'bg-red-50 text-red-700 ring-1 ring-red-200'
+				class: badgeClass(state)
 			};
 		case 'MISSING_GRACE': {
 			const left = graceDaysRemaining(c, today) ?? 0;
 			return {
 				label: `No ${noun.toLowerCase()} on file — ${left} day${left === 1 ? '' : 's'} to supply one`,
-				class: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200'
+				class: badgeClass(state)
 			};
 		}
 		case 'EXPIRED':
@@ -116,7 +136,7 @@ export function credentialBadge(
 				label: c.expiresOn
 					? `${noun} expired ${formatCertDate(c.expiresOn)} — jobs hidden`
 					: `${noun} not supplied — jobs hidden`,
-				class: 'bg-red-50 text-red-700 ring-1 ring-red-200'
+				class: badgeClass(state)
 			};
 		case 'EXPIRING': {
 			const days = c.expiresOn ? daysUntil(c.expiresOn, today) : 0;
@@ -125,13 +145,13 @@ export function credentialBadge(
 					days <= 0
 						? `${noun} expires today`
 						: `${noun} expires in ${days} day${days === 1 ? '' : 's'}`,
-				class: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200'
+				class: badgeClass(state)
 			};
 		}
 		case 'VALID':
 			return {
 				label: `${noun} valid through ${formatCertDate(c.expiresOn)}`,
-				class: 'bg-gray-50 text-gray-700 ring-1 ring-gray-200'
+				class: badgeClass(state)
 			};
 	}
 }

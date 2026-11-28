@@ -1,266 +1,153 @@
 <script lang="ts">
-	import * as Form from '$lib/components/ui/form';
+	import { enhance as kitEnhance } from '$app/forms';
+	import { page } from '$app/state';
+	import { Loader2, Plus, Save } from 'lucide-svelte';
+	import { superForm } from 'sveltekit-superforms/client';
+	import Page from '$dtss/Page.svelte';
+	import PageHeader from '$dtss/PageHeader.svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
-	import type { PageData } from './$types';
-	import { newExperienceLevelSchema } from '$lib/config/zod-schemas';
+	import { Label } from '$lib/components/ui/label';
 	import {
-		Loader2,
-		Search,
-		Trophy,
-		PlusIcon,
-		Trash,
-		ArrowUp,
-		ArrowDown,
-		Save
-	} from 'lucide-svelte';
-	import { goto } from '$app/navigation';
-	import { enhance as kitEnhance } from '$app/forms';
-	import { superForm } from 'sveltekit-superforms/client';
+		TaxonomyConfirmDialog,
+		ExperienceLevelsTable,
+		TaxonomySearchField,
+		type ExperienceLevelRow
+	} from '$features/admin/components/taxonomy';
 
-	export let data: PageData;
+	let { data } = $props();
+
+	let addOpen = $state(false);
+	let deleteOpen = $state(false);
+	let toDelete = $state<ExperienceLevelRow | null>(null);
+	let savingOrder = $state(false);
 
 	const {
-		submitting,
-		enhance,
-		form: experienceLevelForm
+		form: addForm,
+		errors: addErrors,
+		enhance: addEnhance,
+		submitting: addSubmitting
 	} = superForm(data.form, {
 		onResult: ({ result }) => {
 			if (result.type === 'success') {
-				dialogOpen = false;
-				$experienceLevelForm = {
-					value: ''
-				};
+				addOpen = false;
+				$addForm = { value: '' };
 			}
 		}
 	});
 
-	type ExperienceLevelData = {
-		id: string;
-		value: string;
-		order: number;
-		createdAt: Date;
-		updatedAt: Date;
-	};
+	const search = $derived(page.url.searchParams.get('search') ?? '');
 
-	let searchTerm = '';
-	let dialogOpen = false;
-	let savingOrder = false;
-
-	// Server data is already sorted by (order, value). Keep a local working copy
-	// for in-memory reordering and a baseline for the dirty check.
-	let levels: ExperienceLevelData[] = [];
-	let originalOrderIds: string[] = [];
-
-	$: serverLevels = (data.experienceLevels as ExperienceLevelData[]) || [];
-	$: {
+	// Server data is already sorted by (order, value). A local working copy is
+	// reordered in memory; the baseline drives the unsaved-changes check.
+	const serverLevels = $derived((data.experienceLevels as ExperienceLevelRow[]) ?? []);
+	let levels = $state<ExperienceLevelRow[]>([]);
+	$effect(() => {
 		levels = [...serverLevels];
-		originalOrderIds = serverLevels.map((l) => l.id);
-	}
+	});
 
-	$: isDirty =
-		levels.length === originalOrderIds.length &&
-		levels.some((l, i) => l.id !== originalOrderIds[i]);
+	const isDirty = $derived(
+		levels.length === serverLevels.length && levels.some((l, i) => l.id !== serverLevels[i]?.id)
+	);
+	const orderPayload = $derived(JSON.stringify(levels.map((l, i) => ({ id: l.id, order: i }))));
 
-	function moveUp(idx: number) {
-		if (idx <= 0) return;
+	function move(index: number, delta: -1 | 1) {
+		const j = index + delta;
+		if (j < 0 || j >= levels.length) return;
 		const next = [...levels];
-		[next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+		[next[index], next[j]] = [next[j], next[index]];
 		levels = next;
 	}
 
-	function moveDown(idx: number) {
-		if (idx >= levels.length - 1) return;
-		const next = [...levels];
-		[next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-		levels = next;
-	}
-
-	function resetOrder() {
-		levels = [...serverLevels];
-	}
-
-	// Build the JSON payload reflecting current visual order.
-	$: orderPayload = JSON.stringify(levels.map((l, i) => ({ id: l.id, order: i })));
-
-	function handleSearch(searchTerm: string) {
-		if (!searchTerm || searchTerm.trim() === '') {
-			goto('/admin/menu/experience-levels');
-		} else {
-			goto(`/admin/menu/experience-levels?search=${encodeURIComponent(searchTerm.trim())}`);
-		}
+	function openDelete(row: ExperienceLevelRow) {
+		toDelete = row;
+		deleteOpen = true;
 	}
 </script>
 
-<section class="flex flex-col h-full p-6 space-y-6">
-	<!-- Header -->
-	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-		<div>
-			<h1 class="text-3xl font-bold tracking-tight">Experience Levels</h1>
-			<p class="text-muted-foreground">
-				Manage experience level options. Use the arrows to reorder; click Save Order to persist.
-			</p>
-		</div>
-
-		<Dialog.Root bind:open={dialogOpen}>
-			<Dialog.Trigger asChild>
-				<Button on:click={() => (dialogOpen = true)} class="bg-primary hover:bg-primary/90">
-					<PlusIcon size={20} class="mr-2" />Add New Experience Level
-				</Button>
-			</Dialog.Trigger>
-			<Dialog.Content class="sm:max-w-[425px]">
-				<form use:enhance method="POST" action="?/addExperienceLevel">
-					<Dialog.Header>
-						<Dialog.Title>Add New Experience Level</Dialog.Title>
-						<Dialog.Description>
-							Add a new experience level option for professionals. New levels are appended to the
-							bottom — reorder afterward with the arrows.
-						</Dialog.Description>
-					</Dialog.Header>
-					<div class="space-y-4 py-4">
-						<Form.Field
-							config={{ form: superForm(data.form), schema: newExperienceLevelSchema }}
-							name="value"
-						>
-							<Form.Item>
-								<Form.Label>Experience Level Value</Form.Label>
-								<Form.Input required placeholder="e.g., Entry Level, Mid Level, Senior..." />
-								<Form.Validation />
-							</Form.Item>
-						</Form.Field>
-					</div>
-					<Dialog.Footer>
-						<Button variant="destructiveOutline" type="button" on:click={() => (dialogOpen = false)}>
-							Cancel
-						</Button>
-						<Form.Button disabled={$submitting}>
-							{#if $submitting}
-								<Loader2 class="mr-2 h-4 w-4 animate-spin" />
-							{/if}
-							Add Experience Level
-						</Form.Button>
-					</Dialog.Footer>
-				</form>
-			</Dialog.Content>
-		</Dialog.Root>
-	</div>
-
-	<!-- Search -->
-	<form on:submit|preventDefault={() => handleSearch(searchTerm)} class="flex items-center gap-2">
-		<Input
-			bind:value={searchTerm}
-			placeholder="Search experience levels..."
-			class="bg-white max-w-xs"
-		/>
-		<Button
-			size="sm"
-			class="bg-primary hover:bg-primary/90"
-			on:click={() => handleSearch(searchTerm)}
-		>
-			<Search size={16} class="mr-2" />
-			Search
+{#snippet orderBar()}
+	<form
+		method="POST"
+		action="?/reorderExperienceLevels"
+		class="flex flex-wrap items-center gap-3"
+		use:kitEnhance={() => {
+			savingOrder = true;
+			return async ({ update }) => {
+				await update();
+				savingOrder = false;
+			};
+		}}
+	>
+		<input type="hidden" name="order" value={orderPayload} />
+		<Button type="submit" size="sm" disabled={!isDirty || savingOrder}>
+			{#if savingOrder}<Loader2 class="mr-2 size-4 animate-spin" aria-hidden="true" />{:else}<Save class="mr-2 size-4" aria-hidden="true" />{/if}
+			Save order
 		</Button>
-	</form>
-
-	<!-- Reorder bar -->
-	{#if levels.length > 0}
-		<div class="flex items-center gap-2">
-			<form
-				method="POST"
-				action="?/reorderExperienceLevels"
-				use:kitEnhance={() => {
-					savingOrder = true;
-					return async ({ update }) => {
-						await update();
-						savingOrder = false;
-					};
-				}}
-			>
-				<input type="hidden" name="order" value={orderPayload} />
-				<Button
-					type="submit"
-					disabled={!isDirty || savingOrder}
-					class="bg-primary hover:bg-primary/90"
-				>
-					{#if savingOrder}
-						<Loader2 class="mr-2 h-4 w-4 animate-spin" />
-					{:else}
-						<Save size={16} class="mr-2" />
-					{/if}
-					Save Order
-				</Button>
-			</form>
-			{#if isDirty}
-				<Button variant="outline" size="sm" on:click={resetOrder}>Discard changes</Button>
-				<span class="text-sm text-muted-foreground">Unsaved order changes</span>
-			{/if}
-		</div>
-	{/if}
-
-	<!-- List -->
-	<div class="bg-white rounded-lg shadow-sm flex-1 flex flex-col">
-		{#if levels.length > 0}
-			<ul class="divide-y rounded-md border">
-				{#each levels as level, idx (level.id)}
-					<li class="flex items-center gap-3 p-3 bg-gray-50 hover:bg-gray-100 transition-colors">
-						<div class="flex flex-col gap-1">
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								class="h-7 w-7 p-0"
-								disabled={idx === 0}
-								on:click={() => moveUp(idx)}
-								aria-label="Move up"
-							>
-								<ArrowUp size={14} />
-							</Button>
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								class="h-7 w-7 p-0"
-								disabled={idx === levels.length - 1}
-								on:click={() => moveDown(idx)}
-								aria-label="Move down"
-							>
-								<ArrowDown size={14} />
-							</Button>
-						</div>
-						<div class="flex-1">
-							<p class="font-medium">{level.value}</p>
-							<p class="text-xs text-muted-foreground">
-								Position {idx + 1} · Created {new Date(level.createdAt).toLocaleDateString()}
-							</p>
-						</div>
-						<form method="POST" use:enhance action="?/deleteExperienceLevel">
-							<input type="hidden" name="id" value={level.id} />
-							<Button type="submit" variant="destructive" size="sm" aria-label="Delete">
-								<Trash size={14} />
-							</Button>
-						</form>
-					</li>
-				{/each}
-			</ul>
+		{#if isDirty}
+			<Button variant="outline" size="sm" on:click={() => (levels = [...serverLevels])}>Discard changes</Button>
+			<span class="text-sm text-muted-foreground" role="status">Unsaved order changes</span>
 		{:else}
-			<!-- Empty state -->
-			<div class="flex flex-col items-center justify-center py-12 text-center flex-1">
-				<div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-					<Trophy class="w-8 h-8 text-gray-400" />
-				</div>
-				<h3 class="text-lg font-medium text-gray-900 mb-2">No experience levels found</h3>
-				<p class="text-sm text-gray-500 mb-6">
-					{#if searchTerm}
-						Try adjusting your search terms
-					{:else}
-						Get started by creating your first experience level
-					{/if}
-				</p>
-				{#if !searchTerm}
-					<Button on:click={() => (dialogOpen = true)}>Add Your First Experience Level</Button>
-				{/if}
-			</div>
+			<span class="text-sm text-muted-foreground">Use the arrows to reorder, then save.</span>
 		{/if}
-	</div>
-</section>
+	</form>
+{/snippet}
+
+<Page>
+	<PageHeader title="Experience levels" description="The options professionals choose from, in the order they're shown.">
+		{#snippet actions()}
+			<Button on:click={() => (addOpen = true)}><Plus class="mr-2 size-4" aria-hidden="true" />Add experience level</Button>
+		{/snippet}
+	</PageHeader>
+
+	<TaxonomySearchField label="Search experience levels" value={search} />
+
+	<ExperienceLevelsTable
+		rows={levels}
+		{search}
+		toolbar={levels.length > 0 ? orderBar : undefined}
+		onMove={move}
+		onAdd={() => (addOpen = true)}
+		onDelete={openDelete}
+	/>
+</Page>
+
+<Dialog.Root bind:open={addOpen}>
+	<Dialog.Content class="sm:max-w-lg">
+		<form method="POST" action="?/addExperienceLevel" use:addEnhance class="space-y-6">
+			<Dialog.Header>
+				<Dialog.Title class="text-h2">Add experience level</Dialog.Title>
+				<Dialog.Description>New levels go to the bottom of the list; reorder them afterwards.</Dialog.Description>
+			</Dialog.Header>
+			<div class="space-y-1.5">
+				<Label for="experience-level-value" class="font-semibold">Name</Label>
+				<Input
+					id="experience-level-value"
+					name="value"
+					required
+					placeholder="e.g. 3–5 years"
+					bind:value={$addForm.value}
+					aria-invalid={$addErrors.value ? 'true' : undefined}
+				/>
+				{#if $addErrors.value}<p class="text-sm text-destructive">{$addErrors.value[0]}</p>{/if}
+			</div>
+			<Dialog.Footer class="gap-2">
+				<Button variant="outline" on:click={() => (addOpen = false)}>Cancel</Button>
+				<Button type="submit" disabled={$addSubmitting}>
+					{#if $addSubmitting}<Loader2 class="mr-2 size-4 animate-spin" aria-hidden="true" />{/if}
+					Add experience level
+				</Button>
+			</Dialog.Footer>
+		</form>
+	</Dialog.Content>
+</Dialog.Root>
+
+<TaxonomyConfirmDialog
+	bind:open={deleteOpen}
+	title="Delete “{toDelete?.value ?? 'this level'}”?"
+	description="The level is removed from the options professionals choose from. This can't be undone."
+	action="?/deleteExperienceLevel"
+	fields={{ id: toDelete?.id ?? '' }}
+	confirmLabel="Delete level"
+	confirmText="DELETE"
+/>

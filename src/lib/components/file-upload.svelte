@@ -117,14 +117,14 @@
 				<div class="flex flex-col gap-1 mb-2">
 					<div class="flex items-center justify-between">
 						<span class="text-sm font-medium">{files.accepted.length} files selected</span>
-						<span class="text-xs text-gray-500">({formatFileSize(totalSize)})</span>
+						<span class="text-xs text-muted-foreground">({formatFileSize(totalSize)})</span>
 					</div>
-					<div class="max-h-24 overflow-y-auto border border-gray-200 rounded p-1">
+					<div class="max-h-24 overflow-y-auto border border-border rounded p-1">
 						{#each files.accepted as file}
-							<div class="flex gap-2 items-center py-1 px-2 text-sm hover:bg-gray-50 rounded">
+							<div class="flex gap-2 items-center py-1 px-2 text-sm hover:bg-muted/50 rounded">
 								<FileIcon size={14} />
 								<p class="text-xs overflow-hidden text-ellipsis flex-1">{file.name}</p>
-								<span class="text-xs text-gray-500">({formatFileSize(file.size)})</span>
+								<span class="text-xs text-muted-foreground">({formatFileSize(file.size)})</span>
 							</div>
 						{/each}
 					</div>
@@ -134,7 +134,7 @@
 				<div class="flex gap-2 items-center mb-2">
 					<FileIcon size={20} />
 					<p class="text-sm font-medium overflow-hidden text-ellipsis">{files.accepted[0].name}</p>
-					<span class="text-xs text-gray-500">({formatFileSize(files.accepted[0].size)})</span>
+					<span class="text-xs text-muted-foreground">({formatFileSize(files.accepted[0].size)})</span>
 				</div>
 			{/if}
 
@@ -142,8 +142,8 @@
 				<!-- Upload in progress -->
 				<div class="flex flex-col gap-1 w-full">
 					<div class="flex items-center gap-2">
-						<Upload size={16} class="text-blue-600 animate-pulse" />
-						<span class="text-sm text-blue-600">Uploading...</span>
+						<Upload size={16} class="text-primary animate-pulse" />
+						<span class="text-sm text-primary-dark">Uploading...</span>
 					</div>
 					<div class="progress-bar">
 						<div class="progress-bar-inner" style="width: {progress}%"></div>
@@ -151,14 +151,14 @@
 				</div>
 			{:else if hasError}
 				<!-- Error state -->
-				<div transition:fade={{ duration: 200 }} class="flex items-center gap-2 text-red-600">
+				<div transition:fade={{ duration: 200 }} class="flex items-center gap-2 text-destructive">
 					<AlertCircle size={16} />
 					<span class="text-sm">{errorMessage}</span>
 				</div>
 				<Button variant="outline" class="mt-3" size="sm" on:click={resetDropzone}>Try again</Button>
 			{:else if isComplete}
 				<!-- Success state -->
-				<div transition:fade={{ duration: 200 }} class="flex items-center gap-2 text-green-600">
+				<div transition:fade={{ duration: 200 }} class="flex items-center gap-2 text-status-positive-fg">
 					<Check size={16} />
 					<span class="text-sm">Upload complete!</span>
 				</div>
@@ -169,7 +169,6 @@
 				<!-- File selected but upload not started -->
 				<div class="flex gap-2 justify-center mt-2">
 					<Button
-						class="bg-primary hover:bg-primary/90"
 						on:click={() =>
 							multiple ? onFileDrop(files.accepted || []) : onFileDrop(files.accepted?.[0])}
 					>
@@ -184,10 +183,10 @@
 	{:else}
 		<!-- No file selected yet -->
 		<div class="flex flex-col items-center gap-2">
-			<Upload size={24} class="text-blue-600" />
-			<Button class="bg-primary hover:bg-primary/90">Select {multiple ? 'files' : 'file'}</Button>
-			<p class="text-sm text-gray-500">or drop {multiple ? 'files' : 'a file'} here</p>
-			<p class="text-xs text-gray-400">
+			<Upload size={24} class="text-primary" />
+			<Button>Select {multiple ? 'files' : 'file'}</Button>
+			<p class="text-sm text-muted-foreground">or drop {multiple ? 'files' : 'a file'} here</p>
+			<p class="text-xs text-muted-foreground">
 				Supported files: {accept.join(', ')} (max {maxSizeMB}MB{multiple
 					? `, ${maxFiles} files max`
 					: ''})
@@ -198,7 +197,7 @@
 
 {#if hasError && !files.accepted?.length}
 	<div
-		class="mt-2 text-sm text-red-600 flex items-center gap-1"
+		class="mt-2 text-sm text-destructive flex items-center gap-1"
 		transition:fly={{ y: 10, duration: 200 }}
 	>
 		<AlertCircle size={14} />

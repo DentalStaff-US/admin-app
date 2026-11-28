@@ -9,6 +9,13 @@ const config = {
 
 	kit: {
 		adapter: adapter(),
+		alias: {
+			$ui: 'src/lib/components/ui',
+			$dtss: 'src/lib/components/dtss',
+			$shell: 'src/lib/components/shell',
+			$features: 'src/lib/features',
+			$tokens: 'src/lib/design-tokens'
+		},
 		version: {
 			pollInterval: 60000
 		}

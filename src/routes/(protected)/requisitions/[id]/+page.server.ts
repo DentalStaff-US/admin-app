@@ -110,6 +110,24 @@ import {
 	deleteRequisitionComment,
 	getRequisitionComments
 } from '$lib/server/database/queries/requisitionComments';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
+import { getRequestLifecycle, isRequestUnbilled } from '$features/requisitions/server/permanent';
+import type { Audience } from '$features/requisitions';
+import { recurrenceDaysBelongTo } from '$features/requisitions/server/guards';
+import { can } from '$lib/authz';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
+
+/** Permanent requests: stage counts, fee state and (admins only) who saved it. */
+async function loadLifecycle(
+	requisition: { id: number; status: string; permanentPosition: boolean | null } | null | undefined,
+	audience: Audience
+) {
+	if (!requisition?.permanentPosition) return null;
+	return getRequestLifecycle(requisition.id, audience, {
+		status: requisition.status,
+		unbilled: await isRequestUnbilled(requisition.id)
+	});
+}
 
 const invoiceLineItemSchema = z.array(
 	z.object({
@@ -174,7 +192,8 @@ const loadRequisitionPage = async (event: RequestEvent) => {
 	const deleteRecurrenceDayForm = await superValidate(event, deleteRecurrenceDaySchema);
 	const invoiceForm = await superValidate(requisitionInvoiceSchema);
 
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (checkIsAdmin(user.role)) {
+		await resolveRequisitionAccess(user, idAsNum);
 		const company = await getCompanyByRequisitionIdAdmin(idAsNum);
 		const requisition = await getRequisitionDetailsByIdAdmin(idAsNum);
 		const requisitionApplications = await getRequisitionApplications(idAsNum);
@@ -269,6 +288,7 @@ const loadRequisitionPage = async (event: RequestEvent) => {
 			billing,
 			comments,
 			potentialMatches,
+			lifecycle: await loadLifecycle(requisition.requisition, 'admin'),
 			billingBlockedMessage,
 			billingMismatchMessage
 		};
@@ -335,6 +355,7 @@ const loadRequisitionPage = async (event: RequestEvent) => {
 			deleteRecurrenceDayForm,
 			invoiceForm,
 			requisition: result?.requisition ?? null,
+			lifecycle: await loadLifecycle(result?.requisition, 'practice'),
 			recurrenceDays: requisitionRecurrenceDays || [],
 			applications: requisitionApplications || [],
 			timesheets: requisitionTimesheets || [],
@@ -409,6 +430,7 @@ const loadRequisitionPage = async (event: RequestEvent) => {
 			deleteRecurrenceDayForm,
 			invoiceForm,
 			requisition: result?.requisition ?? null,
+			lifecycle: await loadLifecycle(result?.requisition, 'practice'),
 			recurrenceDays: requisitionRecurrenceDays || [],
 			applications: requisitionApplications || [],
 			timesheets: requisitionTimesheets || [],
@@ -427,17 +449,23 @@ export const actions = {
 			return fail(403);
 		}
 
+		await resolveRequisitionAccess(user, Number(request.params.id));
 		const form = await superValidate(request, changeStatusSchema);
 
 		if (!form.valid) {
 			return fail(400, { form });
 		}
+		// The status change acts on the request in the URL, not on any id posted.
+		if (Number(form.data.requisitionId) !== Number(request.params.id)) {
+			return fail(404, { form });
+		}
 
-		// Payment-tracking statuses are admin-only. The UI hides them from clients,
-		// but enforce here too in case of direct POST.
+		// Payment-tracking statuses are DTSS-only. The UI hides them from clients,
+		// but enforce here too in case of direct POST. Marking the fee received
+		// records a payment, so it needs payments.record (SUPERADMIN).
 		if (
-			(form.data.status === 'PAYMENT_REQUIRED' || form.data.status === 'PAYMENT_RECEIVED') &&
-			user.role !== USER_ROLES.SUPERADMIN
+			(form.data.status === 'PAYMENT_REQUIRED' && !can(user, 'requisitions.manage')) ||
+			(form.data.status === 'PAYMENT_RECEIVED' && !can(user, 'payments.record'))
 		) {
 			return fail(403, { form });
 		}
@@ -492,6 +520,7 @@ export const actions = {
 		const { id } = event.params;
 		const idAsNum = Number(id);
 		if (!user) return fail(403);
+		await resolveRequisitionAccess(user, idAsNum);
 
 		console.log('Processing addRecurrenceDays action for requisition ID:', idAsNum);
 
@@ -501,7 +530,7 @@ export const actions = {
 		// Direct-assign is admin-only: a qualified candidate gets dropped onto the
 		// new day(s), which are created FILLED instead of OPEN.
 		const candidateId =
-			user.role === USER_ROLES.SUPERADMIN
+			can(user, 'requisitions.manage')
 				? (formData.get('candidateId') as string | null) || null
 				: null;
 		const assigning = !!candidateId;
@@ -519,9 +548,9 @@ export const actions = {
 		const billing = await getRequisitionBillingReadiness(idAsNum);
 		if (!billing.ready) {
 			const company =
-				user.role === USER_ROLES.SUPERADMIN ? await getCompanyByRequisitionIdAdmin(idAsNum) : null;
+				can(user, 'requisitions.manage') ? await getCompanyByRequisitionIdAdmin(idAsNum) : null;
 			const msg = billingNotReadyMessage({
-				audience: user.role === USER_ROLES.SUPERADMIN ? 'ADMIN' : 'CLIENT',
+				audience: can(user, 'requisitions.manage') ? 'ADMIN' : 'CLIENT',
 				what: 'add shifts',
 				companyName: company?.companyName
 			});
@@ -707,11 +736,15 @@ export const actions = {
 		if (!user) {
 			return fail(403);
 		}
+		await resolveRequisitionAccess(user, Number(request.params.id));
 		const form = await superValidate(request, editRecurrenceDaySchema);
 
 		if (!form.valid) {
 			fail(400, { form });
 		}
+		// NB: editRecurrenceDaySchema has no id/requisitionId fields, so this
+		// action can't identify a day today (nothing on this page posts to it;
+		// the workday page has its own). Left as-is apart from the access guard.
 
 		try {
 			const id = form.data.id;
@@ -792,10 +825,14 @@ export const actions = {
 			return fail(403);
 		}
 
+		await resolveRequisitionAccess(user, Number(request.params.id));
 		const form = await superValidate(request, deleteRecurrenceDaySchema);
 
 		if (!form.valid) {
 			fail(400, { form });
+		}
+		if (!(await recurrenceDaysBelongTo([form.data.id], Number(request.params.id)))) {
+			return fail(404, { form });
 		}
 
 		try {
@@ -862,12 +899,13 @@ export const actions = {
 			return fail(403, { error: 'Not authenticated' });
 		}
 
-		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+		if (!(can(user, 'invoices.create') || ['CLIENT', 'CLIENT_STAFF'].includes(user.role))) {
 			return fail(403, { error: 'Not authorized to create invoices' });
 		}
 
 		const { id } = event.params;
 		const requisitionId = Number(id);
+		await resolveRequisitionAccess(user, requisitionId);
 		const form = await superValidate(event, requisitionInvoiceSchema);
 
 		if (!form.valid) {
@@ -990,6 +1028,7 @@ export const actions = {
 
 		const { id } = event.params;
 		const idAsNum = Number(id);
+		await resolveRequisitionAccess(user, idAsNum);
 		const formData = await event.request.formData();
 
 		const disciplineId = formData.get('disciplineId') as string;
@@ -1050,12 +1089,13 @@ export const actions = {
 	updateReferenceTimezone: async (event: RequestEvent) => {
 		const user = event.locals.user;
 		if (!user) return fail(403);
-		if (user.role !== USER_ROLES.SUPERADMIN) {
+		if (!can(user, 'requisitions.manage')) {
 			return fail(403, { error: 'Not authorized' });
 		}
 
 		const { id } = event.params;
 		const requisitionId = Number(id);
+		await resolveRequisitionAccess(user, requisitionId);
 		const formData = await event.request.formData();
 		const timezone = (formData.get('referenceTimezone') as string | null)?.trim();
 
@@ -1138,13 +1178,17 @@ export const actions = {
 	cancelRecurrenceDay: async (request: RequestEvent) => {
 		const user = request.locals.user;
 		if (!user) return fail(403);
-		if (![USER_ROLES.SUPERADMIN, 'CLIENT', 'CLIENT_STAFF'].includes(user.role)) {
+		if (!(can(user, 'requisitions.manage') || ['CLIENT', 'CLIENT_STAFF'].includes(user.role))) {
 			return fail(403, { error: 'Not authorized' });
 		}
 
 		const formData = await request.request.formData();
 		const recurrenceDayId = (formData.get('recurrenceDayId') as string | null)?.trim();
 		if (!recurrenceDayId) return fail(400, { error: 'Missing workday id' });
+		await resolveRequisitionAccess(user, Number(request.params.id));
+		if (!(await recurrenceDaysBelongTo([recurrenceDayId], Number(request.params.id)))) {
+			return fail(404, { error: 'Workday not found' });
+		}
 
 		try {
 			await cancelRecurrenceDayAsActor({
@@ -1182,6 +1226,10 @@ export const actions = {
 			.map((s) => s.trim())
 			.filter(Boolean);
 		if (ids.length === 0) return fail(400, { error: 'No workdays selected' });
+		await resolveRequisitionAccess(user, Number(request.params.id));
+		if (!(await recurrenceDaysBelongTo(ids, Number(request.params.id)))) {
+			return fail(404, { error: 'Some selected workdays are not on this requisition' });
+		}
 		if (status !== 'OPEN' && status !== 'FILLED' && status !== 'UNFULFILLED') {
 			return fail(400, { error: 'Invalid status for bulk update' });
 		}
@@ -1245,6 +1293,10 @@ export const actions = {
 			.map((s) => s.trim())
 			.filter(Boolean);
 		if (ids.length === 0) return fail(400, { error: 'No workdays selected' });
+		await resolveRequisitionAccess(user, Number(request.params.id));
+		if (!(await recurrenceDaysBelongTo(ids, Number(request.params.id)))) {
+			return fail(404, { error: 'Some selected workdays are not on this requisition' });
+		}
 
 		// One transaction for the whole batch: either every day cancels or none
 		// does, so we never leave half the selection audited and half not.
@@ -1289,7 +1341,7 @@ export const actions = {
 	bulkDeleteRecurrenceDays: async (request: RequestEvent) => {
 		const user = request.locals.user;
 		if (!user) return fail(403);
-		if (user.role !== USER_ROLES.SUPERADMIN) return fail(403, { error: 'Admin only' });
+		if (!can(user, 'requisitions.manage')) return fail(403, { error: 'Admin only' });
 
 		const formData = await request.request.formData();
 		const idsCsv = (formData.get('ids') as string | null) ?? '';
@@ -1298,6 +1350,10 @@ export const actions = {
 			.map((s) => s.trim())
 			.filter(Boolean);
 		if (ids.length === 0) return fail(400, { error: 'No workdays selected' });
+		await resolveRequisitionAccess(user, Number(request.params.id));
+		if (!(await recurrenceDaysBelongTo(ids, Number(request.params.id)))) {
+			return fail(404, { error: 'Some selected workdays are not on this requisition' });
+		}
 
 		const snapshots = await db
 			.select({
@@ -1391,10 +1447,12 @@ export const actions = {
 		const formData = await event.request.formData();
 		const commentId = String(formData.get('commentId') ?? '');
 		if (!commentId) return fail(400, { error: 'Missing comment id.' });
+		// Hard delete: the comment is gone for both sides (03 › ConfirmDialog).
+		if (!hasTypedConfirmation(formData)) return fail(400, { error: 'Type DELETE to confirm.' });
 
 		const deleted = await deleteRequisitionComment(commentId, requisitionId, {
 			userId: user!.id,
-			isAdmin: user!.role === USER_ROLES.SUPERADMIN
+			isAdmin: can(user!, 'requisitions.manage')
 		});
 		if (!deleted) return fail(404, { error: 'Comment not found.' });
 
@@ -1410,7 +1468,7 @@ export const actions = {
 
 	recommendCandidate: async (event: RequestEvent) => {
 		const user = event.locals.user;
-		if (!user || user.role !== USER_ROLES.SUPERADMIN) return fail(403);
+		if (!user || !can(user, 'requisitions.manage')) return fail(403);
 		const requisitionId = Number(event.params.id);
 		await resolveRequisitionAccess(user, requisitionId);
 

@@ -2,20 +2,7 @@ import { formatTimestampForDisplay, getUserTimezone } from '$lib/_helpers/UTCTim
 import type { ClientCompanyLocation } from '$lib/server/database/schemas/client';
 import type { RecurrenceDay, Requisition } from '$lib/server/database/schemas/requisition';
 import type { Discipline } from '$lib/server/database/schemas/skill';
-import { format, parseISO } from 'date-fns';
-
-export function _pad(num: number) {
-	const norm = Math.floor(Math.abs(num));
-	return (norm < 10 ? '0' : '') + norm;
-}
-
-const requisitionStatusColorEnum = {
-	PENDING: '#fde047',
-	OPEN: '#3b82f6',
-	FILLED: '#31c48d',
-	UNFULFILLED: '#ff8a4c',
-	CANCELED: '#f05252'
-} as const;
+import { statusTone, TONE_HEX } from '$tokens/status';
 
 /**
  * Convert a RecurrenceDay to a calendar event, properly handling UTC timestamps
@@ -45,7 +32,8 @@ export function convertRecurrenceDayToEvent(
 		resourceIds: [requisition.id, recurrenceDay.id],
 		title: `#${requisition.id} ${discipline.abbreviation.toLocaleUpperCase()} `,
 		data: requisition,
-		color: status ? requisitionStatusColorEnum[status] : '#b3b3b3',
+		// 03 › Calendar: the one status → tone map, not a local hex map.
+		color: TONE_HEX[statusTone(status)].solid,
 		extendedProps: {
 			type: 'RECURRENCE_DAY',
 			requisition: { ...requisition },
@@ -56,30 +44,5 @@ export function convertRecurrenceDayToEvent(
 		},
 		styles: ['flex-direction: row-reverse;'],
 		className: 'test'
-	};
-}
-
-export function convertBirthdayToEvent(birthday: string, name: string) {
-	const today = new Date();
-	const currentYear = today.getFullYear();
-
-	// Parse the birthday and set it to the current year
-	const birthDate = parseISO(birthday);
-	birthDate.setFullYear(currentYear);
-
-	// If the birthday has already passed this year, set it for next year
-	if (birthDate < today) {
-		birthDate.setFullYear(currentYear + 1);
-	}
-
-	return {
-		start: birthDate,
-		end: birthDate,
-		title: name,
-		color: '#fbbf24', // A bright color for birthdays
-		extendedProps: {
-			type: 'BIRTHDAY',
-			name
-		}
 	};
 }

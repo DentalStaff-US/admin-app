@@ -14,6 +14,7 @@ import {
 	manuallyAttributeReferral
 } from '$lib/server/database/queries/affiliatesAdmin';
 import { logger } from '$lib/server/logger';
+import { can } from '$lib/authz';
 
 // Commission and the payout floor are money settings — validate hard rather than
 // coercing, so a typo cannot silently set the rate to 0 or NaN.
@@ -39,8 +40,9 @@ const manualAttributionSchema = z.object({
 	note: z.string().max(500).optional()
 });
 
-function requireSuperadmin(locals: App.Locals) {
-	return locals.user?.role === USER_ROLES.SUPERADMIN;
+/** Commission, flagged referrals and attribution change who gets paid: payouts.manage. */
+function canManagePayouts(locals: App.Locals) {
+	return can(locals.user, 'payouts.manage');
 }
 
 export async function load(event) {
@@ -76,13 +78,13 @@ export async function load(event) {
 		referrals,
 		settingsForm,
 		filters: { q, status, role },
-		isSuperadmin: event.locals.user?.role === USER_ROLES.SUPERADMIN
+		isSuperadmin: can(event.locals.user, 'payouts.manage')
 	};
 }
 
 export const actions = {
 	updateSettings: async (event) => {
-		if (!requireSuperadmin(event.locals)) return fail(403, { message: 'Superadmin only' });
+		if (!canManagePayouts(event.locals)) return fail(403, { message: 'Superadmin only' });
 
 		const form = await superValidate(event, programSettingsSchema);
 		if (!form.valid) return fail(400, { form });
@@ -102,7 +104,7 @@ export const actions = {
 	},
 
 	resolveFlagged: async (event) => {
-		if (!requireSuperadmin(event.locals)) return fail(403, { message: 'Superadmin only' });
+		if (!canManagePayouts(event.locals)) return fail(403, { message: 'Superadmin only' });
 
 		const data = Object.fromEntries(await event.request.formData());
 		const parsed = flaggedSchema.safeParse({ ...data, approve: data.approve === 'true' });
@@ -122,7 +124,7 @@ export const actions = {
 	},
 
 	manualAttribute: async (event) => {
-		if (!requireSuperadmin(event.locals)) return fail(403, { message: 'Superadmin only' });
+		if (!canManagePayouts(event.locals)) return fail(403, { message: 'Superadmin only' });
 
 		const data = Object.fromEntries(await event.request.formData());
 		const parsed = manualAttributionSchema.safeParse(data);

@@ -25,7 +25,6 @@ import {
 	getClientStaffProfilebyClientId,
 	getClientStaffProfilebyUserId,
 	getPendingInvitesForCompany,
-	getPrimaryLocationForCompany,
 	getStaffLocationsWithMeta,
 	inviteStaffUsersToAccount,
 	resendInvite,
@@ -46,20 +45,11 @@ import {
 import { EmailService } from '$lib/server/email/emailService';
 import { syncStripeCustomerBillingEmail } from '$lib/server/billing/recipients';
 import { z } from 'zod';
+import { hasTypedConfirmation } from '$lib/server/confirmation';
+import { newStaffInvitesSchema } from '$lib/features/settings/server/team';
+import { resolveInviteLocations } from '$features/people/inviteLocations';
+import { checkIsAdmin } from '$lib/_helpers/checkIsAdmin';
 
-const newStaffInvitesSchema = z.object({
-	invitees: z
-		.array(
-			z.object({
-				email: z.string().email({ message: 'Please enter a valid email address' }),
-				staffRole: z.enum(['CLIENT_ADMIN', 'CLIENT_MANAGER', 'CLIENT_EMPLOYEE'], {
-					required_error: 'Please select a staff role',
-					invalid_type_error: 'Please select a valid staff role'
-				})
-			})
-		)
-		.min(1, 'Please add at least one staff member')
-});
 const avatarUrlSchema = z.object({ url: z.string(), isForUser: z.boolean().default(true) });
 const userProfileSchema = userSchema.pick({
 	firstName: true,
@@ -75,7 +65,7 @@ export async function load(event) {
 			error: 'You must be signed in to view this page.'
 		});
 	}
-	if (user.role === USER_ROLES.SUPERADMIN) {
+	if (checkIsAdmin(user.role)) {
 		const userProfileForm = await superValidate(event, userProfileSchema);
 		const passwordForm = await superValidate(event, userUpdatePasswordSchema);
 		const avatarForm = await superValidate(event, avatarUrlSchema);
@@ -143,7 +133,6 @@ export async function load(event) {
 		const userProfileForm = await superValidate(event, userProfileSchema);
 		const subscriptionForm = null;
 		const passwordForm = await superValidate(event, userUpdatePasswordSchema);
-		const inviteForm = await superValidate(newStaffInvitesSchema);
 		const billingContactForm = await superValidate(event, billingContactSchema);
 
 		const documents = await getClientDocuments(clientProfile?.id);
@@ -207,7 +196,6 @@ export async function load(event) {
 			staff: staffWithLocations,
 			companyLocations,
 			pendingInvites,
-			inviteForm,
 			avatarForm,
 			documents: documents || [],
 			signatureRequests
@@ -514,6 +502,11 @@ export const actions = {
 		if (!user) {
 			return fail(401);
 		}
+		// Only the owner or CLIENT_ADMIN staff manage the team.
+		const inviter = user.role === USER_ROLES.CLIENT_STAFF ? await getClientStaffProfilebyUserId(user.id) : null;
+		if (user.role !== USER_ROLES.CLIENT && inviter?.staffRole !== 'CLIENT_ADMIN') {
+			return fail(403, { error: 'Not allowed' });
+		}
 
 		const invitees = rawInvitees ? JSON.parse(rawInvitees.toString()) : [];
 
@@ -533,12 +526,20 @@ export const actions = {
 			const expiresAt = new Date();
 			expiresAt.setDate(expiresAt.getDate() + INVITE_EXPIRATION_DAYS);
 
-			const client = await getClientProfilebyUserId(user?.id);
+			// CLIENT_ADMIN staff invite on the owner's behalf (they reach /team too).
+			const client =
+				user.role === USER_ROLES.CLIENT
+					? await getClientProfilebyUserId(user.id)
+					: await getClientProfileByStaffUserId(user.id);
+			if (!client) throw new Error('Client profile not found');
 			const company = await getClientCompanyByClientId(client.id);
-			const location = await getPrimaryLocationForCompany(company.id);
-
-			if (!location) {
-				throw new Error('Primary location not found');
+			const locations = resolveInviteLocations(
+				formData.get('locationIds')?.toString(),
+				formData.get('primaryLocationId')?.toString(),
+				await getAllClientLocationsByCompanyId(company.id)
+			);
+			if (!locations.ok) {
+				return fail(400, { form, inviteError: locations.message });
 			}
 
 			// Format invites for our invite function
@@ -547,13 +548,13 @@ export const actions = {
 				email: invitee.email.toLowerCase(),
 				staffRole: invitee.staffRole,
 				invitedRole: 'CLIENT_STAFF', // This is their platform role
-				referrerRole: user.role as 'CANDIDATE' | 'CLIENT_STAFF' | 'SUPERADMIN' | 'CLIENT',
+				referrerRole: user.role as 'CANDIDATE' | 'CLIENT_STAFF' | 'SUPERADMIN' | 'ADMIN' | 'CLIENT',
 				referrerId: user.id,
 				expiresAt: expiresAt
 			}));
 
 			// Send invites
-			const results = await inviteStaffUsersToAccount(location.id, invites);
+			const results = await inviteStaffUsersToAccount(locations.locationIds, invites);
 
 			// Check for any failures
 			const failedInvites = results.filter((result) => !result.success);
@@ -590,12 +591,12 @@ export const actions = {
 
 			return fail(500, {
 				form,
-				error: 'Failed to send invitations'
+				inviteError: 'The invitations could not be sent. Please try again.'
 			});
 		}
 
-		// Only redirect if at least one invite was successful
-		redirect(302, '/dashboard');
+		// Stay on the team list (settings or /team) so the new invites show as pending.
+		return { form };
 	},
 	uploadClientDocument: async (event: RequestEvent) => {
 		const user = event.locals.user;
@@ -659,6 +660,17 @@ export const actions = {
 		const formData = await event.request.formData();
 		const documentId = formData.get('documentId') as string;
 
+		// A hard delete: the dialog posts the typed word (03 › ConfirmDialog).
+		if (!hasTypedConfirmation(formData)) {
+			return fail(400, { error: 'Type DELETE to confirm.' });
+		}
+
+		const clientProfile =
+			user.role === USER_ROLES.CLIENT
+				? await getClientProfilebyUserId(user.id)
+				: await getClientProfileByStaffUserId(user.id);
+		if (!clientProfile) return fail(404, { error: 'Client profile not found' });
+
 		try {
 			// Fetch doc first to check adminOnly
 			const [doc] = await db
@@ -666,6 +678,8 @@ export const actions = {
 				.from(clientDocumentUploadsTable)
 				.where(eq(clientDocumentUploadsTable.id, documentId));
 
+			// Only this practice's own documents.
+			if (!doc || doc.clientId !== clientProfile.id) return fail(404, { error: 'Document not found' });
 			if (doc.adminOnly) return fail(403, { error: 'Cannot delete admin-locked document' });
 
 			await deleteClientDocument(documentId);

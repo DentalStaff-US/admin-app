@@ -1,508 +1,176 @@
 <script lang="ts">
-	import {
-		getCoreRowModel,
-		type ColumnDef,
-		getSortedRowModel,
-		getPaginationRowModel,
-		type TableOptions,
-		createSvelteTable,
-		flexRender
-	} from '@tanstack/svelte-table';
-	import * as Form from '$lib/components/ui/form';
-	import * as Dialog from '$lib/components/ui/dialog';
-	import * as Table from '$lib/components/ui/table';
-	import { Button } from '$lib/components/ui/button';
-	import { Input } from '$lib/components/ui/input';
-	import type { PageData } from './$types';
-	import { writable } from 'svelte/store';
-	import { onMount } from 'svelte';
-	import {
-		newDisciplineSchema,
-		editDisciplineSchema,
-		deleteDisciplineSchema
-	} from '$lib/config/zod-schemas';
-	import {
-		Loader2,
-		ArrowUpDown,
-		ArrowUp,
-		ArrowDown,
-		ChevronLeft,
-		ChevronRight,
-		GraduationCap,
-		PlusIcon,
-		Trash,
-		Pencil
-	} from 'lucide-svelte';
-	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { Loader2, Plus } from 'lucide-svelte';
 	import { superForm } from 'sveltekit-superforms/client';
+	import Page from '$dtss/Page.svelte';
+	import PageHeader from '$dtss/PageHeader.svelte';
+	import { readSort, sortHrefFor } from '$dtss/tableState';
+	import * as Dialog from '$lib/components/ui/dialog';
+	import { Button } from '$lib/components/ui/button';
+	import {
+		TaxonomyConfirmDialog,
+		DisciplineFields,
+		DisciplinesTable,
+		TaxonomySearchField,
+		sortLoadedRows,
+		type DisciplineRow
+	} from '$features/admin/components/taxonomy';
 
-	export let data: PageData;
+	let { data } = $props();
 
-	// Add form
+	let addOpen = $state(false);
+	let editOpen = $state(false);
+	let deleteOpen = $state(false);
+	let toDelete = $state<DisciplineRow | null>(null);
+
 	const {
-		submitting,
-		enhance,
-		form: disciplineForm
+		form: addForm,
+		errors: addErrors,
+		enhance: addEnhance,
+		submitting: addSubmitting
 	} = superForm(data.form, {
 		onResult: ({ result }) => {
 			if (result.type === 'success') {
-				dialogOpen = false;
+				addOpen = false;
 				// Reset the flag too, or the next discipline added in the same session
 				// inherits the previous one's checkbox state.
-				$disciplineForm = { name: '', abbreviation: '', requiresLicense: false };
+				$addForm = { name: '', abbreviation: '', requiresLicense: false };
 			}
 		}
 	});
 
-	// Edit form
 	const {
-		submitting: editSubmitting,
+		form: editForm,
+		errors: editErrors,
 		enhance: editEnhance,
-		form: editDisciplineForm
+		submitting: editSubmitting
 	} = superForm(data.editForm, {
 		onResult: ({ result }) => {
-			if (result.type === 'success') {
-				editDialogOpen = false;
-			}
+			if (result.type === 'success') editOpen = false;
 		}
 	});
 
-	// Delete form
 	const {
-		submitting: deleteSubmitting,
+		form: deleteForm,
 		enhance: deleteEnhance,
-		form: deleteDisciplineForm
+		submitting: deleteSubmitting
 	} = superForm(data.deleteForm, {
 		onResult: ({ result }) => {
-			if (result.type === 'success') {
-				deleteDialogOpen = false;
-			}
+			if (result.type === 'success') deleteOpen = false;
 		}
 	});
 
-	type DisciplineData = {
-		id: string;
-		name: string;
-		abbreviation: string;
-		requiresLicense: boolean;
-		createdAt: Date;
-		updatedAt: Date;
-	};
+	const SORTABLE = ['name', 'abbreviation', 'requiresLicense', 'createdAt', 'updatedAt'];
+	const sort = $derived(readSort(page.url, SORTABLE, { column: 'name', direction: 'asc' }));
+	const rows = $derived(
+		sortLoadedRows(data.disciplines as DisciplineRow[], {
+			name: (r) => r.name,
+			abbreviation: (r) => r.abbreviation,
+			// Flagged disciplines sort together: how staff see which ones are configured.
+			requiresLicense: (r) => Number(r.requiresLicense),
+			createdAt: (r) => new Date(r.createdAt).getTime(),
+			updatedAt: (r) => new Date(r.updatedAt).getTime()
+		}, sort)
+	);
 
-	let disciplineToEdit: DisciplineData | null = null;
-	let disciplineToDelete: DisciplineData | null = null;
-
-	let tableData: DisciplineData[] = [];
-	let searchTerm = '';
-	let dialogOpen = false;
-	let editDialogOpen = false;
-	let deleteDialogOpen = false;
-
-	$: disciplines = (data.disciplines as DisciplineData[]) || [];
-
-	function openEditDialog(discipline: DisciplineData) {
-		disciplineToEdit = discipline;
-		$editDisciplineForm = {
-			id: discipline.id,
-			name: discipline.name,
-			abbreviation: discipline.abbreviation,
+	function openEdit(row: DisciplineRow) {
+		$editForm = {
+			id: row.id,
+			name: row.name,
+			abbreviation: row.abbreviation,
 			// MUST be seeded from the row. Omitting it would send the schema default
 			// (false) on every save, so editing a discipline's name would silently turn
 			// off certification enforcement for everyone holding it.
-			requiresLicense: discipline.requiresLicense
+			requiresLicense: row.requiresLicense
 		};
-		editDialogOpen = true;
+		editOpen = true;
 	}
 
-	function openDeleteDialog(discipline: DisciplineData) {
-		disciplineToDelete = discipline;
-		$deleteDisciplineForm = { id: discipline.id };
-		deleteDialogOpen = true;
-	}
-
-	const columns: ColumnDef<DisciplineData>[] = [
-		{
-			header: 'Discipline Name',
-			id: 'name',
-			accessorKey: 'name',
-			enableSorting: true,
-			sortingFn: (rowA, rowB) =>
-				(rowA.original.name?.toLowerCase() || '').localeCompare(
-					rowB.original.name?.toLowerCase() || ''
-				)
-		},
-		{
-			header: 'Abbreviation',
-			id: 'abbreviation',
-			accessorKey: 'abbreviation',
-			enableSorting: true,
-			sortingFn: (rowA, rowB) =>
-				(rowA.original.abbreviation?.toLowerCase() || '').localeCompare(
-					rowB.original.abbreviation?.toLowerCase() || ''
-				)
-		},
-		{
-			header: 'Requires License/Registration',
-			id: 'requiresLicense',
-			accessorKey: 'requiresLicense',
-			enableSorting: true,
-			// Sorts flagged disciplines together — with ~20 rows this is how staff see
-			// at a glance which ones are configured.
-			sortingFn: (rowA, rowB) =>
-				Number(rowA.original.requiresLicense) - Number(rowB.original.requiresLicense),
-			// A plain string, matching every other cell in this file: no renderComponent
-			// is imported anywhere under (protected)/admin, and pulling in the Svelte
-			// table adapter for one badge is not worth it.
-			cell: ({ getValue }) => (getValue() ? 'Yes' : '—')
-		},
-		{
-			header: 'Created',
-			id: 'createdAt',
-			accessorKey: 'createdAt',
-			enableSorting: true,
-			sortingFn: (rowA, rowB) =>
-				new Date(rowA.original.createdAt).getTime() - new Date(rowB.original.createdAt).getTime(),
-			cell: ({ getValue }) => new Date(getValue() as Date).toLocaleDateString()
-		},
-		{
-			header: 'Updated',
-			id: 'updatedAt',
-			accessorKey: 'updatedAt',
-			enableSorting: true,
-			sortingFn: (rowA, rowB) =>
-				new Date(rowA.original.updatedAt).getTime() - new Date(rowB.original.updatedAt).getTime(),
-			cell: ({ getValue }) => new Date(getValue() as Date).toLocaleDateString()
-		}
-	];
-
-	const options = writable<TableOptions<DisciplineData>>({
-		data: tableData,
-		columns,
-		getCoreRowModel: getCoreRowModel(),
-		getSortedRowModel: getSortedRowModel(),
-		getPaginationRowModel: getPaginationRowModel(),
-		initialState: { pagination: { pageSize: 10 } }
-	});
-
-	$: {
-		tableData = disciplines;
-		options.update((o) => ({ ...o, data: tableData }));
-	}
-
-	onMount(() => {
-		tableData = disciplines;
-		options.update((o) => ({ ...o, data: tableData }));
-	});
-
-	const table = createSvelteTable(options);
-
-	function getSortingIcon(header: any) {
-		if (!header.column.getCanSort()) return null;
-		const sorted = header.column.getIsSorted();
-		if (sorted === 'asc') return ArrowUp;
-		if (sorted === 'desc') return ArrowDown;
-		return ArrowUpDown;
-	}
-
-	function handleSearch(searchTerm: string) {
-		if (!searchTerm || searchTerm.trim() === '') {
-			goto('/admin/menu/disciplines');
-		} else {
-			goto(`/admin/menu/disciplines?search=${encodeURIComponent(searchTerm.trim())}`);
-		}
+	function openDelete(row: DisciplineRow) {
+		toDelete = row;
+		$deleteForm = { id: row.id };
+		deleteOpen = true;
 	}
 </script>
 
-<section class="flex flex-col h-full p-6 space-y-6">
-	<!-- Header -->
-	<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-		<div>
-			<h1 class="text-3xl font-bold tracking-tight">Disciplines</h1>
-			<p class="text-muted-foreground">Manage professional disciplines and specialties</p>
-		</div>
-		<Button on:click={() => (dialogOpen = true)} class="bg-primary hover:bg-primary/90">
-			<PlusIcon size={20} class="mr-2" />Add New Discipline
-		</Button>
-	</div>
+<Page>
+	<PageHeader title="Disciplines" description="The roles professionals hold and practices request, and whether each needs a license.">
+		{#snippet actions()}
+			<Button on:click={() => (addOpen = true)}><Plus class="mr-2 size-4" aria-hidden="true" />Add discipline</Button>
+		{/snippet}
+	</PageHeader>
 
-	<!-- Search -->
-	<form on:submit|preventDefault={() => handleSearch(searchTerm)} class="flex items-center gap-2">
-		<Input bind:value={searchTerm} placeholder="Search disciplines..." class="bg-white max-w-xs" />
-		<Button
-			size="sm"
-			class="bg-primary hover:bg-primary/90"
-			on:click={() => handleSearch(searchTerm)}
-		>
-			Search
-		</Button>
-	</form>
+	<TaxonomySearchField label="Search disciplines" value={page.url.searchParams.get('search') ?? ''} />
 
-	<!-- Table -->
-	<div class="bg-white rounded-lg shadow-sm flex-1 flex flex-col">
-		{#if $table.getRowModel().rows.length > 0}
-			<div class="rounded-md border flex-1">
-				<Table.Root>
-					<Table.Header>
-						{#each $table.getHeaderGroups() as headerGroup}
-							<Table.Row class="bg-white">
-								{#each headerGroup.headers as header}
-									<Table.Head>
-										{#if header.column.columnDef.header}
-											<Button
-												variant="ghost"
-												on:click={() =>
-													header.column.toggleSorting(header.column.getIsSorted() === 'asc')}
-												class="hover:bg-gray-50"
-											>
-												{header.column.columnDef.header}
-												{#if header.column.getCanSort()}
-													{#if getSortingIcon(header)}
-														<svelte:component this={getSortingIcon(header)} class="ml-2 h-4 w-4" />
-													{/if}
-												{/if}
-											</Button>
-										{/if}
-									</Table.Head>
-								{/each}
-								<Table.Head>Actions</Table.Head>
-							</Table.Row>
-						{/each}
-					</Table.Header>
-					<Table.Body>
-						{#each $table.getRowModel().rows as row}
-							<Table.Row class="bg-gray-50 hover:bg-gray-100 transition-colors">
-								{#each row.getVisibleCells() as cell}
-									<Table.Cell>
-										<svelte:component
-											this={flexRender(cell.column.columnDef.cell, cell.getContext())}
-										/>
-									</Table.Cell>
-								{/each}
-								<Table.Cell>
-									<div class="flex items-center gap-2">
-										<Button
-											variant="outline"
-											size="sm"
-											on:click={() => openEditDialog(row.original)}
-										>
-											<Pencil size={16} />
-										</Button>
-										<Button
-											variant="destructive"
-											size="sm"
-											on:click={() => openDeleteDialog(row.original)}
-										>
-											<Trash size={16} />
-										</Button>
-									</div>
-								</Table.Cell>
-							</Table.Row>
-						{/each}
-					</Table.Body>
-				</Table.Root>
-			</div>
+	<DisciplinesTable
+		{rows}
+		search={page.url.searchParams.get('search') ?? ''}
+		{sort}
+		sortHref={(column) => sortHrefFor(page.url, sort, column)}
+		onAdd={() => (addOpen = true)}
+		onEdit={openEdit}
+		onDelete={openDelete}
+	/>
+</Page>
 
-			<!-- Pagination -->
-			<div class="flex items-center justify-between space-x-2 p-4 border-t">
-				<div class="flex-1 text-sm text-muted-foreground">
-					Showing {$table.getState().pagination.pageIndex * $table.getState().pagination.pageSize +
-						1} to {Math.min(
-						($table.getState().pagination.pageIndex + 1) * $table.getState().pagination.pageSize,
-						$table.getRowModel().rows.length
-					)} of {$table.getRowModel().rows.length} disciplines
-				</div>
-				<div class="flex items-center space-x-2">
-					<Button
-						variant="outline"
-						size="sm"
-						on:click={() => $table.previousPage()}
-						disabled={!$table.getCanPreviousPage()}
-					>
-						<ChevronLeft class="h-4 w-4" /> Previous
-					</Button>
-					<span class="text-sm text-muted-foreground">
-						Page {$table.getState().pagination.pageIndex + 1} of {$table.getPageCount()}
-					</span>
-					<Button
-						variant="outline"
-						size="sm"
-						on:click={() => $table.nextPage()}
-						disabled={!$table.getCanNextPage()}
-					>
-						Next <ChevronRight class="h-4 w-4" />
-					</Button>
-				</div>
-			</div>
-		{:else}
-			<div class="flex flex-col items-center justify-center py-12 text-center flex-1">
-				<div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-					<GraduationCap class="w-8 h-8 text-gray-400" />
-				</div>
-				<h3 class="text-lg font-medium text-gray-900 mb-2">No disciplines found</h3>
-				<p class="text-sm text-gray-500 mb-6">
-					{#if searchTerm}
-						Try adjusting your search terms
-					{:else}
-						Get started by creating your first discipline
-					{/if}
-				</p>
-				{#if !searchTerm}
-					<Button on:click={() => (dialogOpen = true)}>Add Your First Discipline</Button>
-				{/if}
-			</div>
-		{/if}
-	</div>
-</section>
-
-<!-- Add Discipline Dialog -->
-<Dialog.Root bind:open={dialogOpen}>
-	<Dialog.Content class="sm:max-w-[425px]">
-		<form use:enhance method="POST" action="?/addDiscipline">
+<Dialog.Root bind:open={addOpen}>
+	<Dialog.Content class="sm:max-w-lg">
+		<form method="POST" action="?/addDiscipline" use:addEnhance class="space-y-6">
 			<Dialog.Header>
-				<Dialog.Title>Add New Discipline</Dialog.Title>
-				<Dialog.Description>Add a new professional discipline or specialty area</Dialog.Description>
+				<Dialog.Title class="text-h2">Add discipline</Dialog.Title>
+				<Dialog.Description>A role professionals can hold and practices can request.</Dialog.Description>
 			</Dialog.Header>
-			<div class="space-y-4 py-4">
-				<Form.Field
-					config={{ form: superForm(data.form), schema: newDisciplineSchema }}
-					name="name"
-				>
-					<Form.Item>
-						<Form.Label>Discipline Name</Form.Label>
-						<Form.Input required placeholder="e.g., Dental Hygienist, Dentist..." />
-						<Form.Validation />
-					</Form.Item>
-				</Form.Field>
-				<Form.Field
-					config={{ form: superForm(data.form), schema: newDisciplineSchema }}
-					name="abbreviation"
-				>
-					<Form.Item>
-						<Form.Label>Abbreviation</Form.Label>
-						<Form.Input required placeholder="e.g., DH, DDS, RDA..." />
-						<Form.Validation />
-					</Form.Item>
-				</Form.Field>
-
-				<div class="space-y-2 rounded-md border p-3">
-					<label class="flex items-start gap-2 text-sm font-medium">
-						<input
-							type="checkbox"
-							name="requiresLicense"
-							class="mt-0.5 h-4 w-4 rounded border-gray-300"
-						/>
-						<span>Requires a license or registration to practise</span>
-					</label>
-					<p class="text-xs text-gray-600">
-						A legal requirement for everyone holding this discipline — dentists, hygienists
-						and similar. Covers registrations too: disciplines that register rather than
-						license are treated identically. Professionals will be asked to upload their
-						license or registration and its expiration date.
-						<strong
-							>Flagging this starts a 30-day countdown: anyone without one on file is
-							nudged, and after 30 days from that first notice their jobs for this discipline
-							are hidden until they supply one.</strong
-						>
-						An expired license hides jobs immediately, with no grace period. Certifications
-						are separate and are declared by each professional on their own profile.
-					</p>
-				</div>
-			</div>
-			<Dialog.Footer>
-				<Button variant="destructiveOutline" type="button" on:click={() => (dialogOpen = false)}>Cancel</Button
-				>
-				<Form.Button disabled={$submitting}>
-					{#if $submitting}<Loader2 class="mr-2 h-4 w-4 animate-spin" />{/if}
-					Add Discipline
-				</Form.Button>
-			</Dialog.Footer>
-		</form>
-	</Dialog.Content>
-</Dialog.Root>
-
-<!-- Edit Discipline Dialog -->
-<Dialog.Root bind:open={editDialogOpen}>
-	<Dialog.Content class="sm:max-w-[425px]">
-		<form use:editEnhance method="POST" action="?/editDiscipline">
-			<Dialog.Header>
-				<Dialog.Title>Edit Discipline</Dialog.Title>
-				<Dialog.Description>Update the details for this discipline</Dialog.Description>
-			</Dialog.Header>
-			<div class="space-y-4 py-4">
-				<input type="hidden" name="id" value={$editDisciplineForm.id} />
-
-				<div class="space-y-2">
-					<label class="text-sm font-medium" for="edit-name">Discipline Name</label>
-					<Input
-						id="edit-name"
-						name="name"
-						bind:value={$editDisciplineForm.name}
-						placeholder="e.g., Dental Hygienist, Dentist..."
-					/>
-				</div>
-
-				<div class="space-y-2">
-					<label class="text-sm font-medium" for="edit-abbreviation">Abbreviation</label>
-					<Input
-						id="edit-abbreviation"
-						name="abbreviation"
-						bind:value={$editDisciplineForm.abbreviation}
-						placeholder="e.g., DH, DDS, RDA..."
-					/>
-				</div>
-
-				<div class="space-y-2 rounded-md border p-3">
-					<label class="flex items-start gap-2 text-sm font-medium" for="edit-requires-cert">
-						<input
-							id="edit-requires-cert"
-							type="checkbox"
-							name="requiresLicense"
-							bind:checked={$editDisciplineForm.requiresLicense}
-							class="mt-0.5 h-4 w-4 rounded border-gray-300"
-						/>
-						<span>Requires a license to practise</span>
-					</label>
-					<p class="text-xs text-gray-600">
-						Turning this off stops license enforcement for this discipline immediately — including
-						for anyone currently blocked or mid-countdown.
-					</p>
-				</div>
-
-			</div>
-			<Dialog.Footer>
-				<Button variant="destructiveOutline" type="button" on:click={() => (editDialogOpen = false)}>
-					Cancel
+			<DisciplineFields
+				bind:name={$addForm.name}
+				bind:abbreviation={$addForm.abbreviation}
+				bind:requiresLicense={$addForm.requiresLicense}
+				errors={$addErrors}
+			/>
+			<Dialog.Footer class="gap-2">
+				<Button variant="outline" on:click={() => (addOpen = false)}>Cancel</Button>
+				<Button type="submit" disabled={$addSubmitting}>
+					{#if $addSubmitting}<Loader2 class="mr-2 size-4 animate-spin" aria-hidden="true" />{/if}
+					Add discipline
 				</Button>
-				<Form.Button disabled={$editSubmitting}>
-					{#if $editSubmitting}<Loader2 class="mr-2 h-4 w-4 animate-spin" />{/if}
-					Save Changes
-				</Form.Button>
 			</Dialog.Footer>
 		</form>
 	</Dialog.Content>
 </Dialog.Root>
 
-<!-- Delete Discipline Dialog -->
-<Dialog.Root bind:open={deleteDialogOpen}>
-	<Dialog.Content class="sm:max-w-[425px]">
-		<form use:deleteEnhance method="POST" action="?/deleteDiscipline">
+<Dialog.Root bind:open={editOpen}>
+	<Dialog.Content class="sm:max-w-lg">
+		<form method="POST" action="?/editDiscipline" use:editEnhance class="space-y-6">
 			<Dialog.Header>
-				<Dialog.Title>Delete Discipline</Dialog.Title>
-				<Dialog.Description>
-					Are you sure you want to delete <strong>{disciplineToDelete?.name}</strong>? This action
-					cannot be undone.
-				</Dialog.Description>
+				<Dialog.Title class="text-h2">Edit discipline</Dialog.Title>
+				<Dialog.Description>Changes apply everywhere this discipline is used.</Dialog.Description>
 			</Dialog.Header>
-			<input type="hidden" name="id" value={$deleteDisciplineForm.id} />
-			<Dialog.Footer class="pt-4">
-				<Button variant="destructiveOutline" type="button" on:click={() => (deleteDialogOpen = false)}
-					>Cancel</Button
-				>
-				<Form.Button variant="destructive" disabled={$deleteSubmitting}>
-					{#if $deleteSubmitting}<Loader2 class="mr-2 h-4 w-4 animate-spin" />{/if}
-					Delete
-				</Form.Button>
+			<input type="hidden" name="id" value={$editForm.id} />
+			<DisciplineFields
+				editing
+				bind:name={$editForm.name}
+				bind:abbreviation={$editForm.abbreviation}
+				bind:requiresLicense={$editForm.requiresLicense}
+				errors={$editErrors}
+			/>
+			<Dialog.Footer class="gap-2">
+				<Button variant="outline" on:click={() => (editOpen = false)}>Cancel</Button>
+				<Button type="submit" disabled={$editSubmitting}>
+					{#if $editSubmitting}<Loader2 class="mr-2 size-4 animate-spin" aria-hidden="true" />{/if}
+					Save changes
+				</Button>
 			</Dialog.Footer>
 		</form>
 	</Dialog.Content>
 </Dialog.Root>
+
+<TaxonomyConfirmDialog
+	bind:open={deleteOpen}
+	title="Delete {toDelete?.name ?? 'this discipline'}?"
+	description="The discipline is removed from the list professionals and practices choose from. This can't be undone."
+	action="?/deleteDiscipline"
+	fields={{ id: $deleteForm.id ?? '' }}
+	confirmLabel="Delete discipline"
+	confirmText="DELETE"
+	enhance={deleteEnhance}
+	submitting={$deleteSubmitting}
+/>

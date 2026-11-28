@@ -19,6 +19,7 @@ import { getSkillCatalog } from '$lib/server/database/queries/skills';
 import { isCandidateFrozen } from '$lib/server/documents/candidateDocumentGuards';
 import { recordAction, type AuditActor } from '$lib/server/audit/audit';
 import { USER_ROLES } from '$lib/config/constants';
+import { can } from '$lib/authz';
 
 // Reads live in ./effectiveSkills (no audit import, so matching queries can use them
 // without dragging in the request-scoped ledger writer). Re-exported for callers.
@@ -36,12 +37,12 @@ export type SkillsEditDecision =
 	| { allowed: true }
 	| { allowed: false; reason: 'APPROVED'; message: string };
 
-/** Pure. SUPERADMIN may always edit; anyone else only while not approved. */
+/** Pure. DTSS staff (professionals.manage) may always edit; anyone else only while not approved. */
 export function canEditCandidateSkills(
 	profile: { approved?: boolean | null; status?: string | null },
 	actorRole: string | null | undefined
 ): SkillsEditDecision {
-	if (actorRole === USER_ROLES.SUPERADMIN) return { allowed: true };
+	if (can(actorRole, 'professionals.manage')) return { allowed: true };
 	if (isCandidateFrozen(profile)) {
 		return {
 			allowed: false,
