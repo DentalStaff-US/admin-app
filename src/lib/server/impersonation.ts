@@ -27,7 +27,7 @@
  */
 
 import { eq } from 'drizzle-orm';
-import { env } from '$env/dynamic/private';
+import { CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 import type { RequestEvent } from '@sveltejs/kit';
 import { auth } from '$lib/server/auth';
 import db from '$lib/server/database/drizzle';
@@ -98,7 +98,7 @@ export async function startImpersonation(
 	}
 
 	if (target.role === USER_ROLES.CANDIDATE) {
-		if (!env.CANDIDATE_APP_DOMAIN) {
+		if (!CANDIDATE_APP_DOMAIN) {
 			return {
 				ok: false,
 				status: 500,
@@ -130,7 +130,7 @@ export async function startImpersonation(
 			return {
 				ok: true,
 				mode: 'handoff',
-				handoffUrl: `${env.CANDIDATE_APP_DOMAIN}/auth/impersonate?token=${token}`
+				handoffUrl: `${CANDIDATE_APP_DOMAIN}/auth/impersonate?token=${token}`
 			};
 		} catch (err) {
 			logger.error('startImpersonation (candidate) failed', {

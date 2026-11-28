@@ -1,6 +1,6 @@
 import { APP_NAME, USER_ROLES } from '$lib/config/constants';
 import { escapeHtml, textToHtml } from '$lib/server/campaigns/render';
-import { BASE_URL } from '$env/static/private';
+import { BASE_URL } from '$lib/server/appUrls';
 import { env } from '$env/dynamic/private';
 import type { Invoice } from '../database/schemas/requisition';
 import { format } from 'date-fns';

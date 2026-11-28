@@ -7,11 +7,11 @@ import { eq } from 'drizzle-orm';
 import { conversationParticipantsTable } from '$lib/server/database/schemas/messages';
 import db from '$lib/server/database/drizzle';
 import { authenticateUser } from '$lib/server/serverUtils';
-import { env } from '$env/dynamic/private';
+import { CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 import { logger } from '$lib/server/logger';
 
 const corsHeaders = {
-	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
+	'Access-Control-Allow-Origin': CANDIDATE_APP_DOMAIN,
 	'Access-Control-Allow-Methods': 'POST, OPTIONS',
 	'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 	'Access-Control-Allow-Credentials': 'true'

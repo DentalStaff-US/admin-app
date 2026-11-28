@@ -2,7 +2,7 @@ import { authenticateUser } from '$lib/server/serverUtils';
 import { recordView } from '$lib/server/audit/audit';
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { and, eq } from 'drizzle-orm';
-import { env } from '$env/dynamic/private';
+import { CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 import db from '$lib/server/database/drizzle';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import {
@@ -22,7 +22,7 @@ import {
 } from '$lib/server/inbox/practiceConversation';
 
 const corsHeaders = {
-	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
+	'Access-Control-Allow-Origin': CANDIDATE_APP_DOMAIN,
 	'Access-Control-Allow-Methods': 'POST, OPTIONS',
 	'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 	'Access-Control-Allow-Credentials': 'true'

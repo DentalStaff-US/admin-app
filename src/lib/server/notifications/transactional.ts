@@ -11,7 +11,7 @@ import { format, parseISO } from 'date-fns';
 import { formatInTimeZone } from 'date-fns-tz';
 import { and, count, eq, inArray, ne } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
-import { BASE_URL, CANDIDATE_APP_DOMAIN } from '$env/static/private';
+import { BASE_URL, CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 import db from '$lib/server/database/drizzle';
 import { sms } from '$lib/server/sms/smsService';
 import { EmailService } from '$lib/server/email/emailService';

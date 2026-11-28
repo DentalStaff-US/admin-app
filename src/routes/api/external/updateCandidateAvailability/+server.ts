@@ -1,6 +1,6 @@
 import { authenticateUser } from '$lib/server/serverUtils';
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { env } from '$env/dynamic/private';
+import { CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 import db from '$lib/server/database/drizzle';
 import { candidateProfileTable } from '$lib/server/database/schemas/candidate';
 import { eq } from 'drizzle-orm';
@@ -11,7 +11,7 @@ import { saveCandidateAvailability } from '$lib/server/availability/queries';
 import { MAX_BLACKOUT_DATES_PER_REQUEST } from '$lib/server/availability/availability';
 
 const corsHeaders = {
-	'Access-Control-Allow-Origin': env.CANDIDATE_APP_DOMAIN,
+	'Access-Control-Allow-Origin': CANDIDATE_APP_DOMAIN,
 	'Access-Control-Allow-Methods': 'POST, OPTIONS',
 	'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 	'Access-Control-Allow-Credentials': 'true'

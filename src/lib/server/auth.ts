@@ -7,6 +7,7 @@ import { sveltekitCookies } from 'better-auth/svelte-kit';
 import { getRequestEvent } from '$app/server';
 import { Argon2id } from 'oslo/password';
 import { env } from '$env/dynamic/private';
+import { BASE_URL, CANDIDATE_APP_DOMAIN } from '$lib/server/appUrls';
 
 import db from '$lib/server/database/drizzle';
 import {
@@ -25,9 +26,9 @@ const SESSION_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 30; // 30 days (matches Lucia)
 
 export const auth = betterAuth({
 	appName: 'Dental Temps Staffing Solutions',
-	baseURL: env.BASE_URL,
+	baseURL: BASE_URL,
 	secret: env.BETTER_AUTH_SECRET,
-	trustedOrigins: [env.BASE_URL, env.CANDIDATE_APP_DOMAIN].filter(Boolean) as string[],
+	trustedOrigins: [BASE_URL, CANDIDATE_APP_DOMAIN].filter(Boolean) as string[],
 
 	database: drizzleAdapter(db, {
 		provider: 'pg',

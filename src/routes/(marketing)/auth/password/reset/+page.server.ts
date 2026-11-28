@@ -2,7 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { superValidate } from 'sveltekit-superforms/server';
 import { userSchema } from '$lib/config/zod-schemas';
 import { auth } from '$lib/server/auth';
-import { env } from '$env/dynamic/private';
+import { BASE_URL } from '$lib/server/appUrls';
 import { logger } from '$lib/server/logger';
 
 const resetPasswordSchema = userSchema.pick({ email: true });
@@ -33,7 +33,7 @@ export const actions = {
 				headers: event.request.headers,
 				body: {
 					email: form.data.email.toLowerCase(),
-					redirectTo: `${env.BASE_URL}/auth/password/update`
+					redirectTo: `${BASE_URL}/auth/password/update`
 				}
 			});
 		} catch (e) {
